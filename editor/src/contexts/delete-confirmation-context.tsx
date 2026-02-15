@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 interface DeleteConfirmationOptions {
   title?: string;
   description?: string;
+  confirmLabel?: string;
 }
 
 interface DeleteConfirmationContextType {
@@ -40,6 +41,7 @@ export function DeleteConfirmationProvider({
   const [description, setDescription] = useState(
     'Are you sure you want to delete this item? This action cannot be undone.'
   );
+  const [confirmLabel, setConfirmLabel] = useState<string | undefined>();
 
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
 
@@ -50,6 +52,7 @@ export function DeleteConfirmationProvider({
         options?.description ||
           'Are you sure you want to delete this item? This action cannot be undone.'
       );
+      setConfirmLabel(options?.confirmLabel);
       setIsOpen(true);
 
       return new Promise((resolve) => {
@@ -85,7 +88,7 @@ export function DeleteConfirmationProvider({
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleConfirm}>
-              Delete
+              {confirmLabel || 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>

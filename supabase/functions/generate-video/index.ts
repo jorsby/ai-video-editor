@@ -105,6 +105,7 @@ interface GenerateVideoInput {
   resolution: '480p' | '720p' | '1080p';
   model?: string;
   aspect_ratio?: string;
+  fallback_duration?: number;
 }
 
 interface VideoContext {
@@ -123,7 +124,8 @@ async function getVideoContext(
   supabase: SupabaseClient,
   sceneId: string,
   bucketDuration: (raw: number) => number,
-  log: ReturnType<typeof createLogger>
+  log: ReturnType<typeof createLogger>,
+  fallbackDuration?: number
 ): Promise<VideoContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
@@ -164,16 +166,24 @@ async function getVideoContext(
   }
 
   const maxDuration = Math.max(
+    0,
     ...(scene.voiceovers || []).map(
       (v: { duration?: number }) => v.duration ?? 0
     )
   );
   if (maxDuration === 0) {
-    log.warn('No voiceover duration found', { scene_id: sceneId });
-    return null;
+    if (fallbackDuration && fallbackDuration > 0) {
+      log.info('Using fallback duration (no voiceover)', {
+        scene_id: sceneId,
+        fallback_duration: fallbackDuration,
+      });
+    } else {
+      log.warn('No voiceover duration found', { scene_id: sceneId });
+      return null;
+    }
   }
 
-  const raw = Math.ceil(maxDuration);
+  const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   const durationInt = bucketDuration(raw);
 
   return {
@@ -278,6 +288,7 @@ Deno.serve(async (req: Request) => {
       resolution = '720p',
       model = DEFAULT_MODEL,
       aspect_ratio,
+      fallback_duration,
     } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
@@ -333,7 +344,8 @@ Deno.serve(async (req: Request) => {
         supabase,
         sceneId,
         modelConfig.bucketDuration,
-        log
+        log,
+        fallback_duration
       );
       log.info('Video context fetched', {
         scene_id: sceneId,

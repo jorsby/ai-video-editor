@@ -634,6 +634,32 @@ export function StoryboardCards({
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
+    // Check for scenes without voiceover audio
+    const scenesWithoutVoiceover = sortedScenes
+      .filter((s) => selectedSceneIds.has(s.id))
+      .filter((s) => {
+        const maxDuration = Math.max(
+          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
+          0
+        );
+        return maxDuration === 0;
+      });
+
+    let fallbackDuration: number | undefined;
+
+    if (scenesWithoutVoiceover.length > 0) {
+      const sceneLabels = scenesWithoutVoiceover
+        .map((s) => `Scene ${s.order + 1}`)
+        .join(', ');
+      const confirmed = await confirm({
+        title: 'Missing Voiceover Audio',
+        description: `${sceneLabels} ${scenesWithoutVoiceover.length === 1 ? 'has' : 'have'} no voiceover audio. Video duration will default to 3 seconds for ${scenesWithoutVoiceover.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
+        confirmLabel: 'Continue',
+      });
+      if (!confirmed) return;
+      fallbackDuration = 3;
+    }
+
     setIsGeneratingVideo(true);
     try {
       const supabase = createClient();
@@ -648,6 +674,7 @@ export function StoryboardCards({
               storyboard && 'aspect_ratio' in storyboard
                 ? storyboard.aspect_ratio
                 : '16:9',
+            ...(fallbackDuration && { fallback_duration: fallbackDuration }),
           },
         }
       );

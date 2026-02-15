@@ -8,6 +8,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
+  IconCopy,
   IconLayoutGrid,
   IconLoader2,
   IconPlus,
@@ -34,6 +35,7 @@ import {
 } from '@/components/ui/select';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { toast } from 'sonner';
 import {
   getDraftStoryboard,
   getStoryboardsForProject,
@@ -540,11 +542,28 @@ export default function PanelStoryboard() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="px-4 pb-3">
-                  <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
-                    {selectedStoryboard.voiceover || (
-                      <span className="text-muted-foreground italic">
-                        No voiceover
-                      </span>
+                  <div className="relative group/vo">
+                    <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
+                      {selectedStoryboard.voiceover || (
+                        <span className="text-muted-foreground italic">
+                          No voiceover
+                        </span>
+                      )}
+                    </div>
+                    {selectedStoryboard.voiceover && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            selectedStoryboard.voiceover!
+                          );
+                          toast.success('Copied to clipboard');
+                        }}
+                      >
+                        <IconCopy className="size-3" />
+                      </Button>
                     )}
                   </div>
                 </div>

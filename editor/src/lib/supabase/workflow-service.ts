@@ -81,6 +81,7 @@ export interface Voiceover {
   created_at: string;
   audio_url?: string | null;
   language: string;
+  duration?: number | null;
 }
 
 export interface Scene {

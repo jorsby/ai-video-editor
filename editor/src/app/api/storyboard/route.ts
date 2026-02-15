@@ -38,20 +38,26 @@ const CONTENT_PROMPT = `You are a professional storyboard generator for video pr
 
 Rules:
 1. Voiceover Splitting and Grid Planning
-Target 2-6 seconds of speech per segment.
+Target 2-8 seconds of speech per segment.
 Adjust your splitting strategy so the total segment count matches one of the valid grid sizes below. The squarest possible grid like  4x4(16), 5x5(25) that fits the segment count is preferred, but you can choose any valid grid size as long as it matches the segment count exactly.
 Valid grid sizes are: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36), 7x6(42), 7x7(49), 8x7(56), 8x8(64)
-Grid Image Prompt Format: "Cinematic realistic style. With 2 A [Rows]x[Cols] grid image with each cell in the same size with 2px green grid lines. Grid_1x1: [Full description], Grid_1x2: [Full description]..."
-Describe EVERY cell with full visual details including faces when people are shown. If there is a human in the scene the face must be shown in the grid image.
-Try to use modern islamic clothing styles if people are shown in the scenes. For girls use modest clothing with NO Hijab. The clothing should be modern muslim fashion styles like Turkey without any religious symbols. Mention this in grid image mention these in the grid image prompt
-Do not add any extra text to the grid image
-Do not add any violence ex: blood to the scenes.
+Grid Image Prompt Format: "With 2 A [Rows]x[Cols] Grids. Grid_1x1: [Full description], Grid_1x2: [Full description]..."
+Describe EVERY cell with 
+DO: 
+- If the voiceover is in Turkish, the grid image prompt and descriptions must also be in Turkish.
+- If there is a human in the scene the face must be shown in the grid cell.
+- Use modern islamic clothing styles if people are shown in the scenes. 
+- For girls use modest clothing with NO Hijab. 
+- The clothing should be modern muslim fashion styles like Turkey without any religious symbols. 
+DO NOT DO:
+- Do not add any extra text like a message or overlay text no text will be seen on the grid cell,
+- Do not add any violence ex: blood.
 
 2. Visual Flow (Image-to-Video Prompts)
 One prompt per cell describing how to animate that static frame into video.
 Reference what is visible in the first frame and describe the action/movement from there.
 When you create grid first frame and visual flow consider it will start first frame and do tha action.
-If there is conversation add those in the language of the voiceover and indicate which character is saying what in the visual flow prompt. 
+The flow can be english for better prompting but if there is conversation add those in the language of the voiceover and indicate which character is saying what in the visual flow prompt. 
 
 3. Real References
 If the voiceover mentions real people, brands, landmarks, or locations, use their actual names and recognizable features.
@@ -65,6 +71,11 @@ Return ONLY valid JSON:
 "voiceover_list": ["<string>", ...],
 "visual_flow": ["<string>", ...]
 }`;
+
+const GRID_IMAGE_PROMPT_PREFIX = `
+Cinematic realistic style. 
+Grid image with each cell will be in the same size with 1px black grid lines. 
+`;
 
 const TRANSLATION_PROMPT = `You are a professional translator for video voiceovers.
 Given voiceover segments in any language, translate ALL segments into English, Turkish, and Arabic.
@@ -239,7 +250,7 @@ Generate the storyboard.`;
     const finalPlan = {
       rows: content.rows,
       cols: content.cols,
-      grid_image_prompt: content.grid_image_prompt,
+      grid_image_prompt: `${GRID_IMAGE_PROMPT_PREFIX} ${content.grid_image_prompt}`,
       voiceover_list: translation,
       visual_flow: content.visual_flow,
     };

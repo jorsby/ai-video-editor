@@ -35,10 +35,8 @@ export function GridImageReview({
   const newSceneCount = rows * cols;
   const sceneCountChanged = newSceneCount !== originalSceneCount;
 
-  const isValidGrid = rows === cols || rows === cols + 1;
   const isValidRange = rows >= 2 && rows <= 8 && cols >= 2 && cols <= 8;
-  const canApprove =
-    isValidGrid && isValidRange && !isApproving && !isRegenerating;
+  const canApprove = isValidRange && !isApproving && !isRegenerating;
 
   const handleApprove = async () => {
     if (!canApprove) return;
@@ -145,19 +143,13 @@ export function GridImageReview({
         </div>
 
         {/* Validation warnings */}
-        {!isValidGrid && (
-          <div className="flex items-center gap-1 text-xs text-destructive">
-            <IconAlertTriangle size={14} />
-            Rows must equal cols or cols + 1
-          </div>
-        )}
         {!isValidRange && (
           <div className="flex items-center gap-1 text-xs text-destructive">
             <IconAlertTriangle size={14} />
             Rows and cols must be between 2 and 8
           </div>
         )}
-        {sceneCountChanged && isValidGrid && isValidRange && (
+        {sceneCountChanged && isValidRange && (
           <div className="flex items-center gap-1 text-xs text-yellow-500">
             <IconAlertTriangle size={14} />
             <span>

@@ -8,7 +8,10 @@ import { ExportModal } from './export-modal';
 import { LogoIcons } from '../shared/logos';
 import Link from 'next/link';
 import { Icons } from '../shared/icons';
-import { Keyboard, FilePlus, Download, Upload } from 'lucide-react';
+import { Keyboard, FilePlus, Download, Upload, Trash2 } from 'lucide-react';
+import { useProjectId } from '@/contexts/project-context';
+import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { toast } from 'sonner';
 import { ShortcutsModal } from './shortcuts-modal';
 import { useEffect } from 'react';
 import {
@@ -21,6 +24,8 @@ import {
 export default function Header() {
   const { studio } = useStudioStore();
   const { toggleCopilot } = usePanelStore();
+  const projectId = useProjectId();
+  const { confirm } = useDeleteConfirmation();
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
@@ -57,6 +62,39 @@ export default function Header() {
     );
     if (confirmed) {
       studio.clear();
+    }
+  };
+
+  const handleResetProject = async () => {
+    const confirmed = await confirm({
+      title: 'Reset Project',
+      description:
+        'This will delete ALL storyboards, scenes, grid images, voiceovers, timeline clips, tracks, and assets for this project. This cannot be undone.',
+      confirmLabel: 'Reset Everything',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch('/api/project/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to reset project');
+      }
+
+      studio?.clear();
+      toast.success('Project reset successfully');
+      window.location.reload();
+    } catch (error) {
+      console.error('Reset project error:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to reset project'
+      );
     }
   };
 
@@ -176,6 +214,13 @@ export default function Header() {
             <DropdownMenuItem onClick={handleNew}>
               <FilePlus className="mr-2 h-4 w-4" />
               <span>Clear or New project</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleResetProject}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              <span>Reset Project (Dev)</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
