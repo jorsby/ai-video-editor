@@ -355,6 +355,7 @@ export function StoryboardCards({
   const [isAudioOpen, setIsAudioOpen] = useState(true);
   const [isVisualOpen, setIsVisualOpen] = useState(false);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
+  const [cardMinWidth, setCardMinWidth] = useState(180);
   const { studio } = useStudioStore();
 
   // Refresh data when refreshTrigger changes (new storyboard generated)
@@ -1659,8 +1660,25 @@ export function StoryboardCards({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Scene Cards - 2 column grid */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Card size slider */}
+      <div className="flex items-center gap-2 mb-2">
+        <Slider
+          value={[cardMinWidth]}
+          onValueChange={([v]) => setCardMinWidth(v)}
+          min={120}
+          max={400}
+          step={10}
+          className="flex-1"
+        />
+      </div>
+
+      {/* Scene Cards - responsive grid */}
+      <div
+        className="grid gap-2"
+        style={{
+          gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+        }}
+      >
         {sortedScenes.map((scene) => (
           <SceneCard
             key={scene.id}

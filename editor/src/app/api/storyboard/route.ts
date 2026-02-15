@@ -34,13 +34,13 @@ const translationSchema = z.object({
   ar: z.array(z.string()),
 });
 
-const CONTENT_PROMPT = `You are a professional storyboard generator for video production. Given a voiceover script, generate a realistic storyboard breakdown.
+const CONTENT_PROMPT = `You are a professional storyboard generator for moral stories video production. Given a voiceover script, generate a realistic storyboard breakdown.
 
 Rules:
 1. Voiceover Splitting and Grid Planning
-Target 2-8 seconds of speech per segment.
+Target 4-10 seconds of speech per segment.
 Adjust your splitting strategy so the total segment count matches one of the valid grid sizes below. The squarest possible grid like  4x4(16), 5x5(25) that fits the segment count is preferred, but you can choose any valid grid size as long as it matches the segment count exactly.
-Valid grid sizes are: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36), 7x6(42), 7x7(49), 8x7(56), 8x8(64)
+Valid grid sizes are: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36), 7x7(49), 8x8(64)
 Grid Image Prompt Format: "With 2 A [Rows]x[Cols] Grids. Grid_1x1: [Full description], Grid_1x2: [Full description]..."
 Describe EVERY cell with 
 DO: 
@@ -83,6 +83,7 @@ Use cultural nuances and idiomatic expressions — do not translate word-for-wor
 If the source is already in one of the target languages, still include it as-is in that language's array.
 Return exactly the same number of segments for each language.
 
+Important: Do not change the order
 Output:
 Return ONLY valid JSON:
 {
