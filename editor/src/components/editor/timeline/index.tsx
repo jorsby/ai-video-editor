@@ -34,6 +34,9 @@ import { TimelineToolbar } from './timeline-toolbar';
 import { TimelineCanvas } from './timeline';
 import { TimelineStudioSync } from './timeline-studio-sync';
 import { useEditorHotkeys } from '@/hooks/use-editor-hotkeys';
+import { clearTimeline } from '@/lib/supabase/timeline-service';
+import { useProjectId } from '@/contexts/project-context';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,8 +47,10 @@ import { Button } from '@/components/ui/button';
 
 export function Timeline() {
   const { tracks, clips, getTotalDuration } = useTimelineStore();
-  const { duration, seek, setDuration } = usePlaybackStore();
+  const { duration, seek, setDuration, setCurrentTime, setIsPlaying } =
+    usePlaybackStore();
   const { studio } = useStudioStore();
+  const projectId = useProjectId();
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
@@ -286,6 +291,26 @@ export function Timeline() {
     studio?.splitSelected(splitTime);
   }, [studio]);
 
+  const handleReset = useCallback(async () => {
+    if (
+      !window.confirm('Reset timeline? All tracks and clips will be removed.')
+    )
+      return;
+    try {
+      studio?.clear();
+      setCurrentTime(0);
+      setDuration(0);
+      setIsPlaying(false);
+      if (projectId) {
+        await clearTimeline(projectId);
+      }
+      toast.success('Timeline reset');
+    } catch (err) {
+      console.error('Failed to reset timeline:', err);
+      toast.error('Failed to reset timeline');
+    }
+  }, [studio, projectId, setCurrentTime, setDuration, setIsPlaying]);
+
   useEditorHotkeys({
     timelineCanvas: timelineCanvasRef.current,
     setZoomLevel,
@@ -305,6 +330,7 @@ export function Timeline() {
         onDelete={handleDelete}
         onDuplicate={handleDuplicate}
         onSplit={handleSplit}
+        onReset={handleReset}
       />
       <TimelineStudioSync timelineCanvas={timelineCanvasRef.current} />
 

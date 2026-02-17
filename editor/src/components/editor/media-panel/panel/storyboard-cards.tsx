@@ -15,6 +15,7 @@ import {
   IconFocusCentered,
   IconArrowBackUp,
   IconVideoOff,
+  IconUsers,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { SceneCard, VoiceoverPlayButton } from './scene-card';
@@ -45,11 +46,13 @@ import {
 } from '@/lib/scene-timeline-utils';
 import type {
   GridImage,
-  GridImageWithScenes,
+  RefObject,
   Scene,
   Storyboard,
+  StoryboardWithScenes,
 } from '@/lib/supabase/workflow-service';
 import { GridImageReview } from './grid-image-review';
+import { RefGridImageReview } from './ref-grid-image-review';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 
 const VOICES = [
@@ -303,6 +306,7 @@ export function StoryboardCards({
 }: StoryboardCardsProps) {
   const {
     gridImage,
+    gridImages,
     storyboard,
     loading,
     error,
@@ -348,10 +352,12 @@ export function StoryboardCards({
   });
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('turbo-v2.5');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [videoVolume, setVideoVolume] = useState(5);
   const [playingVoiceoverId, setPlayingVoiceoverId] = useState<string | null>(
     null
   );
   const [isScriptViewOpen, setIsScriptViewOpen] = useState(false);
+  const [isObjectsViewOpen, setIsObjectsViewOpen] = useState(true);
   const [isAudioOpen, setIsAudioOpen] = useState(true);
   const [isVisualOpen, setIsVisualOpen] = useState(false);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
@@ -374,8 +380,8 @@ export function StoryboardCards({
   }, [videoModel, videoResolution]);
 
   const scenes =
-    gridImage && 'scenes' in gridImage
-      ? (gridImage as GridImageWithScenes).scenes
+    storyboard && 'scenes' in storyboard
+      ? (storyboard as StoryboardWithScenes).scenes
       : [];
 
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
@@ -632,6 +638,132 @@ export function StoryboardCards({
     }
   };
 
+  const handleEnhanceBackgroundImages = async () => {
+    if (selectedSceneIds.size === 0) return;
+
+    setIsEnhancing(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.functions.invoke('edit-image', {
+        body: {
+          scene_ids: Array.from(selectedSceneIds),
+          model: outpaintModel,
+          action: 'enhance',
+          source: 'background',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.summary.queued > 0) {
+        toast.success(
+          `Background enhance started for ${data.summary.queued} scene(s)`
+        );
+      }
+      if (data.summary.skipped > 0) {
+        toast.warning(
+          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+        );
+      }
+      if (data.summary.failed > 0) {
+        toast.error(
+          `${data.summary.failed} scene(s) failed to submit for enhancing`
+        );
+      }
+      clearSelection();
+      refresh();
+    } catch (err) {
+      console.error('Failed to enhance background images:', err);
+      toast.error('Failed to enhance background images');
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
+  const handleCustomEditBackgrounds = async () => {
+    if (selectedSceneIds.size === 0 || !editPrompt.trim()) return;
+
+    setIsCustomEditing(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.functions.invoke('edit-image', {
+        body: {
+          scene_ids: Array.from(selectedSceneIds),
+          model: outpaintModel,
+          action: 'custom_edit',
+          prompt: editPrompt.trim(),
+          source: 'background',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.summary.queued > 0) {
+        toast.success(
+          `Custom edit started for ${data.summary.queued} background(s)`
+        );
+      }
+      if (data.summary.skipped > 0) {
+        toast.warning(
+          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+        );
+      }
+      if (data.summary.failed > 0) {
+        toast.error(
+          `${data.summary.failed} scene(s) failed to submit for editing`
+        );
+      }
+      clearSelection();
+      refresh();
+    } catch (err) {
+      console.error('Failed to custom edit backgrounds:', err);
+      toast.error('Failed to custom edit backgrounds');
+    } finally {
+      setIsCustomEditing(false);
+    }
+  };
+
+  const handleResetBackgroundImages = async () => {
+    if (selectedSceneIds.size === 0) return;
+
+    const confirmed = await confirm({
+      title: 'Reset Background Images',
+      description:
+        "Reset selected scenes' background images back to the original version? This will undo any enhancing or custom edits.",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const supabase = createClient();
+      const backgrounds = sortedScenes
+        .filter((s) => selectedSceneIds.has(s.id))
+        .flatMap((s) => s.backgrounds ?? [])
+        .filter((bg) => bg.url);
+
+      for (const bg of backgrounds) {
+        await supabase
+          .from('backgrounds')
+          .update({
+            final_url: bg.url,
+            image_edit_status: null,
+            image_edit_error_message: null,
+            image_edit_request_id: null,
+          })
+          .eq('id', bg.id);
+      }
+
+      toast.success(
+        `Reset ${backgrounds.length} background image(s) to original`
+      );
+      clearSelection();
+      refresh();
+    } catch (err) {
+      console.error('Failed to reset background images:', err);
+      toast.error('Failed to reset background images');
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
@@ -670,12 +802,18 @@ export function StoryboardCards({
           body: {
             scene_ids: Array.from(selectedSceneIds),
             resolution: videoResolution,
-            model: videoModel,
+            model:
+              storyboard?.mode === 'ref_to_video'
+                ? storyboard.model
+                : videoModel,
             aspect_ratio:
               storyboard && 'aspect_ratio' in storyboard
                 ? storyboard.aspect_ratio
                 : '16:9',
             ...(fallbackDuration && { fallback_duration: fallbackDuration }),
+            ...(storyboard?.mode === 'ref_to_video' && {
+              storyboard_id: storyboard.id,
+            }),
           },
         }
       );
@@ -708,13 +846,10 @@ export function StoryboardCards({
 
     try {
       const supabase = createClient();
-      const firstFrames = selectedScenesWithVideo.flatMap(
-        (s) => s.first_frames
-      );
 
-      for (const ff of firstFrames) {
+      for (const scene of selectedScenesWithVideo) {
         await supabase
-          .from('first_frames')
+          .from('scenes')
           .update({
             video_url: null,
             video_status: null,
@@ -722,10 +857,12 @@ export function StoryboardCards({
             video_error_message: null,
             video_resolution: null,
           })
-          .eq('id', ff.id);
+          .eq('id', scene.id);
       }
 
-      toast.success(`Removed video from ${firstFrames.length} scene(s)`);
+      toast.success(
+        `Removed video from ${selectedScenesWithVideo.length} scene(s)`
+      );
       clearSelection();
       refresh();
     } catch (err) {
@@ -762,17 +899,13 @@ export function StoryboardCards({
   // Check if any selected scenes have videos ready (for SFX and timeline)
   const selectedScenesWithVideoForSfx = sortedScenes.filter(
     (s) =>
-      selectedSceneIds.has(s.id) &&
-      s.first_frames?.[0]?.video_status === 'success' &&
-      s.first_frames?.[0]?.video_url
+      selectedSceneIds.has(s.id) && s.video_status === 'success' && s.video_url
   );
 
   // Check if any selected scenes have videos ready
   const selectedScenesWithVideo = sortedScenes.filter(
     (s) =>
-      selectedSceneIds.has(s.id) &&
-      s.first_frames?.[0]?.video_status === 'success' &&
-      s.first_frames?.[0]?.video_url
+      selectedSceneIds.has(s.id) && s.video_status === 'success' && s.video_url
   );
 
   const handleSaveVoiceoverText = async (sceneId: string, newText: string) => {
@@ -861,27 +994,53 @@ export function StoryboardCards({
   ) => {
     const supabase = createClient();
     const scene = sortedScenes.find((s) => s.id === sceneId);
+    const isRef = storyboard?.mode === 'ref_to_video';
 
-    const finalUrl = scene?.first_frames?.[0]?.final_url;
-    if (!finalUrl) {
-      toast.error('Cannot generate video — outpaint the image first.');
-      return;
+    // For i2v mode, require a final image
+    if (!isRef) {
+      const finalUrl = scene?.first_frames?.[0]?.final_url;
+      if (!finalUrl) {
+        toast.error('Cannot generate video — outpaint the image first.');
+        return;
+      }
+
+      // Update visual prompt on first_frames
+      const { error: promptError } = await supabase
+        .from('first_frames')
+        .update({ visual_prompt: newVisualPrompt })
+        .eq('scene_id', sceneId);
+
+      if (promptError) {
+        toast.error('Failed to update visual prompt');
+        throw promptError;
+      }
+    } else {
+      // For ref mode, update the scene prompt
+      const { error: promptError } = await supabase
+        .from('scenes')
+        .update({ prompt: newVisualPrompt })
+        .eq('id', sceneId);
+
+      if (promptError) {
+        toast.error('Failed to update scene prompt');
+        throw promptError;
+      }
     }
 
-    const { error: frameError } = await supabase
-      .from('first_frames')
+    // Reset video fields on scenes
+    const { error: resetError } = await supabase
+      .from('scenes')
       .update({
-        visual_prompt: newVisualPrompt,
         video_status: null,
         video_url: null,
         video_request_id: null,
         video_error_message: null,
       })
-      .eq('scene_id', sceneId);
+      .eq('id', sceneId);
 
-    if (frameError) {
-      toast.error('Failed to update visual prompt');
-      throw frameError;
+    if (resetError) {
+      toast.error('Failed to reset video status');
+      throw resetError;
     }
 
     const { error: videoError } = await supabase.functions.invoke(
@@ -890,11 +1049,12 @@ export function StoryboardCards({
         body: {
           scene_ids: [sceneId],
           resolution: videoResolution,
-          model: videoModel,
+          model: isRef ? storyboard?.model : videoModel,
           aspect_ratio:
             storyboard && 'aspect_ratio' in storyboard
               ? storyboard.aspect_ratio
               : '16:9',
+          ...(isRef && { storyboard_id: storyboard?.id }),
         },
       }
     );
@@ -942,7 +1102,6 @@ export function StoryboardCards({
       );
 
       for (const scene of scenesToAdd) {
-        const firstFrame = scene.first_frames[0];
         const voiceover = scene.voiceovers?.find(
           (v) => v.language === selectedLanguage
         );
@@ -950,7 +1109,7 @@ export function StoryboardCards({
         const result = await addSceneToTimeline(
           studio,
           {
-            videoUrl: firstFrame.video_url!,
+            videoUrl: scene.video_url!,
             voiceover:
               voiceover?.status === 'success' && voiceover?.audio_url
                 ? { audioUrl: voiceover.audio_url }
@@ -960,6 +1119,7 @@ export function StoryboardCards({
             startTime: runningEnd,
             videoTrackId,
             audioTrackId,
+            videoVolume: videoVolume / 100,
           }
         );
 
@@ -981,8 +1141,7 @@ export function StoryboardCards({
   const handleAddVideoToTimeline = async (sceneId: string) => {
     if (!studio) return;
     const scene = sortedScenes.find((s) => s.id === sceneId);
-    const firstFrame = scene?.first_frames?.[0];
-    if (!firstFrame?.video_url) return;
+    if (!scene?.video_url) return;
 
     try {
       const lastClipEnd = studio.clips.reduce((max, c) => {
@@ -1000,8 +1159,12 @@ export function StoryboardCards({
 
       await addSceneToTimeline(
         studio,
-        { videoUrl: firstFrame.video_url, voiceover: null },
-        { startTime: lastClipEnd, videoTrackId: existingVideoTrack?.id }
+        { videoUrl: scene.video_url, voiceover: null },
+        {
+          startTime: lastClipEnd,
+          videoTrackId: existingVideoTrack?.id,
+          videoVolume: videoVolume / 100,
+        }
       );
       toast.success('Video added to timeline');
     } catch (err) {
@@ -1060,8 +1223,32 @@ export function StoryboardCards({
     );
   }
 
-  // Grid image review: show when grid is generated but not yet split into scenes
+  const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
+
+  // Ref grid image review: show when both grids are generated (plan_status = grid_ready)
   if (
+    isRefToVideoMode &&
+    storyboard?.plan_status === 'grid_ready' &&
+    sortedScenes.length === 0 &&
+    storyboard?.plan
+  ) {
+    const objectsGrid = gridImages.find((g) => g.type === 'objects');
+    const bgGrid = gridImages.find((g) => g.type === 'backgrounds');
+    if (objectsGrid && bgGrid) {
+      return (
+        <RefGridImageReview
+          objectsGrid={objectsGrid}
+          bgGrid={bgGrid}
+          storyboard={storyboard as Storyboard}
+          onApproveComplete={() => refresh()}
+        />
+      );
+    }
+  }
+
+  // I2V Grid image review: show when grid is generated but not yet split into scenes
+  if (
+    !isRefToVideoMode &&
     gridImage?.status === 'generated' &&
     sortedScenes.length === 0 &&
     storyboard &&
@@ -1079,15 +1266,15 @@ export function StoryboardCards({
   }
 
   // Grid image is being generated — show progress indicator
-  if (
-    gridImage &&
-    (gridImage.status === 'pending' || gridImage.status === 'processing') &&
-    sortedScenes.length === 0
-  ) {
+  if (isProcessing && sortedScenes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3">
         <IconLoader2 size={32} className="animate-spin text-blue-400" />
-        <span className="text-sm text-center">Generating grid image...</span>
+        <span className="text-sm text-center">
+          {isRefToVideoMode
+            ? 'Generating grid images...'
+            : 'Generating grid image...'}
+        </span>
         <span className="text-xs text-center text-muted-foreground/60">
           This may take a minute
         </span>
@@ -1136,7 +1323,7 @@ export function StoryboardCards({
 
         {/* Add to Timeline */}
         {selectedSceneIds.size > 0 && (
-          <div className="flex items-center gap-1.5 px-2">
+          <div className="flex flex-col gap-1.5 px-2">
             <Button
               size="sm"
               variant="outline"
@@ -1144,7 +1331,7 @@ export function StoryboardCards({
                 selectedScenesWithVideo.length === 0 || isAddingToTimeline
               }
               onClick={handleAddAllToTimeline}
-              className="h-8 text-xs flex-1"
+              className="h-8 text-xs w-full"
               title={
                 selectedScenesWithVideo.length === 0
                   ? 'Select scenes with generated videos'
@@ -1158,6 +1345,20 @@ export function StoryboardCards({
               )}
               Add to Timeline
             </Button>
+            <div className="flex items-center gap-2">
+              <IconVolume className="size-3.5 text-muted-foreground flex-shrink-0" />
+              <Slider
+                value={[videoVolume]}
+                onValueChange={([v]) => setVideoVolume(v)}
+                min={0}
+                max={100}
+                step={1}
+                className="flex-1"
+              />
+              <span className="text-[10px] text-muted-foreground w-7 text-right flex-shrink-0">
+                {videoVolume}%
+              </span>
+            </div>
           </div>
         )}
 
@@ -1339,7 +1540,7 @@ export function StoryboardCards({
             <div className="px-2 py-2 flex flex-col gap-2">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Outpaint Model
+                  Edit Model
                 </span>
                 <Select
                   value={outpaintModel}
@@ -1364,25 +1565,31 @@ export function StoryboardCards({
                 </Select>
               </div>
               <div className="flex items-center gap-1.5">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={selectedSceneIds.size === 0 || isOutpainting}
-                  onClick={handleOutpaintImages}
-                  className="h-9 text-xs flex-1"
-                >
-                  {isOutpainting ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconSparkles className="size-3.5 mr-1" />
-                  )}
-                  Outpaint
-                </Button>
+                {!isRefToVideoMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedSceneIds.size === 0 || isOutpainting}
+                    onClick={handleOutpaintImages}
+                    className="h-9 text-xs flex-1"
+                  >
+                    {isOutpainting ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconSparkles className="size-3.5 mr-1" />
+                    )}
+                    Outpaint
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={selectedSceneIds.size === 0 || isEnhancing}
-                  onClick={handleEnhanceImages}
+                  onClick={
+                    isRefToVideoMode
+                      ? handleEnhanceBackgroundImages
+                      : handleEnhanceImages
+                  }
                   className="h-9 text-xs flex-1"
                 >
                   {isEnhancing ? (
@@ -1396,7 +1603,11 @@ export function StoryboardCards({
                   size="sm"
                   variant="outline"
                   disabled={selectedSceneIds.size === 0}
-                  onClick={handleResetImages}
+                  onClick={
+                    isRefToVideoMode
+                      ? handleResetBackgroundImages
+                      : handleResetImages
+                  }
                   className="h-9 text-xs flex-1"
                 >
                   <IconArrowBackUp className="size-3.5 mr-1" />
@@ -1421,7 +1632,11 @@ export function StoryboardCards({
                     isCustomEditing ||
                     !editPrompt.trim()
                   }
-                  onClick={handleCustomEdit}
+                  onClick={
+                    isRefToVideoMode
+                      ? handleCustomEditBackgrounds
+                      : handleCustomEdit
+                  }
                   className="h-9 text-xs"
                 >
                   {isCustomEditing ? (
@@ -1432,67 +1647,70 @@ export function StoryboardCards({
                   Edit
                 </Button>
               </div>
-              <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Ref to Image
-                  </span>
-                  <Button
-                    size="sm"
-                    variant={isRefMode ? 'default' : 'ghost'}
-                    onClick={() => {
-                      setIsRefMode(!isRefMode);
-                      if (isRefMode) {
-                        setTargetSceneId(null);
-                      }
-                    }}
-                    className="h-6 text-[10px] px-2"
-                  >
-                    <IconFocusCentered className="size-3 mr-1" />
-                    {isRefMode ? 'Exit Ref Mode' : 'Enter Ref Mode'}
-                  </Button>
-                </div>
-                {isRefMode && (
-                  <>
-                    <p className="text-[10px] text-muted-foreground">
-                      Select reference scenes with checkboxes, then click the
-                      target icon on the scene to replace.
-                    </p>
-                    {targetSceneId && (
-                      <p className="text-[10px] text-amber-400">
-                        Target: Scene{' '}
-                        {sortedScenes.findIndex((s) => s.id === targetSceneId) +
-                          1}
-                      </p>
-                    )}
-                    <Textarea
-                      value={refPrompt}
-                      onChange={(e) => setRefPrompt(e.target.value)}
-                      placeholder="Describe what to generate using the reference images..."
-                      className="text-xs min-h-[60px] resize-none"
-                    />
+              {!isRefToVideoMode && (
+                <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      Ref to Image
+                    </span>
                     <Button
                       size="sm"
-                      variant="outline"
-                      disabled={
-                        selectedSceneIds.size === 0 ||
-                        !targetSceneId ||
-                        !refPrompt.trim() ||
-                        isRefGenerating
-                      }
-                      onClick={handleRefToImage}
-                      className="h-9 text-xs"
+                      variant={isRefMode ? 'default' : 'ghost'}
+                      onClick={() => {
+                        setIsRefMode(!isRefMode);
+                        if (isRefMode) {
+                          setTargetSceneId(null);
+                        }
+                      }}
+                      className="h-6 text-[10px] px-2"
                     >
-                      {isRefGenerating ? (
-                        <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                      ) : (
-                        <IconFocusCentered className="size-3.5 mr-1" />
-                      )}
-                      Generate with References
+                      <IconFocusCentered className="size-3 mr-1" />
+                      {isRefMode ? 'Exit Ref Mode' : 'Enter Ref Mode'}
                     </Button>
-                  </>
-                )}
-              </div>
+                  </div>
+                  {isRefMode && (
+                    <>
+                      <p className="text-[10px] text-muted-foreground">
+                        Select reference scenes with checkboxes, then click the
+                        target icon on the scene to replace.
+                      </p>
+                      {targetSceneId && (
+                        <p className="text-[10px] text-amber-400">
+                          Target: Scene{' '}
+                          {sortedScenes.findIndex(
+                            (s) => s.id === targetSceneId
+                          ) + 1}
+                        </p>
+                      )}
+                      <Textarea
+                        value={refPrompt}
+                        onChange={(e) => setRefPrompt(e.target.value)}
+                        placeholder="Describe what to generate using the reference images..."
+                        className="text-xs min-h-[60px] resize-none"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          selectedSceneIds.size === 0 ||
+                          !targetSceneId ||
+                          !refPrompt.trim() ||
+                          isRefGenerating
+                        }
+                        onClick={handleRefToImage}
+                        className="h-9 text-xs"
+                      >
+                        {isRefGenerating ? (
+                          <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                        ) : (
+                          <IconFocusCentered className="size-3.5 mr-1" />
+                        )}
+                        Generate with References
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -1517,55 +1735,64 @@ export function StoryboardCards({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="px-2 py-2 flex flex-col gap-2">
-              {/* Video model + Resolution */}
-              <div className="flex items-end gap-2">
-                <div className="flex flex-col gap-1 flex-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Model
+              {/* Video model + Resolution (hidden for ref_to_video — model comes from storyboard) */}
+              {isRefToVideoMode ? (
+                <div className="text-xs text-muted-foreground px-1">
+                  Model:{' '}
+                  <span className="font-medium text-foreground">
+                    {storyboard?.model ?? 'N/A'}
                   </span>
-                  <Select
-                    value={videoModel}
-                    onValueChange={(value: string) =>
-                      setVideoModel(value as VideoModelKey)
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(VIDEO_MODELS) as VideoModelKey[]).map(
-                        (key) => (
-                          <SelectItem key={key} value={key}>
-                            {VIDEO_MODELS[key].label}
+                </div>
+              ) : (
+                <div className="flex items-end gap-2">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      Model
+                    </span>
+                    <Select
+                      value={videoModel}
+                      onValueChange={(value: string) =>
+                        setVideoModel(value as VideoModelKey)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(VIDEO_MODELS) as VideoModelKey[]).map(
+                          (key) => (
+                            <SelectItem key={key} value={key}>
+                              {VIDEO_MODELS[key].label}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1 w-[80px]">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      Resolution
+                    </span>
+                    <Select
+                      value={videoResolution}
+                      onValueChange={(value: '480p' | '720p' | '1080p') =>
+                        setVideoResolution(value)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VIDEO_MODELS[videoModel].resolutions.map((res) => (
+                          <SelectItem key={res} value={res}>
+                            {res}
                           </SelectItem>
-                        )
-                      )}
-                    </SelectContent>
-                  </Select>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1 w-[80px]">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Resolution
-                  </span>
-                  <Select
-                    value={videoResolution}
-                    onValueChange={(value: '480p' | '720p' | '1080p') =>
-                      setVideoResolution(value)
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VIDEO_MODELS[videoModel].resolutions.map((res) => (
-                        <SelectItem key={res} value={res}>
-                          {res}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              )}
 
               {/* Action buttons */}
               <div className="flex items-center gap-1.5 pt-1">
@@ -1659,6 +1886,106 @@ export function StoryboardCards({
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Objects Gallery — ref_to_video only */}
+      {isRefToVideoMode &&
+        (() => {
+          const seen = new Map<string, RefObject>();
+          for (const scene of sortedScenes) {
+            for (const obj of scene.objects ?? []) {
+              if (!seen.has(obj.name)) {
+                seen.set(obj.name, obj);
+              } else if (
+                !seen.get(obj.name)!.final_url &&
+                !seen.get(obj.name)!.url &&
+                (obj.final_url || obj.url)
+              ) {
+                seen.set(obj.name, obj);
+              }
+            }
+          }
+          const uniqueObjects = [...seen.values()].sort(
+            (a, b) => a.order - b.order
+          );
+          if (uniqueObjects.length === 0) return null;
+          return (
+            <Collapsible
+              open={isObjectsViewOpen}
+              onOpenChange={setIsObjectsViewOpen}
+            >
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <IconUsers className="size-3.5" />
+                    Objects
+                    <span className="text-[10px] text-muted-foreground/60">
+                      ({uniqueObjects.length})
+                    </span>
+                  </span>
+                  {isObjectsViewOpen ? (
+                    <IconChevronUp className="size-3" />
+                  ) : (
+                    <IconChevronDown className="size-3" />
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div
+                  className="grid gap-2 py-2"
+                  style={{
+                    gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+                  }}
+                >
+                  {uniqueObjects.map((obj) => {
+                    const imageUrl = obj.final_url ?? obj.url;
+                    const isProcessing =
+                      obj.status === 'processing' || obj.status === 'pending';
+                    const isFailed = obj.status === 'failed';
+                    return (
+                      <div
+                        key={obj.id}
+                        className={`p-2 bg-secondary/30 rounded-md flex flex-col gap-1.5 ${isFailed ? 'border border-destructive/40' : ''}`}
+                      >
+                        <div className="relative aspect-square rounded overflow-hidden bg-secondary/50">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={obj.name}
+                              className="absolute inset-0 w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-muted-foreground/40">
+                              <span className="text-2xl font-bold uppercase">
+                                {obj.name.charAt(0)}
+                              </span>
+                            </div>
+                          )}
+                          {isProcessing && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconLoader2 className="size-5 animate-spin text-white" />
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-xs font-medium truncate">
+                          {obj.name}
+                        </span>
+                        {obj.description && (
+                          <span className="text-[11px] text-muted-foreground line-clamp-2">
+                            {obj.description}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          );
+        })()}
 
       {/* Card size slider */}
       <div className="flex items-center gap-2 mb-2">

@@ -3,13 +3,19 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // Types for workflow data
 
+export type StoryboardMode = 'image_to_video' | 'ref_to_video';
+export type VideoModel = 'klingo3' | 'klingo3pro' | 'wan26flash';
+
 export type PlanStatus =
   | 'draft'
   | 'approved'
   | 'generating'
   | 'grid_ready'
+  | 'splitting'
+  | 'failed'
   | null;
 
+// Image-to-video plan shape
 export interface StoryboardPlan {
   rows: number;
   cols: number;
@@ -18,15 +24,49 @@ export interface StoryboardPlan {
   visual_flow: string[];
 }
 
+// Ref-to-video plan shapes
+export interface KlingElement {
+  name: string;
+  description: string;
+}
+
+export interface RefPlanBase {
+  objects_rows: number;
+  objects_cols: number;
+  objects_grid_prompt: string;
+  bg_rows: number;
+  bg_cols: number;
+  backgrounds_grid_prompt: string;
+  background_names: string[];
+  scene_prompts: string[];
+  scene_bg_indices: number[];
+  scene_object_indices: number[][];
+  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+}
+
+export interface KlingO3RefPlan extends RefPlanBase {
+  objects: KlingElement[];
+}
+
+export interface Wan26FlashRefPlan extends RefPlanBase {
+  object_names: string[];
+}
+
+export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan;
+
 export interface Storyboard {
   id: string;
   project_id: string;
   voiceover: string;
   aspect_ratio: string;
   created_at: string;
-  plan: StoryboardPlan | null;
+  plan: StoryboardPlan | RefPlan | null;
   plan_status: PlanStatus;
+  mode: StoryboardMode;
+  model: VideoModel | null;
 }
+
+export type GridImageType = 'scene' | 'objects' | 'backgrounds';
 
 export interface GridImage {
   id: string;
@@ -40,13 +80,14 @@ export interface GridImage {
   detected_rows: number | null;
   detected_cols: number | null;
   dimension_detection_status: 'success' | 'failed' | null;
+  type: GridImageType;
 }
 
 export interface FirstFrame {
   id: string;
   scene_id: string;
+  grid_image_id: string | null;
   visual_prompt: string | null;
-  sfx_prompt: string | null;
   url: string | null;
   out_padded_url: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
@@ -63,14 +104,6 @@ export interface FirstFrame {
     | null;
   image_edit_error_message: string | null;
   outpainted_url: string | null;
-  video_url: string | null;
-  video_status: 'pending' | 'processing' | 'success' | 'failed' | null;
-  video_request_id: string | null;
-  video_error_message: string | null;
-  video_resolution: '480p' | '720p' | '1080p' | null;
-  sfx_status: 'pending' | 'processing' | 'success' | 'failed' | null;
-  sfx_request_id: string | null;
-  sfx_error_message: string | null;
 }
 
 export interface Voiceover {
@@ -86,19 +119,68 @@ export interface Voiceover {
 
 export interface Scene {
   id: string;
-  grid_image_id: string;
+  storyboard_id: string;
   order: number;
+  prompt: string | null;
   created_at: string;
   first_frames: FirstFrame[];
   voiceovers: Voiceover[];
+  backgrounds: Background[];
+  objects: RefObject[];
+  video_url: string | null;
+  video_status: 'pending' | 'processing' | 'success' | 'failed' | null;
+  video_request_id: string | null;
+  video_error_message: string | null;
+  video_resolution: '480p' | '720p' | '1080p' | null;
+  sfx_prompt: string | null;
+  sfx_status: 'pending' | 'processing' | 'success' | 'failed' | null;
+  sfx_request_id: string | null;
+  sfx_error_message: string | null;
 }
 
-export interface GridImageWithScenes extends GridImage {
+/** Scene row as returned by realtime (flat, without nested relations) */
+export type SceneRow = Omit<
+  Scene,
+  'first_frames' | 'voiceovers' | 'backgrounds' | 'objects'
+>;
+
+// Ref-to-video related types
+export interface RefObject {
+  id: string;
+  grid_image_id: string;
+  scene_id: string;
+  scene_order: number;
+  order: number;
+  name: string;
+  description: string | null;
+  url: string | null;
+  final_url: string | null;
+  status: 'pending' | 'processing' | 'success' | 'failed';
+  request_id: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface Background {
+  id: string;
+  grid_image_id: string;
+  scene_id: string;
+  order: number;
+  name: string;
+  url: string | null;
+  final_url: string | null;
+  status: 'pending' | 'processing' | 'success' | 'failed';
+  request_id: string | null;
+  error_message: string | null;
+  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_error_message: string | null;
+  image_edit_request_id: string | null;
+  created_at: string;
+}
+
+export interface StoryboardWithScenes extends Storyboard {
+  grid_images: GridImage[];
   scenes: Scene[];
-}
-
-export interface StoryboardWithGridImage extends Storyboard {
-  grid_images: GridImageWithScenes[];
 }
 
 /**
@@ -217,7 +299,7 @@ export async function getStoryboardsForProject(
  */
 export async function getStoryboardWithScenesById(
   storyboardId: string
-): Promise<StoryboardWithGridImage | null> {
+): Promise<StoryboardWithScenes | null> {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -225,13 +307,13 @@ export async function getStoryboardWithScenesById(
     .select(
       `
       *,
-      grid_images (
+      grid_images (*),
+      scenes (
         *,
-        scenes (
-          *,
-          first_frames (*),
-          voiceovers (*)
-        )
+        first_frames (*),
+        voiceovers (*),
+        backgrounds (*),
+        objects (*)
       )
     `
     )
@@ -244,16 +326,12 @@ export async function getStoryboardWithScenesById(
     return null;
   }
 
-  // Sort scenes by order within each grid_image
-  if (data?.grid_images) {
-    for (const gridImage of data.grid_images) {
-      if (gridImage.scenes) {
-        gridImage.scenes.sort((a: Scene, b: Scene) => a.order - b.order);
-      }
-    }
+  // Sort scenes by order
+  if (data?.scenes) {
+    data.scenes.sort((a: Scene, b: Scene) => a.order - b.order);
   }
 
-  return data as StoryboardWithGridImage;
+  return data as StoryboardWithScenes;
 }
 
 /**
@@ -262,22 +340,22 @@ export async function getStoryboardWithScenesById(
  */
 export async function getLatestStoryboardWithScenes(
   projectId: string
-): Promise<StoryboardWithGridImage | null> {
+): Promise<StoryboardWithScenes | null> {
   const supabase = createClient();
 
-  // Get the latest storyboard with nested grid_images and scenes
+  // Get the latest storyboard with grid_images and scenes
   const { data: storyboard, error: storyboardError } = await supabase
     .from('storyboards')
     .select(
       `
       *,
-      grid_images (
+      grid_images (*),
+      scenes (
         *,
-        scenes (
-          *,
-          first_frames (*),
-          voiceovers (*)
-        )
+        first_frames (*),
+        voiceovers (*),
+        backgrounds (*),
+        objects (*)
       )
     `
     )
@@ -294,30 +372,12 @@ export async function getLatestStoryboardWithScenes(
     return null;
   }
 
-  // Sort scenes by order within each grid_image
-  if (storyboard?.grid_images) {
-    for (const gridImage of storyboard.grid_images) {
-      if (gridImage.scenes) {
-        gridImage.scenes.sort((a: Scene, b: Scene) => a.order - b.order);
-      }
-    }
+  // Sort scenes by order
+  if (storyboard?.scenes) {
+    storyboard.scenes.sort((a: Scene, b: Scene) => a.order - b.order);
   }
 
-  return storyboard as StoryboardWithGridImage;
-}
-
-/**
- * Get the latest grid_image with its scenes, first_frames, and voiceovers
- * @deprecated Use getLatestStoryboardWithScenes instead
- */
-export async function getLatestGridImageWithScenes(
-  projectId: string
-): Promise<GridImageWithScenes | null> {
-  const storyboard = await getLatestStoryboardWithScenes(projectId);
-  if (!storyboard || !storyboard.grid_images?.[0]) {
-    return null;
-  }
-  return storyboard.grid_images[0];
+  return storyboard as StoryboardWithScenes;
 }
 
 /**
@@ -392,6 +452,20 @@ export interface SceneUpdateCallbacks {
   onGridImageUpdate?: (gridImage: GridImage) => void;
   onFirstFrameUpdate?: (firstFrame: FirstFrame) => void;
   onVoiceoverUpdate?: (voiceover: Voiceover) => void;
+  onSceneUpdate?: (scene: SceneRow) => void;
+  onStoryboardUpdate?: (storyboard: StoryboardRow) => void;
+  onBackgroundUpdate?: (background: Background) => void;
+  onObjectUpdate?: (object: RefObject) => void;
+}
+
+/** Raw storyboard row from realtime subscription */
+export interface StoryboardRow {
+  id: string;
+  plan_status: PlanStatus;
+  plan: Record<string, unknown> | null;
+  mode: StoryboardMode;
+  model: VideoModel | null;
+  [key: string]: unknown;
 }
 
 /**
@@ -401,10 +475,30 @@ export interface SceneUpdateCallbacks {
  */
 export function subscribeToSceneUpdates(
   gridImageId: string,
-  callbacks: SceneUpdateCallbacks
+  callbacks: SceneUpdateCallbacks,
+  storyboardId?: string
 ) {
   const supabase = createClient();
   const channels: RealtimeChannel[] = [];
+
+  // Storyboard updates (plan_status transitions)
+  if (callbacks.onStoryboardUpdate && storyboardId) {
+    const sbChannel = supabase
+      .channel(`storyboard_${storyboardId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'storyboards',
+          filter: `id=eq.${storyboardId}`,
+        },
+        (payload) =>
+          callbacks.onStoryboardUpdate?.(payload.new as StoryboardRow)
+      )
+      .subscribe();
+    channels.push(sbChannel);
+  }
 
   // Grid image updates
   if (callbacks.onGridImageUpdate) {
@@ -441,6 +535,23 @@ export function subscribeToSceneUpdates(
     channels.push(ffChannel);
   }
 
+  // Scene updates (for video/sfx status changes)
+  if (callbacks.onSceneUpdate) {
+    const sceneChannel = supabase
+      .channel(`scenes_${gridImageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scenes',
+        },
+        (payload) => callbacks.onSceneUpdate?.(payload.new as SceneRow)
+      )
+      .subscribe();
+    channels.push(sceneChannel);
+  }
+
   // Voiceover updates (listen for both INSERT and UPDATE to catch all changes)
   if (callbacks.onVoiceoverUpdate) {
     const voChannel = supabase
@@ -463,6 +574,54 @@ export function subscribeToSceneUpdates(
       )
       .subscribe();
     channels.push(voChannel);
+  }
+
+  // Background updates (for ref_to_video scene thumbnails)
+  if (callbacks.onBackgroundUpdate) {
+    const bgChannel = supabase
+      .channel(`backgrounds_${gridImageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'backgrounds',
+        },
+        (payload) => {
+          if (
+            payload.eventType === 'INSERT' ||
+            payload.eventType === 'UPDATE'
+          ) {
+            callbacks.onBackgroundUpdate?.(payload.new as Background);
+          }
+        }
+      )
+      .subscribe();
+    channels.push(bgChannel);
+  }
+
+  // Object updates (for ref_to_video character/item thumbnails)
+  if (callbacks.onObjectUpdate) {
+    const objChannel = supabase
+      .channel(`objects_${gridImageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'objects',
+        },
+        (payload) => {
+          if (
+            payload.eventType === 'INSERT' ||
+            payload.eventType === 'UPDATE'
+          ) {
+            callbacks.onObjectUpdate?.(payload.new as RefObject);
+          }
+        }
+      )
+      .subscribe();
+    channels.push(objChannel);
   }
 
   // Single unsubscribe function for all channels

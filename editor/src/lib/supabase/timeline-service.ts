@@ -126,6 +126,38 @@ export async function loadTimeline(
  * Reconstruct ProjectJSON format from Supabase data
  * This format is compatible with studio.loadFromJSON()
  */
+/**
+ * Clear all tracks and clips for a project from Supabase
+ */
+export async function clearTimeline(projectId: string) {
+  const supabase = createClient();
+
+  // Fetch track IDs for this project
+  const { data: tracks, error: fetchError } = await supabase
+    .from('tracks')
+    .select('id')
+    .eq('project_id', projectId);
+  if (fetchError) throw fetchError;
+
+  const trackIds = (tracks ?? []).map((t) => t.id);
+
+  // Delete clips by track_id
+  if (trackIds.length > 0) {
+    const { error: deleteClipsError } = await supabase
+      .from('clips')
+      .delete()
+      .in('track_id', trackIds);
+    if (deleteClipsError) throw deleteClipsError;
+  }
+
+  // Delete tracks by project_id
+  const { error: deleteTracksError } = await supabase
+    .from('tracks')
+    .delete()
+    .eq('project_id', projectId);
+  if (deleteTracksError) throw deleteTracksError;
+}
+
 export function reconstructProjectJSON(tracks: TrackWithClips[]) {
   // Collect all clips from all tracks
   const allClips: Record<string, unknown>[] = [];

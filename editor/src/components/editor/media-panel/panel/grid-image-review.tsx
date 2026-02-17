@@ -10,7 +10,11 @@ import {
   IconRefresh,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import type { GridImage, Storyboard } from '@/lib/supabase/workflow-service';
+import type {
+  GridImage,
+  Storyboard,
+  StoryboardPlan,
+} from '@/lib/supabase/workflow-service';
 
 interface GridImageReviewProps {
   gridImage: GridImage;
@@ -25,7 +29,8 @@ export function GridImageReview({
   onApproveComplete,
   onRegenerateComplete,
 }: GridImageReviewProps) {
-  const plan = storyboard.plan!;
+  // This component is for i2v grid review; cast plan to StoryboardPlan
+  const plan = storyboard.plan as StoryboardPlan;
   const [rows, setRows] = useState(plan.rows);
   const [cols, setCols] = useState(plan.cols);
   const [isApproving, setIsApproving] = useState(false);

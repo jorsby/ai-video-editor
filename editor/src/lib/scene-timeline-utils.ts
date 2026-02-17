@@ -34,6 +34,7 @@ interface AddSceneOptions {
   startTime: number;
   videoTrackId?: string;
   audioTrackId?: string;
+  videoVolume?: number;
 }
 
 interface AddSceneResult {
@@ -58,7 +59,7 @@ export async function addSceneToTimeline(
   const videoClip = await Video.fromUrl(scene.videoUrl);
   await videoClip.scaleToFit(canvasWidth, canvasHeight);
   videoClip.centerInScene(canvasWidth, canvasHeight);
-  videoClip.volume = 0.05;
+  videoClip.volume = options.videoVolume ?? 0.05;
 
   let endTime: number;
   let usedVideoTrackId = videoTrackId;
@@ -71,13 +72,17 @@ export async function addSceneToTimeline(
     // Match video duration to voiceover
     const nativeVideoDuration = videoClip.duration;
 
+    const MAX_SPEED = 2.0;
+
     if (nativeVideoDuration < audioDuration) {
       // Video shorter than voiceover: slow down to fill
       videoClip.playbackRate = nativeVideoDuration / audioDuration;
       videoClip.trim.to = nativeVideoDuration;
     } else {
-      // Video longer than voiceover: trim from end
-      videoClip.trim.to = audioDuration;
+      // Video longer than voiceover: speed up to preserve content, minimize trimming
+      const idealRate = nativeVideoDuration / audioDuration;
+      videoClip.playbackRate = Math.min(idealRate, MAX_SPEED);
+      videoClip.trim.to = audioDuration * videoClip.playbackRate;
     }
 
     videoClip.duration = videoClip.trim.to / videoClip.playbackRate;

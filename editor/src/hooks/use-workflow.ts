@@ -5,16 +5,19 @@ import {
   getStoryboardWithScenesById,
   subscribeToSceneUpdates,
   type GridImage,
-  type GridImageWithScenes,
+  type Background,
+  type RefObject,
   type Storyboard,
-  type StoryboardWithGridImage,
+  type StoryboardWithScenes,
+  type SceneRow,
+  type StoryboardRow,
 } from '@/lib/supabase/workflow-service';
 
 const fetchStoryboardData = async (
   storyboardId: string | null | undefined,
   projectId: string | null,
   includeScenes: boolean
-): Promise<StoryboardWithGridImage | Storyboard | null> => {
+): Promise<StoryboardWithScenes | Storyboard | null> => {
   if (storyboardId) {
     return getStoryboardWithScenesById(storyboardId);
   }
@@ -38,9 +41,11 @@ interface UseWorkflowOptions {
 
 interface UseWorkflowResult {
   /** The latest storyboard data */
-  storyboard: StoryboardWithGridImage | Storyboard | null;
+  storyboard: StoryboardWithScenes | Storyboard | null;
   /** The latest grid image data (derived from storyboard for backward compatibility) */
-  gridImage: GridImageWithScenes | GridImage | null;
+  gridImage: GridImage | null;
+  /** All grid images (for ref_to_video mode with multiple grids) */
+  gridImages: GridImage[];
   /** Whether data is being loaded */
   loading: boolean;
   /** Any error that occurred */
@@ -65,20 +70,25 @@ export function useWorkflow(
   const { realtime = false, includeScenes = true, storyboardId } = options;
 
   const [storyboard, setStoryboard] = useState<
-    StoryboardWithGridImage | Storyboard | null
+    StoryboardWithScenes | Storyboard | null
   >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const hasFetchedRef = useRef(false);
 
-  // Derive gridImage from storyboard for backward compatibility
-  const gridImage = useMemo((): GridImageWithScenes | GridImage | null => {
-    if (!storyboard) return null;
-    if ('grid_images' in storyboard && storyboard.grid_images?.[0]) {
-      return storyboard.grid_images[0];
+  // All grid images
+  const gridImages = useMemo((): GridImage[] => {
+    if (!storyboard) return [];
+    if ('grid_images' in storyboard) {
+      return storyboard.grid_images || [];
     }
-    return null;
+    return [];
   }, [storyboard]);
+
+  // Derive gridImage from storyboard for backward compatibility (first grid)
+  const gridImage = useMemo((): GridImage | null => {
+    return gridImages[0] || null;
+  }, [gridImages]);
 
   const fetchData = useCallback(async () => {
     // If storyboardId is provided, use it; otherwise require projectId
@@ -117,49 +127,56 @@ export function useWorkflow(
   }, [fetchData]);
 
   // Real-time subscription for grid_images, first_frames, and voiceovers
+  // Use the first grid image ID as the subscription key (the handler updates all grids by ID match)
   useEffect(() => {
     if (!realtime || !gridImage?.id) return;
 
-    const unsubscribe = subscribeToSceneUpdates(gridImage.id, {
-      onGridImageUpdate: (updated) => {
-        setStoryboard((prev) => {
-          if (!prev || !('grid_images' in prev)) return prev;
-          // Update the grid_image in the storyboard
-          const updatedGridImages = prev.grid_images.map((gi) =>
-            gi.id === updated.id ? { ...updated, scenes: gi.scenes } : gi
-          );
-          return { ...prev, grid_images: updatedGridImages };
-        });
-      },
-      onFirstFrameUpdate: (updatedFrame) => {
-        setStoryboard((prev) => {
-          if (!prev || !('grid_images' in prev)) return prev;
-          // Update the first_frame in the appropriate scene
-          const updatedGridImages = prev.grid_images.map((gi) => ({
-            ...gi,
-            scenes: gi.scenes.map((scene) => ({
+    const unsubscribe = subscribeToSceneUpdates(
+      gridImage.id,
+      {
+        onGridImageUpdate: (updated) => {
+          setStoryboard((prev) => {
+            if (!prev || !('grid_images' in prev)) return prev;
+            const exists = prev.grid_images.some((gi) => gi.id === updated.id);
+            const updatedGridImages = exists
+              ? prev.grid_images.map((gi) =>
+                  gi.id === updated.id ? updated : gi
+                )
+              : prev.grid_images;
+            return { ...prev, grid_images: updatedGridImages };
+          });
+        },
+        onFirstFrameUpdate: (updatedFrame) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            const updatedScenes = prev.scenes.map((scene) => ({
               ...scene,
               first_frames: scene.first_frames.map((ff) =>
                 ff.id === updatedFrame.id ? updatedFrame : ff
               ),
-            })),
-          }));
-          return { ...prev, grid_images: updatedGridImages };
-        });
-      },
-      onVoiceoverUpdate: (updatedVoiceover) => {
-        setStoryboard((prev) => {
-          if (!prev || !('grid_images' in prev)) return prev;
-          // Update or add the voiceover in the appropriate scene
-          const updatedGridImages = prev.grid_images.map((gi) => ({
-            ...gi,
-            scenes: gi.scenes.map((scene) => {
-              // Check if this voiceover belongs to this scene
+            }));
+            return { ...prev, scenes: updatedScenes };
+          });
+        },
+        onSceneUpdate: (updatedScene: SceneRow) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            const updatedScenes = prev.scenes.map((scene) =>
+              scene.id === updatedScene.id
+                ? { ...scene, ...updatedScene }
+                : scene
+            );
+            return { ...prev, scenes: updatedScenes };
+          });
+        },
+        onVoiceoverUpdate: (updatedVoiceover) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            const updatedScenes = prev.scenes.map((scene) => {
               const existingIndex = scene.voiceovers.findIndex(
                 (vo) => vo.id === updatedVoiceover.id
               );
               if (existingIndex >= 0) {
-                // Update existing voiceover
                 return {
                   ...scene,
                   voiceovers: scene.voiceovers.map((vo) =>
@@ -167,31 +184,104 @@ export function useWorkflow(
                   ),
                 };
               } else if (scene.id === updatedVoiceover.scene_id) {
-                // Add new voiceover to this scene
                 return {
                   ...scene,
                   voiceovers: [...scene.voiceovers, updatedVoiceover],
                 };
               }
               return scene;
-            }),
-          }));
-          return { ...prev, grid_images: updatedGridImages };
-        });
+            });
+            return { ...prev, scenes: updatedScenes };
+          });
+        },
+        onBackgroundUpdate: (updatedBg: Background) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            const updatedScenes = prev.scenes.map((scene) => {
+              const existingIndex = scene.backgrounds.findIndex(
+                (bg) => bg.id === updatedBg.id
+              );
+              if (existingIndex >= 0) {
+                return {
+                  ...scene,
+                  backgrounds: scene.backgrounds.map((bg) =>
+                    bg.id === updatedBg.id ? updatedBg : bg
+                  ),
+                };
+              } else if (scene.id === updatedBg.scene_id) {
+                return {
+                  ...scene,
+                  backgrounds: [...scene.backgrounds, updatedBg],
+                };
+              }
+              return scene;
+            });
+            return { ...prev, scenes: updatedScenes };
+          });
+        },
+        onObjectUpdate: (updatedObj: RefObject) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            const updatedScenes = prev.scenes.map((scene) => {
+              const existingIndex = scene.objects.findIndex(
+                (obj) => obj.id === updatedObj.id
+              );
+              if (existingIndex >= 0) {
+                return {
+                  ...scene,
+                  objects: scene.objects.map((obj) =>
+                    obj.id === updatedObj.id ? updatedObj : obj
+                  ),
+                };
+              } else if (scene.id === updatedObj.scene_id) {
+                return {
+                  ...scene,
+                  objects: [...scene.objects, updatedObj],
+                };
+              }
+              return scene;
+            });
+            return { ...prev, scenes: updatedScenes };
+          });
+        },
+        onStoryboardUpdate: (updatedSb: StoryboardRow) => {
+          setStoryboard((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              plan_status: updatedSb.plan_status,
+            } as typeof prev;
+          });
+          // When plan_status transitions to 'approved', refetch to get new scenes
+          if (updatedSb.plan_status === 'approved') {
+            fetchData();
+          }
+        },
       },
-    });
+      storyboard?.id
+    );
 
     return unsubscribe;
-  }, [realtime, gridImage?.id]);
+  }, [realtime, gridImage?.id, storyboard?.id]);
 
   // Compute derived state
   const isProcessing =
-    gridImage?.status === 'pending' || gridImage?.status === 'processing';
+    storyboard?.plan_status === 'generating' ||
+    gridImages.some(
+      (gi) => gi.status === 'pending' || gi.status === 'processing'
+    );
+
+  const scenes = storyboard && 'scenes' in storyboard ? storyboard.scenes : [];
 
   const isSplitting = (() => {
+    // For ref_to_video, splitting state is plan_status === 'splitting'
+    if (storyboard?.plan_status === 'splitting') {
+      return true;
+    }
+    // For i2v, check first_frames
     if (!gridImage || gridImage.status !== 'generated') return false;
-    if (!('scenes' in gridImage) || !gridImage.scenes?.length) return false;
-    return gridImage.scenes.some((scene) =>
+    if (!scenes.length) return false;
+    return scenes.some((scene) =>
       scene.first_frames.some((ff) => ff.status === 'processing' && !ff.url)
     );
   })();
@@ -201,9 +291,8 @@ export function useWorkflow(
     if (gridImage.status === 'failed') return true;
     if (gridImage.status !== 'success') return false;
 
-    // If we have scenes, check all first_frames
-    if ('scenes' in gridImage && gridImage.scenes) {
-      return gridImage.scenes.every((scene) =>
+    if (scenes.length > 0) {
+      return scenes.every((scene) =>
         scene.first_frames.every(
           (ff) => ff.status === 'success' || ff.status === 'failed'
         )
@@ -216,6 +305,7 @@ export function useWorkflow(
   return {
     storyboard,
     gridImage,
+    gridImages,
     loading,
     error,
     refresh: fetchData,

@@ -29,6 +29,8 @@ import type {
   Scene,
   FirstFrame,
   Voiceover,
+  RefObject,
+  Background,
 } from '@/lib/supabase/workflow-service';
 
 interface SceneCardProps {
@@ -59,6 +61,9 @@ interface SceneThumbnailProps {
   imageUrl: string | null;
   sceneOrder: number;
   firstFrame: FirstFrame | null;
+  background: Background | null;
+  videoStatus: string | null;
+  hasVideo: boolean;
   onAddToCanvas?: () => void;
   onPreviewImage?: () => void;
   aspectRatio?: string;
@@ -74,17 +79,20 @@ function SceneThumbnail({
   imageUrl,
   sceneOrder,
   firstFrame,
+  background,
+  videoStatus,
+  hasVideo,
   onAddToCanvas,
   onPreviewImage,
   aspectRatio,
 }: SceneThumbnailProps) {
-  const isOutpainting = firstFrame?.image_edit_status === 'outpainting';
-  const isEnhancing = firstFrame?.image_edit_status === 'enhancing';
-  const isCustomEditing = firstFrame?.image_edit_status === 'editing';
-  const isEditFailed = firstFrame?.image_edit_status === 'failed';
-  const isGeneratingVideo = firstFrame?.video_status === 'processing';
-  const hasVideo =
-    firstFrame?.video_status === 'success' && firstFrame?.video_url;
+  const editStatus =
+    firstFrame?.image_edit_status ?? background?.image_edit_status ?? null;
+  const isOutpainting = editStatus === 'outpainting';
+  const isEnhancing = editStatus === 'enhancing';
+  const isCustomEditing = editStatus === 'editing';
+  const isEditFailed = editStatus === 'failed';
+  const isGeneratingVideo = videoStatus === 'processing';
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -180,14 +188,14 @@ function SceneThumbnail({
       <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-medium text-white">
         {sceneOrder + 1}
       </div>
-      {firstFrame && (
+      {(firstFrame || hasVideo) && (
         <div className="absolute top-1 right-1 flex items-center gap-1">
           {hasVideo && (
             <div className="px-1.5 py-0.5 bg-cyan-500/80 rounded text-[10px] font-medium text-white flex items-center gap-0.5">
               <IconVideo size={10} />
             </div>
           )}
-          <StatusBadge status={firstFrame.status} size="sm" />
+          {firstFrame && <StatusBadge status={firstFrame.status} size="sm" />}
         </div>
       )}
     </div>
@@ -568,6 +576,59 @@ function ExpandedContent({
   );
 }
 
+function ObjectsRow({ objects }: { objects: RefObject[] }) {
+  const sorted = [...objects].sort((a, b) => a.scene_order - b.scene_order);
+
+  return (
+    <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
+      {sorted.map((obj) => {
+        const imgSrc = obj.final_url ?? obj.url;
+        const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
+
+        return (
+          <div
+            key={obj.id}
+            className="flex flex-col items-center gap-0.5 flex-shrink-0"
+          >
+            <div
+              className={`relative w-7 h-7 rounded-full overflow-hidden bg-background/50 border ${
+                obj.status === 'failed'
+                  ? 'border-red-500/60'
+                  : 'border-border/40'
+              }`}
+            >
+              {imgSrc ? (
+                <Image
+                  src={imgSrc}
+                  alt={obj.name}
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                  {initial}
+                </div>
+              )}
+              {obj.status === 'processing' && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-blue-400 animate-spin"
+                  />
+                </div>
+              )}
+            </div>
+            <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
+              {obj.name}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SceneCard({
   scene,
   isSelected,
@@ -590,18 +651,21 @@ export function SceneCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   const { studio } = useStudioStore();
   const firstFrame = scene.first_frames?.[0] ?? null;
+  const background = scene.backgrounds?.[0] ?? null;
   const voiceover =
     scene.voiceovers?.find((v) => v.language === selectedLanguage) ?? null;
-  const imageUrl =
-    firstFrame?.final_url ??
-    firstFrame?.url ??
-    firstFrame?.out_padded_url ??
-    null;
+  const imageUrl = firstFrame
+    ? (firstFrame.final_url ??
+      firstFrame.url ??
+      firstFrame.out_padded_url ??
+      null)
+    : (background?.final_url ?? background?.url ?? null);
   const displayVoiceover = voiceover?.text;
-  const displayVisualPrompt = firstFrame?.visual_prompt;
+  // For ref_to_video scenes, the prompt is on scene.prompt instead of firstFrame.visual_prompt
+  const displayVisualPrompt = firstFrame?.visual_prompt ?? scene.prompt;
 
   const handleAddToCanvas = async () => {
-    if (!studio || !firstFrame?.video_url) return;
+    if (!studio || !scene.video_url) return;
     try {
       // Calculate where the next clip should start (after all existing clips)
       const lastClipEnd = studio.clips.reduce((max, c) => {
@@ -628,7 +692,7 @@ export function SceneCard({
       await addSceneToTimeline(
         studio,
         {
-          videoUrl: firstFrame.video_url,
+          videoUrl: scene.video_url,
           voiceover:
             voiceover?.status === 'success' && voiceover?.audio_url
               ? { audioUrl: voiceover.audio_url }
@@ -645,8 +709,7 @@ export function SceneCard({
     }
   };
 
-  const hasVideo =
-    firstFrame?.video_status === 'success' && firstFrame?.video_url;
+  const hasVideo = scene.video_status === 'success' && !!scene.video_url;
 
   const voiceoverPreview = displayVoiceover
     ? displayVoiceover.slice(0, 35) +
@@ -724,14 +787,143 @@ export function SceneCard({
           </button>
         )}
       </div>
-      <SceneThumbnail
-        imageUrl={imageUrl}
-        sceneOrder={scene.order}
-        firstFrame={firstFrame}
-        onAddToCanvas={hasVideo ? handleAddToCanvas : undefined}
-        onPreviewImage={() => setPreviewOpen(true)}
-        aspectRatio={aspectRatio}
-      />
+      {firstFrame || imageUrl ? (
+        <SceneThumbnail
+          imageUrl={imageUrl}
+          sceneOrder={scene.order}
+          firstFrame={firstFrame}
+          background={background}
+          videoStatus={scene.video_status}
+          hasVideo={hasVideo}
+          onAddToCanvas={hasVideo ? handleAddToCanvas : undefined}
+          onPreviewImage={() => setPreviewOpen(true)}
+          aspectRatio={aspectRatio}
+        />
+      ) : (
+        /* Ref-to-video scene: no first_frame — show background or placeholder */
+        <div
+          className={`relative ${aspectRatio ? ASPECT_RATIO_CLASSES[aspectRatio] || 'aspect-square' : 'aspect-square'} rounded overflow-hidden ${imageUrl ? '' : 'bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-border/30'} ${hasVideo ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : ''}`}
+          onClick={hasVideo ? handleAddToCanvas : undefined}
+        >
+          {imageUrl ? (
+            <>
+              <Image
+                src={imageUrl}
+                alt={`Scene ${scene.order + 1}`}
+                fill
+                className="object-contain"
+                unoptimized
+              />
+              <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-medium text-white">
+                {scene.order + 1}
+              </div>
+              {hasVideo && (
+                <div className="absolute top-1 right-1">
+                  <div className="px-1.5 py-0.5 bg-cyan-500/80 rounded text-[10px] font-medium text-white flex items-center gap-0.5">
+                    <IconVideo size={10} />
+                  </div>
+                </div>
+              )}
+              {scene.video_status === 'processing' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-cyan-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-cyan-300 font-medium">
+                    Generating Video...
+                  </span>
+                </div>
+              )}
+              {background?.image_edit_status === 'enhancing' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-green-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-green-300 font-medium">
+                    Enhancing...
+                  </span>
+                </div>
+              )}
+              {background?.image_edit_status === 'editing' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-amber-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-amber-300 font-medium">
+                    Editing...
+                  </span>
+                </div>
+              )}
+              {background?.image_edit_status === 'failed' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconAlertTriangle size={20} className="text-red-400" />
+                  <span className="text-[10px] text-red-300 font-medium">
+                    Edit Failed
+                  </span>
+                </div>
+              )}
+              {imageUrl && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewOpen(true);
+                  }}
+                  className="absolute bottom-1 right-1 p-0.5 rounded bg-black/60 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity hover:bg-black/80"
+                  title="Preview image"
+                >
+                  <IconMaximize size={12} />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-medium text-white">
+                {scene.order + 1}
+              </div>
+              {background?.status === 'processing' ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-blue-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-blue-300 font-medium">
+                    Splitting...
+                  </span>
+                </div>
+              ) : scene.video_status === 'processing' ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-cyan-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-cyan-300 font-medium">
+                    Generating Video...
+                  </span>
+                </div>
+              ) : hasVideo ? (
+                <div className="absolute top-1 right-1">
+                  <div className="px-1.5 py-0.5 bg-cyan-500/80 rounded text-[10px] font-medium text-white flex items-center gap-0.5">
+                    <IconVideo size={10} />
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center p-2">
+                  <p className="text-[10px] text-muted-foreground/70 text-center line-clamp-3">
+                    {scene.prompt || 'Ref scene'}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Objects row (ref_to_video characters/items) */}
+      {scene.objects?.length > 0 && <ObjectsRow objects={scene.objects} />}
 
       {!expanded && (
         <div className="mt-2 flex items-center gap-1.5">
@@ -767,7 +959,11 @@ export function SceneCard({
         />
       )}
 
-      <SceneErrors firstFrame={firstFrame} />
+      <SceneErrors
+        firstFrame={firstFrame}
+        background={background}
+        scene={scene}
+      />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent
@@ -790,29 +986,43 @@ export function SceneCard({
   );
 }
 
-function SceneErrors({ firstFrame }: { firstFrame: FirstFrame | null }) {
+function SceneErrors({
+  firstFrame,
+  background,
+  scene,
+}: {
+  firstFrame: FirstFrame | null;
+  background: Background | null;
+  scene: Scene;
+}) {
   if (
     !firstFrame?.error_message &&
-    !firstFrame?.video_error_message &&
-    !firstFrame?.image_edit_error_message
+    !scene?.video_error_message &&
+    !firstFrame?.image_edit_error_message &&
+    !background?.image_edit_error_message
   ) {
     return null;
   }
   return (
     <>
-      {firstFrame.error_message && (
+      {firstFrame?.error_message && (
         <div className="mt-1.5 p-1 bg-destructive/10 rounded text-[9px] text-destructive line-clamp-1">
           {firstFrame.error_message}
         </div>
       )}
-      {firstFrame.image_edit_error_message && (
+      {firstFrame?.image_edit_error_message && (
         <div className="mt-1.5 p-1 bg-destructive/10 rounded text-[9px] text-destructive line-clamp-1">
           Edit: {firstFrame.image_edit_error_message}
         </div>
       )}
-      {firstFrame.video_error_message && (
+      {background?.image_edit_error_message && (
         <div className="mt-1.5 p-1 bg-destructive/10 rounded text-[9px] text-destructive line-clamp-1">
-          Video: {firstFrame.video_error_message}
+          Edit: {background.image_edit_error_message}
+        </div>
+      )}
+      {scene.video_error_message && (
+        <div className="mt-1.5 p-1 bg-destructive/10 rounded text-[9px] text-destructive line-clamp-1">
+          Video: {scene.video_error_message}
         </div>
       )}
     </>

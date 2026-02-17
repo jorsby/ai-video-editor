@@ -106,6 +106,13 @@ async function handleGenGridImage(
     fal_status: falPayload.status,
   });
 
+  // Fetch storyboard mode early (needed for dimension validation and status logic)
+  const { data: storyboard } = await supabase
+    .from('storyboards')
+    .select('mode')
+    .eq('id', storyboard_id)
+    .single();
+
   log.startTiming('extract_images');
   const images = getImages(falPayload);
   const extractTime = log.endTiming('extract_images');
@@ -143,6 +150,23 @@ async function handleGenGridImage(
       time_ms: log.endTiming('db_update_failed'),
     });
 
+    // For ref_to_video: check if all siblings are done and fail storyboard if needed
+    if (storyboard?.mode === 'ref_to_video') {
+      const { data: pendingGrids } = await supabase
+        .from('grid_images')
+        .select('id')
+        .eq('storyboard_id', storyboard_id)
+        .in('status', ['pending', 'processing']);
+
+      if (!pendingGrids || pendingGrids.length === 0) {
+        await supabase
+          .from('storyboards')
+          .update({ plan_status: 'failed' })
+          .eq('id', storyboard_id)
+          .eq('plan_status', 'generating');
+      }
+    }
+
     log.summary('error', { grid_image_id, reason: 'generation_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'Generation failed' }),
@@ -162,8 +186,15 @@ async function handleGenGridImage(
   });
 
   // Step 1: Validate grid dimensions from params
-  if (rows < 2 || cols < 2 || (rows !== cols && rows !== cols + 1)) {
-    log.error('Invalid grid dimensions from params', { rows, cols });
+  // For ref_to_video grids (objects/backgrounds), dimensions are 1-4 with no square constraint
+  // For image_to_video grids, dimensions are 2-8 and rows must equal cols or cols + 1
+  const isRefGrid = storyboard?.mode === 'ref_to_video';
+  const dimensionsInvalid = isRefGrid
+    ? rows < 2 || cols < 2 || rows > 6 || cols > 6
+    : rows < 2 || cols < 2 || (rows !== cols && rows !== cols + 1);
+
+  if (dimensionsInvalid) {
+    log.error('Invalid grid dimensions from params', { rows, cols, isRefGrid });
 
     await supabase
       .from('grid_images')
@@ -203,16 +234,67 @@ async function handleGenGridImage(
   });
 
   // Step 3: Update storyboard plan_status to 'grid_ready' for user review
+  // For ref_to_video mode, only set grid_ready when ALL grids are generated
   log.startTiming('db_update_plan_status');
-  await supabase
-    .from('storyboards')
-    .update({ plan_status: 'grid_ready' })
-    .eq('id', storyboard_id);
-  log.db('UPDATE', 'storyboards', {
-    id: storyboard_id,
-    plan_status: 'grid_ready',
-    time_ms: log.endTiming('db_update_plan_status'),
-  });
+
+  if (storyboard?.mode === 'ref_to_video') {
+    // Check if any sibling grids are still pending/processing
+    const { data: pendingGrids } = await supabase
+      .from('grid_images')
+      .select('id')
+      .eq('storyboard_id', storyboard_id)
+      .in('status', ['pending', 'processing']);
+
+    if (!pendingGrids || pendingGrids.length === 0) {
+      // All grids done — check if any failed
+      const { data: failedGrids } = await supabase
+        .from('grid_images')
+        .select('id')
+        .eq('storyboard_id', storyboard_id)
+        .eq('status', 'failed');
+
+      if (failedGrids && failedGrids.length > 0) {
+        await supabase
+          .from('storyboards')
+          .update({ plan_status: 'failed' })
+          .eq('id', storyboard_id)
+          .eq('plan_status', 'generating');
+        log.db('UPDATE', 'storyboards', {
+          id: storyboard_id,
+          plan_status: 'failed',
+          reason: 'some_grids_failed',
+          time_ms: log.endTiming('db_update_plan_status'),
+        });
+      } else {
+        await supabase
+          .from('storyboards')
+          .update({ plan_status: 'grid_ready' })
+          .eq('id', storyboard_id)
+          .eq('plan_status', 'generating');
+        log.db('UPDATE', 'storyboards', {
+          id: storyboard_id,
+          plan_status: 'grid_ready',
+          time_ms: log.endTiming('db_update_plan_status'),
+        });
+      }
+    } else {
+      log.info('Waiting for other grids', {
+        pending_count: pendingGrids.length,
+        time_ms: log.endTiming('db_update_plan_status'),
+      });
+    }
+  } else {
+    // image_to_video: immediate grid_ready (existing behavior)
+    await supabase
+      .from('storyboards')
+      .update({ plan_status: 'grid_ready' })
+      .eq('id', storyboard_id);
+    log.db('UPDATE', 'storyboards', {
+      id: storyboard_id,
+      plan_status: 'grid_ready',
+      time_ms: log.endTiming('db_update_plan_status'),
+    });
+  }
 
   // Scene creation and split request are now triggered by user approval
   // via the approve-grid-split edge function
@@ -230,41 +312,23 @@ async function handleSplitGridImage(
   log: Logger
 ): Promise<Response> {
   const grid_image_id = params.get('grid_image_id')!;
+  const storyboard_id = params.get('storyboard_id')!;
 
   log.info('Processing SplitGridImage', {
     grid_image_id,
+    storyboard_id,
     fal_status: falPayload.status,
   });
 
-  // Fetch scenes in order
-  log.startTiming('fetch_scenes');
-  const { data: scenes, error: scenesError } = await supabase
-    .from('scenes')
-    .select(`
-      id,
-      order,
-      first_frames (id)
-    `)
-    .eq('grid_image_id', grid_image_id)
-    .order('order', { ascending: true });
+  // Determine grid type to route appropriately
+  const { data: gridImage } = await supabase
+    .from('grid_images')
+    .select('type')
+    .eq('id', grid_image_id)
+    .single();
 
-  log.db('SELECT', 'scenes', {
-    grid_image_id,
-    count: scenes?.length || 0,
-    time_ms: log.endTiming('fetch_scenes'),
-  });
-
-  if (scenesError || !scenes) {
-    log.error('Failed to fetch scenes', { error: scenesError?.message });
-    log.summary('error', { grid_image_id, reason: 'scenes_fetch_failed' });
-    return new Response(
-      JSON.stringify({ success: false, error: 'Failed to fetch scenes' }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
-  }
+  const gridType = gridImage?.type || 'scene';
+  log.info('Grid type', { type: gridType });
 
   // Get images from specific ComfyUI nodes
   // Node 30 = url (split images), Node 11 = out_padded_url (padded images)
@@ -286,25 +350,103 @@ async function handleSplitGridImage(
       has_node_11: !!outPaddedImages,
     });
 
-    log.startTiming('mark_all_failed');
-    for (const scene of scenes) {
+    if (gridType === 'objects') {
       await supabase
-        .from('first_frames')
-        .update({ status: 'failed', error_message: 'split_error' })
-        .eq('scene_id', scene.id);
+        .from('objects')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', grid_image_id);
+    } else if (gridType === 'backgrounds') {
+      await supabase
+        .from('backgrounds')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', grid_image_id);
+    } else {
+      // scene type (image_to_video)
+      const { data: scenes } = await supabase
+        .from('scenes')
+        .select('id')
+        .eq('storyboard_id', storyboard_id);
+      if (scenes) {
+        for (const scene of scenes) {
+          await supabase
+            .from('first_frames')
+            .update({ status: 'failed', error_message: 'split_error' })
+            .eq('scene_id', scene.id);
+        }
+      }
     }
-    log.warn('Marked all first_frames as failed', {
-      count: scenes.length,
-      time_ms: log.endTiming('mark_all_failed'),
-    });
 
-    log.summary('error', { grid_image_id, reason: 'split_failed' });
+    log.summary('error', { grid_image_id, gridType, reason: 'split_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'Split failed' }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Route split results based on grid type
+  if (gridType === 'objects') {
+    return await handleObjectsSplit(
+      supabase,
+      grid_image_id,
+      storyboard_id,
+      urlImages!,
+      log
+    );
+  } else if (gridType === 'backgrounds') {
+    return await handleBackgroundsSplit(
+      supabase,
+      grid_image_id,
+      storyboard_id,
+      urlImages!,
+      log
+    );
+  } else {
+    // scene type (image_to_video) — existing behavior
+    return await handleSceneSplit(
+      supabase,
+      falPayload,
+      grid_image_id,
+      storyboard_id,
+      urlImages,
+      outPaddedImages,
+      log
+    );
+  }
+}
+
+async function handleSceneSplit(
+  supabase: ReturnType<typeof createClient>,
+  _falPayload: FalWebhookPayload,
+  grid_image_id: string,
+  storyboard_id: string,
+  urlImages: Array<{ url: string }> | undefined,
+  outPaddedImages: Array<{ url: string }> | undefined,
+  log: Logger
+): Promise<Response> {
+  // Fetch scenes in order
+  log.startTiming('fetch_scenes');
+  const { data: scenes, error: scenesError } = await supabase
+    .from('scenes')
+    .select(`
+      id,
+      order,
+      first_frames (id)
+    `)
+    .eq('storyboard_id', storyboard_id)
+    .order('order', { ascending: true });
+
+  log.db('SELECT', 'scenes', {
+    storyboard_id,
+    count: scenes?.length || 0,
+    time_ms: log.endTiming('fetch_scenes'),
+  });
+
+  if (scenesError || !scenes) {
+    log.error('Failed to fetch scenes', { error: scenesError?.message });
+    log.summary('error', { grid_image_id, reason: 'scenes_fetch_failed' });
+    return new Response(
+      JSON.stringify({ success: false, error: 'Failed to fetch scenes' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
 
@@ -341,6 +483,7 @@ async function handleSplitGridImage(
       .update({
         url: imageUrl,
         out_padded_url: outPaddedUrl,
+        grid_image_id,
         status,
         error_message: status === 'failed' ? 'split_error' : null,
       })
@@ -369,10 +512,180 @@ async function handleSplitGridImage(
       step: 'SplitGridImage',
       scenes_updated: scenes.length,
     }),
-    {
-      headers: { 'Content-Type': 'application/json' },
-    }
+    { headers: { 'Content-Type': 'application/json' } }
   );
+}
+
+async function handleObjectsSplit(
+  supabase: ReturnType<typeof createClient>,
+  grid_image_id: string,
+  storyboard_id: string,
+  urlImages: Array<{ url: string }>,
+  log: Logger
+): Promise<Response> {
+  log.startTiming('update_objects');
+  let successCount = 0;
+
+  // Update all object rows by (grid_image_id, order=i) — catches duplicates across scenes
+  for (let i = 0; i < urlImages.length; i++) {
+    const imageUrl = urlImages[i]?.url || null;
+    const status = imageUrl ? 'success' : 'failed';
+
+    const { count } = await supabase
+      .from('objects')
+      .update({
+        url: imageUrl,
+        final_url: imageUrl,
+        status,
+      })
+      .eq('grid_image_id', grid_image_id)
+      .eq('grid_position', i);
+
+    if (status === 'success') successCount++;
+    log.info('Objects updated for grid position', {
+      grid_position: i,
+      status,
+      rows_updated: count,
+    });
+  }
+
+  log.success('Objects updated', {
+    grid_positions: urlImages.length,
+    success: successCount,
+    time_ms: log.endTiming('update_objects'),
+  });
+
+  // Try to complete splitting if both splits are done
+  await tryCompleteSplitting(supabase, storyboard_id, log);
+
+  return new Response(
+    JSON.stringify({ success: true, step: 'SplitGridImage', type: 'objects' }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
+async function handleBackgroundsSplit(
+  supabase: ReturnType<typeof createClient>,
+  grid_image_id: string,
+  storyboard_id: string,
+  urlImages: Array<{ url: string }>,
+  log: Logger
+): Promise<Response> {
+  log.startTiming('update_backgrounds');
+  let successCount = 0;
+
+  // Update all background rows by (grid_image_id, order=i) — catches duplicates across scenes
+  for (let i = 0; i < urlImages.length; i++) {
+    const imageUrl = urlImages[i]?.url || null;
+    const status = imageUrl ? 'success' : 'failed';
+
+    const { count } = await supabase
+      .from('backgrounds')
+      .update({
+        url: imageUrl,
+        final_url: imageUrl,
+        status,
+      })
+      .eq('grid_image_id', grid_image_id)
+      .eq('grid_position', i);
+
+    if (status === 'success') successCount++;
+    log.info('Backgrounds updated for grid position', {
+      grid_position: i,
+      status,
+      rows_updated: count,
+    });
+  }
+
+  log.success('Backgrounds updated', {
+    grid_positions: urlImages.length,
+    success: successCount,
+    time_ms: log.endTiming('update_backgrounds'),
+  });
+
+  // Try to complete splitting if both splits are done
+  await tryCompleteSplitting(supabase, storyboard_id, log);
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      step: 'SplitGridImage',
+      type: 'backgrounds',
+    }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
+// Race-condition-safe: check if all splits are done and mark approved
+async function tryCompleteSplitting(
+  supabase: ReturnType<typeof createClient>,
+  storyboard_id: string,
+  log: Logger
+): Promise<void> {
+  // Fetch grid_image IDs for the storyboard
+  const { data: gridImages } = await supabase
+    .from('grid_images')
+    .select('id, type')
+    .eq('storyboard_id', storyboard_id)
+    .in('type', ['objects', 'backgrounds']);
+
+  const objectsGridId = gridImages?.find(
+    (g: { id: string; type: string }) => g.type === 'objects'
+  )?.id;
+  const backgroundsGridId = gridImages?.find(
+    (g: { id: string; type: string }) => g.type === 'backgrounds'
+  )?.id;
+
+  if (!objectsGridId || !backgroundsGridId) {
+    log.info('Grid images not found yet, skipping', {
+      objects_grid: objectsGridId,
+      backgrounds_grid: backgroundsGridId,
+    });
+    return;
+  }
+
+  // Check if all objects and backgrounds are done
+  const { data: pendingObjects } = await supabase
+    .from('objects')
+    .select('id')
+    .eq('grid_image_id', objectsGridId)
+    .neq('status', 'success');
+
+  const { data: pendingBackgrounds } = await supabase
+    .from('backgrounds')
+    .select('id')
+    .eq('grid_image_id', backgroundsGridId)
+    .neq('status', 'success');
+
+  if (
+    (pendingObjects && pendingObjects.length > 0) ||
+    (pendingBackgrounds && pendingBackgrounds.length > 0)
+  ) {
+    log.info('Splits not complete yet', {
+      pending_objects: pendingObjects?.length || 0,
+      pending_backgrounds: pendingBackgrounds?.length || 0,
+    });
+    return;
+  }
+
+  // Atomic gate: claim splitting → approved (only one webhook wins)
+  const { data: claimed, error: claimError } = await supabase
+    .from('storyboards')
+    .update({ plan_status: 'approved' })
+    .eq('id', storyboard_id)
+    .eq('plan_status', 'splitting')
+    .select('id');
+
+  if (claimError || !claimed || claimed.length === 0) {
+    log.info(
+      'Another webhook already completed splitting or not in splitting state'
+    );
+    return;
+  }
+
+  log.success('All splits complete, storyboard approved', {
+    storyboard_id,
+  });
 }
 
 // Helper to get videos from various possible locations
@@ -527,10 +840,16 @@ async function handleEnhanceImage(
   params: URLSearchParams,
   log: Logger
 ): Promise<Response> {
-  const first_frame_id = params.get('first_frame_id')!;
+  const first_frame_id = params.get('first_frame_id');
+  const background_id = params.get('background_id');
+  const isBackground = !!background_id;
+  const entityId = (isBackground ? background_id : first_frame_id)!;
+  const tableName = isBackground ? 'backgrounds' : 'first_frames';
+  const entityKey = isBackground ? 'background_id' : 'first_frame_id';
 
   log.info('Processing EnhanceImage', {
-    first_frame_id,
+    [entityKey]: entityId,
+    source: tableName,
     fal_status: falPayload.status,
   });
 
@@ -553,19 +872,19 @@ async function handleEnhanceImage(
 
     log.startTiming('db_update_failed');
     await supabase
-      .from('first_frames')
+      .from(tableName)
       .update({
         image_edit_status: 'failed',
         image_edit_error_message: 'generation_error',
       })
-      .eq('id', first_frame_id);
-    log.db('UPDATE', 'first_frames', {
-      id: first_frame_id,
+      .eq('id', entityId);
+    log.db('UPDATE', tableName, {
+      id: entityId,
       image_edit_status: 'failed',
       time_ms: log.endTiming('db_update_failed'),
     });
 
-    log.summary('error', { first_frame_id, reason: 'enhance_failed' });
+    log.summary('error', { [entityKey]: entityId, reason: 'enhance_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'Enhance failed' }),
       {
@@ -581,28 +900,28 @@ async function handleEnhanceImage(
     final_url: finalUrl,
   });
 
-  // Update first_frame with success — only update final_url (not outpainted_url)
+  // Update with success — only update final_url
   log.startTiming('db_update_success');
   await supabase
-    .from('first_frames')
+    .from(tableName)
     .update({
       image_edit_status: 'success',
       image_edit_error_message: null,
       final_url: finalUrl,
     })
-    .eq('id', first_frame_id);
-  log.db('UPDATE', 'first_frames', {
-    id: first_frame_id,
+    .eq('id', entityId);
+  log.db('UPDATE', tableName, {
+    id: entityId,
     image_edit_status: 'success',
     time_ms: log.endTiming('db_update_success'),
   });
 
-  log.summary('success', { first_frame_id, final_url: finalUrl });
+  log.summary('success', { [entityKey]: entityId, final_url: finalUrl });
   return new Response(
     JSON.stringify({
       success: true,
       step: 'EnhanceImage',
-      first_frame_id,
+      [entityKey]: entityId,
       final_url: finalUrl,
     }),
     {
@@ -755,10 +1074,10 @@ async function handleGenerateVideo(
   params: URLSearchParams,
   log: Logger
 ): Promise<Response> {
-  const first_frame_id = params.get('first_frame_id')!;
+  const scene_id = params.get('scene_id')!;
 
   log.info('Processing GenerateVideo', {
-    first_frame_id,
+    scene_id,
     fal_status: falPayload.status,
   });
 
@@ -791,19 +1110,19 @@ async function handleGenerateVideo(
 
     log.startTiming('db_update_failed');
     await supabase
-      .from('first_frames')
+      .from('scenes')
       .update({
         video_status: 'failed',
         video_error_message: 'generation_error',
       })
-      .eq('id', first_frame_id);
-    log.db('UPDATE', 'first_frames', {
-      id: first_frame_id,
+      .eq('id', scene_id);
+    log.db('UPDATE', 'scenes', {
+      id: scene_id,
       video_status: 'failed',
       time_ms: log.endTiming('db_update_failed'),
     });
 
-    log.summary('error', { first_frame_id, reason: 'generation_failed' });
+    log.summary('error', { scene_id, reason: 'generation_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'Video generation failed' }),
       {
@@ -820,27 +1139,27 @@ async function handleGenerateVideo(
     video_url: videoUrl,
   });
 
-  // Update first_frame with success and video_url
+  // Update scene with success and video_url
   log.startTiming('db_update_success');
   await supabase
-    .from('first_frames')
+    .from('scenes')
     .update({
       video_status: 'success',
       video_url: videoUrl,
     })
-    .eq('id', first_frame_id);
-  log.db('UPDATE', 'first_frames', {
-    id: first_frame_id,
+    .eq('id', scene_id);
+  log.db('UPDATE', 'scenes', {
+    id: scene_id,
     video_status: 'success',
     time_ms: log.endTiming('db_update_success'),
   });
 
-  log.summary('success', { first_frame_id, video_url: videoUrl });
+  log.summary('success', { scene_id, video_url: videoUrl });
   return new Response(
     JSON.stringify({
       success: true,
       step: 'GenerateVideo',
-      first_frame_id,
+      scene_id,
       video_url: videoUrl,
     }),
     {
@@ -855,10 +1174,10 @@ async function handleGenerateSFX(
   params: URLSearchParams,
   log: Logger
 ): Promise<Response> {
-  const first_frame_id = params.get('first_frame_id')!;
+  const scene_id = params.get('scene_id')!;
 
   log.info('Processing GenerateSFX', {
-    first_frame_id,
+    scene_id,
     fal_status: falPayload.status,
   });
 
@@ -881,19 +1200,19 @@ async function handleGenerateSFX(
 
     log.startTiming('db_update_failed');
     await supabase
-      .from('first_frames')
+      .from('scenes')
       .update({
         sfx_status: 'failed',
         sfx_error_message: 'generation_error',
       })
-      .eq('id', first_frame_id);
-    log.db('UPDATE', 'first_frames', {
-      id: first_frame_id,
+      .eq('id', scene_id);
+    log.db('UPDATE', 'scenes', {
+      id: scene_id,
       sfx_status: 'failed',
       time_ms: log.endTiming('db_update_failed'),
     });
 
-    log.summary('error', { first_frame_id, reason: 'sfx_generation_failed' });
+    log.summary('error', { scene_id, reason: 'sfx_generation_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'SFX generation failed' }),
       {
@@ -910,27 +1229,27 @@ async function handleGenerateSFX(
     video_url: videoUrl,
   });
 
-  // Update first_frame with success and overwrite video_url
+  // Update scene with success and overwrite video_url
   log.startTiming('db_update_success');
   await supabase
-    .from('first_frames')
+    .from('scenes')
     .update({
       sfx_status: 'success',
       video_url: videoUrl,
     })
-    .eq('id', first_frame_id);
-  log.db('UPDATE', 'first_frames', {
-    id: first_frame_id,
+    .eq('id', scene_id);
+  log.db('UPDATE', 'scenes', {
+    id: scene_id,
     sfx_status: 'success',
     time_ms: log.endTiming('db_update_success'),
   });
 
-  log.summary('success', { first_frame_id, video_url: videoUrl });
+  log.summary('success', { scene_id, video_url: videoUrl });
   return new Response(
     JSON.stringify({
       success: true,
       step: 'GenerateSFX',
-      first_frame_id,
+      scene_id,
       video_url: videoUrl,
     }),
     {

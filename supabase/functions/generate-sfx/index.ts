@@ -49,7 +49,7 @@ async function getSfxContext(
   sceneId: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{
-  first_frame_id: string;
+  scene_id: string;
   video_url: string;
   sfx_prompt: string | null;
 } | null> {
@@ -57,7 +57,10 @@ async function getSfxContext(
     .from('scenes')
     .select(`
       id,
-      first_frames (id, video_url, video_status, sfx_status, sfx_prompt)
+      video_url,
+      video_status,
+      sfx_status,
+      sfx_prompt
     `)
     .eq('id', sceneId)
     .single();
@@ -70,31 +73,25 @@ async function getSfxContext(
     return null;
   }
 
-  const firstFrame = scene.first_frames?.[0];
-  if (!firstFrame) {
-    log.error('No first_frame found for scene', { scene_id: sceneId });
-    return null;
-  }
-
-  if (firstFrame.video_status !== 'success' || !firstFrame.video_url) {
+  if (scene.video_status !== 'success' || !scene.video_url) {
     log.warn('No successful video for scene, skipping', {
-      first_frame_id: firstFrame.id,
-      video_status: firstFrame.video_status,
+      scene_id: sceneId,
+      video_status: scene.video_status,
     });
     return null;
   }
 
-  if (firstFrame.sfx_status === 'processing') {
+  if (scene.sfx_status === 'processing') {
     log.warn('SFX already processing, skipping', {
-      first_frame_id: firstFrame.id,
+      scene_id: sceneId,
     });
     return null;
   }
 
   return {
-    first_frame_id: firstFrame.id,
-    video_url: firstFrame.video_url,
-    sfx_prompt: firstFrame.sfx_prompt ?? null,
+    scene_id: sceneId,
+    video_url: scene.video_url,
+    sfx_prompt: scene.sfx_prompt ?? null,
   };
 }
 
@@ -129,7 +126,6 @@ Deno.serve(async (req: Request) => {
 
     const results: Array<{
       scene_id: string;
-      first_frame_id: string | null;
       request_id: string | null;
       status: 'queued' | 'skipped' | 'failed';
       error?: string;
@@ -156,7 +152,6 @@ Deno.serve(async (req: Request) => {
       if (!context) {
         results.push({
           scene_id: sceneId,
-          first_frame_id: null,
           request_id: null,
           status: 'skipped',
           error: 'Prerequisites not met (need successful video)',
@@ -166,14 +161,14 @@ Deno.serve(async (req: Request) => {
 
       // Update status to processing
       await supabase
-        .from('first_frames')
+        .from('scenes')
         .update({ sfx_status: 'processing' })
-        .eq('id', context.first_frame_id);
+        .eq('id', context.scene_id);
 
       // Build webhook URL
       const webhookParams = new URLSearchParams({
         step: 'GenerateSFX',
-        first_frame_id: context.first_frame_id,
+        scene_id: context.scene_id,
       });
       const webhookUrl = `${SUPABASE_URL}/functions/v1/webhook?${webhookParams.toString()}`;
 
@@ -181,7 +176,7 @@ Deno.serve(async (req: Request) => {
       falUrl.searchParams.set('fal_webhook', webhookUrl);
 
       log.api('fal.ai', 'workflows/octupost/sfx', {
-        first_frame_id: context.first_frame_id,
+        scene_id: context.scene_id,
       });
       log.startTiming(`fal_sfx_request_${i}`);
 
@@ -207,16 +202,15 @@ Deno.serve(async (req: Request) => {
           });
 
           await supabase
-            .from('first_frames')
+            .from('scenes')
             .update({
               sfx_status: 'failed',
               sfx_error_message: 'request_error',
             })
-            .eq('id', context.first_frame_id);
+            .eq('id', context.scene_id);
 
           results.push({
             scene_id: sceneId,
-            first_frame_id: context.first_frame_id,
             request_id: null,
             status: 'failed',
             error: `fal.ai request failed: ${falResponse.status}`,
@@ -232,20 +226,18 @@ Deno.serve(async (req: Request) => {
 
         // Store request_id
         await supabase
-          .from('first_frames')
+          .from('scenes')
           .update({ sfx_request_id: falResult.request_id })
-          .eq('id', context.first_frame_id);
+          .eq('id', context.scene_id);
 
         results.push({
           scene_id: sceneId,
-          first_frame_id: context.first_frame_id,
           request_id: falResult.request_id,
           status: 'queued',
         });
 
         log.success('SFX request queued', {
           scene_id: sceneId,
-          first_frame_id: context.first_frame_id,
           request_id: falResult.request_id,
         });
       } catch (err) {
@@ -255,16 +247,15 @@ Deno.serve(async (req: Request) => {
         });
 
         await supabase
-          .from('first_frames')
+          .from('scenes')
           .update({
             sfx_status: 'failed',
             sfx_error_message: 'request_error',
           })
-          .eq('id', context.first_frame_id);
+          .eq('id', context.scene_id);
 
         results.push({
           scene_id: sceneId,
-          first_frame_id: context.first_frame_id,
           request_id: null,
           status: 'failed',
           error: 'Request exception',

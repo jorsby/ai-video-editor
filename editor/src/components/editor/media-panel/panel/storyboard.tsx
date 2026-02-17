@@ -41,6 +41,9 @@ import {
   getStoryboardsForProject,
   type Storyboard,
   type StoryboardPlan,
+  type RefPlan,
+  type StoryboardMode,
+  type VideoModel,
 } from '@/lib/supabase/workflow-service';
 import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
@@ -61,6 +64,17 @@ const STORYBOARD_MODELS = [
 ] as const;
 
 type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
+
+const VIDEO_MODES = [
+  { value: 'image_to_video' as const, label: 'Image to Video' },
+  { value: 'ref_to_video' as const, label: 'Ref to Video' },
+] as const;
+
+const VIDEO_MODELS = [
+  { value: 'klingo3' as const, label: 'Kling O3' },
+  { value: 'klingo3pro' as const, label: 'Kling O3 Pro' },
+  { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
+] as const;
 
 interface StoryboardResponse {
   rows: number;
@@ -99,6 +113,9 @@ export default function PanelStoryboard() {
   const [formModel, setFormModel] = useState<StoryboardModel>(
     'google/gemini-3-pro-preview'
   );
+  const [formVideoMode, setFormVideoMode] =
+    useState<StoryboardMode>('image_to_video');
+  const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
 
   // Generation state
   const [loading, setLoading] = useState(false);
@@ -109,8 +126,14 @@ export default function PanelStoryboard() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Draft state
-  const [draftPlan, setDraftPlan] = useState<StoryboardPlan | null>(null);
+  const [draftPlan, setDraftPlan] = useState<StoryboardPlan | RefPlan | null>(
+    null
+  );
   const [draftStoryboardId, setDraftStoryboardId] = useState<string | null>(
+    null
+  );
+  const [draftMode, setDraftMode] = useState<StoryboardMode>('image_to_video');
+  const [draftVideoModel, setDraftVideoModel] = useState<VideoModel | null>(
     null
   );
   const [isApprovingDraft, setIsApprovingDraft] = useState(false);
@@ -140,6 +163,8 @@ export default function PanelStoryboard() {
         // Restore draft state
         setDraftPlan(draft.plan);
         setDraftStoryboardId(draft.id);
+        setDraftMode(draft.mode || 'image_to_video');
+        setDraftVideoModel(draft.model || null);
         setViewMode('draft');
         return;
       }
@@ -239,6 +264,10 @@ export default function PanelStoryboard() {
           model: formModel,
           projectId,
           aspectRatio: formAspectRatio,
+          mode: formVideoMode,
+          ...(formVideoMode === 'ref_to_video' && {
+            videoModel: formVideoModel,
+          }),
         }),
       });
 
@@ -252,19 +281,34 @@ export default function PanelStoryboard() {
       }
 
       const data = await response.json();
+      const sceneCount =
+        data.mode === 'ref_to_video'
+          ? (data.voiceover_list?.en?.length ?? data.scene_prompts?.length)
+          : (data.voiceover_list?.en?.length ?? 0);
       console.log('[Storyboard] Plan generated:', {
-        scenes: data.voiceover_list.length,
+        mode: data.mode || 'image_to_video',
+        scenes: sceneCount,
         storyboard_id: data.storyboard_id,
       });
 
       // Set draft state and switch to draft mode for review
-      setDraftPlan({
-        rows: data.rows,
-        cols: data.cols,
-        grid_image_prompt: data.grid_image_prompt,
-        voiceover_list: data.voiceover_list,
-        visual_flow: data.visual_flow,
-      });
+      if (data.mode === 'ref_to_video') {
+        // Ref plan — store the entire plan object
+        const { storyboard_id, mode, model, ...planData } = data;
+        setDraftPlan(planData as RefPlan);
+        setDraftMode('ref_to_video');
+        setDraftVideoModel(model || formVideoModel);
+      } else {
+        setDraftPlan({
+          rows: data.rows,
+          cols: data.cols,
+          grid_image_prompt: data.grid_image_prompt,
+          voiceover_list: data.voiceover_list,
+          visual_flow: data.visual_flow,
+        });
+        setDraftMode('image_to_video');
+        setDraftVideoModel(null);
+      }
       setDraftStoryboardId(data.storyboard_id);
       setViewMode('draft');
       setResult(data);
@@ -363,6 +407,8 @@ export default function PanelStoryboard() {
     // Clear draft state
     setDraftPlan(null);
     setDraftStoryboardId(null);
+    setDraftMode('image_to_video');
+    setDraftVideoModel(null);
     setDraftError(null);
     setResult(null);
     setViewMode('create');
@@ -388,6 +434,7 @@ export default function PanelStoryboard() {
               {storyboards.map((sb) => (
                 <SelectItem key={sb.id} value={sb.id}>
                   {formatDate(sb.created_at)} ({sb.aspect_ratio})
+                  {sb.mode === 'ref_to_video' ? ' [Ref]' : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -414,6 +461,8 @@ export default function PanelStoryboard() {
               setFormVoiceover('');
               setFormAspectRatio('9:16');
               setFormModel('google/gemini-3-pro-preview');
+              setFormVideoMode('image_to_video');
+              setFormVideoModel('klingo3');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -468,6 +517,8 @@ export default function PanelStoryboard() {
         {viewMode === 'draft' && draftPlan && (
           <DraftPlanEditor
             plan={draftPlan}
+            mode={draftMode}
+            videoModel={draftVideoModel}
             onPlanChange={setDraftPlan}
             onApprove={handleApproveDraft}
             onRegenerate={handleRegenerateDraft}
@@ -486,13 +537,23 @@ export default function PanelStoryboard() {
                 size="sm"
                 className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground mb-2 group"
               >
-                Plan ({selectedStoryboard.plan.voiceover_list.length} scenes)
+                Plan (
+                {'scene_prompts' in selectedStoryboard.plan
+                  ? selectedStoryboard.plan.scene_prompts.length
+                  : (selectedStoryboard.plan.voiceover_list.en?.length ??
+                    0)}{' '}
+                scenes)
                 <IconChevronDown className="size-3 group-data-[state=open]:hidden" />
                 <IconChevronUp className="size-3 hidden group-data-[state=open]:block" />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <DraftPlanEditor plan={selectedStoryboard.plan} readOnly />
+              <DraftPlanEditor
+                plan={selectedStoryboard.plan}
+                mode={selectedStoryboard.mode || 'image_to_video'}
+                videoModel={selectedStoryboard.model}
+                readOnly
+              />
             </CollapsibleContent>
           </Collapsible>
         )}
@@ -535,6 +596,11 @@ export default function PanelStoryboard() {
                     <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
                       {selectedStoryboard.aspect_ratio}
                     </span>
+                    {selectedStoryboard.mode === 'ref_to_video' && (
+                      <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
+                        Ref
+                      </span>
+                    )}
                   </div>
                   <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
                   <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
@@ -586,41 +652,79 @@ export default function PanelStoryboard() {
               </div>
 
               {/* Controls Row: Dropdowns */}
-              <div className="flex items-center gap-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="secondary" size="sm" className="gap-1">
-                      {formAspectRatio}
-                      <IconChevronDown className="size-3 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {ASPECT_RATIOS.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={() => setFormAspectRatio(option.value)}
-                      >
-                        {option.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="secondary" size="sm" className="gap-1">
+                        {formAspectRatio}
+                        <IconChevronDown className="size-3 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {ASPECT_RATIOS.map((option) => (
+                        <DropdownMenuItem
+                          key={option.value}
+                          onClick={() => setFormAspectRatio(option.value)}
+                        >
+                          {option.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
-                <Select
-                  value={formModel}
-                  onValueChange={(v) => setFormModel(v as StoryboardModel)}
-                >
-                  <SelectTrigger className="h-8 flex-1 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STORYBOARD_MODELS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <Select
+                    value={formVideoMode}
+                    onValueChange={(v) => setFormVideoMode(v as StoryboardMode)}
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VIDEO_MODES.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={formModel}
+                    onValueChange={(v) => setFormModel(v as StoryboardModel)}
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STORYBOARD_MODELS.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {formVideoMode === 'ref_to_video' && (
+                    <Select
+                      value={formVideoModel}
+                      onValueChange={(v) => setFormVideoModel(v as VideoModel)}
+                    >
+                      <SelectTrigger className="h-8 w-[130px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VIDEO_MODELS.map((m) => (
+                          <SelectItem key={m.value} value={m.value}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </div>
 
               {/* Generate Button */}

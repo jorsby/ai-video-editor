@@ -14,7 +14,7 @@ interface ExportModalProps {
 }
 
 export function ExportModal({ open, onOpenChange }: ExportModalProps) {
-  const { studio } = useStudioStore();
+  const { studio, setIsExporting: setStoreIsExporting } = useStudioStore();
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportBlobUrl, setExportBlobUrl] = useState<string | null>(null);
@@ -36,6 +36,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
     setExportStartTime(null);
     setIsExporting(false);
+    setStoreIsExporting(false);
     setExportProgress(0);
   };
 
@@ -56,6 +57,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
     try {
       setIsExporting(true);
+      setStoreIsExporting(true);
       setExportProgress(0);
       setExportBlobUrl(null);
       setExportStartTime(Date.now());
@@ -126,6 +128,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       Log.error('Export error:', error);
       alert(`Failed to export: ${(error as Error).message}`);
       setIsExporting(false);
+      setStoreIsExporting(false);
     }
   };
 

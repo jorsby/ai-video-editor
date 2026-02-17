@@ -6,7 +6,15 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { Magnet, ZoomOut, ZoomIn, Copy, Trash2, Scissors } from 'lucide-react';
+import {
+  Magnet,
+  ZoomOut,
+  ZoomIn,
+  Copy,
+  Trash2,
+  Scissors,
+  RotateCcw,
+} from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { DEFAULT_FPS } from '@/stores/project-store';
 import { formatTimeCode } from '@/lib/time';
@@ -25,12 +33,14 @@ export function TimelineToolbar({
   onDelete,
   onDuplicate,
   onSplit,
+  onReset,
 }: {
   zoomLevel: number;
   setZoomLevel: (zoom: number) => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
   onSplit?: () => void;
+  onReset?: () => void;
 }) {
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
 
@@ -83,6 +93,17 @@ export function TimelineToolbar({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Auto snapping</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onReset}>
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset timeline</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>

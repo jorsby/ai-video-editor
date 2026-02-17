@@ -44,6 +44,7 @@ interface EditImageInput {
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
+  source?: 'first_frame' | 'background';
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
@@ -62,6 +63,12 @@ const ENHANCE_PROMPT =
 
 interface FirstFrameContext {
   first_frame_id: string;
+  scene_id: string;
+  image_url: string;
+}
+
+interface BackgroundContext {
+  background_id: string;
   scene_id: string;
   image_url: string;
 }
@@ -109,7 +116,7 @@ async function getFirstFrameContext(
 }
 
 async function sendEditRequest(
-  context: FirstFrameContext,
+  context: FirstFrameContext | BackgroundContext,
   endpoint: string,
   model: string,
   prompt: string,
@@ -117,9 +124,14 @@ async function sendEditRequest(
   log: ReturnType<typeof createLogger>,
   referenceUrls?: string[]
 ): Promise<{ requestId: string | null; error: string | null }> {
+  const isBackground = 'background_id' in context;
+  const entityId = isBackground
+    ? context.background_id
+    : context.first_frame_id;
+  const entityKey = isBackground ? 'background_id' : 'first_frame_id';
   const webhookParams = new URLSearchParams({
     step: webhookStep,
-    first_frame_id: context.first_frame_id,
+    [entityKey]: entityId,
   });
   const webhookUrl = `${SUPABASE_URL}/functions/v1/webhook?${webhookParams.toString()}`;
 
@@ -127,7 +139,7 @@ async function sendEditRequest(
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
   log.api('fal.ai', endpoint, {
-    first_frame_id: context.first_frame_id,
+    [entityKey]: entityId,
     has_image_url: !!context.image_url,
     reference_count: referenceUrls?.length ?? 0,
   });
@@ -223,6 +235,47 @@ async function getFirstFrameContextForEnhance(
     first_frame_id: firstFrame.id,
     scene_id: sceneId,
     image_url: firstFrame.final_url,
+  };
+}
+
+async function getBackgroundContextForEnhance(
+  supabase: SupabaseClient,
+  sceneId: string,
+  log: ReturnType<typeof createLogger>
+): Promise<BackgroundContext | null> {
+  const { data: bg, error: bgError } = await supabase
+    .from('backgrounds')
+    .select('id, scene_id, final_url, image_edit_status')
+    .eq('scene_id', sceneId)
+    .single();
+
+  if (bgError || !bg) {
+    log.error('Failed to fetch background', {
+      scene_id: sceneId,
+      error: bgError?.message,
+    });
+    return null;
+  }
+
+  if (!bg.final_url) {
+    log.warn('No final_url for background', { background_id: bg.id });
+    return null;
+  }
+
+  if (
+    bg.image_edit_status === 'enhancing' ||
+    bg.image_edit_status === 'editing'
+  ) {
+    log.warn('Enhance/edit already processing, skipping', {
+      background_id: bg.id,
+    });
+    return null;
+  }
+
+  return {
+    background_id: bg.id,
+    scene_id: sceneId,
+    image_url: bg.final_url,
   };
 }
 
@@ -369,6 +422,7 @@ Deno.serve(async (req: Request) => {
     // --- Standard actions: outpaint / enhance / custom_edit ---
     const isEnhance = action === 'enhance';
     const isCustomEdit = action === 'custom_edit';
+    const isBackground = input.source === 'background';
     const useFinalUrl = isEnhance || isCustomEdit;
     const prompt = isCustomEdit
       ? input.prompt!
@@ -381,6 +435,7 @@ Deno.serve(async (req: Request) => {
       : isEnhance
         ? 'enhancing'
         : 'outpainting';
+    const tableName = isBackground ? 'backgrounds' : 'first_frames';
 
     log.setContext({ step: webhookStep });
     log.info(`Processing ${action} requests`, {
@@ -388,11 +443,12 @@ Deno.serve(async (req: Request) => {
       model,
       endpoint,
       action,
+      source: input.source ?? 'first_frame',
     });
 
     const results: Array<{
       scene_id: string;
-      first_frame_id: string | null;
+      entity_id: string | null;
       request_id: string | null;
       status: 'queued' | 'skipped' | 'failed';
       error?: string;
@@ -407,13 +463,16 @@ Deno.serve(async (req: Request) => {
         await delay(1000);
       }
 
-      // Get first_frame context
+      // Get context (first_frame or background)
       log.startTiming(`get_context_${i}`);
-      const context = useFinalUrl
-        ? await getFirstFrameContextForEnhance(supabase, sceneId, log)
-        : await getFirstFrameContext(supabase, sceneId, log);
-      log.info('First frame context fetched', {
+      const context = isBackground
+        ? await getBackgroundContextForEnhance(supabase, sceneId, log)
+        : useFinalUrl
+          ? await getFirstFrameContextForEnhance(supabase, sceneId, log)
+          : await getFirstFrameContext(supabase, sceneId, log);
+      log.info('Context fetched', {
         scene_id: sceneId,
+        source: tableName,
         has_context: !!context,
         time_ms: log.endTiming(`get_context_${i}`),
       });
@@ -421,19 +480,24 @@ Deno.serve(async (req: Request) => {
       if (!context) {
         results.push({
           scene_id: sceneId,
-          first_frame_id: null,
+          entity_id: null,
           request_id: null,
           status: 'skipped',
-          error: 'First frame not found or already processing',
+          error: `${tableName} not found or already processing`,
         });
         continue;
       }
 
+      const entityId =
+        'background_id' in context
+          ? context.background_id
+          : context.first_frame_id;
+
       // Update status to processing
       await supabase
-        .from('first_frames')
+        .from(tableName)
         .update({ image_edit_status: statusLabel })
-        .eq('id', context.first_frame_id);
+        .eq('id', entityId);
 
       // Send edit request
       const { requestId, error } = await sendEditRequest(
@@ -448,16 +512,16 @@ Deno.serve(async (req: Request) => {
       if (error || !requestId) {
         // Mark as failed with request_error
         await supabase
-          .from('first_frames')
+          .from(tableName)
           .update({
             image_edit_status: 'failed',
             image_edit_error_message: 'request_error',
           })
-          .eq('id', context.first_frame_id);
+          .eq('id', entityId);
 
         results.push({
           scene_id: sceneId,
-          first_frame_id: context.first_frame_id,
+          entity_id: entityId,
           request_id: null,
           status: 'failed',
           error: error || 'Unknown error',
@@ -467,20 +531,20 @@ Deno.serve(async (req: Request) => {
 
       // Store request_id
       await supabase
-        .from('first_frames')
+        .from(tableName)
         .update({ image_edit_request_id: requestId })
-        .eq('id', context.first_frame_id);
+        .eq('id', entityId);
 
       results.push({
         scene_id: sceneId,
-        first_frame_id: context.first_frame_id,
+        entity_id: entityId,
         request_id: requestId,
         status: 'queued',
       });
 
       log.success(`${action} request queued`, {
         scene_id: sceneId,
-        first_frame_id: context.first_frame_id,
+        entity_id: entityId,
         request_id: requestId,
       });
     }

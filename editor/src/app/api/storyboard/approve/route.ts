@@ -73,30 +73,58 @@ export async function POST(req: NextRequest) {
     const dimensions =
       ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
 
-    // Call start-workflow edge function with storyboard_id
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
     // User is already verified by getUser() above. We use the anon key as the
     // bearer token because Supabase Auth issues ES256 JWTs which the edge
     // function gateway cannot verify (it expects HS256). The edge function
     // itself uses the service role key for all DB operations.
-    const workflowBody = {
-      storyboard_id: storyboardId,
-      project_id: storyboard.project_id,
-      rows: storyboard.plan.rows,
-      cols: storyboard.plan.cols,
-      grid_image_prompt: storyboard.plan.grid_image_prompt,
-      voiceover_list: storyboard.plan.voiceover_list,
-      visual_prompt_list: storyboard.plan.visual_flow,
-      width: dimensions.width,
-      height: dimensions.height,
-      voiceover: storyboard.voiceover,
-      aspect_ratio: storyboard.aspect_ratio,
-    };
+    const isRefMode = storyboard.mode === 'ref_to_video';
+    const edgeFunctionName = isRefMode
+      ? 'start-ref-workflow'
+      : 'start-workflow';
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    // Build body based on mode
+    const workflowBody = isRefMode
+      ? {
+          storyboard_id: storyboardId,
+          project_id: storyboard.project_id,
+          objects_rows: storyboard.plan.objects_rows,
+          objects_cols: storyboard.plan.objects_cols,
+          objects_grid_prompt: storyboard.plan.objects_grid_prompt,
+          object_names:
+            storyboard.plan.object_names ??
+            storyboard.plan.objects?.map((o: { name: string }) => o.name),
+          bg_rows: storyboard.plan.bg_rows,
+          bg_cols: storyboard.plan.bg_cols,
+          backgrounds_grid_prompt: storyboard.plan.backgrounds_grid_prompt,
+          background_names: storyboard.plan.background_names,
+          scene_prompts: storyboard.plan.scene_prompts,
+          scene_bg_indices: storyboard.plan.scene_bg_indices,
+          scene_object_indices: storyboard.plan.scene_object_indices,
+          voiceover_list: storyboard.plan.voiceover_list,
+          width: dimensions.width,
+          height: dimensions.height,
+          voiceover: storyboard.voiceover,
+          aspect_ratio: storyboard.aspect_ratio,
+        }
+      : {
+          storyboard_id: storyboardId,
+          project_id: storyboard.project_id,
+          rows: storyboard.plan.rows,
+          cols: storyboard.plan.cols,
+          grid_image_prompt: storyboard.plan.grid_image_prompt,
+          voiceover_list: storyboard.plan.voiceover_list,
+          visual_prompt_list: storyboard.plan.visual_flow,
+          width: dimensions.width,
+          height: dimensions.height,
+          voiceover: storyboard.voiceover,
+          aspect_ratio: storyboard.aspect_ratio,
+        };
 
     const fnResponse = await fetch(
-      `${supabaseUrl}/functions/v1/start-workflow`,
+      `${supabaseUrl}/functions/v1/${edgeFunctionName}`,
       {
         method: 'POST',
         headers: {
@@ -138,12 +166,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Status stays as 'generating' — the webhook will set it to 'grid_ready'
-    // when the grid image is generated, allowing user to review before splitting
+    // when the grid image(s) are generated, allowing user to review before splitting
 
     return NextResponse.json({
       success: true,
       storyboard_id: storyboardId,
-      grid_image_id: fnData?.grid_image_id,
+      ...(isRefMode
+        ? {
+            objects_grid_id: fnData?.objects_grid_id,
+            bg_grid_id: fnData?.bg_grid_id,
+          }
+        : { grid_image_id: fnData?.grid_image_id }),
     });
   } catch (error) {
     console.error('Approve storyboard error:', error);

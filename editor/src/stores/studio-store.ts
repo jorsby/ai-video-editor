@@ -16,6 +16,8 @@ interface StudioState {
   clearTransitionKeys: () => void;
   pendingTransitionClipIds: PendingTransitionClipIds | null;
   setPendingTransitionClipIds: (ids: PendingTransitionClipIds | null) => void;
+  isExporting: boolean;
+  setIsExporting: (v: boolean) => void;
 }
 
 export const useStudioStore = create<StudioState>((set) => ({
@@ -33,4 +35,6 @@ export const useStudioStore = create<StudioState>((set) => ({
   clearTransitionKeys: () => set({ selectedTransitionKeys: [] }),
   pendingTransitionClipIds: null,
   setPendingTransitionClipIds: (ids) => set({ pendingTransitionClipIds: ids }),
+  isExporting: false,
+  setIsExporting: (v) => set({ isExporting: v }),
 }));

@@ -69,13 +69,13 @@ async function getSceneContext(
   language: string,
   log: ReturnType<typeof createLogger>
 ): Promise<SceneContext | null> {
-  // Fetch the scene with its voiceover and grid_image_id
+  // Fetch the scene with its voiceover and storyboard_id
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
     .select(`
       id,
       order,
-      grid_image_id,
+      storyboard_id,
       voiceovers (id, text, language)
     `)
     .eq('id', sceneId)
@@ -100,7 +100,7 @@ async function getSceneContext(
     return null;
   }
 
-  // Fetch all scenes in the same grid_image for context
+  // Fetch all scenes in the same storyboard for context
   const { data: allScenes, error: allScenesError } = await supabase
     .from('scenes')
     .select(`
@@ -108,7 +108,7 @@ async function getSceneContext(
       order,
       voiceovers (text, language)
     `)
-    .eq('grid_image_id', scene.grid_image_id)
+    .eq('storyboard_id', scene.storyboard_id)
     .order('order', { ascending: true });
 
   if (allScenesError || !allScenes) {

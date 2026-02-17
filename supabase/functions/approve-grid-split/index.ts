@@ -112,7 +112,7 @@ Deno.serve(async (req: Request) => {
     for (let i = 0; i < expectedScenes; i++) {
       const { data: scene, error: sceneError } = await supabase
         .from('scenes')
-        .insert({ grid_image_id, order: i })
+        .insert({ storyboard_id, order: i })
         .select()
         .single();
 
@@ -126,6 +126,7 @@ Deno.serve(async (req: Request) => {
 
       await supabase.from('first_frames').insert({
         scene_id: scene.id,
+        grid_image_id,
         visual_prompt: visual_prompt_list[i],
         status: 'processing',
       });
@@ -149,6 +150,7 @@ Deno.serve(async (req: Request) => {
     const splitWebhookParams = new URLSearchParams({
       step: 'SplitGridImage',
       grid_image_id: grid_image_id,
+      storyboard_id: storyboard_id,
     });
     const splitWebhookUrl = `${SUPABASE_URL}/functions/v1/webhook?${splitWebhookParams.toString()}`;
 
@@ -223,7 +225,7 @@ Deno.serve(async (req: Request) => {
       const { data: scenes } = await supabase
         .from('scenes')
         .select('id')
-        .eq('grid_image_id', grid_image_id);
+        .eq('storyboard_id', storyboard_id);
 
       if (scenes) {
         for (const scene of scenes) {

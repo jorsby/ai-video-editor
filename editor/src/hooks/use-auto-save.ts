@@ -6,7 +6,7 @@ import { saveTimeline } from '@/lib/supabase/timeline-service';
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
 
 export function useAutoSave() {
-  const { studio } = useStudioStore();
+  const { studio, isExporting } = useStudioStore();
   const projectId = useProjectId();
   const isSavingRef = useRef(false);
 
@@ -14,6 +14,7 @@ export function useAutoSave() {
     if (!studio) return;
 
     const autoSave = async () => {
+      if (useStudioStore.getState().isExporting) return;
       if (isSavingRef.current || !studio) return;
       isSavingRef.current = true;
       try {
