@@ -126,13 +126,16 @@ export function useWorkflow(
     fetchData();
   }, [fetchData]);
 
+  // Stable key for all grid image IDs to use as useEffect dependency
+  const gridImageIdsKey = gridImages.map((gi) => gi.id).join(',');
+
   // Real-time subscription for grid_images, first_frames, and voiceovers
-  // Use the first grid image ID as the subscription key (the handler updates all grids by ID match)
   useEffect(() => {
-    if (!realtime || !gridImage?.id) return;
+    const ids = gridImageIdsKey.split(',').filter(Boolean);
+    if (!realtime || ids.length === 0) return;
 
     const unsubscribe = subscribeToSceneUpdates(
-      gridImage.id,
+      ids,
       {
         onGridImageUpdate: (updated) => {
           setStoryboard((prev) => {
@@ -262,7 +265,7 @@ export function useWorkflow(
     );
 
     return unsubscribe;
-  }, [realtime, gridImage?.id, storyboard?.id]);
+  }, [realtime, gridImageIdsKey, storyboard?.id]);
 
   // Compute derived state
   const isProcessing =

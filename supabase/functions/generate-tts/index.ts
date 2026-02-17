@@ -43,7 +43,7 @@ const TTS_ENDPOINTS: Record<string, string> = {
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
 };
 
-const DEFAULT_TTS_MODEL = 'turbo-v2.5';
+const DEFAULT_TTS_MODEL = 'multilingual-v2';
 
 interface GenerateTTSInput {
   scene_ids: string[];

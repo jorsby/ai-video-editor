@@ -474,7 +474,7 @@ export interface StoryboardRow {
  * Returns a single unsubscribe function that cleans up all channels
  */
 export function subscribeToSceneUpdates(
-  gridImageId: string,
+  gridImageIds: string[],
   callbacks: SceneUpdateCallbacks,
   storyboardId?: string
 ) {
@@ -500,28 +500,32 @@ export function subscribeToSceneUpdates(
     channels.push(sbChannel);
   }
 
-  // Grid image updates
+  // Grid image updates — one channel per grid image ID
   if (callbacks.onGridImageUpdate) {
-    const gridChannel = supabase
-      .channel(`grid_image_${gridImageId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'grid_images',
-          filter: `id=eq.${gridImageId}`,
-        },
-        (payload) => callbacks.onGridImageUpdate?.(payload.new as GridImage)
-      )
-      .subscribe();
-    channels.push(gridChannel);
+    for (const gid of gridImageIds) {
+      const gridChannel = supabase
+        .channel(`grid_image_${gid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'grid_images',
+            filter: `id=eq.${gid}`,
+          },
+          (payload) => callbacks.onGridImageUpdate?.(payload.new as GridImage)
+        )
+        .subscribe();
+      channels.push(gridChannel);
+    }
   }
+
+  const channelKey = gridImageIds.join('_');
 
   // First frame updates (includes visual_prompt, url, status)
   if (callbacks.onFirstFrameUpdate) {
     const ffChannel = supabase
-      .channel(`first_frames_${gridImageId}`)
+      .channel(`first_frames_${channelKey}`)
       .on(
         'postgres_changes',
         {
@@ -538,7 +542,7 @@ export function subscribeToSceneUpdates(
   // Scene updates (for video/sfx status changes)
   if (callbacks.onSceneUpdate) {
     const sceneChannel = supabase
-      .channel(`scenes_${gridImageId}`)
+      .channel(`scenes_${channelKey}`)
       .on(
         'postgres_changes',
         {
@@ -555,7 +559,7 @@ export function subscribeToSceneUpdates(
   // Voiceover updates (listen for both INSERT and UPDATE to catch all changes)
   if (callbacks.onVoiceoverUpdate) {
     const voChannel = supabase
-      .channel(`voiceovers_${gridImageId}`)
+      .channel(`voiceovers_${channelKey}`)
       .on(
         'postgres_changes',
         {
@@ -579,7 +583,7 @@ export function subscribeToSceneUpdates(
   // Background updates (for ref_to_video scene thumbnails)
   if (callbacks.onBackgroundUpdate) {
     const bgChannel = supabase
-      .channel(`backgrounds_${gridImageId}`)
+      .channel(`backgrounds_${channelKey}`)
       .on(
         'postgres_changes',
         {
@@ -603,7 +607,7 @@ export function subscribeToSceneUpdates(
   // Object updates (for ref_to_video character/item thumbnails)
   if (callbacks.onObjectUpdate) {
     const objChannel = supabase
-      .channel(`objects_${gridImageId}`)
+      .channel(`objects_${channelKey}`)
       .on(
         'postgres_changes',
         {

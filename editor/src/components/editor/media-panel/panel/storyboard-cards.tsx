@@ -324,6 +324,7 @@ export function StoryboardCards({
     new Set()
   );
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isOutpainting, setIsOutpainting] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isCustomEditing, setIsCustomEditing] = useState(false);
@@ -350,7 +351,7 @@ export function StoryboardCards({
     tr: { voice: '75SIZa3vvET95PHhf1yD' },
     ar: { voice: 'IES4nrmZdUBHByLBde0P' },
   });
-  const [ttsModel, setTtsModel] = useState<TTSModelKey>('turbo-v2.5');
+  const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [videoVolume, setVideoVolume] = useState(5);
   const [playingVoiceoverId, setPlayingVoiceoverId] = useState<string | null>(
@@ -437,6 +438,57 @@ export function StoryboardCards({
       toast.error('Failed to generate voiceovers');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateAllVoiceovers = async () => {
+    if (selectedSceneIds.size === 0) return;
+
+    setIsGeneratingAll(true);
+    try {
+      const supabase = createClient();
+      const languages = ['en', 'tr', 'ar'] as const;
+      const sceneIds = Array.from(selectedSceneIds);
+
+      const results = await Promise.allSettled(
+        languages.map((lang) =>
+          supabase.functions.invoke('generate-tts', {
+            body: {
+              scene_ids: sceneIds,
+              voice: voiceConfig[lang].voice,
+              model: ttsModel,
+              language: lang,
+              speed: ttsSpeed,
+            },
+          })
+        )
+      );
+
+      let totalQueued = 0;
+      let failures = 0;
+      for (const result of results) {
+        if (result.status === 'fulfilled' && !result.value.error) {
+          totalQueued += result.value.data?.summary?.queued ?? 0;
+        } else {
+          failures++;
+        }
+      }
+
+      if (totalQueued > 0) {
+        toast.success(
+          `Voiceover generation started for ${totalQueued} scene(s) across ${languages.length - failures} language(s)`
+        );
+      }
+      if (failures > 0) {
+        toast.error(`${failures} language(s) failed to start`);
+      }
+      clearSelection();
+      refresh();
+    } catch (err) {
+      console.error('Failed to generate all voiceovers:', err);
+      toast.error('Failed to generate voiceovers for all languages');
+    } finally {
+      setIsGeneratingAll(false);
     }
   };
 
@@ -1490,6 +1542,25 @@ export function StoryboardCards({
                     <IconMicrophone className="size-3.5 mr-1" />
                   )}
                   Generate Voiceover
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    selectedSceneIds.size === 0 ||
+                    isGeneratingAll ||
+                    isGenerating
+                  }
+                  onClick={handleGenerateAllVoiceovers}
+                  className="h-9 text-xs"
+                  title="Generate voiceovers for all 3 languages (EN, TR, AR)"
+                >
+                  {isGeneratingAll ? (
+                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                  ) : (
+                    <IconMicrophone className="size-3.5 mr-1" />
+                  )}
+                  All Languages
                 </Button>
                 <Button
                   size="sm"

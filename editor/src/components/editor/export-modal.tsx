@@ -8,6 +8,19 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Loader2 } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 
+// Transform external URLs to proxy through our API to avoid CORS errors during export
+function proxyClipUrl(src: string): string {
+  if (
+    !src ||
+    src.startsWith('blob:') ||
+    src.startsWith('data:') ||
+    src.startsWith('/')
+  ) {
+    return src;
+  }
+  return `/api/proxy/media?url=${encodeURIComponent(src)}`;
+}
+
 interface ExportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -107,7 +120,11 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
         setExportProgress(v);
       });
 
-      const validJson = { ...json, clips: validClips };
+      const proxiedClips = validClips.map((clip: any) => ({
+        ...clip,
+        src: clip.src ? proxyClipUrl(clip.src) : clip.src,
+      }));
+      const validJson = { ...json, clips: proxiedClips };
       await com.loadFromJSON(validJson);
 
       const stream = com.output();

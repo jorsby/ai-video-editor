@@ -121,7 +121,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     endpoint: 'workflows/octupost/klingo3',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
+    bucketDuration: (raw) => Math.max(3, Math.min(15, raw)),
     buildPayload: ({
       prompt,
       elements,
@@ -140,7 +140,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     endpoint: 'workflows/octupost/klingo3pro',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
+    bucketDuration: (raw) => Math.max(3, Math.min(15, raw)),
     buildPayload: ({
       prompt,
       elements,
@@ -601,7 +601,8 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!modelConfig.validResolutions.includes(resolution)) {
+    const usesResolution = !['klingo3', 'klingo3pro'].includes(model);
+    if (usesResolution && !modelConfig.validResolutions.includes(resolution)) {
       log.error('Invalid resolution for model', { model, resolution });
       return errorResponse(
         `resolution must be one of: ${modelConfig.validResolutions.join(', ')} for model ${model}`,

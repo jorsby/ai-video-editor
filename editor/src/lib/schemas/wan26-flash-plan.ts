@@ -51,7 +51,7 @@ export const WAN26_FLASH_SYSTEM_PROMPT = `You are a storyboard planner for AI vi
 
 RULES:
 1. Voiceover Splitting and Grid Planning
-- Target 4-12 seconds of speech per voiceover segment.
+- Target 5 or 10 seconds of speech per voiceover segment (video can only be 5s or 10s).
 - Adjust your splitting strategy so the total segment count matches one of the valid grid sizes below for scene count.
 - Valid grid sizes are: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36). The squarest possible grid that fits the segment count is preferred.
 
