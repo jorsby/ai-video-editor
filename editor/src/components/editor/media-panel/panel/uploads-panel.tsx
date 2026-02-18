@@ -161,7 +161,7 @@ export function PanelUploads() {
           type="file"
           ref={fileInputRef}
           className="hidden"
-          accept="image/*,video/*"
+          accept="image/*,video/*,audio/*"
           onChange={handleFileUpload}
         />
 

@@ -53,9 +53,10 @@ interface ApproveRefSplitInput {
   object_descriptions?: string[]; // Kling O3 only
   background_names: string[];
   // Scene data from plan
-  scene_prompts: string[];
+  scene_prompts: (string | string[])[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
+  scene_multi_shots?: boolean[];
   voiceover_list: { en: string[]; tr: string[]; ar: string[] };
   width: number;
   height: number;
@@ -153,6 +154,7 @@ Deno.serve(async (req: Request) => {
       scene_prompts,
       scene_bg_indices,
       scene_object_indices,
+      scene_multi_shots,
       voiceover_list,
       width,
       height,
@@ -216,7 +218,11 @@ Deno.serve(async (req: Request) => {
         .insert({
           storyboard_id,
           order: i,
-          prompt: scene_prompts[i],
+          prompt: Array.isArray(scene_prompts[i]) ? null : scene_prompts[i],
+          multi_prompt: Array.isArray(scene_prompts[i])
+            ? scene_prompts[i]
+            : null,
+          multi_shots: scene_multi_shots?.[i] ?? null,
         })
         .select()
         .single();

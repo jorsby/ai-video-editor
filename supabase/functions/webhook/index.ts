@@ -842,14 +842,25 @@ async function handleEnhanceImage(
 ): Promise<Response> {
   const first_frame_id = params.get('first_frame_id');
   const background_id = params.get('background_id');
+  const object_id = params.get('object_id');
+  const isObject = !!object_id;
   const isBackground = !!background_id;
-  const entityId = (isBackground ? background_id : first_frame_id)!;
-  const tableName = isBackground ? 'backgrounds' : 'first_frames';
-  const entityKey = isBackground ? 'background_id' : 'first_frame_id';
+  const entityId = (
+    isObject ? object_id : isBackground ? background_id : first_frame_id
+  )!;
+  const entityKey = isObject
+    ? 'object_id'
+    : isBackground
+      ? 'background_id'
+      : 'first_frame_id';
 
   log.info('Processing EnhanceImage', {
     [entityKey]: entityId,
-    source: tableName,
+    source: isObject
+      ? 'objects'
+      : isBackground
+        ? 'backgrounds'
+        : 'first_frames',
     fal_status: falPayload.status,
   });
 
@@ -862,6 +873,90 @@ async function handleEnhanceImage(
     has_url: !!images?.[0]?.url,
     time_ms: extractTime,
   });
+
+  // --- Object path: update all siblings by grid_image_id + grid_position ---
+  if (isObject) {
+    // Fetch the object to get grid_image_id and grid_position
+    const { data: obj, error: objError } = await supabase
+      .from('objects')
+      .select('id, grid_image_id, grid_position')
+      .eq('id', object_id)
+      .single();
+
+    if (objError || !obj) {
+      log.error('Failed to fetch object for sibling update', {
+        object_id,
+        error: objError?.message,
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: 'Object not found' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const siblingFilter = {
+      grid_image_id: obj.grid_image_id,
+      grid_position: obj.grid_position,
+    };
+
+    if (falPayload.status === 'ERROR' || !images?.[0]?.url) {
+      log.error('Object enhance failed', { fal_error: falPayload.error });
+
+      log.startTiming('db_update_failed');
+      await supabase
+        .from('objects')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'generation_error',
+        })
+        .eq('grid_image_id', siblingFilter.grid_image_id)
+        .eq('grid_position', siblingFilter.grid_position);
+      log.db('UPDATE', 'objects (siblings)', {
+        ...siblingFilter,
+        image_edit_status: 'failed',
+        time_ms: log.endTiming('db_update_failed'),
+      });
+
+      log.summary('error', { object_id, reason: 'enhance_failed' });
+      return new Response(
+        JSON.stringify({ success: false, error: 'Object enhance failed' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const finalUrl = images[0].url;
+    log.success('Object enhanced', { final_url: finalUrl });
+
+    log.startTiming('db_update_success');
+    await supabase
+      .from('objects')
+      .update({
+        image_edit_status: 'success',
+        image_edit_error_message: null,
+        final_url: finalUrl,
+      })
+      .eq('grid_image_id', siblingFilter.grid_image_id)
+      .eq('grid_position', siblingFilter.grid_position);
+    log.db('UPDATE', 'objects (siblings)', {
+      ...siblingFilter,
+      image_edit_status: 'success',
+      time_ms: log.endTiming('db_update_success'),
+    });
+
+    log.summary('success', { object_id, final_url: finalUrl });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        step: 'EnhanceImage',
+        object_id,
+        final_url: finalUrl,
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // --- Background / first_frame path ---
+  const tableName = isBackground ? 'backgrounds' : 'first_frames';
 
   // Check if enhance failed
   if (falPayload.status === 'ERROR' || !images?.[0]?.url) {

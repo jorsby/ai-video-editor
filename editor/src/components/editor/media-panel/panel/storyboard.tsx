@@ -72,7 +72,6 @@ const VIDEO_MODES = [
 
 const VIDEO_MODELS = [
   { value: 'klingo3' as const, label: 'Kling O3' },
-  { value: 'klingo3pro' as const, label: 'Kling O3 Pro' },
   { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
 ] as const;
 

@@ -149,22 +149,21 @@ export async function POST(req: NextRequest) {
       plan.bg_rows = bgRows;
       plan.bg_cols = bgCols;
 
-      // Adjust objects (Kling: plan.objects array; WAN: plan.object_names array)
+      // Adjust objects (both Kling and new WAN use plan.objects; legacy WAN uses plan.object_names)
       if (newObjectCount !== oldObjectCount) {
-        const isKling =
-          storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro';
-        if (isKling && Array.isArray(plan.objects)) {
+        if (Array.isArray(plan.objects)) {
           if (newObjectCount < oldObjectCount) {
             plan.objects = plan.objects.slice(0, newObjectCount);
           } else {
             for (let i = oldObjectCount; i < newObjectCount; i++) {
               plan.objects.push({
                 name: `Object ${i + 1}`,
-                description: `Object ${i + 1}`,
+                description: '',
               });
             }
           }
         }
+        // Legacy WAN plans with object_names
         if (Array.isArray(plan.object_names)) {
           if (newObjectCount < oldObjectCount) {
             plan.object_names = plan.object_names.slice(0, newObjectCount);
@@ -223,12 +222,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Build object_names and object_descriptions from the (possibly adjusted) plan
-    const isKling =
-      storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro';
-    const objectNames: string[] = isKling
+    // Both Kling and new WAN plans use plan.objects; legacy WAN uses plan.object_names
+    const objectNames: string[] = Array.isArray(plan.objects)
       ? plan.objects.map((o: { name: string }) => o.name)
       : plan.object_names;
-    const objectDescriptions: string[] | undefined = isKling
+    const objectDescriptions: string[] | undefined = Array.isArray(plan.objects)
       ? plan.objects.map((o: { description: string }) => o.description)
       : undefined;
 
@@ -261,6 +259,7 @@ export async function POST(req: NextRequest) {
           scene_prompts: plan.scene_prompts,
           scene_bg_indices: plan.scene_bg_indices,
           scene_object_indices: plan.scene_object_indices,
+          scene_multi_shots: plan.scene_multi_shots ?? undefined,
           voiceover_list: plan.voiceover_list,
           width: dimensions.width,
           height: dimensions.height,

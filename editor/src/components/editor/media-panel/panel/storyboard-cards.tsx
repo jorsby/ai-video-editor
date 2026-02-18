@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -16,6 +16,7 @@ import {
   IconArrowBackUp,
   IconVideoOff,
   IconUsers,
+  IconAlertTriangle,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { SceneCard, VoiceoverPlayButton } from './scene-card';
@@ -50,6 +51,7 @@ import type {
   Scene,
   Storyboard,
   StoryboardWithScenes,
+  VideoModel,
 } from '@/lib/supabase/workflow-service';
 import { GridImageReview } from './grid-image-review';
 import { RefGridImageReview } from './ref-grid-image-review';
@@ -328,6 +330,12 @@ export function StoryboardCards({
   const [isOutpainting, setIsOutpainting] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isCustomEditing, setIsCustomEditing] = useState(false);
+  const [selectedObjectName, setSelectedObjectName] = useState<string | null>(
+    null
+  );
+  const [objectEditPrompt, setObjectEditPrompt] = useState('');
+  const [isEnhancingObject, setIsEnhancingObject] = useState(false);
+  const [isCustomEditingObject, setIsCustomEditingObject] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
   const [isRefMode, setIsRefMode] = useState(false);
   const [targetSceneId, setTargetSceneId] = useState<string | null>(null);
@@ -338,6 +346,9 @@ export function StoryboardCards({
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
+  const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
+    'klingo3'
+  );
   const [videoResolution, setVideoResolution] = useState<
     '480p' | '720p' | '1080p'
   >('720p');
@@ -386,6 +397,8 @@ export function StoryboardCards({
       : [];
 
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
+
+  const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
 
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
@@ -816,6 +829,196 @@ export function StoryboardCards({
     }
   };
 
+  const handleEnhanceObject = async (objectName: string) => {
+    // Find one object with that name that has final_url
+    const obj = sortedScenes
+      .flatMap((s) => s.objects ?? [])
+      .find((o) => o.name === objectName && o.final_url);
+    if (!obj) {
+      toast.warning(`No image found for "${objectName}"`);
+      return;
+    }
+
+    setIsEnhancingObject(true);
+    try {
+      const supabase = createClient();
+      const sceneIds = sortedScenes
+        .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
+        .map((s) => s.id);
+      const { data, error } = await supabase.functions.invoke('edit-image', {
+        body: {
+          scene_ids: sceneIds,
+          object_ids: [obj.id],
+          model: outpaintModel,
+          action: 'enhance',
+          source: 'object',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.summary.queued > 0) {
+        toast.success(`Enhance started for "${objectName}"`);
+      }
+      if (data.summary.skipped > 0) {
+        toast.warning(`"${objectName}" skipped (already processing)`);
+      }
+      refresh();
+    } catch (err) {
+      console.error('Failed to enhance object:', err);
+      toast.error('Failed to enhance object');
+    } finally {
+      setIsEnhancingObject(false);
+    }
+  };
+
+  const handleCustomEditObject = async (objectName: string, prompt: string) => {
+    if (!prompt.trim()) return;
+
+    const obj = sortedScenes
+      .flatMap((s) => s.objects ?? [])
+      .find((o) => o.name === objectName && o.final_url);
+    if (!obj) {
+      toast.warning(`No image found for "${objectName}"`);
+      return;
+    }
+
+    setIsCustomEditingObject(true);
+    try {
+      const supabase = createClient();
+      const sceneIds = sortedScenes
+        .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
+        .map((s) => s.id);
+      const { data, error } = await supabase.functions.invoke('edit-image', {
+        body: {
+          scene_ids: sceneIds,
+          object_ids: [obj.id],
+          model: outpaintModel,
+          action: 'custom_edit',
+          prompt: prompt.trim(),
+          source: 'object',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.summary.queued > 0) {
+        toast.success(`Custom edit started for "${objectName}"`);
+      }
+      if (data.summary.skipped > 0) {
+        toast.warning(`"${objectName}" skipped (already processing)`);
+      }
+      refresh();
+    } catch (err) {
+      console.error('Failed to custom edit object:', err);
+      toast.error('Failed to custom edit object');
+    } finally {
+      setIsCustomEditingObject(false);
+    }
+  };
+
+  const handleResetObject = async (objectName: string) => {
+    const confirmed = await confirm({
+      title: 'Reset Object',
+      description: `Reset "${objectName}" back to the original image? This will undo any enhancing or custom edits across all scenes.`,
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const supabase = createClient();
+      const objects = sortedScenes
+        .flatMap((s) => s.objects ?? [])
+        .filter((o) => o.name === objectName && o.url);
+
+      for (const obj of objects) {
+        await supabase
+          .from('objects')
+          .update({
+            final_url: obj.url,
+            image_edit_status: null,
+            image_edit_error_message: null,
+            image_edit_request_id: null,
+          })
+          .eq('id', obj.id);
+      }
+
+      toast.success(
+        `Reset "${objectName}" to original (${objects.length} instance(s))`
+      );
+      setSelectedObjectName(null);
+      refresh();
+    } catch (err) {
+      console.error('Failed to reset object:', err);
+      toast.error('Failed to reset object');
+    }
+  };
+
+  // Build map of all available backgrounds keyed by grid_position (ref_to_video only)
+  const availableBackgrounds = useMemo(() => {
+    if (!isRefToVideoMode)
+      return new Map<
+        number,
+        { name: string; url: string; final_url: string }
+      >();
+    const map = new Map<
+      number,
+      { name: string; url: string; final_url: string }
+    >();
+    for (const scene of sortedScenes) {
+      for (const bg of scene.backgrounds ?? []) {
+        if (
+          bg.grid_position != null &&
+          (bg.url || bg.final_url) &&
+          !map.has(bg.grid_position)
+        ) {
+          map.set(bg.grid_position, {
+            name: bg.name,
+            url: bg.url ?? '',
+            final_url: bg.final_url ?? bg.url ?? '',
+          });
+        }
+      }
+    }
+    return map;
+  }, [isRefToVideoMode, sortedScenes]);
+
+  const handleChangeBackground = async (
+    sceneId: string,
+    newGridPosition: number
+  ) => {
+    const source = availableBackgrounds.get(newGridPosition);
+    if (!source) return;
+
+    try {
+      const supabase = createClient();
+      const scene = sortedScenes.find((s) => s.id === sceneId);
+      const bg = scene?.backgrounds?.[0];
+      if (!bg) return;
+
+      const { error } = await supabase
+        .from('backgrounds')
+        .update({
+          grid_position: newGridPosition,
+          name: source.name,
+          url: source.url,
+          final_url: source.final_url,
+          image_edit_status: null,
+          image_edit_error_message: null,
+          image_edit_request_id: null,
+        })
+        .eq('id', bg.id);
+
+      if (error) throw error;
+
+      toast.success(`Background changed to "${source.name}"`);
+      refresh();
+    } catch (err) {
+      console.error('Failed to change background:', err);
+      toast.error('Failed to change background');
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
@@ -856,7 +1059,9 @@ export function StoryboardCards({
             resolution: videoResolution,
             model:
               storyboard?.mode === 'ref_to_video'
-                ? storyboard.model
+                ? storyboard?.model === 'wan26flash'
+                  ? 'wan26flash'
+                  : refVideoModel
                 : videoModel,
             aspect_ratio:
               storyboard && 'aspect_ratio' in storyboard
@@ -1101,7 +1306,11 @@ export function StoryboardCards({
         body: {
           scene_ids: [sceneId],
           resolution: videoResolution,
-          model: isRef ? storyboard?.model : videoModel,
+          model: isRef
+            ? storyboard?.model === 'wan26flash'
+              ? 'wan26flash'
+              : refVideoModel
+            : videoModel,
           aspect_ratio:
             storyboard && 'aspect_ratio' in storyboard
               ? storyboard.aspect_ratio
@@ -1274,8 +1483,6 @@ export function StoryboardCards({
       </div>
     );
   }
-
-  const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
 
   // Ref grid image review: show when both grids are generated (plan_status = grid_ready)
   if (
@@ -1635,6 +1842,11 @@ export function StoryboardCards({
                   </SelectContent>
                 </Select>
               </div>
+              {isRefToVideoMode && (
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Backgrounds
+                </span>
+              )}
               <div className="flex items-center gap-1.5">
                 {!isRefToVideoMode && (
                   <Button
@@ -1695,28 +1907,30 @@ export function StoryboardCards({
                   placeholder="Describe how to edit the image..."
                   className="text-xs min-h-[60px] resize-none"
                 />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={
-                    selectedSceneIds.size === 0 ||
-                    isCustomEditing ||
-                    !editPrompt.trim()
-                  }
-                  onClick={
-                    isRefToVideoMode
-                      ? handleCustomEditBackgrounds
-                      : handleCustomEdit
-                  }
-                  className="h-9 text-xs"
-                >
-                  {isCustomEditing ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconSparkles className="size-3.5 mr-1" />
-                  )}
-                  Edit
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      selectedSceneIds.size === 0 ||
+                      isCustomEditing ||
+                      !editPrompt.trim()
+                    }
+                    onClick={
+                      isRefToVideoMode
+                        ? handleCustomEditBackgrounds
+                        : handleCustomEdit
+                    }
+                    className="h-9 text-xs flex-1"
+                  >
+                    {isCustomEditing ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconSparkles className="size-3.5 mr-1" />
+                    )}
+                    {isRefToVideoMode ? 'Edit Backgrounds' : 'Edit'}
+                  </Button>
+                </div>
               </div>
               {!isRefToVideoMode && (
                 <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
@@ -1806,12 +2020,34 @@ export function StoryboardCards({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="px-2 py-2 flex flex-col gap-2">
-              {/* Video model + Resolution (hidden for ref_to_video — model comes from storyboard) */}
-              {isRefToVideoMode ? (
+              {/* Video model + Resolution */}
+              {isRefToVideoMode && storyboard?.model?.startsWith('kling') ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Model
+                  </span>
+                  <Select
+                    value={refVideoModel}
+                    onValueChange={(value: string) =>
+                      setRefVideoModel(value as 'klingo3' | 'klingo3pro')
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="klingo3">Kling O3</SelectItem>
+                      <SelectItem value="klingo3pro">Kling O3 Pro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : isRefToVideoMode ? (
                 <div className="text-xs text-muted-foreground px-1">
                   Model:{' '}
                   <span className="font-medium text-foreground">
-                    {storyboard?.model ?? 'N/A'}
+                    {storyboard?.model === 'wan26flash'
+                      ? 'WAN 2.6 Flash'
+                      : (storyboard?.model ?? 'N/A')}
                   </span>
                 </div>
               ) : (
@@ -2016,10 +2252,14 @@ export function StoryboardCards({
                     const isProcessing =
                       obj.status === 'processing' || obj.status === 'pending';
                     const isFailed = obj.status === 'failed';
+                    const isSelected = selectedObjectName === obj.name;
                     return (
                       <div
                         key={obj.id}
-                        className={`p-2 bg-secondary/30 rounded-md flex flex-col gap-1.5 ${isFailed ? 'border border-destructive/40' : ''}`}
+                        className={`p-2 bg-secondary/30 rounded-md flex flex-col gap-1.5 cursor-pointer transition-all ${isFailed ? 'border border-destructive/40' : ''} ${isSelected ? 'ring-2 ring-blue-400 bg-blue-500/10' : 'hover:bg-secondary/50'}`}
+                        onClick={() =>
+                          setSelectedObjectName(isSelected ? null : obj.name)
+                        }
                       >
                         <div className="relative aspect-square rounded overflow-hidden bg-secondary/50">
                           {imageUrl ? (
@@ -2040,6 +2280,21 @@ export function StoryboardCards({
                               <IconLoader2 className="size-5 animate-spin text-white" />
                             </div>
                           )}
+                          {obj.image_edit_status === 'enhancing' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconLoader2 className="size-5 animate-spin text-green-400" />
+                            </div>
+                          )}
+                          {obj.image_edit_status === 'editing' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconLoader2 className="size-5 animate-spin text-amber-400" />
+                            </div>
+                          )}
+                          {obj.image_edit_status === 'failed' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconAlertTriangle className="size-5 text-red-400" />
+                            </div>
+                          )}
                         </div>
                         <span className="text-xs font-medium truncate">
                           {obj.name}
@@ -2053,6 +2308,73 @@ export function StoryboardCards({
                     );
                   })}
                 </div>
+                {/* Action buttons for the selected object */}
+                {selectedObjectName && (
+                  <div className="flex flex-col gap-2 px-1 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isEnhancingObject}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEnhanceObject(selectedObjectName);
+                        }}
+                        className="h-8 text-xs flex-1"
+                      >
+                        {isEnhancingObject ? (
+                          <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                        ) : (
+                          <IconSparkles className="size-3.5 mr-1" />
+                        )}
+                        Enhance
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResetObject(selectedObjectName);
+                        }}
+                        className="h-8 text-xs flex-1"
+                      >
+                        <IconArrowBackUp className="size-3.5 mr-1" />
+                        Reset
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Textarea
+                        value={objectEditPrompt}
+                        onChange={(e) => setObjectEditPrompt(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder={`Edit "${selectedObjectName}"...`}
+                        className="text-xs min-h-[48px] resize-none flex-1"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isCustomEditingObject || !objectEditPrompt.trim()
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCustomEditObject(
+                          selectedObjectName,
+                          objectEditPrompt
+                        );
+                      }}
+                      className="h-8 text-xs"
+                    >
+                      {isCustomEditingObject ? (
+                        <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                      ) : (
+                        <IconSparkles className="size-3.5 mr-1" />
+                      )}
+                      Custom Edit
+                    </Button>
+                  </div>
+                )}
               </CollapsibleContent>
             </Collapsible>
           );
@@ -2099,6 +2421,12 @@ export function StoryboardCards({
             aspectRatio={storyboard?.aspect_ratio}
             onAddVideoToTimeline={handleAddVideoToTimeline}
             onAddVoiceoverToTimeline={handleAddVoiceoverToTimeline}
+            availableBackgrounds={
+              isRefToVideoMode ? availableBackgrounds : undefined
+            }
+            onChangeBackground={
+              isRefToVideoMode ? handleChangeBackground : undefined
+            }
           />
         ))}
       </div>

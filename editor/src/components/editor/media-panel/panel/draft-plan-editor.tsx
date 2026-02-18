@@ -22,6 +22,7 @@ import type {
   StoryboardMode,
   VideoModel,
   KlingO3RefPlan,
+  Wan26FlashRefPlan,
 } from '@/lib/supabase/workflow-service';
 
 interface DraftPlanEditorProps {
@@ -43,6 +44,10 @@ function isRefPlan(plan: StoryboardPlan | RefPlan): plan is RefPlan {
 
 function isKlingPlan(plan: RefPlan): plan is KlingO3RefPlan {
   return 'objects' in plan;
+}
+
+function isWanPlan(plan: RefPlan): plan is Wan26FlashRefPlan {
+  return 'scene_multi_shots' in plan || 'object_names' in plan;
 }
 
 export function DraftPlanEditor({
@@ -119,19 +124,39 @@ export function DraftPlanEditor({
     onPlanChange?.({ ...plan, backgrounds_grid_prompt: value } as RefPlan);
   };
 
-  const handleScenePromptChange = (index: number, value: string) => {
+  const handleMultiShotsToggle = (index: number) => {
+    if (!ref || !isWanPlan(plan as RefPlan)) return;
+    const wanPlan = plan as Wan26FlashRefPlan;
+    const current = wanPlan.scene_multi_shots ?? Array(sceneCount).fill(false);
+    const newMultiShots = [...current];
+    newMultiShots[index] = !newMultiShots[index];
+    onPlanChange?.({ ...wanPlan, scene_multi_shots: newMultiShots });
+  };
+
+  const handleScenePromptChange = (
+    index: number,
+    value: string,
+    shotIndex?: number
+  ) => {
     if (!ref) return;
     const newPrompts = [...(plan as RefPlan).scene_prompts];
-    newPrompts[index] = value;
+    if (shotIndex !== undefined && Array.isArray(newPrompts[index])) {
+      const newShots = [...(newPrompts[index] as string[])];
+      newShots[shotIndex] = value;
+      newPrompts[index] = newShots;
+    } else {
+      newPrompts[index] = value;
+    }
     onPlanChange?.({ ...plan, scene_prompts: newPrompts } as RefPlan);
   };
 
   // --- Ref plan header info ---
   const refPlan = ref ? (plan as RefPlan) : null;
-  const objectNames = refPlan
-    ? isKlingPlan(refPlan)
-      ? refPlan.objects.map((o) => o.name)
-      : refPlan.object_names
+  const objectNames: string[] = refPlan
+    ? (refPlan.objects?.map((o) => o.name) ??
+      ('object_names' in refPlan
+        ? ((refPlan as Wan26FlashRefPlan).object_names ?? [])
+        : []))
     : [];
 
   // --- Render ---
@@ -148,11 +173,9 @@ export function DraftPlanEditor({
             </span>
             {videoModel && (
               <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded">
-                {videoModel === 'klingo3'
+                {videoModel === 'klingo3' || videoModel === 'klingo3pro'
                   ? 'Kling O3'
-                  : videoModel === 'klingo3pro'
-                    ? 'Kling O3 Pro'
-                    : 'WAN 2.6'}
+                  : 'WAN 2.6'}
               </span>
             )}
           </div>
@@ -270,9 +293,9 @@ export function DraftPlanEditor({
                     >
                       <span className="text-muted-foreground w-4">{i}</span>
                       <span className="font-medium">{name}</span>
-                      {isKlingPlan(refPlan!) && (
+                      {refPlan!.objects?.[i]?.description && (
                         <span className="text-muted-foreground truncate">
-                          — {(refPlan as KlingO3RefPlan).objects[i].description}
+                          — {refPlan!.objects[i].description}
                         </span>
                       )}
                     </div>
@@ -344,6 +367,15 @@ export function DraftPlanEditor({
                       Scene {index + 1}
                     </span>
                     <div className="flex items-center gap-2">
+                      {ref &&
+                        isWanPlan(refPlan!) &&
+                        (refPlan as Wan26FlashRefPlan).scene_multi_shots?.[
+                          index
+                        ] && (
+                          <span className="text-[10px] px-1 py-0.5 bg-purple-500/10 text-purple-500 rounded font-medium">
+                            MS
+                          </span>
+                        )}
                       {ref && (
                         <span className="text-[10px] text-muted-foreground">
                           {sceneObjIndices
@@ -372,31 +404,96 @@ export function DraftPlanEditor({
                         <div>
                           <label className="text-xs text-muted-foreground block mb-1">
                             Scene Prompt
-                          </label>
-                          <Textarea
-                            value={refPlan!.scene_prompts[index] || ''}
-                            onChange={(e) =>
-                              handleScenePromptChange(index, e.target.value)
-                            }
-                            readOnly={readOnly}
-                            className="text-xs min-h-[60px]"
-                            placeholder="Scene prompt with {object_N} and {bg} placeholders..."
-                          />
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {sceneObjIndices.map((objIdx) => (
-                              <span
-                                key={objIdx}
-                                className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
-                              >
-                                {'{object_'}
-                                {sceneObjIndices.indexOf(objIdx) + 1}
-                                {'}'} = {objectNames[objIdx]}
+                            {Array.isArray(refPlan!.scene_prompts[index]) && (
+                              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-cyan-500/10 text-cyan-500 rounded">
+                                {
+                                  (refPlan!.scene_prompts[index] as string[])
+                                    .length
+                                }
+                                -shot
                               </span>
-                            ))}
+                            )}
+                          </label>
+                          {Array.isArray(refPlan!.scene_prompts[index]) ? (
+                            <div className="flex flex-col gap-1.5">
+                              {(refPlan!.scene_prompts[index] as string[]).map(
+                                (shot, shotIdx) => (
+                                  <div key={shotIdx}>
+                                    <label className="text-[10px] text-muted-foreground block mb-0.5">
+                                      Shot {shotIdx + 1}
+                                    </label>
+                                    <Textarea
+                                      value={shot}
+                                      onChange={(e) =>
+                                        handleScenePromptChange(
+                                          index,
+                                          e.target.value,
+                                          shotIdx
+                                        )
+                                      }
+                                      readOnly={readOnly}
+                                      className="text-xs min-h-[50px]"
+                                      placeholder={`Shot ${shotIdx + 1} prompt...`}
+                                    />
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <Textarea
+                              value={
+                                (refPlan!.scene_prompts[index] as string) || ''
+                              }
+                              onChange={(e) =>
+                                handleScenePromptChange(index, e.target.value)
+                              }
+                              readOnly={readOnly}
+                              className="text-xs min-h-[60px]"
+                              placeholder={
+                                refPlan && isKlingPlan(refPlan)
+                                  ? 'Scene prompt with @ElementN and @Image1 references...'
+                                  : 'Scene prompt with @Element1 (bg) and @Element2+ (characters)...'
+                              }
+                            />
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
                             <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
-                              {'{bg}'} = {refPlan!.background_names[sceneBgIdx]}
+                              {isKlingPlan(refPlan!) ? '@Image1' : '@Element1'}{' '}
+                              = {refPlan!.background_names[sceneBgIdx]}
                             </span>
+                            {sceneObjIndices.map((objIdx) => {
+                              const pos = sceneObjIndices.indexOf(objIdx) + 1;
+                              const isKling = isKlingPlan(refPlan!);
+                              return (
+                                <span
+                                  key={objIdx}
+                                  className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
+                                >
+                                  {isKling
+                                    ? `@Element${pos}`
+                                    : `@Element${pos + 1}`}{' '}
+                                  = {objectNames[objIdx]}
+                                </span>
+                              );
+                            })}
                           </div>
+                          {isWanPlan(refPlan!) && (
+                            <label className="mt-1.5 flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  (refPlan as Wan26FlashRefPlan)
+                                    .scene_multi_shots?.[index] ?? false
+                                }
+                                onChange={() => handleMultiShotsToggle(index)}
+                                disabled={readOnly}
+                                className="size-3.5 rounded border-border accent-purple-500"
+                              />
+                              <span className="text-[10px] text-muted-foreground">
+                                Multi-shot
+                              </span>
+                            </label>
+                          )}
                         </div>
                       )}
 

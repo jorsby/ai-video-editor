@@ -38,7 +38,7 @@ export interface RefPlanBase {
   bg_cols: number;
   backgrounds_grid_prompt: string;
   background_names: string[];
-  scene_prompts: string[];
+  scene_prompts: (string | string[])[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   voiceover_list: { en: string[]; tr: string[]; ar: string[] };
@@ -49,7 +49,10 @@ export interface KlingO3RefPlan extends RefPlanBase {
 }
 
 export interface Wan26FlashRefPlan extends RefPlanBase {
-  object_names: string[];
+  objects: KlingElement[];
+  /** @deprecated Legacy field from old plans — use `objects` instead */
+  object_names?: string[];
+  scene_multi_shots?: boolean[];
 }
 
 export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan;
@@ -122,6 +125,8 @@ export interface Scene {
   storyboard_id: string;
   order: number;
   prompt: string | null;
+  multi_prompt: string[] | null;
+  multi_shots: boolean | null;
   created_at: string;
   first_frames: FirstFrame[];
   voiceovers: Voiceover[];
@@ -152,12 +157,16 @@ export interface RefObject {
   scene_order: number;
   order: number;
   name: string;
+  grid_position: number;
   description: string | null;
   url: string | null;
   final_url: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
+  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_error_message: string | null;
+  image_edit_request_id: string | null;
   created_at: string;
 }
 
@@ -167,6 +176,7 @@ export interface Background {
   scene_id: string;
   order: number;
   name: string;
+  grid_position: number;
   url: string | null;
   final_url: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';

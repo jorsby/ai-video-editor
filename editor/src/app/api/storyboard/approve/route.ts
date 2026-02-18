@@ -94,8 +94,8 @@ export async function POST(req: NextRequest) {
           objects_cols: storyboard.plan.objects_cols,
           objects_grid_prompt: storyboard.plan.objects_grid_prompt,
           object_names:
-            storyboard.plan.object_names ??
-            storyboard.plan.objects?.map((o: { name: string }) => o.name),
+            storyboard.plan.objects?.map((o: { name: string }) => o.name) ??
+            storyboard.plan.object_names,
           bg_rows: storyboard.plan.bg_rows,
           bg_cols: storyboard.plan.bg_cols,
           backgrounds_grid_prompt: storyboard.plan.backgrounds_grid_prompt,

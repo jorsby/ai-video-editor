@@ -14,11 +14,17 @@ import {
   IconAlertTriangle,
   IconMaximize,
   IconTarget,
+  IconSwitchHorizontal,
 } from '@tabler/icons-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover';
 import { StatusBadge } from './status-badge';
 import { useStudioStore } from '@/stores/studio-store';
 import {
@@ -32,6 +38,39 @@ import type {
   RefObject,
   Background,
 } from '@/lib/supabase/workflow-service';
+
+function parseMultiShotPrompt(
+  prompt: string | null | undefined
+): string[] | null {
+  if (!prompt || !prompt.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(prompt);
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((s: unknown) => typeof s === 'string')
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null;
+}
+
+function formatPromptPreview(
+  prompt: string | null | undefined,
+  multiPrompt?: string[] | null
+): string {
+  if (multiPrompt && multiPrompt.length > 0) {
+    return `[${multiPrompt.length}-shot] ${multiPrompt[0]}`;
+  }
+  if (!prompt) return '';
+  const shots = parseMultiShotPrompt(prompt);
+  if (shots) {
+    return `[${shots.length}-shot] ${shots[0]}`;
+  }
+  return prompt;
+}
 
 interface SceneCardProps {
   scene: Scene;
@@ -55,6 +94,14 @@ interface SceneCardProps {
   aspectRatio?: string;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
+  availableBackgrounds?: Map<
+    number,
+    { name: string; url: string; final_url: string }
+  >;
+  onChangeBackground?: (
+    sceneId: string,
+    newGridPosition: number
+  ) => Promise<void>;
 }
 
 interface SceneThumbnailProps {
@@ -67,6 +114,11 @@ interface SceneThumbnailProps {
   onAddToCanvas?: () => void;
   onPreviewImage?: () => void;
   aspectRatio?: string;
+  availableBackgrounds?: Map<
+    number,
+    { name: string; url: string; final_url: string }
+  >;
+  onChangeBackground?: (gridPosition: number) => void;
 }
 
 const ASPECT_RATIO_CLASSES: Record<string, string> = {
@@ -85,6 +137,8 @@ function SceneThumbnail({
   onAddToCanvas,
   onPreviewImage,
   aspectRatio,
+  availableBackgrounds,
+  onChangeBackground,
 }: SceneThumbnailProps) {
   const editStatus =
     firstFrame?.image_edit_status ?? background?.image_edit_status ?? null;
@@ -184,6 +238,13 @@ function SceneThumbnail({
         >
           <IconMaximize size={12} />
         </button>
+      )}
+      {availableBackgrounds && onChangeBackground && background && (
+        <BackgroundPicker
+          currentGridPosition={background.grid_position}
+          availableBackgrounds={availableBackgrounds}
+          onSelect={onChangeBackground}
+        />
       )}
       <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-medium text-white">
         {sceneOrder + 1}
@@ -506,6 +567,32 @@ function ExpandedContent({
               </div>
             )}
           </div>
+        ) : parseMultiShotPrompt(displayVisualPrompt) ? (
+          <div
+            className={`pl-5 flex flex-col gap-1 ${onSaveVisualPrompt ? 'cursor-pointer hover:bg-secondary/30 rounded transition-colors' : ''}`}
+            onClick={(e) => {
+              if (!onSaveVisualPrompt) return;
+              e.stopPropagation();
+              setEditedPrompt(displayVisualPrompt || '');
+              setIsEditingPrompt(true);
+            }}
+            title={onSaveVisualPrompt ? 'Click to edit' : undefined}
+          >
+            <span className="text-[9px] text-cyan-500 font-medium">
+              {parseMultiShotPrompt(displayVisualPrompt)!.length}-shot
+            </span>
+            {parseMultiShotPrompt(displayVisualPrompt)!.map((shot, i) => (
+              <p
+                key={i}
+                className="text-[11px] text-foreground/60 leading-relaxed"
+              >
+                <span className="text-muted-foreground font-medium">
+                  {i + 1}.{' '}
+                </span>
+                {shot}
+              </p>
+            ))}
+          </div>
         ) : (
           <p
             className={`text-[11px] text-foreground/60 leading-relaxed pl-5 ${onSaveVisualPrompt ? 'cursor-pointer hover:text-foreground/80 hover:bg-secondary/30 rounded transition-colors' : ''}`}
@@ -618,6 +705,27 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
                   />
                 </div>
               )}
+              {obj.image_edit_status === 'enhancing' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-green-400 animate-spin"
+                  />
+                </div>
+              )}
+              {obj.image_edit_status === 'editing' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-amber-400 animate-spin"
+                  />
+                </div>
+              )}
+              {obj.image_edit_status === 'failed' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconAlertTriangle size={12} className="text-red-400" />
+                </div>
+              )}
             </div>
             <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
               {obj.name}
@@ -626,6 +734,80 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
         );
       })}
     </div>
+  );
+}
+
+function BackgroundPicker({
+  currentGridPosition,
+  availableBackgrounds,
+  onSelect,
+}: {
+  currentGridPosition: number;
+  availableBackgrounds: Map<
+    number,
+    { name: string; url: string; final_url: string }
+  >;
+  onSelect: (gridPosition: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const entries = [...availableBackgrounds.entries()].sort(([a], [b]) => a - b);
+
+  if (entries.length <= 1) return null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute bottom-1 left-1 p-0.5 rounded bg-black/60 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity hover:bg-black/80 z-10"
+          title="Change background"
+        >
+          <IconSwitchHorizontal size={12} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto max-w-[280px] p-2"
+        align="start"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">
+          Choose Background
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {entries.map(([pos, bg]) => {
+            const isCurrent = pos === currentGridPosition;
+            return (
+              <button
+                key={pos}
+                type="button"
+                disabled={isCurrent}
+                onClick={() => {
+                  onSelect(pos);
+                  setOpen(false);
+                }}
+                className={`flex flex-col items-center gap-1 p-1 rounded transition-colors ${
+                  isCurrent
+                    ? 'ring-2 ring-primary bg-primary/10 opacity-60 cursor-default'
+                    : 'hover:bg-secondary/50 cursor-pointer'
+                }`}
+              >
+                <div className="relative w-16 h-16 rounded overflow-hidden bg-secondary/50">
+                  <img
+                    src={bg.final_url || bg.url}
+                    alt={bg.name}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                </div>
+                <span className="text-[9px] text-muted-foreground truncate max-w-[64px]">
+                  {bg.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -646,6 +828,8 @@ export function SceneCard({
   aspectRatio,
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
+  availableBackgrounds,
+  onChangeBackground,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -661,8 +845,11 @@ export function SceneCard({
       null)
     : (background?.final_url ?? background?.url ?? null);
   const displayVoiceover = voiceover?.text;
-  // For ref_to_video scenes, the prompt is on scene.prompt instead of firstFrame.visual_prompt
-  const displayVisualPrompt = firstFrame?.visual_prompt ?? scene.prompt;
+  // For ref_to_video scenes, prefer multi_prompt (as JSON string for display), then scene.prompt
+  const displayVisualPrompt =
+    scene.multi_prompt && scene.multi_prompt.length > 0
+      ? JSON.stringify(scene.multi_prompt)
+      : (firstFrame?.visual_prompt ?? scene.prompt);
 
   const handleAddToCanvas = async () => {
     if (!studio || !scene.video_url) return;
@@ -798,11 +985,17 @@ export function SceneCard({
           onAddToCanvas={hasVideo ? handleAddToCanvas : undefined}
           onPreviewImage={() => setPreviewOpen(true)}
           aspectRatio={aspectRatio}
+          availableBackgrounds={availableBackgrounds}
+          onChangeBackground={
+            onChangeBackground
+              ? (pos) => onChangeBackground(scene.id, pos)
+              : undefined
+          }
         />
       ) : (
         /* Ref-to-video scene: no first_frame — show background or placeholder */
         <div
-          className={`relative ${aspectRatio ? ASPECT_RATIO_CLASSES[aspectRatio] || 'aspect-square' : 'aspect-square'} rounded overflow-hidden ${imageUrl ? '' : 'bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-border/30'} ${hasVideo ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : ''}`}
+          className={`group/thumb relative ${aspectRatio ? ASPECT_RATIO_CLASSES[aspectRatio] || 'aspect-square' : 'aspect-square'} rounded overflow-hidden ${imageUrl ? '' : 'bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-border/30'} ${hasVideo ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : ''}`}
           onClick={hasVideo ? handleAddToCanvas : undefined}
         >
           {imageUrl ? (
@@ -878,6 +1071,13 @@ export function SceneCard({
                   <IconMaximize size={12} />
                 </button>
               )}
+              {availableBackgrounds && onChangeBackground && background && (
+                <BackgroundPicker
+                  currentGridPosition={background.grid_position}
+                  availableBackgrounds={availableBackgrounds}
+                  onSelect={(pos) => onChangeBackground(scene.id, pos)}
+                />
+              )}
             </>
           ) : (
             <>
@@ -913,7 +1113,8 @@ export function SceneCard({
               ) : (
                 <div className="w-full h-full flex items-center justify-center p-2">
                   <p className="text-[10px] text-muted-foreground/70 text-center line-clamp-3">
-                    {scene.prompt || 'Ref scene'}
+                    {formatPromptPreview(scene.prompt, scene.multi_prompt) ||
+                      'Ref scene'}
                   </p>
                 </div>
               )}

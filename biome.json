@@ -64,7 +64,8 @@
         "useButtonType": "warn",
         "useSemanticElements": "warn",
         "useFocusableInteractive": "warn",
-        "useAltText": "warn"
+        "useAltText": "warn",
+        "noAutofocus": "warn"
       }
     }
   },

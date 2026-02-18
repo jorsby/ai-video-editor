@@ -86,6 +86,61 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// PATCH - Rename a project
+export async function PATCH(req: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { id, name } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Project ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'Project name is required' },
+        { status: 400 }
+      );
+    }
+
+    const { data: project, error } = await supabase
+      .from('projects')
+      .update({ name: name.trim() })
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Database error:', error);
+      return NextResponse.json(
+        { error: 'Failed to rename project' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ project });
+  } catch (error) {
+    console.error('Rename project error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE - Remove project by ID (assets cascade delete via FK)
 export async function DELETE(req: NextRequest) {
   try {

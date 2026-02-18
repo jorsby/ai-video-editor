@@ -57,6 +57,8 @@ interface ModelConfig {
       frontal_image_url: string;
       reference_image_urls: string[];
     }>;
+    multi_prompt?: string[];
+    multi_shots?: boolean;
   }) => Record<string, unknown>;
 }
 
@@ -109,12 +111,19 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
-    buildPayload: ({ prompt, image_urls, resolution, duration }) => ({
+    buildPayload: ({
+      prompt,
+      image_urls,
+      resolution,
+      duration,
+      multi_shots,
+    }) => ({
       prompt,
       image_urls: image_urls || [],
       resolution,
       duration: String(duration),
       enable_audio: false,
+      multi_shots: multi_shots ?? false,
     }),
   },
   klingo3: {
@@ -128,8 +137,10 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls,
       duration,
       aspect_ratio,
+      multi_prompt,
     }) => ({
-      prompt,
+      prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
+      multi_prompt: multi_prompt || [],
       elements: elements || [],
       image_urls: image_urls || [],
       duration: String(duration),
@@ -147,8 +158,10 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls,
       duration,
       aspect_ratio,
+      multi_prompt,
     }) => ({
-      prompt,
+      prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
+      multi_prompt: multi_prompt || [],
       elements: elements || [],
       image_urls: image_urls || [],
       duration: String(duration),
@@ -175,14 +188,18 @@ function resolvePrompt(
     for (let i = 1; i <= objectCount; i++) {
       resolved = resolved.replaceAll(`{object_${i}}`, `@Character${i + 1}`);
     }
-  } else if (model === 'klingo3' || model === 'klingo3pro') {
-    for (let i = 1; i <= objectCount; i++) {
-      resolved = resolved.replaceAll(`{object_${i}}`, `@Element${i}`);
-    }
-    resolved = resolved.replaceAll(`{bg}`, `@Image1`);
   }
+  // Kling O3 prompts already use @ElementN/@Image1 natively — no resolution needed
 
   return resolved;
+}
+
+function resolveMultiPrompt(
+  shots: string[],
+  model: string,
+  objectCount: number
+): string[] {
+  return shots.map((shot) => resolvePrompt(shot, model, objectCount));
 }
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -206,6 +223,8 @@ interface VideoContext {
 interface RefVideoContext {
   scene_id: string;
   prompt: string;
+  multi_prompt?: string[];
+  multi_shots?: boolean;
   object_urls: string[];
   background_url: string;
   duration: number;
@@ -303,6 +322,8 @@ async function getRefVideoContext(
     .select(`
       id,
       prompt,
+      multi_prompt,
+      multi_shots,
       video_status,
       voiceovers (duration)
     `)
@@ -317,7 +338,7 @@ async function getRefVideoContext(
     return null;
   }
 
-  if (!scene.prompt) {
+  if (!scene.prompt && !scene.multi_prompt) {
     log.error('No prompt on scene (required for ref_to_video)', {
       scene_id: sceneId,
     });
@@ -387,12 +408,53 @@ async function getRefVideoContext(
   const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   const durationInt = bucketDuration(raw);
 
-  // Resolve prompt placeholders
+  // Detect multi-shot prompt: prefer multi_prompt column, fall back to JSON in prompt
+  let multiPromptShots: string[] | undefined;
+  if (
+    scene.multi_prompt &&
+    Array.isArray(scene.multi_prompt) &&
+    scene.multi_prompt.length > 0
+  ) {
+    multiPromptShots = scene.multi_prompt as string[];
+  } else if (scene.prompt && scene.prompt.startsWith('[')) {
+    // Backward compat for old scenes with stringified arrays in prompt
+    try {
+      const parsed = JSON.parse(scene.prompt);
+      if (
+        Array.isArray(parsed) &&
+        parsed.every((s: unknown) => typeof s === 'string')
+      ) {
+        multiPromptShots = parsed;
+      }
+    } catch {
+      /* not JSON, treat as single prompt */
+    }
+  }
+
+  if (multiPromptShots) {
+    const resolvedShots = resolveMultiPrompt(
+      multiPromptShots,
+      model,
+      objectCount
+    );
+    return {
+      scene_id: sceneId,
+      prompt: '',
+      multi_prompt: resolvedShots,
+      multi_shots: scene.multi_shots ?? undefined,
+      object_urls: objectUrls,
+      background_url: bg.final_url,
+      duration: durationInt,
+    };
+  }
+
+  // Resolve single prompt placeholders
   const resolvedPrompt = resolvePrompt(scene.prompt, model, objectCount);
 
   return {
     scene_id: sceneId,
     prompt: resolvedPrompt,
+    multi_shots: scene.multi_shots ?? undefined,
     object_urls: objectUrls,
     background_url: bg.final_url,
     duration: durationInt,
@@ -435,6 +497,7 @@ async function sendRefVideoRequest(
         image_urls: [context.background_url, ...context.object_urls],
         resolution,
         duration: context.duration,
+        multi_shots: context.multi_shots,
       });
     } else {
       // klingo3/klingo3pro — build elements dynamically from object_urls
@@ -450,6 +513,7 @@ async function sendRefVideoRequest(
         image_urls: [context.background_url],
         duration: context.duration,
         aspect_ratio,
+        multi_prompt: context.multi_prompt,
       });
     }
 

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { IconShare } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { useStudioStore } from '@/stores/studio-store';
 import { usePanelStore } from '@/stores/panel-store';
+import { useProject } from '@/contexts/project-context';
 import { Log, type IClip } from 'openvideo';
 import { ExportModal } from './export-modal';
 import { LogoIcons } from '../shared/logos';
@@ -10,7 +11,6 @@ import Link from 'next/link';
 import { Icons } from '../shared/icons';
 import { Keyboard, FilePlus, Download, Upload } from 'lucide-react';
 import { ShortcutsModal } from './shortcuts-modal';
-import { useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,10 +21,17 @@ import {
 export default function Header() {
   const { studio } = useStudioStore();
   const { toggleCopilot } = usePanelStore();
+  const { projectName, renameProject } = useProject();
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<'download' | 'cloud'>(
+    'download'
+  );
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!studio) return;
@@ -202,8 +209,39 @@ export default function Header() {
       </div>
 
       {/* Center Section */}
-      <div className="absolute text-sm font-medium left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-        Untitled video
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        {isEditingName ? (
+          <input
+            ref={nameInputRef}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={() => {
+              setIsEditingName(false);
+              if (editName.trim() && editName.trim() !== projectName) {
+                renameProject(editName);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                setIsEditingName(false);
+              }
+            }}
+            className="bg-transparent text-sm font-medium text-center outline-none border-b border-primary w-48"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setEditName(projectName);
+              setIsEditingName(true);
+            }}
+            className="text-sm font-medium hover:text-primary cursor-pointer transition-colors"
+          >
+            {projectName}
+          </button>
+        )}
       </div>
 
       {/* Right Section */}
@@ -239,6 +277,7 @@ export default function Header() {
         <ExportModal
           open={isExportModalOpen}
           onOpenChange={setIsExportModalOpen}
+          mode={exportMode}
         />
         <ShortcutsModal
           open={isShortcutsModalOpen}
@@ -253,13 +292,33 @@ export default function Header() {
           <IconShare width={18} />{' '}
           <span className="hidden md:block">Share</span>
         </Button>
-        <Button
-          size="sm"
-          className="gap-2 rounded-full"
-          onClick={() => setIsExportModalOpen(true)}
-        >
-          Download
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" className="gap-2 rounded-full">
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setExportMode('download');
+                setIsExportModalOpen(true);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Render & Download
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setExportMode('cloud');
+                setIsExportModalOpen(true);
+              }}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Render to Cloud
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

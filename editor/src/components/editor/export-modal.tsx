@@ -5,8 +5,10 @@ import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Cloud, Check } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
+import { useProjectId } from '@/contexts/project-context';
+import { uploadFile } from '@/lib/upload-utils';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
 function proxyClipUrl(src: string): string {
@@ -21,13 +23,25 @@ function proxyClipUrl(src: string): string {
   return `/api/proxy/media?url=${encodeURIComponent(src)}`;
 }
 
+const LANGUAGES = [
+  { code: 'en', label: 'EN' },
+  { code: 'tr', label: 'TR' },
+  { code: 'ar', label: 'AR' },
+] as const;
+
 interface ExportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: 'download' | 'cloud';
 }
 
-export function ExportModal({ open, onOpenChange }: ExportModalProps) {
+export function ExportModal({
+  open,
+  onOpenChange,
+  mode = 'download',
+}: ExportModalProps) {
   const { studio, setIsExporting: setStoreIsExporting } = useStudioStore();
+  const projectId = useProjectId();
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportBlobUrl, setExportBlobUrl] = useState<string | null>(null);
@@ -35,6 +49,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [exportCombinator, setExportCombinator] = useState<Compositor | null>(
     null
   );
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [isUploading, setIsUploading] = useState(false);
+  const [renderStarted, setRenderStarted] = useState(false);
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
@@ -51,6 +68,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     setIsExporting(false);
     setStoreIsExporting(false);
     setExportProgress(0);
+    setIsUploading(false);
+    setRenderStarted(false);
   };
 
   const handleClose = () => {
@@ -74,6 +93,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setExportProgress(0);
       setExportBlobUrl(null);
       setExportStartTime(Date.now());
+      setRenderStarted(true);
 
       // Export current studio to JSON
       const json = studio.exportToJSON();
@@ -133,14 +153,19 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setExportBlobUrl(blobUrl);
       setIsExporting(false);
 
-      // Automated completion flow
-      setTimeout(() => {
-        handleDownload(blobUrl);
-        toast.success('Rendering complete! Your download has started.');
+      if (mode === 'download') {
+        // Download mode: auto-download and close
         setTimeout(() => {
-          handleClose();
-        }, 1500);
-      }, 500);
+          handleDownload(blobUrl);
+          toast.success('Rendering complete! Your download has started.');
+          setTimeout(() => {
+            handleClose();
+          }, 1500);
+        }, 500);
+      } else {
+        // Cloud mode: upload to R2
+        await handleCloudUpload(blob, combinatorOpts);
+      }
     } catch (error) {
       Log.error('Export error:', error);
       alert(`Failed to export: ${(error as Error).message}`);
@@ -149,9 +174,47 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   };
 
-  // Auto-start export when modal opens
+  const handleCloudUpload = async (blob: Blob, settings: any) => {
+    try {
+      setIsUploading(true);
+
+      const file = new File(
+        [blob],
+        `render-${selectedLanguage}-${Date.now()}.mp4`,
+        { type: 'video/mp4' }
+      );
+
+      const uploadResult = await uploadFile(file);
+
+      await fetch('/api/rendered-videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectId,
+          language: selectedLanguage,
+          url: uploadResult.url,
+          file_size: file.size,
+          duration: maxDuration / 1e6,
+          resolution: `${settings.width}x${settings.height}`,
+        }),
+      });
+
+      toast.success('Video uploaded to cloud successfully!');
+      setTimeout(() => {
+        handleClose();
+      }, 1500);
+    } catch (error) {
+      Log.error('Cloud upload error:', error);
+      toast.error(`Cloud upload failed: ${(error as Error).message}`);
+    } finally {
+      setIsUploading(false);
+      setStoreIsExporting(false);
+    }
+  };
+
+  // Auto-start export when modal opens (download mode only)
   useEffect(() => {
-    if (open && !isExporting && !exportBlobUrl) {
+    if (open && mode === 'download' && !isExporting && !exportBlobUrl) {
       startExport();
     }
   }, [open]);
@@ -172,6 +235,69 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }, 100);
   };
 
+  // Cloud mode: pre-render screen with language selector
+  if (mode === 'cloud' && !renderStarted) {
+    return (
+      <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+        <DialogContent
+          className="max-w-[480px] border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
+          showCloseButton={false}
+        >
+          <div className="flex flex-col items-center p-8 pt-10">
+            <DialogTitle className="mb-2 text-xl font-medium tracking-tight">
+              Render to Cloud
+            </DialogTitle>
+            <p className="mb-8 text-sm text-zinc-400">
+              Select a language and start rendering. The video will be uploaded
+              to the cloud automatically.
+            </p>
+
+            <div className="mb-8 w-full">
+              <label className="mb-3 block text-xs font-medium text-zinc-400">
+                Language
+              </label>
+              <div className="flex gap-2">
+                {LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => setSelectedLanguage(lang.code)}
+                    className={`flex h-10 flex-1 items-center justify-center rounded-lg border text-sm font-medium transition-all ${
+                      selectedLanguage === lang.code
+                        ? 'border-white bg-white text-black'
+                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'
+                    }`}
+                  >
+                    {selectedLanguage === lang.code && (
+                      <Check className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex w-full gap-3">
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                className="flex-1 h-11 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => startExport()}
+                className="flex-1 h-11 gap-2 rounded-xl text-[13px] font-medium"
+              >
+                <Cloud className="h-4 w-4" />
+                Start Render
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent
@@ -180,7 +306,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       >
         <div className="flex flex-col items-center p-8 pt-10">
           <DialogTitle className="mb-8 text-xl font-medium tracking-tight">
-            Exporting Composition
+            {mode === 'cloud'
+              ? 'Rendering & Uploading'
+              : 'Exporting Composition'}
           </DialogTitle>
 
           <div className="mb-8 w-full rounded-2xl border border-white/5 bg-white/5 p-5 shadow-2xl backdrop-blur-md">
@@ -221,30 +349,50 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 <span className="text-zinc-500">Sample Rate</span>
                 <span className="font-medium">48 KHz</span>
               </div>
+              {mode === 'cloud' && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-zinc-500">Language</span>
+                  <span className="font-medium uppercase">
+                    {selectedLanguage}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="w-full px-1">
             <div className="mb-3 flex items-center justify-between text-[13px]">
-              <span className="font-medium text-zinc-300">Progress</span>
+              <span className="font-medium text-zinc-300">
+                {isUploading ? 'Uploading to cloud...' : 'Progress'}
+              </span>
               <span className="font-mono text-zinc-400">
-                {Math.round(exportProgress * 100)}% •{' '}
-                {exportProgress > 0 && exportStartTime
-                  ? (() => {
-                      const elapsed = Date.now() - exportStartTime;
-                      const remaining =
-                        (elapsed / exportProgress - elapsed) / 1000;
-                      const mins = Math.floor(remaining / 60);
-                      const secs = Math.floor(remaining % 60);
-                      return `${mins}min ${secs}s`;
-                    })()
-                  : 'preparing...'}
+                {isUploading ? (
+                  'Almost done...'
+                ) : (
+                  <>
+                    {Math.round(exportProgress * 100)}% •{' '}
+                    {exportProgress > 0 && exportStartTime
+                      ? (() => {
+                          const elapsed = Date.now() - exportStartTime;
+                          const remaining =
+                            (elapsed / exportProgress - elapsed) / 1000;
+                          const mins = Math.floor(remaining / 60);
+                          const secs = Math.floor(remaining % 60);
+                          return `${mins}min ${secs}s`;
+                        })()
+                      : 'preparing...'}
+                  </>
+                )}
               </span>
             </div>
             <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
-                className="absolute bottom-0 left-0 top-0 bg-white transition-all duration-300 ease-out"
-                style={{ width: `${exportProgress * 100}%` }}
+                className={`absolute bottom-0 left-0 top-0 transition-all duration-300 ease-out ${
+                  isUploading ? 'animate-pulse bg-blue-500' : 'bg-white'
+                }`}
+                style={{
+                  width: isUploading ? '100%' : `${exportProgress * 100}%`,
+                }}
               />
             </div>
           </div>
@@ -255,7 +403,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
               onClick={handleClose}
               className="flex h-11 items-center gap-2.5 rounded-xl border-zinc-800 bg-zinc-900/50 px-8 text-[13px] font-medium text-white transition-all hover:bg-zinc-800 hover:text-white"
             >
-              {isExporting && (
+              {(isExporting || isUploading) && (
                 <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
               )}
               Cancel

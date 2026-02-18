@@ -21,7 +21,9 @@ export async function POST(req: Request) {
 
   const result = streamText({
     stopWhen: [stepCountIs(10), hasToolCall('duplicate_selected')],
-    model: openrouter.chat('x-ai/grok-4.1-fast'),
+    model: openrouter.chat('x-ai/grok-4.1-fast', {
+      reasoning: { effort: 'high' },
+    }),
     system: `You are a helpful AI assistant for a video editor application.
 
 When answering questions that require current or external information:

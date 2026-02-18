@@ -7,6 +7,8 @@ import {
   klingO3PlanSchema,
   klingO3ContentSchema,
   KLING_O3_SYSTEM_PROMPT,
+  klingO3ReviewerOutputSchema,
+  KLING_O3_REVIEWER_SYSTEM_PROMPT,
   REF_OBJECTS_GRID_PREFIX,
   REF_BACKGROUNDS_GRID_PREFIX,
 } from '@/lib/schemas/kling-o3-plan';
@@ -14,6 +16,8 @@ import {
   wan26FlashPlanSchema,
   wan26FlashContentSchema,
   WAN26_FLASH_SYSTEM_PROMPT,
+  wan26FlashReviewerOutputSchema,
+  WAN26_FLASH_REVIEWER_SYSTEM_PROMPT,
 } from '@/lib/schemas/wan26-flash-plan';
 
 const openrouter = createOpenRouter({
@@ -114,6 +118,8 @@ const VALID_MODELS = [
 
 const VALID_VIDEO_MODELS = ['klingo3', 'klingo3pro', 'wan26flash'] as const;
 
+const isOpus = (model: string) => model.includes('claude-opus');
+
 // --- Ref-to-Video plan generation ---
 async function generateRefToVideoPlan(
   voiceoverText: string,
@@ -139,6 +145,7 @@ async function generateRefToVideoPlan(
   const { object: content } = await generateObject({
     model: openrouter.chat(llmModel, {
       plugins: [{ id: 'response-healing' }],
+      ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'high' } }),
     }),
     system: systemPrompt,
     prompt: userPrompt,
@@ -150,36 +157,106 @@ async function generateRefToVideoPlan(
     JSON.stringify(content, null, 2)
   );
 
-  // Validate object count matches grid
+  // Compute counts from frozen fields
   const expectedObjects = content.objects_rows * content.objects_cols;
   const objectCount = isKling
     ? (content as z.infer<typeof klingO3ContentSchema>).objects.length
-    : (content as z.infer<typeof wan26FlashContentSchema>).object_names.length;
+    : (content as z.infer<typeof wan26FlashContentSchema>).objects.length;
+  const expectedBgs = content.bg_rows * content.bg_cols;
+  const sceneCount = content.voiceover_list.length;
 
+  // Validate frozen grid counts (reviewer cannot fix these)
   if (objectCount !== expectedObjects) {
     throw new Error(
       `Object count mismatch: grid is ${content.objects_rows}x${content.objects_cols}=${expectedObjects} but got ${objectCount} objects`
     );
   }
-
-  // Validate background count matches grid
-  const expectedBgs = content.bg_rows * content.bg_cols;
   if (content.background_names.length !== expectedBgs) {
     throw new Error(
       `Background count mismatch: grid is ${content.bg_rows}x${content.bg_cols}=${expectedBgs} but got ${content.background_names.length} backgrounds`
     );
   }
 
-  // Validate scene counts match
-  const sceneCount = content.scene_prompts.length;
+  // --- Call 1.5: Review & Fix (both Kling and WAN) ---
+  {
+    const reviewerSystemPrompt = isKling
+      ? KLING_O3_REVIEWER_SYSTEM_PROMPT
+      : WAN26_FLASH_REVIEWER_SYSTEM_PROMPT;
+    const reviewerSchema = isKling
+      ? klingO3ReviewerOutputSchema
+      : wan26FlashReviewerOutputSchema;
+
+    const frozenContext = isKling
+      ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof klingO3ContentSchema>).objects)}`
+      : `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).objects)}`;
+
+    const mutableMultiShots = isKling
+      ? ''
+      : `\n- scene_multi_shots: ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots)}`;
+
+    const reviewerUserPrompt = `Review and improve this ${isKling ? 'Kling O3' : 'WAN 2.6 Flash'} storyboard plan.
+
+FROZEN (do not change):
+${frozenContext}
+- background_names (${expectedBgs} items): ${JSON.stringify(content.background_names)}
+- voiceover_list (${sceneCount} segments): ${JSON.stringify(content.voiceover_list)}
+
+MUTABLE (fix and improve):
+- scene_prompts: ${JSON.stringify(content.scene_prompts)}
+- scene_bg_indices: ${JSON.stringify(content.scene_bg_indices)}
+- scene_object_indices: ${JSON.stringify(content.scene_object_indices)}${mutableMultiShots}
+
+Return the corrected fields.`;
+
+    console.log('[Storyboard][ref_to_video] Reviewer LLM request');
+
+    const { object: reviewed } = await generateObject({
+      model: openrouter.chat(llmModel, {
+        plugins: [{ id: 'response-healing' }],
+        ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'medium' } }),
+      }),
+      system: reviewerSystemPrompt,
+      prompt: reviewerUserPrompt,
+      schema: reviewerSchema,
+    });
+
+    console.log(
+      '[Storyboard][ref_to_video] Reviewer LLM response:',
+      JSON.stringify(reviewed, null, 2)
+    );
+
+    // Merge reviewed fields back into content
+    content.scene_prompts = reviewed.scene_prompts;
+    content.scene_bg_indices = reviewed.scene_bg_indices;
+    content.scene_object_indices = reviewed.scene_object_indices;
+
+    // Merge scene_multi_shots for WAN
+    if (!isKling && 'scene_multi_shots' in reviewed) {
+      (content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots = (
+        reviewed as z.infer<typeof wan26FlashReviewerOutputSchema>
+      ).scene_multi_shots;
+    }
+  }
+
+  // Validate scene counts match (safety net after reviewer)
   if (
+    content.scene_prompts.length !== sceneCount ||
     content.scene_bg_indices.length !== sceneCount ||
-    content.scene_object_indices.length !== sceneCount ||
-    content.voiceover_list.length !== sceneCount
+    content.scene_object_indices.length !== sceneCount
   ) {
     throw new Error(
-      `Scene count mismatch: scene_prompts=${sceneCount}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${content.voiceover_list.length}`
+      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
     );
+  }
+
+  // Validate scene_multi_shots length for WAN
+  if (!isKling) {
+    const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
+    if (wanContent.scene_multi_shots.length !== sceneCount) {
+      throw new Error(
+        `scene_multi_shots length mismatch: got ${wanContent.scene_multi_shots.length} but expected ${sceneCount}`
+      );
+    }
   }
 
   // Validate indices are within bounds
@@ -198,6 +275,58 @@ async function generateRefToVideoPlan(
     }
   }
 
+  // Validate @ElementN references for Kling plans
+  if (isKling) {
+    for (let i = 0; i < sceneCount; i++) {
+      const prompts = Array.isArray(content.scene_prompts[i])
+        ? (content.scene_prompts[i] as string[])
+        : [content.scene_prompts[i] as string];
+      const maxElement = content.scene_object_indices[i].length;
+
+      for (const p of prompts) {
+        // Validate @ElementN references
+        const elementRefs = [...p.matchAll(/@Element(\d+)/g)];
+        for (const match of elementRefs) {
+          const n = parseInt(match[1], 10);
+          if (n > maxElement) {
+            throw new Error(
+              `Scene ${i} references @Element${n} but only has ${maxElement} object(s) (scene_object_indices: [${content.scene_object_indices[i].join(', ')}]). Use @Element1 to @Element${maxElement} only.`
+            );
+          }
+        }
+        // Validate only @Image1 is used
+        const imageRefs = [...p.matchAll(/@Image(\d+)/g)];
+        for (const match of imageRefs) {
+          const n = parseInt(match[1], 10);
+          if (n !== 1) {
+            throw new Error(
+              `Scene ${i} references @Image${n} but only @Image1 is valid (one background per scene).`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Validate @ElementN references for WAN plans
+  // @Element1 = background, @Element2+ = characters from scene_object_indices
+  if (!isKling) {
+    for (let i = 0; i < sceneCount; i++) {
+      const prompt = content.scene_prompts[i] as string;
+      const maxElement = content.scene_object_indices[i].length + 1; // +1 for background as @Element1
+
+      const elementRefs = [...prompt.matchAll(/@Element(\d+)/g)];
+      for (const match of elementRefs) {
+        const n = parseInt(match[1], 10);
+        if (n < 1 || n > maxElement) {
+          throw new Error(
+            `Scene ${i} references @Element${n} but max is @Element${maxElement} (1 bg + ${content.scene_object_indices[i].length} object(s)). Use @Element1 to @Element${maxElement} only.`
+          );
+        }
+      }
+    }
+  }
+
   // --- Call 2: Translation ---
   const numberedSegments = content.voiceover_list
     .map((seg: string, i: number) => `${i + 1}. ${seg}`)
@@ -210,6 +339,7 @@ async function generateRefToVideoPlan(
   const { object: translation } = await generateObject({
     model: openrouter.chat(llmModel, {
       plugins: [{ id: 'response-healing' }],
+      ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'medium' } }),
     }),
     system: TRANSLATION_SYSTEM_PROMPT,
     prompt: translationPrompt,
@@ -255,7 +385,7 @@ async function generateRefToVideoPlan(
       objects_rows: wanContent.objects_rows,
       objects_cols: wanContent.objects_cols,
       objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${wanContent.objects_grid_prompt}`,
-      object_names: wanContent.object_names,
+      objects: wanContent.objects,
       bg_rows: wanContent.bg_rows,
       bg_cols: wanContent.bg_cols,
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${wanContent.backgrounds_grid_prompt}`,
@@ -263,6 +393,7 @@ async function generateRefToVideoPlan(
       scene_prompts: wanContent.scene_prompts,
       scene_bg_indices: wanContent.scene_bg_indices,
       scene_object_indices: wanContent.scene_object_indices,
+      scene_multi_shots: wanContent.scene_multi_shots,
       voiceover_list: translation,
     };
   }
@@ -382,6 +513,7 @@ Generate the storyboard.`;
     const { object: content } = await generateObject({
       model: openrouter.chat(model, {
         plugins: [{ id: 'response-healing' }],
+        ...(isOpus(model) ? {} : { reasoning: { effort: 'high' } }),
       }),
       system: I2V_SYSTEM_PROMPT,
       prompt: userPrompt,
@@ -448,6 +580,7 @@ Generate the storyboard.`;
     const { object: translation } = await generateObject({
       model: openrouter.chat(model, {
         plugins: [{ id: 'response-healing' }],
+        ...(isOpus(model) ? {} : { reasoning: { effort: 'medium' } }),
       }),
       system: TRANSLATION_SYSTEM_PROMPT,
       prompt: translationPrompt,

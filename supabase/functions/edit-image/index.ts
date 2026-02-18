@@ -44,7 +44,8 @@ interface EditImageInput {
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
-  source?: 'first_frame' | 'background';
+  source?: 'first_frame' | 'background' | 'object';
+  object_ids?: string[];
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
@@ -70,6 +71,13 @@ interface FirstFrameContext {
 interface BackgroundContext {
   background_id: string;
   scene_id: string;
+  image_url: string;
+}
+
+interface ObjectContext {
+  object_id: string;
+  grid_image_id: string;
+  grid_position: number;
   image_url: string;
 }
 
@@ -116,7 +124,7 @@ async function getFirstFrameContext(
 }
 
 async function sendEditRequest(
-  context: FirstFrameContext | BackgroundContext,
+  context: FirstFrameContext | BackgroundContext | ObjectContext,
   endpoint: string,
   model: string,
   prompt: string,
@@ -124,11 +132,18 @@ async function sendEditRequest(
   log: ReturnType<typeof createLogger>,
   referenceUrls?: string[]
 ): Promise<{ requestId: string | null; error: string | null }> {
+  const isObject = 'object_id' in context;
   const isBackground = 'background_id' in context;
-  const entityId = isBackground
-    ? context.background_id
-    : context.first_frame_id;
-  const entityKey = isBackground ? 'background_id' : 'first_frame_id';
+  const entityId = isObject
+    ? context.object_id
+    : isBackground
+      ? context.background_id
+      : context.first_frame_id;
+  const entityKey = isObject
+    ? 'object_id'
+    : isBackground
+      ? 'background_id'
+      : 'first_frame_id';
   const webhookParams = new URLSearchParams({
     step: webhookStep,
     [entityKey]: entityId,
@@ -279,6 +294,48 @@ async function getBackgroundContextForEnhance(
   };
 }
 
+async function getObjectContextForEnhance(
+  supabase: SupabaseClient,
+  objectId: string,
+  log: ReturnType<typeof createLogger>
+): Promise<ObjectContext | null> {
+  const { data: obj, error: objError } = await supabase
+    .from('objects')
+    .select('id, grid_image_id, grid_position, final_url, image_edit_status')
+    .eq('id', objectId)
+    .single();
+
+  if (objError || !obj) {
+    log.error('Failed to fetch object', {
+      object_id: objectId,
+      error: objError?.message,
+    });
+    return null;
+  }
+
+  if (!obj.final_url) {
+    log.warn('No final_url for object', { object_id: obj.id });
+    return null;
+  }
+
+  if (
+    obj.image_edit_status === 'enhancing' ||
+    obj.image_edit_status === 'editing'
+  ) {
+    log.warn('Enhance/edit already processing, skipping', {
+      object_id: obj.id,
+    });
+    return null;
+  }
+
+  return {
+    object_id: obj.id,
+    grid_image_id: obj.grid_image_id,
+    grid_position: obj.grid_position,
+    image_url: obj.final_url,
+  };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -416,6 +473,131 @@ Deno.serve(async (req: Request) => {
         request_id: requestId,
         reference_count: referenceUrls.length,
         summary: { total: 1, queued: 1, skipped: 0, failed: 0 },
+      });
+    }
+
+    // --- Object actions: enhance / custom_edit for objects ---
+    if (
+      input.source === 'object' &&
+      input.object_ids &&
+      input.object_ids.length > 0
+    ) {
+      const isCustomEditObj = action === 'custom_edit';
+      const objPrompt = isCustomEditObj ? input.prompt! : ENHANCE_PROMPT;
+      const objStatusLabel = isCustomEditObj ? 'editing' : 'enhancing';
+
+      log.setContext({ step: 'EnhanceImage' });
+      log.info(`Processing object ${action} requests`, {
+        object_count: input.object_ids.length,
+        model,
+        endpoint,
+        action,
+      });
+
+      const results: Array<{
+        object_id: string;
+        request_id: string | null;
+        status: 'queued' | 'skipped' | 'failed';
+        error?: string;
+      }> = [];
+
+      for (let i = 0; i < input.object_ids.length; i++) {
+        const objectId = input.object_ids[i];
+
+        if (i > 0) {
+          log.info('Waiting before next request', { delay_ms: 1000, index: i });
+          await delay(1000);
+        }
+
+        const context = await getObjectContextForEnhance(
+          supabase,
+          objectId,
+          log
+        );
+        if (!context) {
+          results.push({
+            object_id: objectId,
+            request_id: null,
+            status: 'skipped',
+            error: 'Object not found or already processing',
+          });
+          continue;
+        }
+
+        // Update status on ALL siblings (same grid_image_id + grid_position)
+        await supabase
+          .from('objects')
+          .update({ image_edit_status: objStatusLabel })
+          .eq('grid_image_id', context.grid_image_id)
+          .eq('grid_position', context.grid_position);
+
+        const { requestId, error } = await sendEditRequest(
+          context,
+          endpoint,
+          model,
+          objPrompt,
+          'EnhanceImage',
+          log
+        );
+
+        if (error || !requestId) {
+          await supabase
+            .from('objects')
+            .update({
+              image_edit_status: 'failed',
+              image_edit_error_message: 'request_error',
+            })
+            .eq('grid_image_id', context.grid_image_id)
+            .eq('grid_position', context.grid_position);
+
+          results.push({
+            object_id: objectId,
+            request_id: null,
+            status: 'failed',
+            error: error || 'Unknown error',
+          });
+          continue;
+        }
+
+        // Store request_id on ALL siblings
+        await supabase
+          .from('objects')
+          .update({ image_edit_request_id: requestId })
+          .eq('grid_image_id', context.grid_image_id)
+          .eq('grid_position', context.grid_position);
+
+        results.push({
+          object_id: objectId,
+          request_id: requestId,
+          status: 'queued',
+        });
+
+        log.success(`Object ${action} request queued`, {
+          object_id: objectId,
+          request_id: requestId,
+        });
+      }
+
+      const queuedCount = results.filter((r) => r.status === 'queued').length;
+      const skippedCount = results.filter((r) => r.status === 'skipped').length;
+      const failedCount = results.filter((r) => r.status === 'failed').length;
+
+      log.summary('success', {
+        total: input.object_ids.length,
+        queued: queuedCount,
+        skipped: skippedCount,
+        failed: failedCount,
+      });
+
+      return jsonResponse({
+        success: true,
+        results,
+        summary: {
+          total: input.object_ids.length,
+          queued: queuedCount,
+          skipped: skippedCount,
+          failed: failedCount,
+        },
       });
     }
 
