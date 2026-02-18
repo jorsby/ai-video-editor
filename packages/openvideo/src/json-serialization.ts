@@ -322,7 +322,9 @@ export async function jsonToClip(json: ClipJSON): Promise<IClip> {
   if (ClipClass && typeof ClipClass.fromObject === 'function') {
     clip = await ClipClass.fromObject(json);
   } else {
-    throw new Error(`Unsupported clip type or missing fromObject: ${json.type}`);
+    throw new Error(
+      `Unsupported clip type or missing fromObject: ${json.type}`
+    );
   }
 
   // Final pass for modular animations to ensure they are always applied
