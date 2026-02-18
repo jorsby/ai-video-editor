@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
 import { Video, Log, Placeholder } from 'openvideo';
 import { Search, Film, Loader2 } from 'lucide-react';
 import {
@@ -36,6 +37,7 @@ interface PexelsVideo {
 
 export default function PanelVideos() {
   const { studio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [videos, setVideos] = useState<PexelsVideo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -99,9 +101,9 @@ export default function PanelVideos() {
       );
       placeholder.name = clipName;
 
-      // Scale to fit and center in scene (1080x1920)
-      await placeholder.scaleToFit(1080, 1920);
-      placeholder.centerInScene(1080, 1920);
+      // Scale to fit and center in scene
+      await placeholder.scaleToFit(canvasSize.width, canvasSize.height);
+      placeholder.centerInScene(canvasSize.width, canvasSize.height);
 
       await studio.addClip(placeholder);
 

@@ -4,12 +4,25 @@ import { Button } from '@/components/ui/button';
 import { useStudioStore } from '@/stores/studio-store';
 import { usePanelStore } from '@/stores/panel-store';
 import { useProject } from '@/contexts/project-context';
+import { useProjectStore } from '@/stores/project-store';
+import { DEFAULT_CANVAS_PRESETS } from '@/lib/editor-utils';
 import { Log, type IClip } from 'openvideo';
 import { ExportModal } from './export-modal';
 import { LogoIcons } from '../shared/logos';
 import Link from 'next/link';
 import { Icons } from '../shared/icons';
-import { Keyboard, FilePlus, Download, Upload } from 'lucide-react';
+import {
+  Keyboard,
+  FileJson,
+  Download,
+  Upload,
+  MessageSquare,
+  Settings,
+  Database,
+  FilePlus,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Compositor } from 'openvideo';
 import { ShortcutsModal } from './shortcuts-modal';
 import {
   DropdownMenu,
@@ -20,12 +33,117 @@ import {
 
 export default function Header() {
   const { studio } = useStudioStore();
-  const { toggleCopilot } = usePanelStore();
+  const { toggleCopilot, isCopilotVisible } = usePanelStore();
   const { projectName, renameProject } = useProject();
+  const { aspectRatio, setCanvasSize } = useProjectStore();
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportMode, setExportMode] = useState<'download' | 'cloud'>(
     'download'
   );
+  const [isExporting, setIsExporting] = useState(false);
+  const [isBatchExporting, setIsBatchExporting] = useState(false);
+
+  const handleBatchExport = async () => {
+    if (!studio) return;
+    setIsBatchExporting(true);
+    const toastId = toast.loading('Initializing batch export...');
+
+    try {
+      // 1. Get animation keys and template
+      const keysRes = await fetch('/api/batch-export');
+      const { keys, template } = await keysRes.json();
+
+      if (!keys || keys.length === 0) throw new Error('No animations found');
+
+      // 2. Select project template: prefer current studio if it has clips, otherwise use API template
+      const currentProject = studio.exportToJSON();
+      const baseProject =
+        currentProject.clips && currentProject.clips.length > 0
+          ? currentProject
+          : template;
+
+      if (!baseProject.clips || baseProject.clips.length === 0) {
+        throw new Error(
+          'No template content available. Please add a clip to the canvas.'
+        );
+      }
+
+      const settings = baseProject.settings || {};
+
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        toast.loading(`Rendering ${i + 1}/${keys.length}: ${key}...`, {
+          id: toastId,
+        });
+
+        // Prepare project for this animation
+        const project = JSON.parse(JSON.stringify(baseProject));
+
+        // Find the first non-Audio/Transition/Effect clip to animate
+        const targetClip =
+          project.clips.find(
+            (c: any) =>
+              c.type !== 'Audio' &&
+              c.type !== 'Transition' &&
+              c.type !== 'Effect'
+          ) || project.clips[0];
+
+        if (targetClip) {
+          targetClip.animations = [
+            {
+              type: key,
+              opts: { duration: 1000000, delay: 0 },
+            },
+          ];
+          // Ensure clip covers the 1s duration
+          targetClip.display = { from: 0, to: 1000000 };
+          targetClip.duration = 1000000;
+        }
+
+        // Setup compositor
+        const com = new Compositor({
+          width: settings.width || 1080,
+          height: settings.height || 1080,
+          fps: settings.fps || 30,
+          bgColor: settings.bgColor || '#000000',
+          videoCodec: 'avc1.42E032',
+          bitrate: 10e6,
+          // audio: true,
+        });
+
+        await com.initPixiApp();
+        await com.loadFromJSON(project);
+
+        // Render to blob
+        const stream = com.output();
+        const blob = await new Response(stream).blob();
+
+        // Cleanup compositor
+        com.destroy();
+
+        // 3. Upload to server
+        const formData = new FormData();
+        formData.append('file', blob);
+        formData.append('filename', key);
+
+        const uploadRes = await fetch('/api/batch-export', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadRes.ok) throw new Error(`Failed to save ${key}`);
+      }
+
+      toast.success(
+        `Batch export complete! ${keys.length} videos saved to D:\\animations`,
+        { id: toastId }
+      );
+    } catch (error: any) {
+      toast.error(`Batch export failed: ${error.message}`, { id: toastId });
+    } finally {
+      setIsBatchExporting(false);
+    }
+  };
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -132,8 +250,7 @@ export default function Header() {
             clipJSON.type === 'Text' ||
             clipJSON.type === 'Caption' ||
             clipJSON.type === 'Effect' ||
-            clipJSON.type === 'Transition' ||
-            clipJSON.type === 'Audio'
+            clipJSON.type === 'Transition'
           ) {
             return true;
           }
@@ -150,7 +267,7 @@ export default function Header() {
         await studio.loadFromJSON(validJson);
       } catch (error) {
         Log.error('Load from JSON error:', error);
-        alert(`Failed to load from JSON: ${(error as Error).message}`);
+        alert('Failed to load from JSON: ' + (error as Error).message);
       } finally {
         document.body.removeChild(input);
       }
@@ -205,6 +322,15 @@ export default function Header() {
           >
             <Icons.redo className="size-5" />
           </Button>
+          {/* <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleBatchExport}
+            disabled={isBatchExporting}
+          >
+            <Database className="mr-2 h-4 w-4" />
+            Batch Export Anim
+          </Button> */}
         </div>
       </div>
 
@@ -273,6 +399,44 @@ export default function Header() {
             <span className="hidden md:block">Join Us</span>
           </Button>
         </Link>
+
+        {studio && (
+          <div className="flex items-center gap-1 border-x border-border/50 px-2 h-7 mx-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs font-semibold"
+                >
+                  <Icons.crop className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  {aspectRatio}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-32">
+                {DEFAULT_CANVAS_PRESETS.map((preset) => (
+                  <DropdownMenuItem
+                    key={preset.name}
+                    onClick={() =>
+                      setCanvasSize(
+                        { width: preset.width, height: preset.height },
+                        preset.name
+                      )
+                    }
+                    className="text-xs"
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span>{preset.name}</span>
+                      {aspectRatio === preset.name && (
+                        <Icons.check className="h-3 w-3" />
+                      )}
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
 
         <ExportModal
           open={isExportModalOpen}

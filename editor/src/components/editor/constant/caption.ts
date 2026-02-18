@@ -21,6 +21,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     borderColor: '#000000',
     borderWidth: 5,
     fontFamily: 'Bangers-Regular',
+    isKeywordColor: '#000000',
     fontUrl:
       'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf',
     previewUrl:
@@ -50,14 +51,14 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       'https://cdn.designcombo.dev/caption_previews/dynamic-preset3.webm',
   },
   {
-    appearedColor: '#000000',
-    activeColor: '#000000',
+    appearedColor: '#ffffff',
+    activeColor: '#ffffff',
     activeFillColor: 'transparent',
-    color: '#ffffff',
+    color: 'transparent',
     backgroundColor: 'transparent',
-    borderColor: '#ffff00',
+    borderColor: '#ffffff',
     borderWidth: 5,
-    boxShadow: { color: '#ffff00', x: 15, y: 15, blur: 60 },
+    boxShadow: { color: '#ffffff', x: 15, y: 15, blur: 60 },
     fontFamily: 'ChelseaMarket-Regular',
     fontUrl:
       'https://fonts.gstatic.com/s/chelseamarket/v8/BCawqZsHqfr89WNP_IApC8tzKBhlLA4uKkWk.ttf',
@@ -74,5 +75,21 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     borderWidth: 5,
     previewUrl:
       'https://cdn.designcombo.dev/caption_previews/dynamic-preset6.webm',
+  },
+  {
+    appearedColor: '#ffffff',
+    activeColor: '#ffffff',
+    activeFillColor: 'transparent',
+    color: '#ffffff',
+    backgroundColor: 'transparent',
+    borderColor: '#000000',
+    borderWidth: 10,
+    textTransform: 'uppercase',
+    fontFamily: 'Roboto-Black',
+    type: 'word',
+    fontUrl:
+      'https://fonts.gstatic.com/s/roboto/v29/KFOlCnqEu92Fr1MmYUtvAx05IsDqlA.ttf',
+    previewUrl:
+      'https://cdn.designcombo.dev/caption_previews/dynamic-preset18.webm',
   },
 ];

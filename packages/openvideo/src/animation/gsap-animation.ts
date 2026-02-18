@@ -1,11 +1,11 @@
-import gsap from "gsap";
-import { AnimationOptions, AnimationTransform, IAnimation } from "./types";
+import gsap from 'gsap';
+import type { AnimationOptions, AnimationTransform, IAnimation } from './types';
 
 export interface GsapAnimationParams {
   /**
    * Animation presets or custom GSAP vars
    */
-  type: "character" | "word" | "line";
+  type: 'character' | 'word' | 'line';
   from: gsap.TweenVars;
   to: gsap.TweenVars;
   stagger?: number | gsap.StaggerVars;
@@ -23,7 +23,7 @@ export class GsapAnimation implements IAnimation {
   constructor(
     params: GsapAnimationParams,
     opts: AnimationOptions,
-    type: string = "gsap",
+    type: string = 'gsap'
   ) {
     this.id = opts.id || `gsap_${Math.random().toString(36).substr(2, 9)}`;
     this.type = type;
@@ -31,9 +31,10 @@ export class GsapAnimation implements IAnimation {
     this.options = {
       duration: opts.duration,
       delay: opts.delay ?? 0,
-      easing: opts.easing ?? "none",
+      easing: opts.easing ?? 'none',
       iterCount: opts.iterCount ?? 1,
       id: this.id,
+      disableGlobalEasing: opts.disableGlobalEasing ?? false,
     };
   }
 
@@ -46,7 +47,7 @@ export class GsapAnimation implements IAnimation {
   private getTargetCount(target: any): number {
     if (!target) return 0;
     const { type } = this.params;
-    if (type === "character") {
+    if (type === 'character') {
       const countLeafNodes = (node: any, isRoot: boolean = false): number => {
         if (!node.children || node.children.length === 0) {
           return isRoot ? 0 : 1;
@@ -58,7 +59,7 @@ export class GsapAnimation implements IAnimation {
         return count;
       };
       return countLeafNodes(target, true);
-    } else if (type === "word") {
+    } else if (type === 'word') {
       return target.children ? target.children.length : 0;
     }
     return 1;
@@ -88,7 +89,7 @@ export class GsapAnimation implements IAnimation {
         // Check if existing targets are destroyed or removed
         const tween = tweens[0] as any;
         const gsapTargets =
-          typeof tween.targets === "function" ? tween.targets() : [];
+          typeof tween.targets === 'function' ? tween.targets() : [];
 
         // Check if the number of targets has changed (e.g. word -> characters)
         const currentCount = this.getTargetCount(target);
@@ -172,7 +173,7 @@ export class GsapAnimation implements IAnimation {
     }
 
     const { type } = this.params;
-    if (type === "character") {
+    if (type === 'character') {
       // Find all characters (leaf nodes) recursively
       const findCharacters = (node: any, isRoot: boolean = false): any[] => {
         if (!node.children || node.children.length === 0) {
@@ -185,7 +186,7 @@ export class GsapAnimation implements IAnimation {
         return results;
       };
       return findCharacters(target, true);
-    } else if (type === "word") {
+    } else if (type === 'word') {
       return [...(target.children || [])];
     }
     return [target];
@@ -201,7 +202,7 @@ export class GsapAnimation implements IAnimation {
     // PixiJS SplitBitmapText structure:
     // Container -> Words -> Characters
     if (target && target.children) {
-      if (type === "character") {
+      if (type === 'character') {
         // Find all characters (recursive)
         const findCharacters = (node: any, isRoot: boolean = false): any[] => {
           if (!node.children || node.children.length === 0) {
@@ -214,7 +215,7 @@ export class GsapAnimation implements IAnimation {
           return results;
         };
         animTargets = findCharacters(target, true);
-      } else if (type === "word") {
+      } else if (type === 'word') {
         animTargets = target.children || [];
       } else {
         animTargets = [target];
@@ -225,7 +226,7 @@ export class GsapAnimation implements IAnimation {
 
     // CRITICAL: Don't create the timeline if we have no targets but expected them.
     // By keeping this.timeline as null, the apply method will keep retrying every frame.
-    if ((type === "character" || type === "word") && animTargets.length === 0) {
+    if ((type === 'character' || type === 'word') && animTargets.length === 0) {
       if (this.timeline) {
         this.timeline.kill();
         this.timeline = null;

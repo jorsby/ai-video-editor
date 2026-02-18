@@ -1,4 +1,10 @@
-import { clipToJSON, Effect, IClip, jsonToClip, Studio } from 'openvideo';
+import {
+  clipToJSON,
+  Effect,
+  type IClip,
+  jsonToClip,
+  type Studio,
+} from 'openvideo';
 import { generateUUID } from '@/utils/id';
 import { usePlaybackStore } from '@/stores/playback-store';
 

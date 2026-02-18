@@ -1,5 +1,5 @@
 import { BaseTimelineClip, type BaseClipProps } from './base';
-import type { Control } from 'fabric';
+import { type Control, Pattern } from 'fabric';
 import { createTrimControls } from '../controls';
 import { editorFont } from '@/components/editor/constants';
 import { TIMELINE_CONSTANTS } from '@/components/editor/timeline/timeline-constants';
@@ -12,7 +12,7 @@ const MICROSECONDS_IN_SECOND = 1_000_000;
 const DEFAULT_THUMBNAIL_HEIGHT = 52;
 const DEFAULT_ASPECT_RATIO = 16 / 9;
 const FALLBACK_COLOR = '#1e1b4b'; // Deep Indigo
-const _THUMBNAIL_STEP_US = 1_000_000; // 1fps
+const THUMBNAIL_STEP_US = 1_000_000; // 1fps
 
 export class Video extends BaseTimelineClip {
   static createControls(): { controls: Record<string, Control> } {

@@ -2,21 +2,11 @@ import type { CanvasSize } from '@/types/editor';
 import type { MediaType } from '@/types/media';
 import { type Studio, Image, Video, Audio } from 'openvideo';
 
-// ============================================
-// Media Utilities
-// ============================================
-
 export interface MediaAsset {
   url: string;
   type: MediaType;
 }
 
-/**
- * Add any media type (image, video, audio) to the studio canvas
- * @param studio The studio instance
- * @param asset The media asset with url and type
- * @param sceneSize Optional scene dimensions for scaling images
- */
 export async function addMediaToCanvas(
   studio: Studio,
   asset: MediaAsset,
@@ -38,11 +28,7 @@ export async function addMediaToCanvas(
   }
 }
 
-// ============================================
-// Canvas Presets
-// ============================================
-
-const DEFAULT_CANVAS_PRESETS = [
+export const DEFAULT_CANVAS_PRESETS = [
   { name: '16:9', width: 1920, height: 1080 },
   { name: '9:16', width: 1080, height: 1920 },
   { name: '1:1', width: 1080, height: 1080 },

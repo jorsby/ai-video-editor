@@ -4,9 +4,9 @@ import {
   Image,
   Text,
   Audio,
-  Studio,
+  type Studio,
   Effect,
-  IClip,
+  type IClip,
   fontManager,
   jsonToClip,
 } from 'openvideo';

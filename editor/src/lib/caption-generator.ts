@@ -1,4 +1,5 @@
 import { groupWordsByWidth } from '@/utils/schema-converter';
+import * as PIXI from 'pixi.js';
 
 interface CaptionClipOptions {
   videoWidth: number;
@@ -52,11 +53,16 @@ export async function generateCaptionClips(
     captionChunks = words.map((word) => {
       const text = word.word || word.text || '';
       const dims = measureText(text);
+      const bitmapText = new PIXI.BitmapText(text, {
+        fontFamily,
+        fontSize,
+      });
+      const testWidth = bitmapText.width + 60;
       return {
         text,
         from: word.start || word.from / 1000,
         to: word.end || word.to / 1000,
-        width: dims.width,
+        width: testWidth,
         height: dims.height,
         words: [
           {

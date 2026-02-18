@@ -1,13 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Studio, fontManager } from 'openvideo';
 import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
 import { editorFont } from './constants';
-
-// Canvas configuration constants
-const DEFAULT_CANVAS_SIZE = {
-  width: 1080,
-  height: 1920,
-} as const;
 
 const STUDIO_CONFIG = {
   fps: 30,
@@ -15,6 +10,7 @@ const STUDIO_CONFIG = {
   interactivity: true,
   spacing: 20,
 } as const;
+
 interface CanvasPanelProps {
   onReady?: () => void;
 }
@@ -28,11 +24,19 @@ export function CanvasPanel({ onReady }: CanvasPanelProps) {
   const studioRef = useRef<Studio | null>(null);
   const onReadyRef = useRef(onReady);
   const { setStudio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
 
   // Keep onReady ref up to date
   useEffect(() => {
     onReadyRef.current = onReady;
   }, [onReady]);
+
+  // Handle dimension changes
+  useEffect(() => {
+    if (studioRef.current) {
+      studioRef.current.setSize(canvasSize.width, canvasSize.height);
+    }
+  }, [canvasSize]);
 
   // Setup Studio and ResizeObserver (only once on mount)
   useEffect(() => {
@@ -40,7 +44,7 @@ export function CanvasPanel({ onReady }: CanvasPanelProps) {
 
     // Create studio instance
     studioRef.current = new Studio({
-      ...DEFAULT_CANVAS_SIZE,
+      ...canvasSize,
       ...STUDIO_CONFIG,
       canvas: canvasRef.current,
     });

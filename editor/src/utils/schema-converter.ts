@@ -1,4 +1,5 @@
 import { fontManager } from 'openvideo';
+import * as PIXI from 'pixi.js';
 
 /**
  * Fetches caption data from a URL
@@ -46,7 +47,11 @@ export const groupWordsByWidth = (
 
     // Calculate width if we add this word
     const testText = currentText ? `${currentText} ${wordText}` : wordText;
-    const testWidth = ctx.measureText(testText).width;
+    const bitmapText = new PIXI.BitmapText(testText, {
+      fontFamily,
+      fontSize,
+    });
+    const testWidth = bitmapText.width + 160;
 
     if (testWidth > maxWidth && currentWords.length > 0) {
       // Width exceeded, create caption with current words

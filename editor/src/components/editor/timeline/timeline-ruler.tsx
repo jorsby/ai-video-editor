@@ -7,12 +7,14 @@ interface TimelineRulerProps {
   zoomLevel: number;
   duration: number;
   width: number;
+  scrollLeft: number;
 }
 
 export function TimelineRuler({
   zoomLevel,
   duration,
   width,
+  scrollLeft,
 }: TimelineRulerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -45,7 +47,17 @@ export function TimelineRuler({
     const durationX = duration * pixelsPerSecond;
     if (durationX > 0) {
       ctx.fillStyle = 'rgba(33, 33, 33, 1)';
-      ctx.fillRect(0, 0, Math.min(width, durationX), 24);
+      // We only fill visible part
+      const visibleStart = Math.max(0, scrollLeft);
+      const visibleEnd = Math.min(scrollLeft + width, durationX);
+      if (visibleEnd > visibleStart) {
+        ctx.fillRect(
+          visibleStart - scrollLeft,
+          0,
+          visibleEnd - visibleStart,
+          24
+        );
+      }
     }
 
     // Drawing settings
@@ -76,7 +88,7 @@ export function TimelineRuler({
       // If interval is sub-second, show decimal
       if (mainInterval < 1) {
         // Avoid long floating point errors
-        return `${seconds.toFixed(1)}s`;
+        return seconds.toFixed(1) + 's';
       }
 
       const m = Math.floor(seconds / 60);
@@ -106,14 +118,21 @@ export function TimelineRuler({
       subInterval = mainInterval; // No sub ticks
     }
 
-    const rangeEnd = Math.max(duration, width / pixelsPerSecond);
-    const count = Math.ceil(rangeEnd / subInterval) + 1;
+    // Determine range to draw based on scrollLeft and width
+    const startTime =
+      Math.floor(scrollLeft / pixelsPerSecond / subInterval) * subInterval;
+    const endTime = (scrollLeft + width) / pixelsPerSecond;
+
+    const count = Math.ceil((endTime - startTime) / subInterval) + 1;
 
     for (let i = 0; i < count; i++) {
-      const time = i * subInterval;
-      const x = Math.floor(time * pixelsPerSecond) + 0.5;
+      const time = startTime + i * subInterval;
+      if (time < 0) continue;
+
+      const x = Math.floor(time * pixelsPerSecond - scrollLeft) + 0.5;
 
       if (x > width) break;
+      if (x < -20) continue; // Skip if far left
 
       const isBeyondDuration = time > duration + 0.001;
       ctx.globalAlpha = isBeyondDuration ? 0.4 : 1.0;
@@ -144,7 +163,7 @@ export function TimelineRuler({
       ctx.stroke();
     }
     ctx.globalAlpha = 1.0;
-  }, [zoomLevel, duration, width]);
+  }, [zoomLevel, duration, width, scrollLeft]);
 
   return (
     <canvas

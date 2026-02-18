@@ -1,5 +1,5 @@
-import { Part } from 'genkit';
-import { ImportAsset } from './type';
+import type { Part } from 'genkit';
+import type { ImportAsset } from './type';
 
 // Context building is handled directly in the flow for better control
 

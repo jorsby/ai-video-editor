@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { ArrowUpIcon, Wand2, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStudioStore } from '@/stores/studio-store';
-import { Studio } from 'openvideo';
+import type { Studio } from 'openvideo';
 import { streamFlow } from '@genkit-ai/next/client';
 import * as ToolHandlers from './tools';
 import {
@@ -18,9 +18,9 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useTimelineStore } from '@/stores/timeline-store';
-import { IClip } from '@/types/timeline';
-import { chatFlow } from '@/genkit/chat-flow';
-import { ImportAsset } from '@/genkit/type';
+import type { IClip } from '@/types/timeline';
+import type { chatFlow } from '@/genkit/chat-flow';
+import type { ImportAsset } from '@/genkit/type';
 
 interface Message {
   role: 'user' | 'model';

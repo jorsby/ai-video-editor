@@ -4,6 +4,8 @@ import {
   type LucideProps,
   User,
   VideoIcon,
+  Crop,
+  Check,
 } from 'lucide-react';
 
 export type Icon = LucideIcon;
@@ -51,6 +53,8 @@ export const Icons = {
   user: User,
   video: VideoIcon,
   warning: AlertTriangle,
+  crop: Crop,
+  check: Check,
   discord: ({ ...props }: LucideProps) => (
     <svg
       viewBox="0 0 256 199"

@@ -1,40 +1,20 @@
-/**
- * @deprecated This component is deprecated as of January 2026.
- *
- * REASON: Asset types have been unified into a single Asset interface.
- * The VisualAsset type and local state management in this file have been
- * replaced by the unified asset-store.ts which uses the Asset type from
- * src/types/media.ts.
- *
- * NEW COMPONENT: Use uploads-panel.tsx instead, which uses the unified
- * useAssetStore hook for consistent asset management across the application.
- *
- * This file is kept for reference purposes only. Do not use in new code.
- *
- * Key differences in the new implementation:
- * - Uses Asset type instead of VisualAsset
- * - Uses useAssetStore instead of local useState
- * - Asset.name field is used for display (was also .name here)
- * - No need to filter by type='upload' separately, store handles it
- */
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useStudioStore } from '@/stores/studio-store';
-import { Log } from 'openvideo';
-import { Upload, Search } from 'lucide-react';
+import { useProjectStore } from '@/stores/project-store';
+import { Image, Video, Audio, Log } from 'openvideo';
+import { Upload, Search, Trash2, Music } from 'lucide-react';
 import { uploadFile } from '@/lib/upload-utils';
 import { useProjectId } from '@/contexts/project-context';
-import { addMediaToCanvas } from '@/lib/editor-utils';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group';
 
-/** @deprecated Use Asset from '@/types/media' instead */
 interface VisualAsset {
   id: string;
   type: 'image' | 'video';
@@ -47,11 +27,20 @@ interface VisualAsset {
   size?: number;
 }
 
+// Helper to format duration like 00:00
+function formatDuration(seconds?: number) {
+  if (!seconds) return '';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
 // Asset card component
+// Note: Uses asset.url (matching VisualAsset interface) for media sources
 function AssetCard({
   asset,
   onAdd,
-  onDelete: _onDelete,
+  onDelete,
 }: {
   asset: VisualAsset;
   onAdd: (asset: VisualAsset) => void;
@@ -62,28 +51,65 @@ function AssetCard({
       className="flex flex-col gap-1.5 group cursor-pointer"
       onClick={() => onAdd(asset)}
     >
-      {asset.type === 'image' ? (
-        <img
-          src={asset.url}
-          alt={asset.name}
-          className="w-full h-full object-cover"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center bg-black/20">
-          <video
+      <div className="relative aspect-square rounded-sm overflow-hidden bg-foreground/20 border border-transparent group-hover:border-primary/50 transition-all flex items-center justify-center">
+        {asset.type === 'image' ? (
+          <img
             src={asset.url}
-            className="w-full h-full object-cover pointer-events-none"
+            alt={asset.name}
+            className="max-w-full max-h-full object-contain"
           />
-        </div>
-      )}
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-black/40 relative">
+            <video
+              src={asset.url}
+              className="max-w-full max-h-full object-contain pointer-events-none"
+              muted
+              onMouseOver={(e) => (e.currentTarget as HTMLVideoElement).play()}
+              onFocus={(e) => (e.currentTarget as HTMLVideoElement).play()}
+              onMouseOut={(e) => {
+                (e.currentTarget as HTMLVideoElement).pause();
+                (e.currentTarget as HTMLVideoElement).currentTime = 0;
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLVideoElement).pause();
+                (e.currentTarget as HTMLVideoElement).currentTime = 0;
+              }}
+            />
+          </div>
+        )}
+
+        {/* Duration Overlay (Bottom Left) */}
+        {asset.duration && (
+          <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
+            {formatDuration(asset.duration)}
+          </div>
+        )}
+
+        {/* Remove Button (Minimalist on Hover) */}
+        <button
+          type="button"
+          className="absolute top-1 right-1 p-1 rounded bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(asset.id);
+          }}
+        >
+          <Trash2 size={12} className="text-white" />
+        </button>
+      </div>
+
+      {/* Label (External) */}
+      <p className="text-[10px] text-muted-foreground group-hover:text-foreground truncate transition-colors px-0.5">
+        {asset.name}
+      </p>
     </div>
   );
 }
 
-/** @deprecated Use PanelUploads from './uploads-panel' instead */
 export default function PanelUploads() {
   const { studio } = useStudioStore();
   const projectId = useProjectId();
+  const { canvasSize } = useProjectStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [uploads, setUploads] = useState<VisualAsset[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -147,7 +173,13 @@ export default function PanelUploads() {
           : 'image';
 
         // Upload to R2
-        const result = await uploadFile(file);
+        let result: { url: string };
+        try {
+          result = await uploadFile(file);
+        } catch (error) {
+          console.error('R2 upload failed:', error);
+          continue;
+        }
 
         // Save to Supabase
         const saveResponse = await fetch('/api/assets', {
@@ -188,11 +220,26 @@ export default function PanelUploads() {
     }
   };
 
+  // Add item to canvas using openvideo clips
   const handleAddToCanvas = async (asset: VisualAsset) => {
     if (!studio) return;
 
     try {
-      await addMediaToCanvas(studio, { url: asset.url, type: asset.type });
+      if (asset.type === 'image') {
+        const imageClip = await Image.fromUrl(asset.url);
+        imageClip.name = asset.name;
+        imageClip.display = { from: 0, to: 5 * 1e6 };
+        imageClip.duration = 5 * 1e6;
+        await imageClip.scaleToFit(canvasSize.width, canvasSize.height);
+        imageClip.centerInScene(canvasSize.width, canvasSize.height);
+        await studio.addClip(imageClip);
+      } else {
+        const videoClip = await Video.fromUrl(asset.url);
+        videoClip.name = asset.name;
+        await videoClip.scaleToFit(canvasSize.width, canvasSize.height);
+        videoClip.centerInScene(canvasSize.width, canvasSize.height);
+        await studio.addClip(videoClip);
+      }
     } catch (error) {
       Log.error(`Failed to add ${asset.type}:`, error);
     }
@@ -215,12 +262,10 @@ export default function PanelUploads() {
     }
   };
 
-  const filteredAssets = uploads.filter((asset) => {
-    const matchesSearch = asset.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
+  // Filter assets by search query
+  const filteredAssets = uploads.filter((asset) =>
+    asset.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (!isLoaded) {
     return (
@@ -291,15 +336,15 @@ export default function PanelUploads() {
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-x-3 gap-y-4">
-              {filteredAssets.map((asset) => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  onAdd={handleAddToCanvas}
-                  onDelete={removeUpload}
-                />
-              ))}
-            </div>
+            {filteredAssets.map((asset) => (
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                onAdd={handleAddToCanvas}
+                onDelete={removeUpload}
+              />
+            ))}
+          </div>
         )}
       </ScrollArea>
       <div className="h-2 bg-background"></div>

@@ -8,6 +8,7 @@ import { STYLE_CAPTION_PRESETS, NONE_PRESET } from '../constant/caption';
 
 import { useStudioStore } from '@/stores/studio-store';
 import { fontManager } from 'openvideo';
+import { regenerateCaptionClips } from '@/lib/caption-utils';
 
 const CaptionPresetPicker = () => {
   const { setFloatingControl } = useLayoutStore();
@@ -36,6 +37,13 @@ const CaptionPresetPicker = () => {
     // Filter for Captions
     const captionClips = selectedClips.filter((c) => c.type === 'Caption');
     if (captionClips.length === 0) return;
+    if (preset.fontFamily === undefined) {
+      preset.fontFamily = 'Bangers-Regular';
+    }
+    if (preset.fontUrl === undefined) {
+      preset.fontUrl =
+        'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf';
+    }
 
     // Load fonts if needed
     if (preset.fontFamily && preset.fontUrl) {
@@ -85,15 +93,35 @@ const CaptionPresetPicker = () => {
     }
 
     const allCaptionClips = studio.clips.filter((c) => c.type === 'Caption');
-    const targetClips = allCaptionClips.filter(
-      (c) => captionClips.includes(c) || mediaIds.has((c as any).mediaId)
-    );
+    // const targetClips = allCaptionClips.filter(
+    //   (c) => captionClips.includes(c) || mediaIds.has((c as any).mediaId),
+    // );
 
-    const updates = targetClips.map((clip) => ({
-      id: clip.id,
-      updates: styleUpdate,
-    }));
-    await studio.updateClips(updates);
+    if (preset.type === 'word') {
+      for (const clip of allCaptionClips) {
+        await regenerateCaptionClips({
+          studio,
+          captionClip: clip,
+          mode: 'single',
+          fontSize: (clip as any).originalOpts?.fontSize,
+          fontFamily: preset.fontFamily,
+          fontUrl: preset.fontUrl,
+          styleUpdate: styleUpdate,
+        });
+      }
+    } else {
+      for (const clip of allCaptionClips) {
+        await regenerateCaptionClips({
+          studio,
+          captionClip: clip,
+          mode: 'multiple',
+          fontSize: (clip as any).originalOpts?.fontSize,
+          fontFamily: preset.fontFamily,
+          fontUrl: preset.fontUrl,
+          styleUpdate: styleUpdate,
+        });
+      }
+    }
   };
 
   const PresetGrid = ({ presets }: { presets: ICaptionsControlProps[] }) => (

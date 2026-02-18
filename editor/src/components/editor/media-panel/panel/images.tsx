@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
 import { Image, Log } from 'openvideo';
 import { Search, Image as ImageIcon, Loader2 } from 'lucide-react';
 import {
@@ -10,6 +11,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group';
+import { VisualsChatPanel } from '../visuals-chat-panel';
 import { debounce } from 'lodash';
 
 interface PexelsImage {
@@ -33,6 +35,7 @@ interface PexelsImage {
 
 export default function PanelImages() {
   const { studio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [images, setImages] = useState<PexelsImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,9 +85,9 @@ export default function PanelImages() {
       imageClip.display = { from: 0, to: 5 * 1e6 };
       imageClip.duration = 5 * 1e6;
 
-      // Scale to fit and center in scene (1080x1920)
-      await imageClip.scaleToFit(1080, 1920);
-      imageClip.centerInScene(1080, 1920);
+      // Scale to fit and center in scene
+      await imageClip.scaleToFit(canvasSize.width, canvasSize.height);
+      imageClip.centerInScene(canvasSize.width, canvasSize.height);
 
       await studio.addClip(imageClip);
     } catch (error) {
