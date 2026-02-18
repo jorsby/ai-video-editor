@@ -20,7 +20,12 @@ import {
   Settings,
   Database,
   FilePlus,
+  Save,
+  Check,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
+import type { SaveStatus } from '@/hooks/use-auto-save';
 import { toast } from 'sonner';
 import { Compositor } from 'openvideo';
 import { ShortcutsModal } from './shortcuts-modal';
@@ -31,7 +36,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export default function Header() {
+interface HeaderProps {
+  saveNow: () => void;
+  saveStatus: SaveStatus;
+}
+
+export default function Header({ saveNow, saveStatus }: HeaderProps) {
   const { studio } = useStudioStore();
   const { toggleCopilot, isCopilotVisible } = usePanelStore();
   const { projectName, renameProject } = useProject();
@@ -332,6 +342,36 @@ export default function Header() {
             Batch Export Anim
           </Button> */}
         </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={saveNow}
+          disabled={saveStatus === 'saving'}
+        >
+          {saveStatus === 'saving' ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span className="hidden md:block">Saving...</span>
+            </>
+          ) : saveStatus === 'saved' ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-green-500" />
+              <span className="hidden md:block text-green-500">Saved</span>
+            </>
+          ) : saveStatus === 'error' ? (
+            <>
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+              <span className="hidden md:block text-destructive">Error</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-3.5 w-3.5" />
+              <span className="hidden md:block">Save</span>
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Center Section */}

@@ -1362,34 +1362,48 @@ export function StoryboardCards({
         (a, b) => a.order - b.order
       );
 
+      const failedScenes: number[] = [];
       for (const scene of scenesToAdd) {
-        const voiceover = scene.voiceovers?.find(
-          (v) => v.language === selectedLanguage
-        );
+        try {
+          const voiceover = scene.voiceovers?.find(
+            (v) => v.language === selectedLanguage
+          );
 
-        const result = await addSceneToTimeline(
-          studio,
-          {
-            videoUrl: scene.video_url!,
-            voiceover:
-              voiceover?.status === 'success' && voiceover?.audio_url
-                ? { audioUrl: voiceover.audio_url }
-                : null,
-          },
-          {
-            startTime: runningEnd,
-            videoTrackId,
-            audioTrackId,
-            videoVolume: videoVolume / 100,
-          }
-        );
+          const result = await addSceneToTimeline(
+            studio,
+            {
+              videoUrl: scene.video_url!,
+              voiceover:
+                voiceover?.status === 'success' && voiceover?.audio_url
+                  ? { audioUrl: voiceover.audio_url }
+                  : null,
+            },
+            {
+              startTime: runningEnd,
+              videoTrackId,
+              audioTrackId,
+              videoVolume: videoVolume / 100,
+            }
+          );
 
-        runningEnd = result.endTime;
-        videoTrackId = result.videoTrackId;
-        audioTrackId = result.audioTrackId;
+          runningEnd = result.endTime;
+          videoTrackId = result.videoTrackId;
+          audioTrackId = result.audioTrackId;
+        } catch (err) {
+          console.error(`Failed to add scene ${scene.order} to timeline:`, err);
+          failedScenes.push(scene.order);
+        }
       }
 
-      toast.success(`Added ${scenesToAdd.length} scene(s) to timeline`);
+      const added = scenesToAdd.length - failedScenes.length;
+      if (failedScenes.length > 0) {
+        toast.error(
+          `Failed to add scene(s) ${failedScenes.join(', ')}. Try regenerating their videos.`
+        );
+      }
+      if (added > 0) {
+        toast.success(`Added ${added} scene(s) to timeline`);
+      }
       clearSelection();
     } catch (err) {
       console.error('Failed to add scenes to timeline:', err);

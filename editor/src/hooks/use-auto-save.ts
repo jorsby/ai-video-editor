@@ -1,41 +1,53 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useProjectId } from '@/contexts/project-context';
 import { saveTimeline } from '@/lib/supabase/timeline-service';
 
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
 
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 export function useAutoSave() {
-  const { studio, isExporting } = useStudioStore();
+  const { studio } = useStudioStore();
   const projectId = useProjectId();
   const isSavingRef = useRef(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const performSave = useCallback(async () => {
+    const state = useStudioStore.getState();
+    if (state.isExporting) return;
+    if (isSavingRef.current || !state.studio) return;
+
+    isSavingRef.current = true;
+    setSaveStatus('saving');
+    clearTimeout(savedTimerRef.current);
+
+    try {
+      await saveTimeline(projectId, state.studio.tracks, state.studio.clips);
+      setSaveStatus('saved');
+      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (error) {
+      console.error(
+        'Save failed:',
+        error instanceof Error ? error.message : JSON.stringify(error)
+      );
+      setSaveStatus('error');
+      savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [projectId]);
+
+  // Auto-save interval
   useEffect(() => {
     if (!studio) return;
 
-    const autoSave = async () => {
-      if (useStudioStore.getState().isExporting) return;
-      if (isSavingRef.current || !studio) return;
-      isSavingRef.current = true;
-      try {
-        await saveTimeline(projectId, studio.tracks, studio.clips);
-        console.log('Auto-saved');
-      } catch (error) {
-        console.error(
-          'Auto-save failed:',
-          error instanceof Error ? error.message : JSON.stringify(error)
-        );
-      } finally {
-        isSavingRef.current = false;
-      }
-    };
+    const intervalId = setInterval(performSave, AUTO_SAVE_INTERVAL);
 
-    // Start interval
-    const intervalId = setInterval(autoSave, AUTO_SAVE_INTERVAL);
-
-    // Save on unmount
     return () => {
       clearInterval(intervalId);
+      clearTimeout(savedTimerRef.current);
       // Sync save on unmount (best effort)
       if (studio && studio.clips.length > 0) {
         saveTimeline(projectId, studio.tracks, studio.clips).catch(
@@ -43,5 +55,19 @@ export function useAutoSave() {
         );
       }
     };
-  }, [studio, projectId]);
+  }, [studio, projectId, performSave]);
+
+  // Cmd+S / Ctrl+S shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        performSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [performSave]);
+
+  return { saveNow: performSave, saveStatus };
 }

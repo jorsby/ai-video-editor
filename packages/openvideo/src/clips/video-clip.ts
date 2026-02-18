@@ -12,6 +12,7 @@ import { BaseClip } from './base-clip';
 import { DEFAULT_AUDIO_CONF, type IClip, type IPlaybackCapable } from './iclip';
 import type { VideoJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
+import { AssetManager } from '../utils/asset-manager';
 
 let CLIP_ID = 0;
 
@@ -190,9 +191,22 @@ export class Video extends BaseClip implements IPlaybackCapable {
       height?: number;
     } = {}
   ): Promise<Video> {
-    const stream = await ResourceManager.getReadableStream(url);
-    const clip = new Video(stream, {}, url);
-    await clip.ready;
+    let stream = await ResourceManager.getReadableStream(url);
+    let clip = new Video(stream, {}, url);
+    try {
+      await clip.ready;
+    } catch (err) {
+      // Parsing failed — possibly a corrupted cache entry. Invalidate and retry.
+      Log.warn(
+        'Video.fromUrl: first attempt failed, clearing cache and retrying',
+        url,
+        err
+      );
+      await AssetManager.remove(url).catch(() => {});
+      stream = await ResourceManager.getReadableStream(url);
+      clip = new Video(stream, {}, url);
+      await clip.ready;
+    }
 
     // Set position and size
     if (opts.x !== undefined) clip.left = opts.x;

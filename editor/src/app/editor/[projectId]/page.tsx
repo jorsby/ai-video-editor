@@ -14,7 +14,7 @@ import Header from '@/components/editor/header';
 import { Loading } from '@/components/editor/loading';
 import { ProjectProvider } from '@/contexts/project-context';
 import { DeleteConfirmationProvider } from '@/contexts/delete-confirmation-context';
-import { useAutoSave } from '@/hooks/use-auto-save';
+import { useAutoSave, type SaveStatus } from '@/hooks/use-auto-save';
 
 interface EditorPageProps {
   params: Promise<{ projectId: string }>;
@@ -29,9 +29,6 @@ function EditorContent({ onReady }: { onReady: () => void }) {
     setMainContent,
     setTimeline,
   } = usePanelStore();
-
-  // Auto-save every 30 seconds + save on unmount
-  useAutoSave();
 
   return (
     <div className="flex-1 min-h-0 min-w-0 px-3">
@@ -92,22 +89,30 @@ function EditorContent({ onReady }: { onReady: () => void }) {
   );
 }
 
+function EditorShell() {
+  const [isReady, setIsReady] = useState(false);
+  const { saveNow, saveStatus } = useAutoSave();
+
+  return (
+    <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
+      {!isReady && (
+        <div className="absolute inset-0 z-50">
+          <Loading />
+        </div>
+      )}
+      <Header saveNow={saveNow} saveStatus={saveStatus} />
+      <EditorContent onReady={() => setIsReady(true)} />
+    </div>
+  );
+}
+
 export default function Editor({ params }: EditorPageProps) {
   const { projectId } = use(params);
-  const [isReady, setIsReady] = useState(false);
 
   return (
     <ProjectProvider projectId={projectId}>
       <DeleteConfirmationProvider>
-        <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
-          {!isReady && (
-            <div className="absolute inset-0 z-50">
-              <Loading />
-            </div>
-          )}
-          <Header />
-          <EditorContent onReady={() => setIsReady(true)} />
-        </div>
+        <EditorShell />
       </DeleteConfirmationProvider>
     </ProjectProvider>
   );

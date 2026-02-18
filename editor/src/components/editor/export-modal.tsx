@@ -5,10 +5,11 @@ import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Cloud, Check } from 'lucide-react';
+import { Loader2, Cloud, Check, Download } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useProjectId } from '@/contexts/project-context';
 import { uploadFile } from '@/lib/upload-utils';
+import type { RenderedVideo } from '@/types/rendered-video';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
 function proxyClipUrl(src: string): string {
@@ -28,6 +29,51 @@ const LANGUAGES = [
   { code: 'tr', label: 'TR' },
   { code: 'ar', label: 'AR' },
 ] as const;
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function RenderVariantRow({ render }: { render: RenderedVideo }) {
+  const date = new Date(render.created_at);
+  const dateStr = date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+      <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+        {render.language}
+      </span>
+      <div className="flex-1 min-w-0 text-xs text-zinc-400">
+        {render.resolution && <span>{render.resolution}</span>}
+        {render.resolution && <span className="mx-1.5">·</span>}
+        <span>{dateStr}</span>
+        {render.file_size && (
+          <>
+            <span className="mx-1.5">·</span>
+            <span>{formatFileSize(render.file_size)}</span>
+          </>
+        )}
+      </div>
+      <a
+        href={render.url}
+        download
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 rounded p-1.5 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Download className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  );
+}
 
 interface ExportModalProps {
   open: boolean;
@@ -52,6 +98,8 @@ export function ExportModal({
   const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [isUploading, setIsUploading] = useState(false);
   const [renderStarted, setRenderStarted] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
@@ -70,6 +118,8 @@ export function ExportModal({
     setExportProgress(0);
     setIsUploading(false);
     setRenderStarted(false);
+    setShowCompletion(false);
+    setAllRenders([]);
   };
 
   const handleClose = () => {
@@ -200,9 +250,19 @@ export function ExportModal({
       });
 
       toast.success('Video uploaded to cloud successfully!');
-      setTimeout(() => {
-        handleClose();
-      }, 1500);
+
+      // Fetch all renders for this project to show in completion screen
+      try {
+        const res = await fetch(`/api/rendered-videos?project_id=${projectId}`);
+        if (res.ok) {
+          const { rendered_videos } = await res.json();
+          setAllRenders(rendered_videos || []);
+        }
+      } catch {
+        // Non-critical — completion screen still works without the list
+      }
+
+      setShowCompletion(true);
     } catch (error) {
       Log.error('Cloud upload error:', error);
       toast.error(`Cloud upload failed: ${(error as Error).message}`);
@@ -234,6 +294,72 @@ export function ExportModal({
       }
     }, 100);
   };
+
+  // Cloud mode: post-render completion screen
+  if (mode === 'cloud' && showCompletion) {
+    return (
+      <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+        <DialogContent
+          className="max-w-[520px] border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
+          showCloseButton={false}
+        >
+          <div className="flex flex-col p-8 pt-10">
+            <DialogTitle className="mb-2 text-center text-xl font-medium tracking-tight">
+              Render Complete
+            </DialogTitle>
+            <p className="mb-6 text-center text-sm text-zinc-400">
+              Your video has been rendered and uploaded to the cloud.
+            </p>
+
+            {/* Video preview */}
+            {exportBlobUrl && (
+              <div className="mb-6 overflow-hidden rounded-xl border border-white/10">
+                <video
+                  src={exportBlobUrl}
+                  controls
+                  className="w-full"
+                  style={{ maxHeight: 240 }}
+                />
+              </div>
+            )}
+
+            {/* All language variants */}
+            {allRenders.length > 0 && (
+              <div className="mb-6">
+                <h3 className="mb-3 text-xs font-medium text-zinc-400">
+                  All Language Variants
+                </h3>
+                <div className="space-y-2">
+                  {allRenders.map((rv) => (
+                    <RenderVariantRow key={rv.id} render={rv} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex w-full gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCompletion(false);
+                  setRenderStarted(false);
+                }}
+                className="flex-1 h-11 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
+              >
+                Render Another Language
+              </Button>
+              <Button
+                onClick={handleClose}
+                className="flex-1 h-11 rounded-xl text-[13px] font-medium"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   // Cloud mode: pre-render screen with language selector
   if (mode === 'cloud' && !renderStarted) {

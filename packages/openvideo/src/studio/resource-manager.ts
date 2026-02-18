@@ -46,8 +46,14 @@ export class ResourceManager {
   ): Promise<ReadableStream<Uint8Array>> {
     const cachedFile = await AssetManager.get(url);
     if (cachedFile) {
-      const originFile = await cachedFile.getOriginFile();
-      if (originFile) return originFile.stream();
+      try {
+        const originFile = await cachedFile.getOriginFile();
+        if (originFile) return originFile.stream();
+      } catch {
+        // Corrupted cache entry — remove and re-fetch
+        console.warn(`ResourceManager: Removing corrupted cache for ${url}`);
+        await AssetManager.remove(url).catch(() => {});
+      }
     }
 
     const response = await fetch(url);
@@ -65,14 +71,18 @@ export class ResourceManager {
       return stream;
     }
 
-    const [s1, s2] = stream.tee();
+    // Download fully as blob to avoid back-pressure issues
+    // with concurrent OPFS writes
+    const blob = await new Response(stream).blob();
 
-    // Background cache
-    AssetManager.put(url, s2).catch((err) => {
+    // Background cache using an independent stream
+    AssetManager.put(url, blob.stream(), blob.size).catch((err) => {
       console.error(`ResourceManager: Failed to cache ${url}`, err);
+      // Clean up failed cache entry
+      AssetManager.remove(url).catch(() => {});
     });
 
-    return s1;
+    return blob.stream();
   }
 
   /**
@@ -101,20 +111,15 @@ export class ResourceManager {
     const stream = response.body;
     if (!stream) throw new Error('Response body is null');
 
-    const [s1, s2] = stream.tee();
+    // Download fully as blob to avoid tee() back-pressure issues
+    const blob = await new Response(stream).blob();
 
-    const bitmapPromise = (async () => {
-      const resp = new Response(s1);
-      const blob = await resp.blob();
-      return await createImageBitmap(blob);
-    })();
-
-    // Background cache
-    AssetManager.put(url, s2).catch((err) => {
+    // Background cache using an independent stream
+    AssetManager.put(url, blob.stream(), blob.size).catch((err) => {
       console.error(`ResourceManager: Failed to cache ${url}`, err);
     });
 
-    return await bitmapPromise;
+    return await createImageBitmap(blob);
   }
 
   /**
@@ -150,9 +155,9 @@ export class ResourceManager {
         const stream = response.body;
         if (!stream) throw new Error('No body');
 
-        // We can't easily tee here if we want to return a completed status immediately...
-        // but loadResource is mostly for PRELOADING, so it's okay if it takes a bit.
-        const file = await AssetManager.put(url, stream);
+        // Read full blob so we know the size for cache validation
+        const blob = await new Response(stream).blob();
+        const file = await AssetManager.put(url, blob.stream(), blob.size);
 
         item.status = ResourceStatus.COMPLETED;
         item.localFile = file;

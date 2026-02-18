@@ -12,6 +12,7 @@ import {
   IconVideo,
   IconMessageCircle,
   IconLayoutGrid,
+  IconDeviceTv,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -28,7 +29,8 @@ export type Tab =
   | 'sfx'
   | 'transitions'
   | 'assistant'
-  | 'storyboard';
+  | 'storyboard'
+  | 'renders';
 
 export const tabs: {
   [key in Tab]: { icon: React.FC<IconProps>; label: string };
@@ -36,6 +38,10 @@ export const tabs: {
   storyboard: {
     icon: IconLayoutGrid,
     label: 'Storyboard',
+  },
+  renders: {
+    icon: IconDeviceTv,
+    label: 'Renders',
   },
   uploads: {
     icon: IconFolder,
