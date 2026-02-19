@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
 import { DashboardContent } from '@/components/dashboard/dashboard-content';
+import { OpenMixpostButton } from '@/components/dashboard/open-mixpost-button';
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -31,6 +32,7 @@ export default async function Dashboard() {
 
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">{user.email}</span>
+          <OpenMixpostButton />
           <form action="/auth/signout" method="post">
             <Button variant="ghost" size="sm" type="submit">
               <LogOut className="w-4 h-4" />

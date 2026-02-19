@@ -167,29 +167,21 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
     if (!studio) return;
 
     const videoHeight = (studio as any).opts.height || 1080;
-    const mediaId = captionClip.mediaId;
-
-    // Find siblings if part of a group
+    // Find all caption clips so they all move together
     let clipsToUpdate: any[] = [captionClip];
 
-    if (mediaId) {
-      const tracks = studio.getTracks();
-      const siblingClips: any[] = [];
-      tracks.forEach((track: any) => {
-        track.clipIds.forEach((id: string) => {
-          const c = studio.getClipById(id);
-          if (
-            c &&
-            c.type === 'Caption' &&
-            (c as any).opts.mediaId === mediaId
-          ) {
-            siblingClips.push(c);
-          }
-        });
+    const tracks = studio.getTracks();
+    const allCaptionClips: any[] = [];
+    tracks.forEach((track: any) => {
+      track.clipIds.forEach((id: string) => {
+        const c = studio.getClipById(id);
+        if (c && c.type === 'Caption') {
+          allCaptionClips.push(c);
+        }
       });
-      if (siblingClips.length > 0) {
-        clipsToUpdate = siblingClips;
-      }
+    });
+    if (allCaptionClips.length > 0) {
+      clipsToUpdate = allCaptionClips;
     }
 
     // Apply updates
