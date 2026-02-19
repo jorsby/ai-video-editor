@@ -2,7 +2,10 @@
 
 import { Button } from '@/components/ui/button';
 import { useStudioStore } from '@/stores/studio-store';
-import { Text, Log } from 'openvideo';
+import { Text, Log, fontManager } from 'openvideo';
+import { useTextPresets } from '@/hooks/use-text-presets';
+import type { SavedTextPreset } from '@/types/text-presets';
+import { IconTrash } from '@tabler/icons-react';
 
 const TEXT_PRESETS = [
   {
@@ -76,28 +79,9 @@ const TEXT_PRESETS = [
   },
 ];
 
-// const textClip = new TextClip('This is a text clip', {
-//       fontSize: 124,
-//       fontFamily: 'Arial',
-//       align: 'left',
-//       fontWeight: 'bold',
-//       fontStyle: 'italic',
-//       fill: '#ffffff',
-//       stroke: {
-//         color: '#ffffff',
-//         width: 5,
-//         join: 'round',
-//       },
-//       dropShadow: {
-//         color: '#ffffff',
-//         alpha: 0.5,
-//         blur: 4,
-//         angle: Math.PI / 6,
-//         distance: 6,
-//       },
-
 export default function PanelText() {
   const { studio } = useStudioStore();
+  const { savedPresets, removePreset } = useTextPresets();
 
   const handleAddText = async (preset?: (typeof TEXT_PRESETS)[0]) => {
     if (!studio) return;
@@ -127,6 +111,67 @@ export default function PanelText() {
     }
   };
 
+  const handleAddTextFromSavedPreset = async (preset: SavedTextPreset) => {
+    if (!studio) return;
+
+    try {
+      if (preset.style.fontUrl) {
+        await fontManager.addFont({
+          name: preset.style.fontFamily,
+          url: preset.style.fontUrl,
+        });
+      }
+
+      const textClip = new Text(preset.name, {
+        fontSize: preset.style.fontSize,
+        fontFamily: preset.style.fontFamily,
+        fontWeight: preset.style.fontWeight,
+        fontStyle: preset.style.fontStyle || 'normal',
+        fill: preset.style.fill,
+        align: preset.style.align || 'center',
+        textCase: preset.style.textCase,
+        letterSpacing: preset.style.letterSpacing,
+        lineHeight: preset.style.lineHeight,
+        wordWrap: preset.style.wordWrap ?? true,
+        wordWrapWidth: preset.style.wordWrapWidth ?? 800,
+        stroke: preset.style.stroke || undefined,
+        dropShadow: preset.style.dropShadow || undefined,
+        fontUrl: preset.style.fontUrl,
+      });
+
+      textClip.name = preset.name;
+      await textClip.ready;
+
+      const duration = preset.clipProperties.duration || 5e6;
+      textClip.display.from = 0;
+      textClip.duration = duration;
+      textClip.display.to = duration;
+
+      if (preset.clipProperties.opacity !== undefined) {
+        textClip.opacity = preset.clipProperties.opacity;
+      }
+      if (preset.clipProperties.angle !== undefined) {
+        textClip.angle = preset.clipProperties.angle;
+      }
+      if (preset.clipProperties.left !== undefined) {
+        textClip.left = preset.clipProperties.left;
+      }
+      if (preset.clipProperties.top !== undefined) {
+        textClip.top = preset.clipProperties.top;
+      }
+      if (preset.clipProperties.width !== undefined) {
+        textClip.width = preset.clipProperties.width;
+      }
+      if (preset.clipProperties.height !== undefined) {
+        textClip.height = preset.clipProperties.height;
+      }
+
+      await studio.addClip(textClip);
+    } catch (error) {
+      Log.error('Failed to add text from saved preset:', error);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="p-4">
@@ -135,6 +180,10 @@ export default function PanelText() {
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto px-4">
+        {/* Built-in presets */}
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+          Built-in
+        </label>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3 pb-4">
           {TEXT_PRESETS.map((preset, index) => (
             <button
@@ -146,7 +195,7 @@ export default function PanelText() {
               <span
                 style={{
                   fontFamily: preset.style.fontFamily,
-                  fontSize: '12px', // Scaled down for preview
+                  fontSize: '12px',
                   fontWeight: preset.style.fontWeight,
                   color: preset.style.fill,
                   textAlign: 'center',
@@ -158,6 +207,48 @@ export default function PanelText() {
             </button>
           ))}
         </div>
+
+        {/* Saved presets */}
+        {savedPresets.length > 0 && (
+          <>
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+              My Presets
+            </label>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3 pb-4">
+              {savedPresets.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.id}
+                  onClick={() => handleAddTextFromSavedPreset(preset)}
+                  className="aspect-square bg-secondary/50 rounded-lg flex items-center justify-center p-4 hover:bg-secondary transition-colors group relative overflow-hidden border border-border"
+                >
+                  <span
+                    style={{
+                      fontFamily: preset.style.fontFamily,
+                      fontSize: '12px',
+                      fontWeight: preset.style.fontWeight,
+                      fontStyle: preset.style.fontStyle,
+                      color: preset.style.fill,
+                      textAlign: 'center',
+                    }}
+                    className="line-clamp-2"
+                  >
+                    {preset.name}
+                  </span>
+                  <div
+                    className="absolute top-1 right-1 p-1 rounded-md bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-400"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removePreset(preset.id);
+                    }}
+                  >
+                    <IconTrash className="size-3" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

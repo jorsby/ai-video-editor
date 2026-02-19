@@ -13,6 +13,18 @@ export const NONE_PRESET: ICaptionsControlProps = {
 
 export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
   {
+    fontUrl: 'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf',
+    fontFamily: 'Rubik',
+    appearedColor: '#ffffff',
+    activeColor: '#FFD700',
+    activeFillColor: 'transparent',
+    color: '#ffffff',
+    backgroundColor: 'transparent',
+    borderColor: '#000000',
+    borderWidth: 10,
+    boxShadow: { color: '#000000', x: 0, y: 2, blur: 8 },
+  },
+  {
     appearedColor: '#FFFFFF',
     activeColor: '#50FF12',
     activeFillColor: '#7E12FF',
@@ -46,7 +58,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     backgroundColor: 'transparent',
     borderColor: '#000000',
     borderWidth: 10,
-    boxShadow: { color: '#ffffff', x: 15, y: 15, blur: 60 },
+    // boxShadow: { color: '#ffffff', x: 15, y: 15, blur: 60 },
     previewUrl:
       'https://cdn.designcombo.dev/caption_previews/dynamic-preset3.webm',
   },

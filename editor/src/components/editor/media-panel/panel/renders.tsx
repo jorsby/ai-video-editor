@@ -14,6 +14,7 @@ import {
   Plus,
   Maximize2,
   X,
+  Trash2,
 } from 'lucide-react';
 import {
   IconDeviceTv,
@@ -21,6 +22,7 @@ import {
   IconPlayerPause,
 } from '@tabler/icons-react';
 import type { RenderedVideo } from '@/types/rendered-video';
+import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -119,10 +121,12 @@ function RenderCard({
   render,
   onAddToTimeline,
   onFullscreen,
+  onDelete,
 }: {
   render: RenderedVideo;
   onAddToTimeline: (r: RenderedVideo) => void;
   onFullscreen: (r: RenderedVideo) => void;
+  onDelete: (r: RenderedVideo) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -255,6 +259,19 @@ function RenderCard({
         >
           <Download className="h-3.5 w-3.5" />
         </a>
+
+        {/* Delete */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(render);
+          }}
+          className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-400"
+          title="Delete render"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   );
@@ -269,6 +286,7 @@ export default function PanelRenders() {
   const [isLoading, setIsLoading] = useState(true);
   const [fullscreenRender, setFullscreenRender] =
     useState<RenderedVideo | null>(null);
+  const { confirm } = useDeleteConfirmation();
 
   useEffect(() => {
     if (!projectId) return;
@@ -303,6 +321,35 @@ export default function PanelRenders() {
       }
     },
     [studio, canvasSize]
+  );
+
+  const handleDelete = useCallback(
+    async (render: RenderedVideo) => {
+      const confirmed = await confirm({
+        title: 'Delete Render',
+        description:
+          'Are you sure you want to delete this rendered video? The file will be permanently removed.',
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`/api/rendered-videos?id=${render.id}`, {
+          method: 'DELETE',
+        });
+
+        if (!res.ok) throw new Error('Failed to delete render');
+
+        setRenders((prev) => prev.filter((r) => r.id !== render.id));
+
+        if (fullscreenRender?.id === render.id) {
+          setFullscreenRender(null);
+        }
+      } catch (error) {
+        console.error('Failed to delete render:', error);
+      }
+    },
+    [confirm, fullscreenRender]
   );
 
   if (isLoading) {
@@ -367,6 +414,7 @@ export default function PanelRenders() {
                       render={render}
                       onAddToTimeline={handleAddToTimeline}
                       onFullscreen={setFullscreenRender}
+                      onDelete={handleDelete}
                     />
                   ))}
                 </div>

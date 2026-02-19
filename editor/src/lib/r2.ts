@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import mime from 'mime/lite';
 
@@ -103,6 +103,30 @@ export class R2StorageService {
       presignedUrl,
       url: this.getUrl(filePath),
     };
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucketName,
+          Key: key,
+        })
+      );
+    } catch (error) {
+      console.error('[R2] Failed to delete file:', key);
+      console.error(
+        '[R2] Error stack:',
+        error instanceof Error ? error.stack : error
+      );
+      throw new Error('Failed to delete from R2');
+    }
+  }
+
+  extractKeyFromUrl(url: string): string | null {
+    const prefix = this.cdn.endsWith('/') ? this.cdn : `${this.cdn}/`;
+    if (!url.startsWith(prefix)) return null;
+    return url.slice(prefix.length);
   }
 
   getUrl(fileName: string): string {

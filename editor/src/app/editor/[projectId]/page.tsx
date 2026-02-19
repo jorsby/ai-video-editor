@@ -4,6 +4,7 @@ import { useState, use } from 'react';
 import { MediaPanel } from '@/components/editor/media-panel';
 import { PreviewPanel } from '@/components/editor/preview-panel';
 import { Timeline } from '@/components/editor/timeline';
+import FloatingControl from '@/components/editor/floating-controls/floating-control';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -42,9 +43,10 @@ function EditorContent({ onReady }: { onReady: () => void }) {
           minSize={15}
           maxSize={50}
           onResize={setToolsPanel}
-          className="min-w-96 rounded-sm"
+          className="min-w-96 relative overflow-visible! rounded-sm"
         >
           <MediaPanel />
+          <FloatingControl />
         </ResizablePanel>
 
         <ResizableHandle />

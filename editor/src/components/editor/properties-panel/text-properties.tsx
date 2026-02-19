@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   ColorPicker,
   ColorPickerEyeDropper,
@@ -39,6 +39,7 @@ import {
   IconPlus,
   IconTrash,
   IconEdit,
+  IconBookmark,
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 import {
@@ -55,6 +56,19 @@ import { fontManager } from 'openvideo';
 import { getGroupedFonts, getFontByPostScriptName } from '@/utils/font-utils';
 import { NumberInput } from '@/components/ui/number-input';
 import useLayoutStore from '../store/use-layout-store';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { generateUUID } from '@/utils/id';
+import { storageService } from '@/lib/storage/storage-service';
+import type { SavedTextPreset, TextPresetStyle, TextPresetClipProperties } from '@/types/text-presets';
+import { toast } from 'sonner';
 
 const GROUPED_FONTS = getGroupedFonts();
 
@@ -116,6 +130,8 @@ export function TextProperties({ clip }: TextPropertiesProps) {
   const textClip = clip as any;
   const style = textClip.style || {};
   const [, setTick] = useState(0);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [presetName, setPresetName] = useState('');
 
   // Listen to clip events for canvas sync
   useEffect(() => {
@@ -233,8 +249,116 @@ export function TextProperties({ clip }: TextPropertiesProps) {
 
   const animations = textClip.animations || [];
 
+  const handleSaveAsPreset = useCallback(async () => {
+    if (!presetName.trim()) return;
+
+    const presetStyle: TextPresetStyle = {
+      fontSize: style.fontSize || 40,
+      fontFamily: style.fontFamily || 'Inter',
+      fontWeight: style.fontWeight || 'normal',
+      fontStyle: style.fontStyle,
+      fontUrl: style.fontUrl,
+      fill: (style.fill as string) || '#ffffff',
+      align: style.align,
+      textCase: style.textCase,
+      letterSpacing: style.letterSpacing,
+      lineHeight: style.lineHeight,
+      wordWrap: style.wordWrap,
+      wordWrapWidth: style.wordWrapWidth,
+      stroke: style.stroke
+        ? {
+            color: style.stroke.color,
+            width: style.stroke.width,
+            join: style.stroke.join as 'round' | 'bevel' | 'miter' | undefined,
+          }
+        : undefined,
+      dropShadow: style.dropShadow
+        ? {
+            color: style.dropShadow.color,
+            alpha: style.dropShadow.alpha,
+            blur: style.dropShadow.blur,
+            angle: style.dropShadow.angle,
+            distance: style.dropShadow.distance,
+          }
+        : undefined,
+    };
+
+    const clipProperties: TextPresetClipProperties = {
+      opacity: textClip.opacity,
+      angle: textClip.angle,
+      duration: textClip.duration,
+      left: textClip.left,
+      top: textClip.top,
+      width: textClip.width,
+      height: textClip.height,
+    };
+
+    const preset: SavedTextPreset = {
+      id: generateUUID(),
+      name: presetName.trim(),
+      style: presetStyle,
+      clipProperties,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await storageService.saveTextPreset({ preset });
+      toast.success(`Preset "${preset.name}" saved`);
+      setSaveDialogOpen(false);
+      setPresetName('');
+    } catch {
+      toast.error('Failed to save preset');
+    }
+  }, [presetName, style, textClip]);
+
   return (
     <div className="flex flex-col gap-5">
+      {/* Save as Preset */}
+      <button
+        onClick={() => {
+          setPresetName(textClip.name || 'My Preset');
+          setSaveDialogOpen(true);
+        }}
+        className="flex items-center justify-center gap-2 w-full h-8 rounded-md border border-border bg-secondary/30 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-white transition-colors"
+      >
+        <IconBookmark className="size-3.5" />
+        Save as Preset
+      </button>
+
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent className="max-w-[360px] border-zinc-800 bg-[#0c0c0e]/95 text-white backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle>Save Text Preset</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="Preset name"
+              className="w-full"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveAsPreset();
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setSaveDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveAsPreset}
+              disabled={!presetName.trim()}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Content */}
       <div className="flex flex-col gap-2">
         <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">

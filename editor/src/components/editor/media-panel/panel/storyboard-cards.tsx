@@ -1335,27 +1335,14 @@ export function StoryboardCards({
 
     setIsAddingToTimeline(true);
     try {
-      // Compute initial start time from existing clips
-      let runningEnd = studio.clips.reduce((max, c) => {
-        const end =
-          c.display.to > 0 ? c.display.to : c.display.from + c.duration;
-        return end > max ? end : max;
-      }, 0);
+      // Start at time 0 on the new tracks
+      let runningEnd = 0;
 
-      // Try to reuse existing tracks if they don't have overlapping clips
-      const estimatedEnd = runningEnd + 10;
-      let videoTrackId: string | undefined = findCompatibleTrack(
-        studio,
-        'Video',
-        runningEnd,
-        estimatedEnd
-      )?.id;
-      let audioTrackId: string | undefined = findCompatibleTrack(
-        studio,
-        'Audio',
-        runningEnd,
-        estimatedEnd
-      )?.id;
+      // Force new track creation (undefined = studio will auto-create).
+      // After the first scene, the returned track IDs are reused so all
+      // scenes in the batch land on the same new tracks sequentially.
+      let videoTrackId: string | undefined = undefined;
+      let audioTrackId: string | undefined = undefined;
 
       // Sort selected scenes by order and add sequentially
       const scenesToAdd = [...selectedScenesWithVideo].sort(
