@@ -298,6 +298,8 @@ function ScriptViewRow({
   );
 }
 
+type TimelineAddMode = 'both' | 'video-only' | 'voiceover-only';
+
 interface StoryboardCardsProps {
   projectId: string;
   storyboardId?: string | null;
@@ -367,6 +369,7 @@ export function StoryboardCards({
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [videoVolume, setVideoVolume] = useState(0);
+  const [timelineAddMode, setTimelineAddMode] = useState<TimelineAddMode>('both');
   const [playingVoiceoverId, setPlayingVoiceoverId] = useState<string | null>(
     null
   );
@@ -1167,6 +1170,13 @@ export function StoryboardCards({
       selectedSceneIds.has(s.id) && s.video_status === 'success' && s.video_url
   );
 
+  // Check if any selected scenes have voiceovers ready
+  const selectedScenesWithVoiceover = sortedScenes.filter((s) => {
+    if (!selectedSceneIds.has(s.id)) return false;
+    const vo = s.voiceovers?.find((v) => v.language === selectedLanguage);
+    return vo?.status === 'success' && vo?.audio_url;
+  });
+
   const handleSaveVoiceoverText = async (sceneId: string, newText: string) => {
     const scene = sortedScenes.find((s) => s.id === sceneId);
     const voiceover = scene?.voiceovers?.find(
@@ -1333,23 +1343,21 @@ export function StoryboardCards({
   };
 
   const handleAddAllToTimeline = async () => {
-    if (!studio || selectedScenesWithVideo.length === 0) return;
+    if (!studio) return;
+
+    // Pick the right source list based on mode
+    const scenesToAdd =
+      timelineAddMode === 'voiceover-only'
+        ? [...selectedScenesWithVoiceover].sort((a, b) => a.order - b.order)
+        : [...selectedScenesWithVideo].sort((a, b) => a.order - b.order);
+
+    if (scenesToAdd.length === 0) return;
 
     setIsAddingToTimeline(true);
     try {
-      // Start at time 0 on the new tracks
       let runningEnd = 0;
-
-      // Force new track creation (undefined = studio will auto-create).
-      // After the first scene, the returned track IDs are reused so all
-      // scenes in the batch land on the same new tracks sequentially.
       let videoTrackId: string | undefined = undefined;
       let audioTrackId: string | undefined = undefined;
-
-      // Sort selected scenes by order and add sequentially
-      const scenesToAdd = [...selectedScenesWithVideo].sort(
-        (a, b) => a.order - b.order
-      );
 
       const failedScenes: number[] = [];
       for (const scene of scenesToAdd) {
@@ -1357,27 +1365,41 @@ export function StoryboardCards({
           const voiceover = scene.voiceovers?.find(
             (v) => v.language === selectedLanguage
           );
+          const hasVoiceover =
+            voiceover?.status === 'success' && voiceover?.audio_url;
 
-          const result = await addSceneToTimeline(
-            studio,
-            {
-              videoUrl: scene.video_url!,
-              voiceover:
-                voiceover?.status === 'success' && voiceover?.audio_url
-                  ? { audioUrl: voiceover.audio_url }
+          if (timelineAddMode === 'voiceover-only') {
+            if (!hasVoiceover) continue;
+            const result = await addVoiceoverToTimeline(
+              studio,
+              { audioUrl: voiceover!.audio_url! },
+              { startTime: runningEnd, audioTrackId }
+            );
+            runningEnd = result.endTime;
+            audioTrackId = result.audioTrackId;
+          } else {
+            const result = await addSceneToTimeline(
+              studio,
+              {
+                videoUrl: scene.video_url!,
+                voiceover: hasVoiceover
+                  ? { audioUrl: voiceover!.audio_url! }
                   : null,
-            },
-            {
-              startTime: runningEnd,
-              videoTrackId,
-              audioTrackId,
-              videoVolume: videoVolume / 100,
+              },
+              {
+                startTime: runningEnd,
+                videoTrackId,
+                audioTrackId,
+                videoVolume: videoVolume / 100,
+                skipAudioClip: timelineAddMode === 'video-only',
+              }
+            );
+            runningEnd = result.endTime;
+            videoTrackId = result.videoTrackId;
+            if (timelineAddMode === 'both') {
+              audioTrackId = result.audioTrackId;
             }
-          );
-
-          runningEnd = result.endTime;
-          videoTrackId = result.videoTrackId;
-          audioTrackId = result.audioTrackId;
+          }
         } catch (err) {
           console.error(`Failed to add scene ${scene.order} to timeline:`, err);
           failedScenes.push(scene.order);
@@ -1586,41 +1608,65 @@ export function StoryboardCards({
         {/* Add to Timeline */}
         {selectedSceneIds.size > 0 && (
           <div className="flex flex-col gap-1.5 px-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={
-                selectedScenesWithVideo.length === 0 || isAddingToTimeline
-              }
-              onClick={handleAddAllToTimeline}
-              className="h-8 text-xs w-full"
-              title={
-                selectedScenesWithVideo.length === 0
-                  ? 'Select scenes with generated videos'
-                  : `Add ${selectedScenesWithVideo.length} scene(s) video + voiceover to timeline`
-              }
-            >
-              {isAddingToTimeline ? (
-                <IconLoader2 className="size-3.5 animate-spin mr-1" />
-              ) : (
-                <IconPlayerTrackNext className="size-3.5 mr-1" />
-              )}
-              Add to Timeline
-            </Button>
-            <div className="flex items-center gap-2">
-              <IconVolume className="size-3.5 text-muted-foreground flex-shrink-0" />
-              <Slider
-                value={[videoVolume]}
-                onValueChange={([v]) => setVideoVolume(v)}
-                min={0}
-                max={100}
-                step={1}
-                className="flex-1"
-              />
-              <span className="text-[10px] text-muted-foreground w-7 text-right flex-shrink-0">
-                {videoVolume}%
-              </span>
+            <div className="flex items-center gap-1.5">
+              <Select
+                value={timelineAddMode}
+                onValueChange={(v) => setTimelineAddMode(v as TimelineAddMode)}
+              >
+                <SelectTrigger className="h-8 text-xs w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">Both</SelectItem>
+                  <SelectItem value="video-only">Video Only</SelectItem>
+                  <SelectItem value="voiceover-only">VO Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  (timelineAddMode === 'voiceover-only'
+                    ? selectedScenesWithVoiceover.length === 0
+                    : selectedScenesWithVideo.length === 0) ||
+                  isAddingToTimeline
+                }
+                onClick={handleAddAllToTimeline}
+                className="h-8 text-xs flex-1"
+                title={
+                  timelineAddMode === 'voiceover-only'
+                    ? selectedScenesWithVoiceover.length === 0
+                      ? 'Select scenes with generated voiceovers'
+                      : `Add ${selectedScenesWithVoiceover.length} voiceover(s) to timeline`
+                    : selectedScenesWithVideo.length === 0
+                      ? 'Select scenes with generated videos'
+                      : `Add ${selectedScenesWithVideo.length} scene(s) to timeline`
+                }
+              >
+                {isAddingToTimeline ? (
+                  <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                ) : (
+                  <IconPlayerTrackNext className="size-3.5 mr-1" />
+                )}
+                Add to Timeline
+              </Button>
             </div>
+            {timelineAddMode !== 'voiceover-only' && (
+              <div className="flex items-center gap-2">
+                <IconVolume className="size-3.5 text-muted-foreground flex-shrink-0" />
+                <Slider
+                  value={[videoVolume]}
+                  onValueChange={([v]) => setVideoVolume(v)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  className="flex-1"
+                />
+                <span className="text-[10px] text-muted-foreground w-7 text-right flex-shrink-0">
+                  {videoVolume}%
+                </span>
+              </div>
+            )}
           </div>
         )}
 

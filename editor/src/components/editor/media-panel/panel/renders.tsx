@@ -15,6 +15,7 @@ import {
   Maximize2,
   X,
   Trash2,
+  Send,
 } from 'lucide-react';
 import {
   IconDeviceTv,
@@ -329,6 +330,19 @@ function RenderCard({
             ) : (
               <Copy className="h-4 w-4" />
             )}
+          </button>
+
+          {/* Publish to Social */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(`/post/${render.id}`, '_blank');
+            }}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-primary/20 hover:text-primary"
+            title="Publish to Social"
+          >
+            <Send className="h-4 w-4" />
           </button>
 
           {/* Download */}

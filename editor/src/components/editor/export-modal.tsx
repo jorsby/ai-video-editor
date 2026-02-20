@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Cloud, Check, Download } from 'lucide-react';
+import { Loader2, Cloud, Check, Download, Send } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
@@ -346,14 +346,26 @@ export function ExportModal({
             <div className="flex w-full gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setShowCompletion(false);
-                  setRenderStarted(false);
-                }}
-                className="flex-1 h-11 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
+                disabled
+                className="flex-1 h-11 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white opacity-50 cursor-not-allowed"
               >
                 Render Another Language
               </Button>
+              {allRenders.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const latestRender = allRenders[0];
+                    if (latestRender) {
+                      window.open(`/post/${latestRender.id}`, '_blank');
+                    }
+                  }}
+                  className="flex-1 h-11 gap-2 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
+                >
+                  <Send className="h-4 w-4" />
+                  Publish to Social
+                </Button>
+              )}
               <Button
                 onClick={handleClose}
                 className="flex-1 h-11 rounded-xl text-[13px] font-medium"

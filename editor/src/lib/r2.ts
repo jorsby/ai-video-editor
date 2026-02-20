@@ -60,6 +60,8 @@ export class R2StorageService {
         accessKeyId: params.accessKeyId,
         secretAccessKey: params.secretAccessKey,
       },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   }
 

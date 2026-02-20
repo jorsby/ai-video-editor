@@ -35,6 +35,8 @@ interface AddSceneOptions {
   videoTrackId?: string;
   audioTrackId?: string;
   videoVolume?: number;
+  /** When true, still match video duration to voiceover but don't add the audio clip to the timeline. */
+  skipAudioClip?: boolean;
 }
 
 interface AddSceneResult {
@@ -96,10 +98,13 @@ export async function addSceneToTimeline(
     endTime = startTime + videoClip.duration;
 
     await studio.addClip(videoClip, { trackId: usedVideoTrackId });
-    await studio.addClip(audioClip, {
-      trackId: usedAudioTrackId,
-      audioSource: scene.voiceover.audioUrl,
-    });
+
+    if (!options.skipAudioClip) {
+      await studio.addClip(audioClip, {
+        trackId: usedAudioTrackId,
+        audioSource: scene.voiceover.audioUrl,
+      });
+    }
 
     // Capture the actual track IDs that were used/created
     if (!usedVideoTrackId) {
@@ -108,7 +113,7 @@ export async function addSceneToTimeline(
       );
       usedVideoTrackId = vTrack?.id;
     }
-    if (!usedAudioTrackId) {
+    if (!options.skipAudioClip && !usedAudioTrackId) {
       const aTrack = studio.tracks.find(
         (t) => t.type === 'Audio' && t.clipIds.includes(audioClip.id)
       );

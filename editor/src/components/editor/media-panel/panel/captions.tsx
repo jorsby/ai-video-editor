@@ -3,19 +3,26 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Play, Trash2 } from 'lucide-react';
+import { Loader2, Play, Trash2, RefreshCw } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { fontManager, jsonToClip, Log, type IClip } from 'openvideo';
 import { generateCaptionClips } from '@/lib/caption-generator';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useProjectId } from '@/contexts/project-context';
+import {
+  saveTranscription,
+  loadTranscription,
+} from '@/lib/supabase/transcription-service';
 
 export default function PanelCaptions() {
   const { studio } = useStudioStore();
+  const projectId = useProjectId();
   const [mediaItems, setMediaItems] = useState<IClip[]>([]);
   const [captionItems, setCaptionItems] = useState<IClip[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
+  const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
 
   // Use refs to access latest state inside event listeners without re-binding
   const captionItemsRef = useRef<IClip[]>([]);
@@ -85,7 +92,30 @@ export default function PanelCaptions() {
     };
   }, [studio]);
 
-  const handleGenerateCaptions = async () => {
+  // Check if cached transcriptions exist for current media clips
+  useEffect(() => {
+    if (!projectId || mediaItems.length === 0) {
+      setHasCachedTranscription(false);
+      return;
+    }
+    let cancelled = false;
+    async function checkCache() {
+      for (const clip of mediaItems) {
+        const audioUrl = (clip as any).src;
+        if (!audioUrl) continue;
+        const cached = await loadTranscription(projectId, audioUrl);
+        if (cached && !cancelled) {
+          setHasCachedTranscription(true);
+          return;
+        }
+      }
+      if (!cancelled) setHasCachedTranscription(false);
+    }
+    checkCache();
+    return () => { cancelled = true; };
+  }, [projectId, mediaItems]);
+
+  const handleGenerateCaptions = async (forceRegenerate = false) => {
     if (!studio || mediaItems.length === 0) return;
 
     setIsGenerating(true);
@@ -104,23 +134,39 @@ export default function PanelCaptions() {
 
       for (const mediaClip of mediaItems) {
         try {
-          // 1. Get transcription
+          // 1. Get transcription (check cache first)
           const audioUrl = (mediaClip as any).src;
           if (!audioUrl) continue;
 
-          const transcribeResponse = await fetch('/api/transcribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: audioUrl, model: 'nova-3' }),
-          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let transcriptionData: any = null;
 
-          if (!transcribeResponse.ok) {
-            Log.error(`Transcription failed for media ${mediaClip.id}`);
-            continue;
+          if (!forceRegenerate) {
+            transcriptionData = await loadTranscription(projectId, audioUrl);
           }
 
-          const transcriptionData = await transcribeResponse.json();
-          if (!transcriptionData) continue;
+          if (!transcriptionData) {
+            const transcribeResponse = await fetch('/api/transcribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: audioUrl, model: 'nova-3' }),
+            });
+
+            if (!transcribeResponse.ok) {
+              Log.error(`Transcription failed for media ${mediaClip.id}`);
+              continue;
+            }
+
+            transcriptionData = await transcribeResponse.json();
+            if (!transcriptionData) continue;
+
+            // Cache the transcription result
+            try {
+              await saveTranscription(projectId, audioUrl, transcriptionData);
+            } catch (e) {
+              Log.error('Failed to cache transcription:', e);
+            }
+          }
 
           const words =
             transcriptionData.results?.main?.words ||
@@ -410,7 +456,23 @@ export default function PanelCaptions() {
             Add video or audio to the timeline to generate captions.
           </div>
         ) : captionItems.length > 0 ? (
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-end px-4 pt-2 pb-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-muted-foreground hover:text-white"
+                onClick={() => handleGenerateCaptions(true)}
+                disabled={isGenerating}
+              >
+                {isGenerating ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3 w-3" />
+                )}
+                Regenerate
+              </Button>
+            </div>
             <ScrollArea className="h-full px-4">
               <div className="flex flex-col gap-2 pb-4">
                 {captionItems.map((item) => (
@@ -438,7 +500,7 @@ export default function PanelCaptions() {
               automatically.
             </div>
             <Button
-              onClick={handleGenerateCaptions}
+              onClick={() => handleGenerateCaptions()}
               variant="default"
               className="w-full"
               disabled={isGenerating}
@@ -448,6 +510,8 @@ export default function PanelCaptions() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Generating...
                 </>
+              ) : hasCachedTranscription ? (
+                'Generate Captions (cached)'
               ) : (
                 'Generate Captions'
               )}

@@ -75,11 +75,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const id = req.nextUrl.searchParams.get('id');
     const projectId = req.nextUrl.searchParams.get('project_id');
+
+    // Fetch a single rendered video by ID
+    if (id) {
+      const { data, error } = await supabase
+        .from('rendered_videos')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (error || !data) {
+        return NextResponse.json(
+          { error: 'Rendered video not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({ rendered_video: data });
+    }
 
     if (!projectId) {
       return NextResponse.json(
-        { error: 'project_id is required' },
+        { error: 'project_id or id is required' },
         { status: 400 }
       );
     }

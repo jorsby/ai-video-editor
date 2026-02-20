@@ -68,9 +68,9 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     activeFillColor: "transparent",
     color: "transparent",
     backgroundColor: "transparent",
-    borderColor: "#ffffff",
+    borderColor: "#000000",
     borderWidth: 5,
-    boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
+    // boxShadow: { color: "#ffffff", x: 2, y: 2, blur: 60 },
     fontFamily: "ChelseaMarket-Regular",
     fontUrl:
       "https://fonts.gstatic.com/s/chelseamarket/v8/BCawqZsHqfr89WNP_IApC8tzKBhlLA4uKkWk.ttf",

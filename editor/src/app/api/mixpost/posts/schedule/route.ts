@@ -1,11 +1,11 @@
+import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   getOrCreateMixpostToken,
   clearCachedMixpostToken,
 } from '@/lib/mixpost/token';
-import { NextResponse } from 'next/server';
 
-export async function GET() {
+export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
     const {
@@ -38,17 +38,33 @@ export async function GET() {
       );
     }
 
+    const { postUuid, postNow } = await req.json();
+
+    if (!postUuid) {
+      return NextResponse.json(
+        { error: 'postUuid is required' },
+        { status: 400 }
+      );
+    }
+
+    const schedulePayload: Record<string, unknown> = {};
+    if (postNow) {
+      schedulePayload.postNow = true;
+    }
+
     const response = await fetch(
-      `${mixpostUrl}/mixpost/api/${workspaceUuid}/accounts`,
+      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts/schedule/${postUuid}`,
       {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify(schedulePayload),
       }
     );
 
-    // If Mixpost rejects the token, clear the cache so next request creates a fresh one
     if (response.status === 401) {
       await clearCachedMixpostToken(supabase, user.id);
       console.error('Mixpost token rejected (401). Cleared cached token.');
@@ -59,21 +75,21 @@ export async function GET() {
     }
 
     if (!response.ok) {
-      const body = await response.text();
+      const errorBody = await response.text();
       console.error(
-        `Mixpost accounts error: status=${response.status} url=${mixpostUrl}/mixpost/api/${workspaceUuid}/accounts body=${body}`
+        `Mixpost schedule post error: status=${response.status} body=${errorBody}`
       );
       return NextResponse.json(
-        { error: `Failed to fetch accounts from Mixpost (${response.status})` },
+        { error: `Failed to schedule post in Mixpost (${response.status})` },
         { status: response.status }
       );
     }
 
-    const { data } = await response.json();
+    const data = await response.json();
 
-    return NextResponse.json({ accounts: data });
+    return NextResponse.json({ success: true, scheduled_at: data.scheduled_at || null });
   } catch (error) {
-    console.error('Fetch Mixpost accounts error:', error);
+    console.error('Mixpost schedule post error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
