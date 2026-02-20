@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import { clipToJSON, type IClip } from 'openvideo';
+import type { LanguageCode } from '@/lib/constants/languages';
 
 // Track interface matching the Studio's track structure
 interface StudioTrack {
@@ -30,27 +31,36 @@ function findTrackForClip(
 export async function saveTimeline(
   projectId: string,
   tracks: StudioTrack[],
-  clips: IClip[]
+  clips: IClip[],
+  language: LanguageCode = 'en'
 ) {
   const supabase = createClient();
 
-  // Get all track IDs for this save
-  const trackIds = tracks.map((t) => t.id);
+  // Fetch existing track IDs for this project+language
+  const { data: existingTracks, error: fetchError } = await supabase
+    .from('tracks')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('language', language);
+  if (fetchError) throw fetchError;
+
+  const existingTrackIds = (existingTracks ?? []).map((t) => t.id);
 
   // Delete existing clips for these tracks
-  if (trackIds.length > 0) {
+  if (existingTrackIds.length > 0) {
     const { error: deleteClipsError } = await supabase
       .from('clips')
       .delete()
-      .in('track_id', trackIds);
+      .in('track_id', existingTrackIds);
     if (deleteClipsError) throw deleteClipsError;
   }
 
-  // Delete existing tracks for this project
+  // Delete existing tracks for this project+language
   const { error: deleteTracksError } = await supabase
     .from('tracks')
     .delete()
-    .eq('project_id', projectId);
+    .eq('project_id', projectId)
+    .eq('language', language);
   if (deleteTracksError) throw deleteTracksError;
 
   // Insert tracks
@@ -58,6 +68,7 @@ export async function saveTimeline(
     const trackRows = tracks.map((track, i) => ({
       id: track.id,
       project_id: projectId,
+      language,
       position: i,
       data: track, // Full track object in JSONB
     }));
@@ -104,7 +115,8 @@ interface TrackWithClips {
  * Returns tracks with nested clips data
  */
 export async function loadTimeline(
-  projectId: string
+  projectId: string,
+  language: LanguageCode = 'en'
 ): Promise<TrackWithClips[] | null> {
   const supabase = createClient();
 
@@ -112,6 +124,7 @@ export async function loadTimeline(
     .from('tracks')
     .select('*, clips(*)')
     .eq('project_id', projectId)
+    .eq('language', language)
     .order('position');
 
   if (error) {
@@ -123,20 +136,25 @@ export async function loadTimeline(
 }
 
 /**
- * Reconstruct ProjectJSON format from Supabase data
- * This format is compatible with studio.loadFromJSON()
+ * Clear tracks and clips for a project from Supabase.
+ * If language is provided, only clear that language's tracks/clips.
+ * If omitted, clear all languages (backward compatible).
  */
-/**
- * Clear all tracks and clips for a project from Supabase
- */
-export async function clearTimeline(projectId: string) {
+export async function clearTimeline(
+  projectId: string,
+  language?: LanguageCode
+) {
   const supabase = createClient();
 
-  // Fetch track IDs for this project
-  const { data: tracks, error: fetchError } = await supabase
+  // Fetch track IDs for this project (optionally filtered by language)
+  let query = supabase
     .from('tracks')
     .select('id')
     .eq('project_id', projectId);
+  if (language) {
+    query = query.eq('language', language);
+  }
+  const { data: tracks, error: fetchError } = await query;
   if (fetchError) throw fetchError;
 
   const trackIds = (tracks ?? []).map((t) => t.id);
@@ -150,12 +168,102 @@ export async function clearTimeline(projectId: string) {
     if (deleteClipsError) throw deleteClipsError;
   }
 
-  // Delete tracks by project_id
-  const { error: deleteTracksError } = await supabase
+  // Delete tracks
+  let deleteQuery = supabase
     .from('tracks')
     .delete()
     .eq('project_id', projectId);
+  if (language) {
+    deleteQuery = deleteQuery.eq('language', language);
+  }
+  const { error: deleteTracksError } = await deleteQuery;
   if (deleteTracksError) throw deleteTracksError;
+}
+
+/**
+ * Get distinct languages that have saved timelines for a project
+ */
+export async function getAvailableLanguages(
+  projectId: string
+): Promise<LanguageCode[]> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('tracks')
+    .select('language')
+    .eq('project_id', projectId);
+
+  if (error) {
+    console.error('Failed to get available languages:', error);
+    return [];
+  }
+
+  const languages = [...new Set((data ?? []).map((t) => t.language))];
+  return languages as LanguageCode[];
+}
+
+/**
+ * Copy a timeline from one language to another.
+ * Loads the source language timeline, generates new UUIDs, and inserts copies.
+ */
+export async function copyTimeline(
+  projectId: string,
+  fromLang: LanguageCode,
+  toLang: LanguageCode
+) {
+  const sourceTracks = await loadTimeline(projectId, fromLang);
+  if (!sourceTracks || sourceTracks.length === 0) return;
+
+  const supabase = createClient();
+
+  for (const track of sourceTracks) {
+    const newTrackId = crypto.randomUUID();
+    const oldToNewClipId = new Map<string, string>();
+
+    // Map old clip IDs to new ones
+    if (track.clips) {
+      for (const clip of track.clips) {
+        oldToNewClipId.set(clip.id, crypto.randomUUID());
+      }
+    }
+
+    // Build new clipIds array
+    const newClipIds = (track.data.clipIds || []).map(
+      (oldId) => oldToNewClipId.get(oldId) || crypto.randomUUID()
+    );
+
+    // Insert new track
+    const newTrackData = {
+      ...track.data,
+      id: newTrackId,
+      clipIds: newClipIds,
+    };
+    const { error: trackError } = await supabase.from('tracks').insert({
+      id: newTrackId,
+      project_id: projectId,
+      language: toLang,
+      position: track.position,
+      data: newTrackData,
+    });
+    if (trackError) throw trackError;
+
+    // Insert new clips
+    if (track.clips && track.clips.length > 0) {
+      const clipRows = track.clips.map((clip) => {
+        const newClipId = oldToNewClipId.get(clip.id) || crypto.randomUUID();
+        return {
+          id: newClipId,
+          track_id: newTrackId,
+          position: clip.position,
+          data: { ...clip.data, id: newClipId },
+        };
+      });
+      const { error: clipError } = await supabase
+        .from('clips')
+        .insert(clipRows);
+      if (clipError) throw clipError;
+    }
+  }
 }
 
 export function reconstructProjectJSON(tracks: TrackWithClips[]) {

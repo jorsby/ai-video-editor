@@ -2,12 +2,15 @@ import { useEffect, useRef } from 'react';
 import { Player } from '../player';
 import { Studio, Compositor, fontManager } from 'openvideo';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
 import { editorFont } from './constants';
 import {
   loadTimeline,
   reconstructProjectJSON,
+  getAvailableLanguages,
 } from '@/lib/supabase/timeline-service';
 import { useProjectId } from '@/contexts/project-context';
+import { Loader2 } from 'lucide-react';
 
 const defaultSize = {
   width: 1080,
@@ -22,6 +25,9 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   const previewRef = useRef<Studio | null>(null);
   const { setStudio } = useStudioStore();
   const projectId = useProjectId();
+  const isLanguageSwitching = useLanguageStore(
+    (s) => s.isLanguageSwitching
+  );
 
   // Initialize Studio
   useEffect(() => {
@@ -56,12 +62,19 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
         previewRef.current?.ready,
       ]);
 
-      // Load from Supabase
-      const savedData = await loadTimeline(projectId);
+      // Load from Supabase with active language
+      const { activeLanguage } = useLanguageStore.getState();
+      const savedData = await loadTimeline(projectId, activeLanguage);
       if (savedData && savedData.length > 0) {
         console.log('Loading from Supabase...');
         const projectJson = reconstructProjectJSON(savedData);
         await previewRef.current?.loadFromJSON(projectJson as any);
+      }
+
+      // Fetch available languages and update store
+      const langs = await getAvailableLanguages(projectId);
+      if (langs.length > 0) {
+        useLanguageStore.getState().setAvailableLanguages(langs);
       }
 
       console.log('Studio ready');
@@ -85,6 +98,14 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   return (
     <div className="h-full w-full flex flex-col min-h-0 min-w-0 bg-panel rounded-sm relative">
       <Player canvasRef={previewCanvasRef} />
+      {isLanguageSwitching && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10 rounded-sm">
+          <div className="flex items-center gap-2 text-sm text-white">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Switching language...
+          </div>
+        </div>
+      )}
     </div>
   );
 }

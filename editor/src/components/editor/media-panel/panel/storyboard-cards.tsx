@@ -39,6 +39,9 @@ import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
+import { useLanguageSwitch } from '@/hooks/use-language-switch';
+import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
 import { createClient } from '@/lib/supabase/client';
 import {
   addSceneToTimeline,
@@ -223,7 +226,7 @@ function ScriptViewRow({
   playingVoiceoverId: string | null;
   setPlayingVoiceoverId: (id: string | null) => void;
   onSave: (sceneId: string, newText: string) => Promise<void>;
-  selectedLanguage: 'en' | 'tr' | 'ar';
+  selectedLanguage: LanguageCode;
 }) {
   const voiceover =
     scene.voiceovers?.find((v) => v.language === selectedLanguage) ?? null;
@@ -354,9 +357,8 @@ export function StoryboardCards({
   >('720p');
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'tr' | 'ar'>(
-    'en'
-  );
+  const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
+  const { switchLanguage } = useLanguageSwitch();
   const [voiceConfig, setVoiceConfig] = useState({
     en: { voice: 'NFG5qt843uXKj4pFvR7C' },
     tr: { voice: '75SIZa3vvET95PHhf1yD' },
@@ -364,7 +366,7 @@ export function StoryboardCards({
   });
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
-  const [videoVolume, setVideoVolume] = useState(5);
+  const [videoVolume, setVideoVolume] = useState(0);
   const [playingVoiceoverId, setPlayingVoiceoverId] = useState<string | null>(
     null
   );
@@ -1644,18 +1646,18 @@ export function StoryboardCards({
             <div className="px-2 py-2 flex flex-col gap-2">
               {/* Language tabs */}
               <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-fit">
-                {(['en', 'tr', 'ar'] as const).map((lang) => (
+                {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
-                    key={lang}
+                    key={lang.code}
                     type="button"
-                    onClick={() => setSelectedLanguage(lang)}
+                    onClick={() => switchLanguage(lang.code)}
                     className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                      selectedLanguage === lang
+                      selectedLanguage === lang.code
                         ? 'bg-primary text-primary-foreground'
                         : 'hover:bg-secondary/50 text-muted-foreground'
                     }`}
                   >
-                    {lang.toUpperCase()}
+                    {lang.label}
                   </button>
                 ))}
               </div>

@@ -10,6 +10,7 @@ export class Transport {
   public isPlaying = false;
   public currentTime = 0; // in microseconds
   public maxDuration = 0; // in microseconds
+  public playbackSpeed = 1;
 
   private playStartTime = 0; // in microseconds - time when playback started
   private playStartTimestamp = 0; // performance.now() when playback started
@@ -208,7 +209,7 @@ export class Transport {
       // Calculate current time based on actual elapsed time
       // This ensures playback speed matches the configured fps
       const elapsedMs = performance.now() - this.playStartTimestamp;
-      const elapsedMicroseconds = elapsedMs * 1000;
+      const elapsedMicroseconds = elapsedMs * 1000 * this.playbackSpeed;
       this.currentTime = Math.min(
         this.playStartTime + elapsedMicroseconds,
         this.maxDuration
@@ -231,6 +232,29 @@ export class Transport {
     };
 
     render();
+  }
+
+  public setVolume(volume: number): void {
+    for (const [, { element }] of this.playbackElements) {
+      element.volume = volume;
+    }
+  }
+
+  public setMuted(muted: boolean): void {
+    for (const [, { element }] of this.playbackElements) {
+      element.muted = muted;
+    }
+  }
+
+  public setSpeed(speed: number): void {
+    this.playbackSpeed = speed;
+    if (this.isPlaying) {
+      this.playStartTime = this.currentTime;
+      this.playStartTimestamp = performance.now();
+    }
+    for (const [, { element }] of this.playbackElements) {
+      element.playbackRate = speed;
+    }
   }
 
   public isPlaybackCapable(clip: any): clip is IPlaybackCapable {

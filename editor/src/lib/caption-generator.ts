@@ -23,8 +23,8 @@ export async function generateCaptionClips(
     videoHeight,
     words,
     fontSize = 80,
-    fontFamily = 'Bangers-Regular',
-    fontUrl = 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf',
+    fontFamily = 'Rubik',
+    fontUrl = 'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf',
     mode = 'multiple',
   } = options;
 
@@ -116,9 +116,9 @@ export async function generateCaptionClips(
       top:
         options.style?.verticalAlign === 'top'
           ? 80
-          : options.style?.verticalAlign === 'center'
-            ? (videoHeight - captionHeight) / 2
-            : videoHeight - captionHeight - 80,
+          : options.style?.verticalAlign === 'bottom'
+            ? videoHeight - captionHeight - 80
+            : (videoHeight - captionHeight) / 2,
       width: captionWidth,
       height: captionHeight,
       angle: 0,
@@ -136,13 +136,13 @@ export async function generateCaptionClips(
         fontUrl: fontUrl,
         stroke: {
           color: '#000000',
-          width: 4,
+          width: 10,
         },
         shadow: {
           color: '#000000',
           alpha: 0.5,
-          blur: 4,
-          offsetX: 2,
+          blur: 8,
+          offsetX: 0,
           offsetY: 2,
         },
       },
@@ -150,9 +150,9 @@ export async function generateCaptionClips(
         words: chunk.words,
         colors: {
           appeared: '#ffffff',
-          active: '#ffffff',
-          activeFill: '#FF5700',
-          background: '',
+          active: '#FFD700',
+          activeFill: 'transparent',
+          background: 'transparent',
           keyword: '#ffffff',
         },
         preserveKeywordColor: true,

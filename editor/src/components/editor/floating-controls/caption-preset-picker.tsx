@@ -12,7 +12,7 @@ import { regenerateCaptionClips } from '@/lib/caption-utils';
 
 const CaptionPresetPicker = () => {
   const { setFloatingControl } = useLayoutStore();
-  const { studio, selectedClips } = useStudioStore();
+  const { studio, setSelectedClips } = useStudioStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,24 +34,19 @@ const CaptionPresetPicker = () => {
   const handleApplyPreset = async (preset: ICaptionsControlProps) => {
     if (!studio) return;
 
-    // Filter for Captions
-    const captionClips = selectedClips.filter((c) => c.type === 'Caption');
-    if (captionClips.length === 0) return;
-    if (preset.fontFamily === undefined) {
-      preset.fontFamily = 'Bangers-Regular';
-    }
-    if (preset.fontUrl === undefined) {
-      preset.fontUrl =
-        'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf';
-    }
+    const allCaptionClips = studio.clips.filter((c: any) => c.type === 'Caption');
+    if (allCaptionClips.length === 0) return;
+
+    const effectiveFontFamily = preset.fontFamily ?? 'Rubik';
+    const effectiveFontUrl =
+      preset.fontUrl ??
+      'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf';
 
     // Load fonts if needed
-    if (preset.fontFamily && preset.fontUrl) {
-      await fontManager.addFont({
-        name: preset.fontFamily,
-        url: preset.fontUrl,
-      });
-    }
+    await fontManager.addFont({
+      name: effectiveFontFamily,
+      url: effectiveFontUrl,
+    });
     const x = preset.boxShadow?.x ?? 4;
     const y = preset.boxShadow?.y ?? 0;
 
@@ -60,8 +55,8 @@ const CaptionPresetPicker = () => {
       fill: preset.color,
       strokeWidth: preset.borderWidth,
       stroke: preset.borderColor,
-      fontFamily: preset.fontFamily,
-      fontUrl: preset.fontUrl,
+      fontFamily: effectiveFontFamily,
+      fontUrl: effectiveFontUrl,
       align: preset.textAlign as any,
       caption: {
         colors: {
@@ -84,43 +79,23 @@ const CaptionPresetPicker = () => {
       },
     };
 
-    // Apply to all selected caption clips and other clips with the same mediaId
-    const mediaIds = new Set<string>();
-    for (const clip of captionClips) {
-      if ((clip as any).mediaId) {
-        mediaIds.add((clip as any).mediaId);
-      }
+    const mode = preset.type === 'word' ? 'single' : 'multiple';
+    for (const clip of allCaptionClips) {
+      await regenerateCaptionClips({
+        studio,
+        captionClip: clip,
+        mode,
+        fontSize: (clip as any).originalOpts?.fontSize,
+        fontFamily: effectiveFontFamily,
+        fontUrl: effectiveFontUrl,
+        styleUpdate: styleUpdate,
+      });
     }
 
-    const allCaptionClips = studio.clips.filter((c) => c.type === 'Caption');
-    // const targetClips = allCaptionClips.filter(
-    //   (c) => captionClips.includes(c) || mediaIds.has((c as any).mediaId),
-    // );
-
-    if (preset.type === 'word') {
-      for (const clip of allCaptionClips) {
-        await regenerateCaptionClips({
-          studio,
-          captionClip: clip,
-          mode: 'single',
-          fontSize: (clip as any).originalOpts?.fontSize,
-          fontFamily: preset.fontFamily,
-          fontUrl: preset.fontUrl,
-          styleUpdate: styleUpdate,
-        });
-      }
-    } else {
-      for (const clip of allCaptionClips) {
-        await regenerateCaptionClips({
-          studio,
-          captionClip: clip,
-          mode: 'multiple',
-          fontSize: (clip as any).originalOpts?.fontSize,
-          fontFamily: preset.fontFamily,
-          fontUrl: preset.fontUrl,
-          styleUpdate: styleUpdate,
-        });
-      }
+    // Re-select new caption clips so the user can continue switching presets
+    const newCaptionClips = studio.clips.filter((c: any) => c.type === 'Caption');
+    if (newCaptionClips.length > 0) {
+      setSelectedClips(newCaptionClips);
     }
   };
 

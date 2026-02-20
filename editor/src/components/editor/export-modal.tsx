@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Loader2, Cloud, Check, Download } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { useProjectId } from '@/contexts/project-context';
 import { uploadFile } from '@/lib/upload-utils';
 import type { RenderedVideo } from '@/types/rendered-video';
@@ -23,12 +25,6 @@ function proxyClipUrl(src: string): string {
   }
   return `/api/proxy/media?url=${encodeURIComponent(src)}`;
 }
-
-const LANGUAGES = [
-  { code: 'en', label: 'EN' },
-  { code: 'tr', label: 'TR' },
-  { code: 'ar', label: 'AR' },
-] as const;
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -87,6 +83,7 @@ export function ExportModal({
   mode = 'download',
 }: ExportModalProps) {
   const { studio, setIsExporting: setStoreIsExporting } = useStudioStore();
+  const activeLanguage = useLanguageStore((s) => s.activeLanguage);
   const projectId = useProjectId();
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
@@ -95,8 +92,9 @@ export function ExportModal({
   const [exportCombinator, setExportCombinator] = useState<Compositor | null>(
     null
   );
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [selectedLanguage, setSelectedLanguage] = useState(activeLanguage);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [renderStarted, setRenderStarted] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
@@ -117,6 +115,7 @@ export function ExportModal({
     setStoreIsExporting(false);
     setExportProgress(0);
     setIsUploading(false);
+    setUploadProgress(0);
     setRenderStarted(false);
     setShowCompletion(false);
     setAllRenders([]);
@@ -126,6 +125,11 @@ export function ExportModal({
     onOpenChange(false);
     resetState();
   };
+
+  // Sync selectedLanguage when activeLanguage changes (e.g. switched elsewhere)
+  useEffect(() => {
+    setSelectedLanguage(activeLanguage);
+  }, [activeLanguage]);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -234,7 +238,25 @@ export function ExportModal({
         { type: 'video/mp4' }
       );
 
-      const uploadResult = await uploadFile(file);
+      // Simulate upload progress (R2 presigned PUT doesn't support
+      // real progress via XHR or ReadableStream)
+      const estimatedMs = Math.max(file.size / 500_000, 2_000); // rough estimate
+      const tick = 100;
+      let simulated = 0;
+      const interval = setInterval(() => {
+        simulated += tick;
+        // Ease-out curve capped at 95% until real completion
+        const t = Math.min(simulated / estimatedMs, 1);
+        setUploadProgress(Math.min(t * 0.95, 0.95));
+      }, tick);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadFile(file);
+      } finally {
+        clearInterval(interval);
+      }
+      setUploadProgress(1);
 
       await fetch('/api/rendered-videos', {
         method: 'POST',
@@ -383,7 +405,7 @@ export function ExportModal({
                 Language
               </label>
               <div className="flex gap-2">
-                {LANGUAGES.map((lang) => (
+                {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
                     key={lang.code}
                     onClick={() => setSelectedLanguage(lang.code)}
@@ -493,7 +515,7 @@ export function ExportModal({
               </span>
               <span className="font-mono text-zinc-400">
                 {isUploading ? (
-                  'Almost done...'
+                  `Uploading... ${Math.round(uploadProgress * 100)}%`
                 ) : (
                   <>
                     {Math.round(exportProgress * 100)}% •{' '}
@@ -514,10 +536,12 @@ export function ExportModal({
             <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
                 className={`absolute bottom-0 left-0 top-0 transition-all duration-300 ease-out ${
-                  isUploading ? 'animate-pulse bg-blue-500' : 'bg-white'
+                  isUploading ? 'bg-blue-500' : 'bg-white'
                 }`}
                 style={{
-                  width: isUploading ? '100%' : `${exportProgress * 100}%`,
+                  width: isUploading
+                    ? `${Math.round(uploadProgress * 100)}%`
+                    : `${exportProgress * 100}%`,
                 }}
               />
             </div>

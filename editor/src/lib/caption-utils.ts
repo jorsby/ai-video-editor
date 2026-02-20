@@ -76,7 +76,7 @@ export async function regenerateCaptionClips({
     words: allWords,
     mode: mode,
     fontSize: fontSize || currentOpts.fontSize || 80,
-    fontFamily: fontFamily || currentOpts.fontFamily || 'Bangers-Regular',
+    fontFamily: fontFamily || currentOpts.fontFamily || 'Rubik',
     fontUrl: fontUrl || currentOpts.fontUrl,
     style: combinedStyle,
   });

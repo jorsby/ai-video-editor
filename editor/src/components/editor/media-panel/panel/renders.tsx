@@ -23,6 +23,9 @@ import {
 } from '@tabler/icons-react';
 import type { RenderedVideo } from '@/types/rendered-video';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { createClient } from '@/lib/supabase/client';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Slider } from '@/components/ui/slider';
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -35,6 +38,51 @@ function formatDuration(seconds: number | null): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function parseResolution(resolution: string | null): {
+  width: number;
+  height: number;
+  orientation: 'portrait' | 'landscape' | 'square';
+} | null {
+  if (!resolution) return null;
+  const match = resolution.match(/^(\d+)x(\d+)$/);
+  if (!match) return null;
+  const width = parseInt(match[1], 10);
+  const height = parseInt(match[2], 10);
+  if (width === 0 || height === 0) return null;
+  const orientation =
+    width === height ? 'square' : width < height ? 'portrait' : 'landscape';
+  return { width, height, orientation };
+}
+
+function getAspectRatio(resolution: string | null): string {
+  const parsed = parseResolution(resolution);
+  if (!parsed) return '16 / 9';
+  return `${parsed.width} / ${parsed.height}`;
+}
+
+function getLanguageBadgeColor(language: string | null): string {
+  switch (language?.toUpperCase()) {
+    case 'EN':
+      return 'bg-blue-500/80';
+    case 'TR':
+      return 'bg-red-500/80';
+    case 'AR':
+      return 'bg-emerald-500/80';
+    default:
+      return 'bg-white/20';
+  }
+}
+
+function getGridStyle(resolution: string | null, cardSize: number): React.CSSProperties {
+  const parsed = parseResolution(resolution);
+  if (!parsed || parsed.orientation === 'landscape') return {};
+  const baseMin = parsed.orientation === 'portrait' ? 120 : 150;
+  const minWidth = baseMin + cardSize * 2;
+  return {
+    gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))`,
+  };
 }
 
 interface RenderBatch {
@@ -101,15 +149,15 @@ function FullscreenModal({
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+        className="absolute top-4 right-4 rounded-full bg-white/10 p-2.5 text-white transition-colors hover:bg-white/25"
       >
-        <X className="h-5 w-5" />
+        <X className="h-6 w-6" />
       </button>
       <video
         src={render.url}
         controls
         autoPlay
-        className="max-h-[90vh] max-w-[90vw] rounded-lg"
+        className="max-h-[90vh] max-w-[90vw] rounded-xl"
         onClick={(e) => e.stopPropagation()}
       />
     </div>
@@ -128,9 +176,30 @@ function RenderCard({
   onFullscreen: (r: RenderedVideo) => void;
   onDelete: (r: RenderedVideo) => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Lazy load: only mount <video> when card enters viewport
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -152,65 +221,78 @@ function RenderCard({
   };
 
   return (
-    <div className="group rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden transition-colors hover:border-white/20 hover:bg-white/[0.06]">
+    <div
+      ref={cardRef}
+      className="group rounded-xl border border-white/[0.08] bg-zinc-900/60 overflow-hidden transition-all duration-200 hover:border-white/20 hover:bg-zinc-900/80 hover:shadow-lg hover:shadow-black/20"
+    >
       {/* Video thumbnail / player */}
-      <div className="relative aspect-video bg-black/40">
-        <video
-          ref={videoRef}
-          src={render.url}
-          className="h-full w-full object-contain"
-          preload="metadata"
-          onEnded={() => setIsPlaying(false)}
-          onPause={() => setIsPlaying(false)}
-          onPlay={() => setIsPlaying(true)}
-        />
+      <div className="relative rounded-t-xl bg-black/40 overflow-hidden" style={{ aspectRatio: getAspectRatio(render.resolution) }}>
+        {isVisible ? (
+          <>
+            <video
+              ref={videoRef}
+              src={render.url}
+              className="h-full w-full object-contain"
+              preload="metadata"
+              onEnded={() => setIsPlaying(false)}
+              onPause={() => setIsPlaying(false)}
+              onPlay={() => setIsPlaying(true)}
+            />
 
-        {/* Play / Pause overlay */}
-        <button
-          type="button"
-          onClick={togglePlay}
-          className={`absolute inset-0 flex items-center justify-center transition-opacity ${
-            isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-          }`}
-        >
-          <div className="rounded-full bg-black/60 p-3 backdrop-blur-sm transition-transform group-hover:scale-110">
-            {isPlaying ? (
-              <IconPlayerPause className="h-5 w-5 text-white fill-current" />
-            ) : (
-              <IconPlayerPlay className="h-5 w-5 text-white fill-current" />
+            {/* Bottom gradient for badge readability */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/40 to-transparent" />
+
+            {/* Play / Pause overlay */}
+            <button
+              type="button"
+              onClick={togglePlay}
+              className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+                isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+              }`}
+            >
+              <div className="rounded-full bg-black/60 p-3.5 backdrop-blur-sm transition-transform group-hover:scale-110">
+                {isPlaying ? (
+                  <IconPlayerPause className="h-6 w-6 text-white fill-current" />
+                ) : (
+                  <IconPlayerPlay className="h-6 w-6 text-white fill-current" />
+                )}
+              </div>
+            </button>
+
+            {/* Duration badge */}
+            {render.duration && (
+              <div className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                {formatDuration(render.duration)}
+              </div>
             )}
-          </div>
-        </button>
 
-        {/* Duration badge */}
-        {render.duration && (
-          <div className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-            {formatDuration(render.duration)}
-          </div>
+            {/* Fullscreen button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFullscreen(render);
+              }}
+              className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-white/20 group-hover:opacity-100"
+              title="Fullscreen"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        ) : (
+          <Skeleton className="h-full w-full rounded-none" />
         )}
 
-        {/* Language badge */}
-        <div className="absolute top-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
+        {/* Language badge — always visible */}
+        <div className={`absolute top-2 left-2 rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm ${getLanguageBadgeColor(render.language)}`}>
           {render.language}
         </div>
-
-        {/* Fullscreen button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFullscreen(render);
-          }}
-          className="absolute top-2 right-2 rounded bg-black/60 p-1.5 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-white/20 group-hover:opacity-100"
-          title="Fullscreen"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
       </div>
 
       {/* Info + actions */}
-      <div className="flex items-center gap-1 px-3 py-2">
-        <div className="flex-1 min-w-0 text-xs text-muted-foreground">
+      <div className="px-3 py-2.5 space-y-2">
+        {/* Row 1: Metadata */}
+        <div className="text-xs text-muted-foreground">
           {render.resolution && <span>{render.resolution}</span>}
           {render.file_size ? (
             <>
@@ -220,58 +302,63 @@ function RenderCard({
           ) : null}
         </div>
 
-        {/* Add to timeline */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddToTimeline(render);
-          }}
-          className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-primary/20 hover:text-primary"
-          title="Add to timeline"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+        {/* Row 2: Action buttons */}
+        <div className="flex items-center gap-0.5">
+          {/* Add to timeline */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddToTimeline(render);
+            }}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-primary/20 hover:text-primary"
+            title="Add to timeline"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
 
-        {/* Copy URL */}
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-          title="Copy URL"
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </button>
+          {/* Copy URL */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+            title="Copy URL"
+          >
+            {copied ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
 
-        {/* Download */}
-        <a
-          href={render.url}
-          download
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-          title="Download"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Download className="h-3.5 w-3.5" />
-        </a>
+          {/* Download */}
+          <a
+            href={render.url}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+            title="Download"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Download className="h-4 w-4" />
+          </a>
 
-        {/* Delete */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(render);
-          }}
-          className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-400"
-          title="Delete render"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+          <div className="flex-1" />
+
+          {/* Delete */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(render);
+            }}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-500/20 hover:text-red-400"
+            title="Delete render"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -287,6 +374,7 @@ export default function PanelRenders() {
   const [fullscreenRender, setFullscreenRender] =
     useState<RenderedVideo | null>(null);
   const { confirm } = useDeleteConfirmation();
+  const [cardSize, setCardSize] = useState(50);
 
   useEffect(() => {
     if (!projectId) return;
@@ -305,6 +393,53 @@ export default function PanelRenders() {
     };
 
     fetchRenders();
+  }, [projectId]);
+
+  // Realtime subscription for live render updates
+  useEffect(() => {
+    if (!projectId) return;
+
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel(`rendered_videos_${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'rendered_videos',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload) => {
+          const newRender = payload.new as RenderedVideo;
+          setRenders((prev) => {
+            if (prev.some((r) => r.id === newRender.id)) return prev;
+            return [newRender, ...prev];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'rendered_videos',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload) => {
+          const deletedId = payload.old.id;
+          setRenders((prev) => prev.filter((r) => r.id !== deletedId));
+          setFullscreenRender((current) =>
+            current?.id === deletedId ? null : current
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [projectId]);
 
   const handleAddToTimeline = useCallback(
@@ -364,10 +499,10 @@ export default function PanelRenders() {
 
   if (renders.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground px-6">
-        <IconDeviceTv size={32} className="opacity-50" />
-        <span className="text-sm">No renders yet</span>
-        <span className="text-xs text-center opacity-70">
+      <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground px-8">
+        <IconDeviceTv size={40} className="opacity-40" />
+        <span className="text-sm font-medium">No renders yet</span>
+        <span className="text-xs text-center opacity-60 leading-relaxed">
           Use Export &gt; Render to Cloud to create rendered videos
         </span>
       </div>
@@ -383,9 +518,22 @@ export default function PanelRenders() {
         />
       )}
 
+      {/* Size slider */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-white/[0.06]">
+        <span className="text-[11px] text-muted-foreground shrink-0">Size</span>
+        <Slider
+          value={[cardSize]}
+          onValueChange={([v]) => setCardSize(v)}
+          min={0}
+          max={100}
+          step={1}
+          className="flex-1"
+        />
+      </div>
+
       <ScrollArea className="flex-1 px-4 py-3">
-        <div className="space-y-5">
-          {batches.map((batch) => {
+        <div className="space-y-6">
+          {batches.map((batch, batchIndex) => {
             const batchDate = new Date(batch.date);
             const dateLabel = batchDate.toLocaleDateString(undefined, {
               month: 'short',
@@ -397,17 +545,20 @@ export default function PanelRenders() {
 
             return (
               <div key={batch.date}>
-                <div className="mb-2.5 flex items-baseline gap-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                {batchIndex > 0 && (
+                  <div className="mb-4 border-t border-white/[0.06]" />
+                )}
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground">
                     {dateLabel}
                   </span>
                   {batch.resolution && (
-                    <span className="text-[10px] text-muted-foreground/60">
+                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-muted-foreground/70">
                       {batch.resolution}
                     </span>
                   )}
                 </div>
-                <div className="space-y-3">
+                <div className="grid gap-3" style={getGridStyle(batch.resolution, cardSize)}>
                   {batch.renders.map((render) => (
                     <RenderCard
                       key={render.id}

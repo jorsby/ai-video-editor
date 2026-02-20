@@ -10,7 +10,7 @@ import type { Asset } from '@/types/media';
 
 interface AudioItemProps {
   item: Asset;
-  onAdd: (url: string) => void;
+  onAdd: (url: string, name: string) => void;
   onDelete?: () => void;
   playingId: string | null;
   setPlayingId: (id: string | null) => void;
@@ -28,14 +28,20 @@ export const AudioItem = ({
   const isPlaying = playingId === item.id;
 
   useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (isPlaying) {
-      audioRef.current?.play();
+      audio.play();
     } else {
-      audioRef.current?.pause();
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-      }
+      audio.pause();
+      audio.currentTime = 0;
     }
+
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+    };
   }, [isPlaying]);
 
   const togglePlay = () => {
@@ -79,7 +85,7 @@ export const AudioItem = ({
       </Button>
 
       <div
-        onClick={() => onAdd(item.url, item.text)}
+        onClick={() => onAdd(item.url, item.name)}
         className="flex flex-col min-w-0 flex-1 cursor-pointer"
       >
         <span className="text-xs font-medium truncate mb-0.5 text-zinc-300">
@@ -102,7 +108,7 @@ export const AudioItem = ({
         <Button
           size="icon"
           className="size-5.5 cursor-pointer rounded-full"
-          onClick={() => onAdd(item.url)}
+          onClick={() => onAdd(item.url, item.name)}
         >
           <IconPlus className="size-4" />
         </Button>

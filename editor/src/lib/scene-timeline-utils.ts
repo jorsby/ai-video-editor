@@ -59,7 +59,7 @@ export async function addSceneToTimeline(
   const videoClip = await Video.fromUrl(scene.videoUrl);
   await videoClip.scaleToFit(canvasWidth, canvasHeight);
   videoClip.centerInScene(canvasWidth, canvasHeight);
-  videoClip.volume = options.videoVolume ?? 0.05;
+  videoClip.volume = options.videoVolume ?? 0;
 
   let endTime: number;
   let usedVideoTrackId = videoTrackId;

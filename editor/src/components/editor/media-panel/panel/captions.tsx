@@ -90,9 +90,9 @@ export default function PanelCaptions() {
 
     setIsGenerating(true);
     try {
-      const fontName = 'Bangers-Regular';
+      const fontName = 'Rubik';
       const fontUrl =
-        'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
+        'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf';
 
       await fontManager.addFont({
         name: fontName,
@@ -132,6 +132,29 @@ export default function PanelCaptions() {
             videoWidth: (studio as any).opts.width,
             videoHeight: (studio as any).opts.height,
             words,
+            fontFamily: fontName,
+            fontUrl: fontUrl,
+            style: {
+              fontSize: 80,
+              fontFamily: fontName,
+              fontWeight: '700',
+              fontStyle: 'normal',
+              color: '#ffffff',
+              align: 'center',
+              fontUrl: fontUrl,
+              verticalAlign: 'center',
+              stroke: {
+                color: '#000000',
+                width: 10,
+              },
+              shadow: {
+                color: '#000000',
+                alpha: 0.5,
+                blur: 8,
+                offsetX: 0,
+                offsetY: 2,
+              },
+            },
           });
 
           // 3. Prepare clips

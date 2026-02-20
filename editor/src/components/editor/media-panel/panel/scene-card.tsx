@@ -87,7 +87,7 @@ interface SceneCardProps {
   ) => Promise<void>;
   onSaveVisualPrompt?: (sceneId: string, newPrompt: string) => Promise<void>;
   onSaveVoiceoverText?: (sceneId: string, newText: string) => Promise<void>;
-  selectedLanguage?: 'en' | 'tr' | 'ar';
+  selectedLanguage?: import('@/lib/constants/languages').LanguageCode;
   isRefMode?: boolean;
   isTarget?: boolean;
   onSetTarget?: (sceneId: string) => void;
