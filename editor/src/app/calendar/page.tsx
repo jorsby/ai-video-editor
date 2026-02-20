@@ -1,14 +1,13 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { Button } from '@/components/ui/button';
-import { LogOut, Calendar } from 'lucide-react';
-import { DashboardContent } from '@/components/dashboard/dashboard-content';
+import { LogOut, ArrowLeft } from 'lucide-react';
+import { CalendarContent } from '@/components/calendar/calendar-content';
 import { OpenMixpostButton } from '@/components/dashboard/open-mixpost-button';
 import Link from 'next/link';
 
-export default async function Dashboard() {
+export default async function CalendarPage() {
   const supabase = await createClient();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -28,13 +27,13 @@ export default async function Dashboard() {
       {/* Header */}
       <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border/50">
         <div className="flex items-center gap-4">
-          <span className="text-lg font-semibold tracking-tight">Combo</span>
-          <Link href="/calendar">
+          <Link href="/dashboard">
             <Button variant="ghost" size="sm">
-              <Calendar className="w-4 h-4" />
-              <span className="ml-1.5">Calendar</span>
+              <ArrowLeft className="w-4 h-4" />
+              <span className="ml-1.5">Dashboard</span>
             </Button>
           </Link>
+          <span className="text-lg font-semibold tracking-tight">Calendar</span>
         </div>
 
         <div className="flex items-center gap-4">
@@ -50,8 +49,8 @@ export default async function Dashboard() {
       </header>
 
       {/* Main content */}
-      <main className="relative z-10 flex-1 flex items-center justify-center px-6 py-8">
-        <DashboardContent />
+      <main className="relative z-10 flex-1 px-6 py-8">
+        <CalendarContent />
       </main>
 
       {/* Footer */}

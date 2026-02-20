@@ -331,6 +331,11 @@ function AccountRow({
             {account.name}
           </span>
           <ProviderBadge provider={account.provider} />
+          {!account.authorized && (
+            <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-red-600/20 text-red-400">
+              Not Authorized
+            </span>
+          )}
         </div>
         {account.username && (
           <span className="text-xs text-muted-foreground truncate block">

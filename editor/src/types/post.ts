@@ -57,3 +57,25 @@ export interface MixpostMedia {
   url: string;
   is_video: boolean;
 }
+
+// Post verification types
+export type MixpostPostStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'publishing'
+  | 'published'
+  | 'failed';
+
+export interface PostAccountResult {
+  accountId: number;
+  accountName: string;
+  provider: string;
+  status: 'published' | 'failed' | 'pending';
+  errors: string[];
+  external_url: string | null;
+}
+
+export interface PostVerificationResult {
+  status: MixpostPostStatus;
+  accounts: PostAccountResult[];
+}

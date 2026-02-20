@@ -2,7 +2,9 @@
 
 import { Sparkles, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { CaptionStyleOptions } from './caption-style-options';
 import type { MixpostAccount } from '@/types/mixpost';
+import type { CaptionStyleOptions as CaptionStyleOptionsType } from '@/types/caption-style';
 
 interface CaptionEditorProps {
   value: string;
@@ -10,6 +12,8 @@ interface CaptionEditorProps {
   selectedAccounts: MixpostAccount[];
   onGenerateCaption?: () => void;
   isGenerating?: boolean;
+  captionStyle?: CaptionStyleOptionsType;
+  onCaptionStyleChange?: (style: CaptionStyleOptionsType) => void;
 }
 
 export function CaptionEditor({
@@ -18,6 +22,8 @@ export function CaptionEditor({
   selectedAccounts,
   onGenerateCaption,
   isGenerating,
+  captionStyle,
+  onCaptionStyleChange,
 }: CaptionEditorProps) {
   const providers = Array.from(
     new Set(selectedAccounts.map((a) => a.provider))
@@ -57,6 +63,12 @@ export function CaptionEditor({
           {value.length} / {maxChars}
         </span>
       </div>
+      {captionStyle && onCaptionStyleChange && (
+        <CaptionStyleOptions
+          value={captionStyle}
+          onChange={onCaptionStyleChange}
+        />
+      )}
       <Textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}

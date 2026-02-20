@@ -1,11 +1,12 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   getOrCreateMixpostToken,
   clearCachedMixpostToken,
 } from '@/lib/mixpost/token';
+import { NextResponse, type NextRequest } from 'next/server';
+import type { MixpostPostsResponse } from '@/types/calendar';
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const {
@@ -38,30 +39,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { postUuid, postNow } = await req.json();
-
-    if (!postUuid) {
-      return NextResponse.json(
-        { error: 'postUuid is required' },
-        { status: 400 }
-      );
-    }
-
-    const schedulePayload: Record<string, unknown> = {};
-    if (postNow) {
-      schedulePayload.postNow = true;
-    }
+    const { searchParams } = new URL(req.url);
+    const page = searchParams.get('page') || '1';
 
     const response = await fetch(
-      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts/schedule/${postUuid}`,
+      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts?page=${page}`,
       {
-        method: 'POST',
         headers: {
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(schedulePayload),
       }
     );
 
@@ -75,25 +62,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (!response.ok) {
-      const errorBody = await response.text();
+      const body = await response.text();
       console.error(
-        `Mixpost schedule post error: status=${response.status} body=${errorBody}`
+        `Mixpost list posts error: status=${response.status} body=${body}`
       );
       return NextResponse.json(
-        { error: `Failed to schedule post in Mixpost (${response.status})` },
+        { error: `Failed to fetch posts from Mixpost (${response.status})` },
         { status: response.status }
       );
     }
 
-    const data = await response.json();
+    const result: MixpostPostsResponse = await response.json();
 
-    return NextResponse.json({
-      success: true,
-      scheduled_at: data.scheduled_at || null,
-      postUuid,
-    });
+    return NextResponse.json({ posts: result.data, meta: result.meta });
   } catch (error) {
-    console.error('Mixpost schedule post error:', error);
+    console.error('Fetch Mixpost posts error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

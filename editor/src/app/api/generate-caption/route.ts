@@ -39,6 +39,24 @@ const LANGUAGE_LABELS: Record<string, string> = {
   zh: 'Chinese',
 };
 
+const LENGTH_PROMPTS: Record<string, string> = {
+  short:
+    'Keep the caption very short and punchy. 1-2 sentences maximum. Optimized for quick-scroll platforms like TikTok and X/Twitter.',
+  medium:
+    'Keep the caption concise but impactful. Aim for 2-4 sentences. Good balance of information and brevity.',
+  long: 'Write a longer, storytelling-style caption. 4-8 sentences. Include context, narrative, and a call to action. Suitable for educational or in-depth content.',
+};
+
+const TONE_PROMPTS: Record<string, string> = {
+  professional:
+    'Use a professional, authoritative tone. Sound knowledgeable and credible. Avoid slang or overly casual language.',
+  casual:
+    'Use a casual, friendly tone. Sound approachable and relatable. Conversational language is encouraged.',
+  witty: 'Use a witty, clever tone. Include wordplay, humor, or unexpected angles. Be entertaining while still informative.',
+  inspirational:
+    'Use an inspirational, motivational tone. Evoke emotion, aspiration, and positive energy. Encourage the audience to take action or feel empowered.',
+};
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -50,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { project_id, language, selected_providers, duration } =
+    const { project_id, language, selected_providers, duration, caption_style } =
       await req.json();
 
     if (!project_id || typeof project_id !== 'string') {
@@ -108,12 +126,18 @@ export async function POST(req: NextRequest) {
             .join(', ')
         : 'social media';
 
+    const lengthInstruction =
+      LENGTH_PROMPTS[caption_style?.length] || LENGTH_PROMPTS.medium;
+    const toneInstruction =
+      TONE_PROMPTS[caption_style?.tone] || TONE_PROMPTS.casual;
+
     const systemPrompt = `You are a social media content expert. Generate engaging social media content for a video that will be posted to: ${platformList}.
 
 Rules:
 - Write the caption in ${languageLabel} (language code: ${lang}).
 - The caption should be engaging, hook the reader, and encourage interaction (likes, comments, shares).
-- Keep the caption concise but impactful. Aim for 2-4 sentences.
+- ${lengthInstruction}
+- ${toneInstruction}
 - Do NOT include hashtags in the caption text itself. Hashtags are generated separately.
 ${hasYouTube ? '- Generate a compelling YouTube title (max 100 characters) that is SEO-friendly and attention-grabbing.' : '- Set youtube_title to an empty string since YouTube is not a target platform.'}
 ${videoDuration ? `- The video is ${videoDuration} seconds long.` : ''}

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Check, ArrowLeft } from 'lucide-react';
+import { Loader2, Check, ArrowLeft, AlertTriangle, ExternalLink, XCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { pollPostStatus } from '@/lib/post/poll-post-status';
 import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
@@ -24,13 +25,16 @@ import type {
   YouTubeOptions as YouTubeOptionsType,
   TikTokAccountOptions,
   InstagramOptions as InstagramOptionsType,
+  PostVerificationResult,
 } from '@/types/post';
+import type { CaptionStyleOptions } from '@/types/caption-style';
+import { DEFAULT_CAPTION_STYLE } from '@/types/caption-style';
 
 interface PostPageProps {
   renderedVideoId: string;
 }
 
-type SubmitStep = 'idle' | 'uploading' | 'creating' | 'scheduling' | 'done' | 'error';
+type SubmitStep = 'idle' | 'preflight' | 'uploading' | 'creating' | 'scheduling' | 'verifying' | 'done' | 'error';
 
 export function PostPage({ renderedVideoId }: PostPageProps) {
   // Data loading
@@ -67,9 +71,22 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   // Submission
   const [submitStep, setSubmitStep] = useState<SubmitStep>('idle');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [verifyingLabel, setVerifyingLabel] = useState('Waiting for confirmation...');
+  const [verificationResult, setVerificationResult] = useState<PostVerificationResult | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   // AI caption generation
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+  const [captionStyle, setCaptionStyle] =
+    useState<CaptionStyleOptions>(DEFAULT_CAPTION_STYLE);
 
   // Derived: which providers are selected
   const selectedAccounts = useMemo(
@@ -91,6 +108,16 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     () => selectedAccounts.filter((a) => a.provider === 'tiktok'),
     [selectedAccounts]
   );
+
+  // Auto-suggest Short length when only TikTok is selected
+  useEffect(() => {
+    if (
+      selectedProviders.length === 1 &&
+      selectedProviders[0] === 'tiktok'
+    ) {
+      setCaptionStyle((prev) => ({ ...prev, length: 'short' }));
+    }
+  }, [selectedProviders]);
 
   // Load data on mount
   useEffect(() => {
@@ -154,6 +181,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
           language: video.language || 'en',
           selected_providers: selectedProviders,
           duration: video.duration,
+          caption_style: captionStyle,
         }),
       });
 
@@ -200,7 +228,22 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       return;
     }
 
+    setSubmitError(null);
+    setVerificationResult(null);
+
     try {
+      // Step 0: Preflight — check account authorization
+      setSubmitStep('preflight');
+      const unauthorizedAccounts = selectedAccounts.filter((a) => !a.authorized);
+      if (unauthorizedAccounts.length > 0) {
+        const names = unauthorizedAccounts
+          .map((a) => `${a.name} (${a.provider})`)
+          .join(', ');
+        throw new Error(
+          `The following accounts need to be re-authorized in Mixpost: ${names}`
+        );
+      }
+
       // Step 1: Upload media to Mixpost
       setSubmitStep('uploading');
       const mediaRes = await fetch('/api/mixpost/media', {
@@ -267,16 +310,58 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         throw new Error(err.error || 'Failed to schedule post');
       }
 
-      setSubmitStep('done');
-      toast.success(
-        scheduleType === 'now'
-          ? 'Post published successfully!'
-          : 'Post scheduled successfully!'
-      );
+      // Step 4: Verify actual publish status (only for "post now")
+      if (scheduleType === 'now') {
+        setSubmitStep('verifying');
+        setVerifyingLabel('Waiting for confirmation...');
+
+        pollAbortRef.current = new AbortController();
+
+        const result = await pollPostStatus({
+          postUuid: post.uuid,
+          signal: pollAbortRef.current.signal,
+          onStatusChange: (status) => {
+            if (status === 'publishing') {
+              setVerifyingLabel('Publishing to platforms...');
+            }
+          },
+        });
+
+        pollAbortRef.current = null;
+        setVerificationResult(result);
+
+        if (result.status === 'failed') {
+          const failedAccounts = result.accounts.filter((a) => a.errors.length > 0);
+          const errorSummary = failedAccounts
+            .map((a) => `${a.accountName} (${a.provider}): ${a.errors.join(', ')}`)
+            .join('\n');
+          setSubmitError(errorSummary || 'Post failed on one or more platforms.');
+          setSubmitStep('error');
+          return;
+        }
+
+        // published or timeout (scheduled fallback)
+        setSubmitStep('done');
+        if (result.status === 'published') {
+          toast.success('Post published successfully!');
+        }
+        // If still 'scheduled' after timeout, we show a warning in the done screen
+      } else {
+        // Scheduled posts skip verification
+        setSubmitStep('done');
+        toast.success('Post scheduled successfully!');
+      }
     } catch (error) {
       setSubmitStep('error');
+      setSubmitError((error as Error).message);
       toast.error((error as Error).message);
     }
+  };
+
+  const handleReset = () => {
+    setSubmitStep('idle');
+    setSubmitError(null);
+    setVerificationResult(null);
   };
 
   // Loading state
@@ -312,39 +397,176 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   // Success state
   if (submitStep === 'done') {
+    const isTimedOut =
+      scheduleType === 'now' &&
+      verificationResult?.status === 'scheduled';
+    const isVerifiedPublished =
+      scheduleType === 'now' &&
+      verificationResult?.status === 'published';
+    const hasPerAccountResults =
+      verificationResult &&
+      verificationResult.accounts.length > 0;
+
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c]">
-        <div className="max-w-md text-center">
-          <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-500/20">
-            <Check className="h-7 w-7 text-green-400" />
-          </div>
+        <div className="max-w-md w-full text-center">
+          {isTimedOut ? (
+            <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-yellow-500/20">
+              <AlertTriangle className="h-7 w-7 text-yellow-400" />
+            </div>
+          ) : (
+            <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-500/20">
+              <Check className="h-7 w-7 text-green-400" />
+            </div>
+          )}
+
           <h2 className="mb-2 text-lg font-medium text-white">
-            {scheduleType === 'now' ? 'Post Published!' : 'Post Scheduled!'}
+            {isTimedOut
+              ? 'Post Queued'
+              : scheduleType === 'now'
+                ? 'Post Published!'
+                : 'Post Scheduled!'}
           </h2>
-          <p className="mb-6 text-sm text-muted-foreground">
-            {scheduleType === 'now'
-              ? 'Your video has been published to the selected platforms.'
-              : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`}
+
+          <p className="mb-4 text-sm text-muted-foreground">
+            {isTimedOut
+              ? 'Your post was queued but confirmation is taking longer than expected. Check Mixpost for the final status.'
+              : scheduleType === 'now'
+                ? 'Your video has been published to the selected platforms.'
+                : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`}
           </p>
+
+          {/* Per-account results */}
+          {isVerifiedPublished && hasPerAccountResults && (
+            <div className="mb-6 space-y-2 text-left">
+              {verificationResult.accounts.map((account) => (
+                <div
+                  key={account.accountId}
+                  className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-zinc-900/40 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2">
+                    {account.errors.length > 0 ? (
+                      <XCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                    )}
+                    <span className="text-sm text-white">
+                      {account.accountName}
+                    </span>
+                    <span className="text-[10px] uppercase text-zinc-500">
+                      {account.provider}
+                    </span>
+                  </div>
+                  {account.external_url && (
+                    <a
+                      href={account.external_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      View <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  {account.errors.length > 0 && (
+                    <span className="text-xs text-red-400">
+                      {account.errors[0]}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <Button onClick={() => window.close()}>Close</Button>
         </div>
       </div>
     );
   }
 
+  // Error state (full-screen when post failed during verification or submission)
+  if (submitStep === 'error') {
+    const failedAccounts = verificationResult?.accounts.filter(
+      (a) => a.errors.length > 0
+    );
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c]">
+        <div className="max-w-md w-full text-center">
+          <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-500/20">
+            <XCircle className="h-7 w-7 text-red-400" />
+          </div>
+          <h2 className="mb-2 text-lg font-medium text-white">
+            Publishing Failed
+          </h2>
+
+          {/* Per-account errors from Mixpost */}
+          {failedAccounts && failedAccounts.length > 0 ? (
+            <div className="mb-6 space-y-2 text-left">
+              {failedAccounts.map((account) => (
+                <div
+                  key={account.accountId}
+                  className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                    <span className="text-sm font-medium text-white">
+                      {account.accountName}
+                    </span>
+                    <span className="text-[10px] uppercase text-zinc-500">
+                      {account.provider}
+                    </span>
+                  </div>
+                  {account.errors.map((err, i) => (
+                    <p key={i} className="text-xs text-red-400 ml-5.5">
+                      {err}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mb-6 text-sm text-muted-foreground">
+              {submitError || 'Something went wrong. Please try again.'}
+            </p>
+          )}
+
+          <div className="flex gap-3 justify-center">
+            <Button
+              variant="outline"
+              onClick={handleReset}
+              className="gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Try Again
+            </Button>
+            <Button variant="outline" onClick={() => window.close()}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const isSubmitting =
+    submitStep === 'preflight' ||
     submitStep === 'uploading' ||
     submitStep === 'creating' ||
-    submitStep === 'scheduling';
+    submitStep === 'scheduling' ||
+    submitStep === 'verifying';
 
   const submitLabel = (() => {
     switch (submitStep) {
+      case 'preflight':
+        return 'Checking accounts...';
       case 'uploading':
         return 'Uploading media...';
       case 'creating':
         return 'Creating post...';
       case 'scheduling':
         return scheduleType === 'now' ? 'Publishing...' : 'Scheduling...';
+      case 'verifying':
+        return verifyingLabel;
       default:
         return scheduleType === 'now' ? 'Publish Now' : 'Schedule Post';
     }
@@ -421,6 +643,8 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                 selectedAccounts={selectedAccounts}
                 onGenerateCaption={handleGenerateCaption}
                 isGenerating={isGeneratingCaption}
+                captionStyle={captionStyle}
+                onCaptionStyleChange={setCaptionStyle}
               />
             </section>
 
@@ -494,11 +718,6 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
               </Button>
             </div>
 
-            {submitStep === 'error' && (
-              <p className="text-xs text-red-400">
-                Something went wrong. Please try again.
-              </p>
-            )}
           </div>
         </div>
       </main>
