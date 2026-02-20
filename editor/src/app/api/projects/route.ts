@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // GET - Fetch user's projects
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const {
@@ -13,11 +13,22 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: projects, error } = await supabase
+    const { searchParams } = new URL(req.url);
+    const showArchived = searchParams.get('archived') === 'true';
+
+    let query = supabase
       .from('projects')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
+
+    if (showArchived) {
+      query = query.not('archived_at', 'is', null);
+    } else {
+      query = query.is('archived_at', null);
+    }
+
+    const { data: projects, error } = await query;
 
     if (error) {
       console.error('Database error:', error);
@@ -86,7 +97,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH - Rename a project
+// PATCH - Update a project (rename and/or archive/unarchive)
 export async function PATCH(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -99,7 +110,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, name } = body;
+    const { id, name, archive } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -108,16 +119,32 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    const updateData: Record<string, unknown> = {};
+
+    if (typeof archive === 'boolean') {
+      updateData.archived_at = archive ? new Date().toISOString() : null;
+    }
+
+    if (name !== undefined) {
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return NextResponse.json(
+          { error: 'Project name is required' },
+          { status: 400 }
+        );
+      }
+      updateData.name = name.trim();
+    }
+
+    if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
-        { error: 'Project name is required' },
+        { error: 'No update fields provided' },
         { status: 400 }
       );
     }
 
     const { data: project, error } = await supabase
       .from('projects')
-      .update({ name: name.trim() })
+      .update(updateData)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
@@ -126,14 +153,14 @@ export async function PATCH(req: NextRequest) {
     if (error) {
       console.error('Database error:', error);
       return NextResponse.json(
-        { error: 'Failed to rename project' },
+        { error: 'Failed to update project' },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ project });
   } catch (error) {
-    console.error('Rename project error:', error);
+    console.error('Update project error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

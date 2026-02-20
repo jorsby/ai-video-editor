@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Trash2, FolderOpen } from 'lucide-react';
+import { Trash2, FolderOpen, Archive, ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,7 +15,9 @@ import type { DBProject } from '@/types/project';
 
 interface ProjectCardProps {
   project: DBProject;
+  isArchived: boolean;
   onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
   onClick: () => void;
 }
 
@@ -32,7 +34,7 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-export function ProjectCard({ project, onDelete, onClick }: ProjectCardProps) {
+export function ProjectCard({ project, isArchived, onDelete, onArchive, onClick }: ProjectCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -77,17 +79,35 @@ export function ProjectCard({ project, onDelete, onClick }: ProjectCardProps) {
             </div>
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowDeleteDialog(true);
-            }}
-          >
-            <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive(project.id);
+              }}
+              title={isArchived ? 'Unarchive' : 'Archive'}
+            >
+              {isArchived ? (
+                <ArchiveRestore className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+              ) : (
+                <Archive className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteDialog(true);
+              }}
+            >
+              <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+            </Button>
+          </div>
         </div>
       </div>
 

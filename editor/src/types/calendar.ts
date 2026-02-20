@@ -5,6 +5,15 @@ export interface MixpostPostAccount {
   username: string;
   provider: string;
   authorized: boolean;
+  image?: string | null;
+  external_url?: string | null;
+  pivot?: {
+    provider_post_data?: {
+      url?: string;
+      external_url?: string;
+    };
+    errors?: string[] | string;
+  };
 }
 
 export interface MixpostMedia {
