@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { CircleOff, XIcon } from "lucide-react";
 import useLayoutStore from "../store/use-layout-store";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -45,82 +45,68 @@ const CaptionPresetPicker = () => {
         "https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf";
     }
 
-    // Load fonts if needed
-    if (preset.fontFamily && preset.fontUrl) {
-      await fontManager.addFont({
-        name: preset.fontFamily,
-        url: preset.fontUrl,
-      });
-    }
-    const x = preset.boxShadow?.x ?? 4;
-    const y = preset.boxShadow?.y ?? 0;
+    try {
+      // Load fonts if needed
+      if (preset.fontFamily && preset.fontUrl) {
+        await fontManager.addFont({
+          name: preset.fontFamily,
+          url: preset.fontUrl,
+        });
+      }
+      const x = preset.boxShadow?.x ?? 4;
+      const y = preset.boxShadow?.y ?? 0;
 
-    // Map ICaptionsControlProps to ICaptionOpts
-    const styleUpdate: any = {
-      fill: preset.color,
-      strokeWidth: preset.borderWidth,
-      stroke: preset.borderColor,
-      fontFamily: preset.fontFamily,
-      fontUrl: preset.fontUrl,
-      align: preset.textAlign as any,
-      caption: {
-        colors: {
-          appeared: preset.appearedColor,
-          active: preset.activeColor,
-          activeFill: preset.activeFillColor,
-          background: preset.backgroundColor,
-          keyword: preset.isKeywordColor ?? "transparent",
+      // Map ICaptionsControlProps to ICaptionOpts
+      const styleUpdate: any = {
+        fill: preset.color,
+        strokeWidth: preset.borderWidth,
+        stroke: preset.borderColor,
+        fontFamily: preset.fontFamily,
+        fontUrl: preset.fontUrl,
+        align: preset.textAlign as any,
+        caption: {
+          colors: {
+            appeared: preset.appearedColor,
+            active: preset.activeColor,
+            activeFill: preset.activeFillColor,
+            background: preset.backgroundColor,
+            keyword: preset.isKeywordColor ?? "transparent",
+          },
+          preserveKeywordColor: preset.preservedColorKeyWord ?? false,
         },
-        preserveKeywordColor: preset.preservedColorKeyWord ?? false,
-      },
-      animation: preset.animation || "undefined",
-      textCase: preset.textTransform || "normal",
-      dropShadow: {
-        color: preset.boxShadow?.color ?? "transparent",
-        alpha: 0.5,
-        blur: preset.boxShadow?.blur ?? 4,
-        distance: Math.sqrt(x * x + y * y) ?? 4,
-        angle: Math.PI / 4,
-      },
-    };
+        animation: preset.animation || "undefined",
+        textCase: preset.textTransform || "normal",
+        dropShadow: {
+          color: preset.boxShadow?.color ?? "transparent",
+          alpha: 0.5,
+          blur: preset.boxShadow?.blur ?? 4,
+          distance: Math.sqrt(x * x + y * y) ?? 4,
+          angle: Math.PI / 4,
+        },
+      };
 
-    // Apply to all selected caption clips and other clips with the same mediaId
-    const mediaIds = new Set<string>();
-    for (const clip of captionClips) {
-      if ((clip as any).mediaId) {
-        mediaIds.add((clip as any).mediaId);
-      }
-    }
+      // Deduplicate by mediaId so each group is only processed once
+      const processedMediaIds = new Set<string>();
+      const allCaptionClips = studio.clips.filter((c) => c.type === "Caption");
+      const mode = preset.type === "word" ? "single" : "multiple";
 
-    const allCaptionClips = studio.clips.filter((c) => c.type === "Caption");
-    // const targetClips = allCaptionClips.filter(
-    //   (c) => captionClips.includes(c) || mediaIds.has((c as any).mediaId),
-    // );
-
-    if (preset.type === "word") {
       for (const clip of allCaptionClips) {
+        const clipMediaId = (clip as any).mediaId;
+        if (clipMediaId && processedMediaIds.has(clipMediaId)) continue;
+        if (clipMediaId) processedMediaIds.add(clipMediaId);
+
         await regenerateCaptionClips({
           studio,
           captionClip: clip,
-          mode: "single",
+          mode,
           fontSize: (clip as any).originalOpts?.fontSize,
           fontFamily: preset.fontFamily,
           fontUrl: preset.fontUrl,
           styleUpdate: styleUpdate,
         });
       }
-    } else {
-      for (const clip of allCaptionClips) {
-        await regenerateCaptionClips({
-          studio,
-          captionClip: clip,
-          mode: "multiple",
-          fontSize: (clip as any).originalOpts?.fontSize,
-          fontFamily: preset.fontFamily,
-          fontUrl: preset.fontUrl,
-          styleUpdate: styleUpdate,
-        });
-      }
+    } catch (err) {
+      console.error("Failed to apply caption preset:", err);
     }
   };
 

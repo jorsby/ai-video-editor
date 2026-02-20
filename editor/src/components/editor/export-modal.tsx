@@ -10,7 +10,7 @@ import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { useProjectId } from '@/contexts/project-context';
-import { uploadFile } from '@/lib/upload-utils';
+import { smartUpload } from '@/lib/upload-utils';
 import type { RenderedVideo } from '@/types/rendered-video';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
@@ -238,25 +238,9 @@ export function ExportModal({
         { type: 'video/mp4' }
       );
 
-      // Simulate upload progress (R2 presigned PUT doesn't support
-      // real progress via XHR or ReadableStream)
-      const estimatedMs = Math.max(file.size / 500_000, 2_000); // rough estimate
-      const tick = 100;
-      let simulated = 0;
-      const interval = setInterval(() => {
-        simulated += tick;
-        // Ease-out curve capped at 95% until real completion
-        const t = Math.min(simulated / estimatedMs, 1);
-        setUploadProgress(Math.min(t * 0.95, 0.95));
-      }, tick);
-
-      let uploadResult;
-      try {
-        uploadResult = await uploadFile(file);
-      } finally {
-        clearInterval(interval);
-      }
-      setUploadProgress(1);
+      const uploadResult = await smartUpload(file, (progress) =>
+        setUploadProgress(progress)
+      );
 
       await fetch('/api/rendered-videos', {
         method: 'POST',

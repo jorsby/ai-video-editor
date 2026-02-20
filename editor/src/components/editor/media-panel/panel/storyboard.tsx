@@ -57,7 +57,7 @@ const ASPECT_RATIOS = [
 type AspectRatio = (typeof ASPECT_RATIOS)[number]['value'];
 
 const STORYBOARD_MODELS = [
-  { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro' },
+  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
   { value: 'anthropic/claude-opus-4.6', label: 'Claude Opus 4.6' },
   { value: 'openai/gpt-5.2-pro', label: 'GPT 5.2 Pro' },
   { value: 'z-ai/glm-5', label: 'GLM-5' },
@@ -110,7 +110,7 @@ export default function PanelStoryboard() {
   const [formVoiceover, setFormVoiceover] = useState('');
   const [formAspectRatio, setFormAspectRatio] = useState<AspectRatio>('9:16');
   const [formModel, setFormModel] = useState<StoryboardModel>(
-    'google/gemini-3-pro-preview'
+    'google/gemini-3.1-pro-preview'
   );
   const [formVideoMode, setFormVideoMode] =
     useState<StoryboardMode>('image_to_video');
@@ -459,7 +459,7 @@ export default function PanelStoryboard() {
               setViewMode('create');
               setFormVoiceover('');
               setFormAspectRatio('9:16');
-              setFormModel('google/gemini-3-pro-preview');
+              setFormModel('google/gemini-3.1-pro-preview');
               setFormVideoMode('image_to_video');
               setFormVideoModel('klingo3');
               setResult(null);

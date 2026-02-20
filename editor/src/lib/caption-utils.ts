@@ -43,10 +43,12 @@ export async function regenerateCaptionClips({
 
   const uniformTop = captionClip.top ?? 0;
 
+  // Use media clip start as timing reference if available, otherwise fall back to 0.
+  // mediaStartUs is only used as a round-trip offset (subtracted for relative word
+  // times, then added back for new clip display times), so 0 is a safe fallback.
   const mediaClip = studio.getClipById(mediaId);
-  if (!mediaClip) return;
+  const mediaStartUs = mediaClip ? mediaClip.display.from : 0;
 
-  const mediaStartUs = mediaClip.display.from;
   const allWords: any[] = [];
 
   siblingClips.forEach((c) => {
@@ -111,6 +113,7 @@ export async function regenerateCaptionClips({
       },
       opts: {
         ...(json.opts || {}),
+        mediaId,
         wordsPerLine: mode,
         ...(styleUpdate?.caption ? { caption: styleUpdate.caption } : {}),
       },

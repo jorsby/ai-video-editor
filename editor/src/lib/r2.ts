@@ -1,4 +1,12 @@
-import { PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  PutObjectCommand,
+  DeleteObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import mime from 'mime/lite';
 
@@ -13,6 +21,18 @@ interface r2Params {
 interface PresignedUrlOptions {
   expiresIn?: number;
   contentType?: string;
+}
+
+export interface MultipartUploadInit {
+  uploadId: string;
+  key: string;
+  presignedUrls: string[];
+  url: string;
+}
+
+export interface CompletedPart {
+  ETag: string;
+  PartNumber: number;
 }
 
 export interface PresignedUpload {
@@ -127,6 +147,81 @@ export class R2StorageService {
     const prefix = this.cdn.endsWith('/') ? this.cdn : `${this.cdn}/`;
     if (!url.startsWith(prefix)) return null;
     return url.slice(prefix.length);
+  }
+
+  async createMultipartUpload(
+    filePath: string,
+    partCount: number,
+    options: PresignedUrlOptions = {}
+  ): Promise<MultipartUploadInit> {
+    const contentType =
+      options.contentType ||
+      mime.getType(filePath) ||
+      'application/octet-stream';
+
+    const { UploadId } = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucketName,
+        Key: filePath,
+        ContentType: contentType,
+      })
+    );
+
+    if (!UploadId) {
+      throw new Error('Failed to initiate multipart upload');
+    }
+
+    const presignedUrls = await Promise.all(
+      Array.from({ length: partCount }, (_, i) => {
+        const command = new UploadPartCommand({
+          Bucket: this.bucketName,
+          Key: filePath,
+          UploadId,
+          PartNumber: i + 1,
+        });
+        return getSignedUrl(this.client, command, {
+          expiresIn: options.expiresIn ?? 3600,
+        });
+      })
+    );
+
+    return {
+      uploadId: UploadId,
+      key: filePath,
+      presignedUrls,
+      url: this.getUrl(filePath),
+    };
+  }
+
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: CompletedPart[]
+  ): Promise<void> {
+    const sorted = [...parts].sort((a, b) => a.PartNumber - b.PartNumber);
+
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: sorted },
+      })
+    );
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucketName,
+          Key: key,
+          UploadId: uploadId,
+        })
+      );
+    } catch (error) {
+      console.error('[R2] Failed to abort multipart upload:', key, error);
+    }
   }
 
   getUrl(fileName: string): string {
