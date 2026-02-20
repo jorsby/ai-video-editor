@@ -90,9 +90,9 @@ export default function PanelCaptions() {
 
     setIsGenerating(true);
     try {
-      const fontName = 'Rubik';
+      const fontName = 'Bangers-Regular';
       const fontUrl =
-        'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf';
+        'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
 
       await fontManager.addFont({
         name: fontName,
@@ -132,29 +132,6 @@ export default function PanelCaptions() {
             videoWidth: (studio as any).opts.width,
             videoHeight: (studio as any).opts.height,
             words,
-            fontFamily: fontName,
-            fontUrl: fontUrl,
-            style: {
-              fontSize: 80,
-              fontFamily: fontName,
-              fontWeight: '700',
-              fontStyle: 'normal',
-              color: '#ffffff',
-              align: 'center',
-              fontUrl: fontUrl,
-              verticalAlign: 'center',
-              stroke: {
-                color: '#000000',
-                width: 10,
-              },
-              shadow: {
-                color: '#000000',
-                alpha: 0.5,
-                blur: 8,
-                offsetX: 0,
-                offsetY: 2,
-              },
-            },
           });
 
           // 3. Prepare clips
@@ -192,7 +169,7 @@ export default function PanelCaptions() {
 
   function normalizeWordTimings(words: any[]) {
     let currentTime = 0;
-    return words.map((word, _i) => {
+    return words.map((word, i) => {
       const duration = word.to - word.from;
       const newWord = {
         ...word,
@@ -219,14 +196,13 @@ export default function PanelCaptions() {
 
     const wordsInText: { text: string; start: number; end: number }[] = [];
     const regex = /\S+/g;
-    let match: RegExpExecArray | null = regex.exec(fullText);
-    while (match !== null) {
+    let match;
+    while ((match = regex.exec(fullText)) !== null) {
       wordsInText.push({
         text: match[0],
         start: match.index,
         end: match.index + match[0].length,
       });
-      match = regex.exec(fullText);
     }
 
     let splitWordIndex = -1;
@@ -360,13 +336,7 @@ export default function PanelCaptions() {
     const paragraphIndex = oldWords[0]?.paragraphIndex ?? '';
 
     const isNewWordAdded = newWordsText.length > oldWords.length;
-    let updatedWords: Array<{
-      text: string;
-      from: number;
-      to: number;
-      isKeyWord?: boolean;
-      paragraphIndex?: string;
-    }>;
+    let updatedWords;
 
     if (isNewWordAdded) {
       const totalDurationMs =
