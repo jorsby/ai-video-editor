@@ -55,6 +55,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Map our internal platformOptions to Mixpost's flat options format.
+    // Mixpost docs don't document the exact keys — based on source conventions:
+    //   - Instagram/Facebook post type → flat "post_type" key (no provider wrapper)
+    //   - YouTube visibility → "visibility" key (our type uses "status")
+    //   - TikTok per-account opts → keyed by numeric account id string
+    // NOTE: If both Instagram and Facebook are selected with different post types,
+    // the last one written wins. Per-account versions would be needed to split them.
+    const versionOptions: Record<string, unknown> = {};
+
+    const ig = body.platformOptions?.instagram;
+    if (ig) {
+      versionOptions.post_type = ig.type;
+    }
+
+    const fb = body.platformOptions?.facebook;
+    if (fb) {
+      versionOptions.post_type = fb.type;
+    }
+
+    const yt = body.platformOptions?.youtube;
+    if (yt) {
+      versionOptions.title = yt.title;
+      versionOptions.visibility = yt.status; // our "status" field maps to Mixpost's "visibility"
+    }
+
+    const ttk = body.platformOptions?.tiktok;
+    if (ttk) {
+      // Convert "account-{id}" keys → numeric id string keys as Mixpost expects
+      const tiktokMapped: Record<string, unknown> = {};
+      for (const [key, opts] of Object.entries(ttk)) {
+        const numericId = key.replace('account-', '');
+        tiktokMapped[numericId] = opts;
+      }
+      versionOptions.tiktok = tiktokMapped;
+    }
+
     // Build the Mixpost post payload
     const postPayload: Record<string, unknown> = {
       accounts: body.accountIds,
@@ -68,7 +104,7 @@ export async function POST(req: NextRequest) {
               media: [body.mediaId],
             },
           ],
-          options: body.platformOptions || {},
+          options: versionOptions,
         },
       ],
     };

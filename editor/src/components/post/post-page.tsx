@@ -490,7 +490,6 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   const isDone = submitStep === 'done';
   const isError = submitStep === 'error';
-  const resultFailedAccounts = verificationResult?.accounts.filter(a => a.errors.length > 0) ?? [];
   const resultSucceededAccounts = verificationResult?.accounts.filter(a => a.status === 'published') ?? [];
   const hasPartialSuccess = isError && resultSucceededAccounts.length > 0;
 
@@ -595,30 +594,28 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
           {/* Right: Form or Progress Panel */}
           <div className="space-y-6">
-            {isSubmitting ? (
-              /* Progress panel — shown while publishing/scheduling is in flight */
+            {isPublishingOrResult ? (
+              /* Progress panel — shown while publishing/scheduling is in flight and after completion */
               <div className="flex flex-col gap-6">
                 {/* Header */}
                 <div>
                   <h2 className="text-base font-semibold text-white">
-                    {scheduleType === 'now' ? 'Publishing...' : 'Scheduling...'}
+                    {headerTitle}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {scheduleType === 'now'
-                      ? 'Your video is being sent to your selected platforms.'
-                      : 'Your post is being prepared and scheduled.'}
+                    {headerSubtitle}
                   </p>
                 </div>
 
                 {/* Step tracker */}
                 <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 p-4 space-y-3">
                   {PUBLISH_STEPS.map((step, idx) => {
-                    const isDone = currentStepIndex > idx;
+                    const isStepDone = currentStepIndex > idx;
                     const isActive = currentStepIndex === idx;
                     return (
                       <div key={step.key} className="flex items-center gap-3">
                         <div className="flex-shrink-0 flex items-center justify-center h-6 w-6">
-                          {isDone ? (
+                          {isStepDone ? (
                             <CheckCircle2 className="h-5 w-5 text-green-400" />
                           ) : isActive ? (
                             <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
@@ -628,7 +625,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                         </div>
                         <span
                           className={
-                            isDone
+                            isStepDone
                               ? 'text-sm text-zinc-500 line-through'
                               : isActive
                                 ? 'text-sm font-medium text-white'
@@ -645,8 +642,59 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                   })}
                 </div>
 
+                {/* Pre-verification error message */}
+                {isError && !verificationResult && submitError && (
+                  <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
+                    <p className="text-sm text-red-400">{submitError}</p>
+                  </div>
+                )}
+
                 {/* Per-account status list */}
-                {selectedAccounts.length > 0 && (
+                {(verificationResult?.accounts.length ?? 0) > 0 ? (
+                  /* Results available — show per-account outcome */
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Accounts
+                    </h3>
+                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 divide-y divide-white/[0.06]">
+                      {verificationResult!.accounts.map((account) => (
+                        <div key={account.accountId} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex-shrink-0 flex items-center justify-center h-5 w-5">
+                            {account.errors.length > 0 ? (
+                              <XCircle className="h-4 w-4 text-red-400" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 text-green-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-white truncate block">
+                              {account.accountName}
+                            </span>
+                            <span className="text-[10px] uppercase text-zinc-500">
+                              {account.provider}
+                            </span>
+                            {account.errors.length > 0 && (
+                              <span className="text-xs text-red-400 block mt-0.5">
+                                {account.errors[0]}
+                              </span>
+                            )}
+                          </div>
+                          {account.external_url && (
+                            <a
+                              href={account.external_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 shrink-0"
+                            >
+                              View <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : selectedAccounts.length > 0 && isSubmitting ? (
+                  /* In-flight — show spinner list */
                   <div className="space-y-2">
                     <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                       Accounts
@@ -668,9 +716,19 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                       ))}
                     </div>
                   </div>
-                )}
+                ) : selectedAccounts.length > 0 && verificationResult?.status === 'unconfirmed' ? (
+                  /* Timed out — single notice instead of per-account rows */
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-amber-300/80">
+                      {selectedAccounts.length === 1
+                        ? `Couldn't confirm if the post was published to ${selectedAccounts[0].name}. Check Mixpost or your social media account to verify.`
+                        : `Couldn't confirm the publish status for ${selectedAccounts.length} accounts. Check Mixpost or your social media accounts to verify.`}
+                    </p>
+                  </div>
+                ) : null}
 
-                {/* Escape hatch during verifying */}
+                {/* Footer: escape hatch during verifying, or action buttons after done/error */}
                 {submitStep === 'verifying' && (
                   <p className="text-center text-xs text-muted-foreground">
                     Post is queued —{' '}
@@ -683,6 +741,24 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     </button>{' '}
                     and check the calendar for the final status.
                   </p>
+                )}
+                {(isDone || isError) && (
+                  <div className="flex gap-3">
+                    {isError && (
+                      <Button variant="outline" onClick={handleReset} className="gap-2">
+                        <RotateCcw className="h-4 w-4" />
+                        Retry
+                      </Button>
+                    )}
+                    {isError && (
+                      <Button variant="outline" onClick={handleFullReset}>
+                        Start Over
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => window.close()}>
+                      Close
+                    </Button>
+                  </div>
                 )}
               </div>
             ) : (
