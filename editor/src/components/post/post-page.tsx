@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Check, ArrowLeft, AlertTriangle, ExternalLink, XCircle, CheckCircle2, RotateCcw } from 'lucide-react';
-import { pollPostStatus } from '@/lib/post/poll-post-status';
+import { pollPostStatus, PollAuthError } from '@/lib/post/poll-post-status';
 import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
@@ -35,6 +35,31 @@ interface PostPageProps {
 }
 
 type SubmitStep = 'idle' | 'preflight' | 'uploading' | 'creating' | 'scheduling' | 'verifying' | 'done' | 'error';
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 2
+): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      // Don't retry on client errors (4xx) — only on server/network errors
+      if (res.ok || (res.status >= 400 && res.status < 500)) {
+        return res;
+      }
+      lastError = new Error(`Server error: ${res.status}`);
+    } catch (err) {
+      lastError = err as Error;
+    }
+    if (attempt < maxRetries) {
+      // Exponential backoff: 1s, 2s
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastError ?? new Error('Request failed after retries');
+}
 
 export function PostPage({ renderedVideoId }: PostPageProps) {
   // Data loading
@@ -74,7 +99,12 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [verifyingLabel, setVerifyingLabel] = useState('Waiting for confirmation...');
   const [verificationResult, setVerificationResult] = useState<PostVerificationResult | null>(null);
+  const [verifyElapsed, setVerifyElapsed] = useState(0);
   const pollAbortRef = useRef<AbortController | null>(null);
+
+  // Track created resources so retry can re-use them instead of creating duplicates
+  const [createdMediaId, setCreatedMediaId] = useState<number | null>(null);
+  const [createdPostUuid, setCreatedPostUuid] = useState<string | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -82,6 +112,18 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       pollAbortRef.current?.abort();
     };
   }, []);
+
+  // Elapsed timer while verifying
+  useEffect(() => {
+    if (submitStep !== 'verifying') {
+      setVerifyElapsed(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setVerifyElapsed((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [submitStep]);
 
   // AI caption generation
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
@@ -197,7 +239,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         .join(' ');
       setCaption(data.caption + '\n\n' + hashtagsStr);
 
-      if (hasYouTube && data.youtube_title) {
+      if (data.youtube_title) {
         setYoutubeOptions((prev) => ({
           ...prev,
           title: data.youtube_title,
@@ -228,6 +270,11 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       return;
     }
 
+    if (hasYouTube && !youtubeOptions.title.trim()) {
+      toast.error('Please enter a YouTube title');
+      return;
+    }
+
     setSubmitError(null);
     setVerificationResult(null);
 
@@ -244,63 +291,72 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         );
       }
 
-      // Step 1: Upload media to Mixpost
-      setSubmitStep('uploading');
-      const mediaRes = await fetch('/api/mixpost/media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: video.url }),
-      });
+      // Step 1: Upload media to Mixpost (skip if already uploaded in a previous attempt)
+      let mediaId = createdMediaId;
+      if (!mediaId) {
+        setSubmitStep('uploading');
+        const mediaRes = await fetchWithRetry('/api/mixpost/media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: video.url }),
+        });
 
-      if (!mediaRes.ok) {
-        const err = await mediaRes.json();
-        throw new Error(err.error || 'Failed to upload media');
+        if (!mediaRes.ok) {
+          const err = await mediaRes.json();
+          throw new Error(err.error || 'Failed to upload media');
+        }
+
+        const { media } = await mediaRes.json();
+        mediaId = Number(media.id);
+        setCreatedMediaId(mediaId);
       }
 
-      const { media } = await mediaRes.json();
-      const mediaId = Number(media.id);
+      // Step 2: Create post (skip if already created in a previous attempt)
+      let postUuid = createdPostUuid;
+      if (!postUuid) {
+        setSubmitStep('creating');
 
-      // Step 2: Create post
-      setSubmitStep('creating');
+        const platformOptions: PlatformOptions = {};
+        if (hasFacebook) platformOptions.facebook = facebookOptions;
+        if (hasYouTube) platformOptions.youtube = youtubeOptions;
+        if (hasTikTok) platformOptions.tiktok = tiktokOptions;
+        if (hasInstagram) platformOptions.instagram = instagramOptions;
 
-      const platformOptions: PlatformOptions = {};
-      if (hasFacebook) platformOptions.facebook = facebookOptions;
-      if (hasYouTube) platformOptions.youtube = youtubeOptions;
-      if (hasTikTok) platformOptions.tiktok = tiktokOptions;
-      if (hasInstagram) platformOptions.instagram = instagramOptions;
+        const postBody: PostFormData & { mediaId: number } = {
+          caption,
+          accountIds: selectedAccountIds,
+          scheduleType,
+          scheduledDate: scheduleType === 'scheduled' ? scheduledDate : undefined,
+          scheduledTime: scheduleType === 'scheduled' ? scheduledTime : undefined,
+          timezone,
+          platformOptions,
+          mediaId,
+        };
 
-      const postBody: PostFormData & { mediaId: number } = {
-        caption,
-        accountIds: selectedAccountIds,
-        scheduleType,
-        scheduledDate: scheduleType === 'scheduled' ? scheduledDate : undefined,
-        scheduledTime: scheduleType === 'scheduled' ? scheduledTime : undefined,
-        timezone,
-        platformOptions,
-        mediaId,
-      };
+        const postRes = await fetchWithRetry('/api/mixpost/posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(postBody),
+        });
 
-      const postRes = await fetch('/api/mixpost/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody),
-      });
+        if (!postRes.ok) {
+          const err = await postRes.json();
+          throw new Error(err.error || 'Failed to create post');
+        }
 
-      if (!postRes.ok) {
-        const err = await postRes.json();
-        throw new Error(err.error || 'Failed to create post');
+        const { post } = await postRes.json();
+        postUuid = post.uuid as string;
+        setCreatedPostUuid(postUuid);
       }
 
-      const { post } = await postRes.json();
-
-      // Step 3: Schedule/publish
+      // Step 3: Schedule/publish (with retry)
       setSubmitStep('scheduling');
 
-      const scheduleRes = await fetch('/api/mixpost/posts/schedule', {
+      const scheduleRes = await fetchWithRetry('/api/mixpost/posts/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          postUuid: post.uuid,
+          postUuid,
           postNow: scheduleType === 'now',
         }),
       });
@@ -318,7 +374,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         pollAbortRef.current = new AbortController();
 
         const result = await pollPostStatus({
-          postUuid: post.uuid,
+          postUuid,
           signal: pollAbortRef.current.signal,
           onStatusChange: (status) => {
             if (status === 'publishing') {
@@ -330,12 +386,25 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         pollAbortRef.current = null;
         setVerificationResult(result);
 
+        const failedAccounts = result.accounts.filter((a) => a.errors.length > 0);
+        const succeededAccounts = result.accounts.filter((a) => a.status === 'published');
+
         if (result.status === 'failed') {
-          const failedAccounts = result.accounts.filter((a) => a.errors.length > 0);
+          // Partial success: some platforms published, some failed
+          if (succeededAccounts.length > 0) {
+            const errorSummary = failedAccounts
+              .map((a) => `${a.accountName} (${a.provider}): ${a.errors.join(', ')}`)
+              .join('\n');
+            setSubmitError(errorSummary);
+            setSubmitStep('error');
+            return;
+          }
+
+          // Total failure: no platforms published
           const errorSummary = failedAccounts
             .map((a) => `${a.accountName} (${a.provider}): ${a.errors.join(', ')}`)
             .join('\n');
-          setSubmitError(errorSummary || 'Post failed on one or more platforms.');
+          setSubmitError(errorSummary || 'Post failed on all platforms.');
           setSubmitStep('error');
           return;
         }
@@ -353,7 +422,11 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       }
     } catch (error) {
       setSubmitStep('error');
-      setSubmitError((error as Error).message);
+      if (error instanceof PollAuthError) {
+        setSubmitError('Your session expired while verifying the post. The post may have published — check Mixpost for the current status.');
+      } else {
+        setSubmitError((error as Error).message);
+      }
       toast.error((error as Error).message);
     }
   };
@@ -362,6 +435,17 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     setSubmitStep('idle');
     setSubmitError(null);
     setVerificationResult(null);
+    setVerifyElapsed(0);
+    // Keep createdMediaId and createdPostUuid so retry re-uses the existing post
+  };
+
+  const handleFullReset = () => {
+    setSubmitStep('idle');
+    setSubmitError(null);
+    setVerificationResult(null);
+    setVerifyElapsed(0);
+    setCreatedMediaId(null);
+    setCreatedPostUuid(null);
   };
 
   // Loading state
@@ -395,159 +479,6 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     );
   }
 
-  // Success state
-  if (submitStep === 'done') {
-    const isTimedOut =
-      scheduleType === 'now' &&
-      verificationResult?.status === 'scheduled';
-    const isVerifiedPublished =
-      scheduleType === 'now' &&
-      verificationResult?.status === 'published';
-    const hasPerAccountResults =
-      verificationResult &&
-      verificationResult.accounts.length > 0;
-
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c]">
-        <div className="max-w-md w-full text-center">
-          {isTimedOut ? (
-            <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-yellow-500/20">
-              <AlertTriangle className="h-7 w-7 text-yellow-400" />
-            </div>
-          ) : (
-            <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-500/20">
-              <Check className="h-7 w-7 text-green-400" />
-            </div>
-          )}
-
-          <h2 className="mb-2 text-lg font-medium text-white">
-            {isTimedOut
-              ? 'Post Queued'
-              : scheduleType === 'now'
-                ? 'Post Published!'
-                : 'Post Scheduled!'}
-          </h2>
-
-          <p className="mb-4 text-sm text-muted-foreground">
-            {isTimedOut
-              ? 'Your post was queued but confirmation is taking longer than expected. Check Mixpost for the final status.'
-              : scheduleType === 'now'
-                ? 'Your video has been published to the selected platforms.'
-                : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`}
-          </p>
-
-          {/* Per-account results */}
-          {isVerifiedPublished && hasPerAccountResults && (
-            <div className="mb-6 space-y-2 text-left">
-              {verificationResult.accounts.map((account) => (
-                <div
-                  key={account.accountId}
-                  className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-zinc-900/40 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    {account.errors.length > 0 ? (
-                      <XCircle className="h-4 w-4 text-red-400 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
-                    )}
-                    <span className="text-sm text-white">
-                      {account.accountName}
-                    </span>
-                    <span className="text-[10px] uppercase text-zinc-500">
-                      {account.provider}
-                    </span>
-                  </div>
-                  {account.external_url && (
-                    <a
-                      href={account.external_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      View <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                  {account.errors.length > 0 && (
-                    <span className="text-xs text-red-400">
-                      {account.errors[0]}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <Button onClick={() => window.close()}>Close</Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state (full-screen when post failed during verification or submission)
-  if (submitStep === 'error') {
-    const failedAccounts = verificationResult?.accounts.filter(
-      (a) => a.errors.length > 0
-    );
-
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c]">
-        <div className="max-w-md w-full text-center">
-          <div className="mb-4 mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-500/20">
-            <XCircle className="h-7 w-7 text-red-400" />
-          </div>
-          <h2 className="mb-2 text-lg font-medium text-white">
-            Publishing Failed
-          </h2>
-
-          {/* Per-account errors from Mixpost */}
-          {failedAccounts && failedAccounts.length > 0 ? (
-            <div className="mb-6 space-y-2 text-left">
-              {failedAccounts.map((account) => (
-                <div
-                  key={account.accountId}
-                  className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-                    <span className="text-sm font-medium text-white">
-                      {account.accountName}
-                    </span>
-                    <span className="text-[10px] uppercase text-zinc-500">
-                      {account.provider}
-                    </span>
-                  </div>
-                  {account.errors.map((err, i) => (
-                    <p key={i} className="text-xs text-red-400 ml-5.5">
-                      {err}
-                    </p>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="mb-6 text-sm text-muted-foreground">
-              {submitError || 'Something went wrong. Please try again.'}
-            </p>
-          )}
-
-          <div className="flex gap-3 justify-center">
-            <Button
-              variant="outline"
-              onClick={handleReset}
-              className="gap-2"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Try Again
-            </Button>
-            <Button variant="outline" onClick={() => window.close()}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const isSubmitting =
     submitStep === 'preflight' ||
     submitStep === 'uploading' ||
@@ -555,22 +486,65 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     submitStep === 'scheduling' ||
     submitStep === 'verifying';
 
-  const submitLabel = (() => {
-    switch (submitStep) {
-      case 'preflight':
-        return 'Checking accounts...';
-      case 'uploading':
-        return 'Uploading media...';
-      case 'creating':
-        return 'Creating post...';
-      case 'scheduling':
-        return scheduleType === 'now' ? 'Publishing...' : 'Scheduling...';
-      case 'verifying':
-        return verifyingLabel;
-      default:
-        return scheduleType === 'now' ? 'Publish Now' : 'Schedule Post';
-    }
-  })();
+  const isPublishingOrResult = isSubmitting || submitStep === 'done' || submitStep === 'error';
+
+  const isDone = submitStep === 'done';
+  const isError = submitStep === 'error';
+  const resultFailedAccounts = verificationResult?.accounts.filter(a => a.errors.length > 0) ?? [];
+  const resultSucceededAccounts = verificationResult?.accounts.filter(a => a.status === 'published') ?? [];
+  const hasPartialSuccess = isError && resultSucceededAccounts.length > 0;
+
+  const headerTitle = isDone
+    ? (verificationResult?.status === 'unconfirmed'
+        ? 'Post Queued'
+        : scheduleType === 'now' ? 'Published!' : 'Post Scheduled!')
+    : isError
+      ? (hasPartialSuccess ? 'Partially Published' : 'Publishing Failed')
+      : (scheduleType === 'now' ? 'Publishing...' : 'Scheduling...');
+
+  const headerSubtitle = isDone
+    ? (verificationResult?.status === 'unconfirmed'
+        ? 'Your post was queued but confirmation is taking longer than expected. Check the calendar for the final status.'
+        : scheduleType === 'now'
+          ? 'Your video has been published to the selected platforms.'
+          : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`)
+    : isError
+      ? (hasPartialSuccess
+          ? 'Post failed on one or more platforms.'
+          : 'Something went wrong while publishing.')
+      : (scheduleType === 'now'
+          ? 'Your video is being sent to your selected platforms.'
+          : 'Your post is being prepared and scheduled.');
+
+  // Progress panel helpers
+  const STEP_ORDER: SubmitStep[] = ['preflight', 'uploading', 'creating', 'scheduling', 'verifying'];
+  const currentStepIndex = (submitStep === 'done' || submitStep === 'error')
+    ? STEP_ORDER.length  // past all steps → all marked done
+    : STEP_ORDER.indexOf(submitStep as SubmitStep);
+
+  const PUBLISH_STEPS: Array<{ key: SubmitStep; label: string }> = scheduleType === 'now'
+    ? [
+        { key: 'preflight',  label: 'Checking accounts' },
+        { key: 'uploading',  label: 'Uploading media' },
+        { key: 'creating',   label: 'Creating post' },
+        { key: 'scheduling', label: 'Sending to platforms' },
+        { key: 'verifying',  label: 'Waiting for confirmation' },
+      ]
+    : [
+        { key: 'preflight',  label: 'Checking accounts' },
+        { key: 'uploading',  label: 'Uploading media' },
+        { key: 'creating',   label: 'Creating post' },
+        { key: 'scheduling', label: 'Scheduling post' },
+      ];
+
+  function providerColor(provider: string): string {
+    const map: Record<string, string> = {
+      facebook: 'bg-blue-500', instagram: 'bg-pink-500',
+      tiktok: 'bg-zinc-400', youtube: 'bg-red-500',
+      twitter: 'bg-sky-400', x: 'bg-zinc-400',
+    };
+    return map[provider] ?? 'bg-zinc-600';
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
@@ -619,105 +593,195 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
             </div>
           </div>
 
-          {/* Right: Form */}
+          {/* Right: Form or Progress Panel */}
           <div className="space-y-6">
-            {/* Accounts */}
-            <section>
-              <h2 className="mb-3 text-sm font-medium text-zinc-300">
-                Select Accounts
-              </h2>
-              <AccountSelector
-                accounts={accounts}
-                groups={groups}
-                tags={tags}
-                selectedIds={selectedAccountIds}
-                onSelectionChange={setSelectedAccountIds}
-              />
-            </section>
+            {isSubmitting ? (
+              /* Progress panel — shown while publishing/scheduling is in flight */
+              <div className="flex flex-col gap-6">
+                {/* Header */}
+                <div>
+                  <h2 className="text-base font-semibold text-white">
+                    {scheduleType === 'now' ? 'Publishing...' : 'Scheduling...'}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {scheduleType === 'now'
+                      ? 'Your video is being sent to your selected platforms.'
+                      : 'Your post is being prepared and scheduled.'}
+                  </p>
+                </div>
 
-            {/* Caption */}
-            <section>
-              <CaptionEditor
-                value={caption}
-                onChange={setCaption}
-                selectedAccounts={selectedAccounts}
-                onGenerateCaption={handleGenerateCaption}
-                isGenerating={isGeneratingCaption}
-                captionStyle={captionStyle}
-                onCaptionStyleChange={setCaptionStyle}
-              />
-            </section>
+                {/* Step tracker */}
+                <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 p-4 space-y-3">
+                  {PUBLISH_STEPS.map((step, idx) => {
+                    const isDone = currentStepIndex > idx;
+                    const isActive = currentStepIndex === idx;
+                    return (
+                      <div key={step.key} className="flex items-center gap-3">
+                        <div className="flex-shrink-0 flex items-center justify-center h-6 w-6">
+                          {isDone ? (
+                            <CheckCircle2 className="h-5 w-5 text-green-400" />
+                          ) : isActive ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+                          ) : (
+                            <div className="h-5 w-5 rounded-full border border-white/20" />
+                          )}
+                        </div>
+                        <span
+                          className={
+                            isDone
+                              ? 'text-sm text-zinc-500 line-through'
+                              : isActive
+                                ? 'text-sm font-medium text-white'
+                                : 'text-sm text-zinc-500'
+                          }
+                        >
+                          {step.label}
+                        </span>
+                        {step.key === 'verifying' && isActive && verifyElapsed > 0 && (
+                          <span className="ml-auto text-xs text-zinc-500">{verifyElapsed}s</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-            {/* Platform-specific options */}
-            {(hasFacebook || hasYouTube || hasTikTok || hasInstagram) && (
-              <section className="space-y-4">
-                <h2 className="text-sm font-medium text-zinc-300">
-                  Platform Options
-                </h2>
-                {hasFacebook && (
-                  <FacebookOptions
-                    value={facebookOptions}
-                    onChange={setFacebookOptions}
-                  />
+                {/* Per-account status list */}
+                {selectedAccounts.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Accounts
+                    </h3>
+                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 divide-y divide-white/[0.06]">
+                      {selectedAccounts.map((account) => (
+                        <div key={account.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className={`h-2 w-2 rounded-full flex-shrink-0 ${providerColor(account.provider)}`} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-white truncate block">
+                              {account.name}
+                            </span>
+                            <span className="text-[10px] uppercase text-zinc-500">
+                              {account.provider}
+                            </span>
+                          </div>
+                          <Loader2 className="h-4 w-4 animate-spin text-zinc-500 flex-shrink-0" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
-                {hasYouTube && (
-                  <YouTubeOptions
-                    value={youtubeOptions}
-                    onChange={setYoutubeOptions}
-                  />
+
+                {/* Escape hatch during verifying */}
+                {submitStep === 'verifying' && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    Post is queued —{' '}
+                    <button
+                      type="button"
+                      onClick={() => window.close()}
+                      className="underline hover:text-foreground transition-colors"
+                    >
+                      close this window
+                    </button>{' '}
+                    and check the calendar for the final status.
+                  </p>
                 )}
-                {hasTikTok && (
-                  <TikTokOptions
-                    accounts={tiktokAccounts}
-                    value={tiktokOptions}
-                    onChange={setTiktokOptions}
+              </div>
+            ) : (
+              /* Form — shown when not submitting */
+              <>
+                {/* Accounts */}
+                <section>
+                  <h2 className="mb-3 text-sm font-medium text-zinc-300">
+                    Select Accounts
+                  </h2>
+                  <AccountSelector
+                    accounts={accounts}
+                    groups={groups}
+                    tags={tags}
+                    selectedIds={selectedAccountIds}
+                    onSelectionChange={setSelectedAccountIds}
                   />
-                )}
-                {hasInstagram && (
-                  <InstagramOptions
-                    value={instagramOptions}
-                    onChange={setInstagramOptions}
+                </section>
+
+                {/* Caption */}
+                <section>
+                  <CaptionEditor
+                    value={caption}
+                    onChange={setCaption}
+                    selectedAccounts={selectedAccounts}
+                    onGenerateCaption={handleGenerateCaption}
+                    isGenerating={isGeneratingCaption}
+                    captionStyle={captionStyle}
+                    onCaptionStyleChange={setCaptionStyle}
                   />
+                </section>
+
+                {/* Platform-specific options */}
+                {(hasFacebook || hasYouTube || hasTikTok || hasInstagram) && (
+                  <section className="space-y-4">
+                    <h2 className="text-sm font-medium text-zinc-300">
+                      Platform Options
+                    </h2>
+                    {hasFacebook && (
+                      <FacebookOptions
+                        value={facebookOptions}
+                        onChange={setFacebookOptions}
+                      />
+                    )}
+                    {hasYouTube && (
+                      <YouTubeOptions
+                        value={youtubeOptions}
+                        onChange={setYoutubeOptions}
+                      />
+                    )}
+                    {hasTikTok && (
+                      <TikTokOptions
+                        accounts={tiktokAccounts}
+                        value={tiktokOptions}
+                        onChange={setTiktokOptions}
+                      />
+                    )}
+                    {hasInstagram && (
+                      <InstagramOptions
+                        value={instagramOptions}
+                        onChange={setInstagramOptions}
+                      />
+                    )}
+                  </section>
                 )}
-              </section>
+
+                {/* Schedule */}
+                <section>
+                  <SchedulePicker
+                    scheduleType={scheduleType}
+                    onScheduleTypeChange={setScheduleType}
+                    scheduledDate={scheduledDate}
+                    onScheduledDateChange={setScheduledDate}
+                    scheduledTime={scheduledTime}
+                    onScheduledTimeChange={setScheduledTime}
+                    timezone={timezone}
+                    onTimezoneChange={setTimezone}
+                  />
+                </section>
+
+                {/* Submit */}
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => window.history.back()}
+                    className="h-11 rounded-xl border-zinc-800 bg-zinc-900/50 px-6 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={selectedAccountIds.length === 0}
+                    className="h-11 flex-1 gap-2 rounded-xl text-[13px] font-medium"
+                  >
+                    {scheduleType === 'now' ? 'Publish Now' : 'Schedule Post'}
+                  </Button>
+                </div>
+              </>
             )}
-
-            {/* Schedule */}
-            <section>
-              <SchedulePicker
-                scheduleType={scheduleType}
-                onScheduleTypeChange={setScheduleType}
-                scheduledDate={scheduledDate}
-                onScheduledDateChange={setScheduledDate}
-                scheduledTime={scheduledTime}
-                onScheduledTimeChange={setScheduledTime}
-                timezone={timezone}
-                onTimezoneChange={setTimezone}
-              />
-            </section>
-
-            {/* Submit */}
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="outline"
-                onClick={() => window.history.back()}
-                className="h-11 rounded-xl border-zinc-800 bg-zinc-900/50 px-6 text-[13px] font-medium text-white hover:bg-zinc-800 hover:text-white"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={isSubmitting || selectedAccountIds.length === 0}
-                className="h-11 flex-1 gap-2 rounded-xl text-[13px] font-medium"
-              >
-                {isSubmitting && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                {submitLabel}
-              </Button>
-            </div>
-
           </div>
         </div>
       </main>

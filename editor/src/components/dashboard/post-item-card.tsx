@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EditPostDialog } from './edit-post-dialog';
+import { CompanionSetupDialog } from '@/components/companion/companion-setup-dialog';
+import { openAccountInBrowser } from '@/lib/companion/client';
 import type { MixpostPost, MixpostPostAccount, MixpostMedia } from '@/types/calendar';
 
 interface PostItemCardProps {
@@ -24,6 +26,7 @@ interface PostItemCardProps {
 
 const EDITABLE_PROVIDERS = new Set(['youtube', 'facebook_page', 'facebook']);
 const DELETABLE_PROVIDERS = new Set(['youtube', 'facebook_page', 'facebook']);
+const BROWSER_MANAGED_PROVIDERS = new Set(['instagram', 'tiktok']);
 
 const STATUS_VARIANT: Record<
   string,
@@ -102,6 +105,8 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showCompanionDialog, setShowCompanionDialog] = useState(false);
+  const [openingBrowser, setOpeningBrowser] = useState(false);
 
   const status = getEffectiveStatus(post);
   const thumbnail = extractThumbnail(post);
@@ -112,6 +117,7 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
   const isPlatformPost = post._source === 'platform' || /^(ig|tt|yt|fb)-/.test(post.uuid);
   const canEdit = EDITABLE_PROVIDERS.has(provider);
   const canDelete = DELETABLE_PROVIDERS.has(provider) && onDeleted;
+  const isBrowserManaged = BROWSER_MANAGED_PROVIDERS.has(provider);
 
   const handleViewOnPlatform = async () => {
     if (externalUrl) {
@@ -186,6 +192,15 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
     }
   };
 
+  const handleOpenInBrowser = async () => {
+    const accountUuid = account?.uuid;
+    if (!accountUuid) return;
+    setOpeningBrowser(true);
+    const result = await openAccountInBrowser(provider, accountUuid, externalUrl || undefined);
+    setOpeningBrowser(false);
+    if (result.notRunning) setShowCompanionDialog(true);
+  };
+
   return (
     <>
       <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
@@ -218,18 +233,34 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={handleViewOnPlatform}
-            disabled={fetching}
-            className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
-          >
-            {fetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ExternalLink className="h-3.5 w-3.5" />
-            )}
-            View on {getProviderLabel(provider)}
-          </button>
+          {isBrowserManaged ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenInBrowser}
+              disabled={openingBrowser}
+            >
+              {openingBrowser ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ExternalLink className="h-3.5 w-3.5" />
+              )}
+              Open in Browser
+            </Button>
+          ) : (
+            <button
+              onClick={handleViewOnPlatform}
+              disabled={fetching}
+              className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
+            >
+              {fetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ExternalLink className="h-3.5 w-3.5" />
+              )}
+              View on {getProviderLabel(provider)}
+            </button>
+          )}
 
           {canEdit && (
             <Button
@@ -254,6 +285,13 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
           )}
         </div>
       </div>
+
+      {/* Companion setup dialog (shown when companion service is not running) */}
+      <CompanionSetupDialog
+        open={showCompanionDialog}
+        onOpenChange={setShowCompanionDialog}
+        onCompanionReady={handleOpenInBrowser}
+      />
 
       {/* Edit dialog */}
       <EditPostDialog

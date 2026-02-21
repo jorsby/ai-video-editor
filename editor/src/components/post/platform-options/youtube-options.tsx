@@ -19,12 +19,13 @@ export function YouTubeOptions({ value, onChange }: YouTubeOptionsProps) {
     <div className="space-y-4">
       <div className="space-y-2">
         <label className="text-xs font-medium text-zinc-400">
-          YouTube Title
+          YouTube Title <span className="text-red-400">*</span>
         </label>
         <Input
           value={value.title}
           onChange={(e) => onChange({ ...value, title: e.target.value })}
-          placeholder="Video title..."
+          placeholder="Video title (required)..."
+          maxLength={100}
           className="bg-zinc-900/40 border-white/[0.08] text-sm"
         />
       </div>

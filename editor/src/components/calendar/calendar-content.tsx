@@ -4,56 +4,48 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { CalendarGrid } from './calendar-grid';
 import { PostDetailDialog } from './post-detail-dialog';
-import type { MixpostPost, MixpostPaginationMeta } from '@/types/calendar';
+import type { MixpostPost } from '@/types/calendar';
+
+type StatusFilter = 'all' | 'scheduled' | 'published' | 'failed';
+
+function formatDateParam(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
 
 export function CalendarContent() {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [posts, setPosts] = useState<MixpostPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPost, setSelectedPost] = useState<MixpostPost | null>(null);
 
-  const fetchAllPosts = useCallback(async () => {
+  const fetchPosts = useCallback(async (month: Date, filter: StatusFilter) => {
     setIsLoading(true);
     setError(null);
     try {
-      const firstRes = await fetch('/api/mixpost/posts/list?page=1');
-      if (!firstRes.ok) {
-        const err = await firstRes.json();
+      const params = new URLSearchParams({
+        date: formatDateParam(month),
+        calendar_type: 'month',
+      });
+      if (filter !== 'all') params.set('status', filter);
+
+      const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
+      if (!res.ok) {
+        const err = await res.json();
         throw new Error(err.error || 'Failed to fetch posts');
       }
 
-      const firstData: { posts: MixpostPost[]; meta: MixpostPaginationMeta } =
-        await firstRes.json();
-      let allPosts: MixpostPost[] = [...firstData.posts];
-
-      // Fetch remaining pages in parallel
-      if (firstData.meta.last_page > 1) {
-        const pagePromises = [];
-        for (let p = 2; p <= firstData.meta.last_page; p++) {
-          pagePromises.push(
-            fetch(`/api/mixpost/posts/list?page=${p}`).then((r) => r.json())
-          );
-        }
-        const results = await Promise.all(pagePromises);
-        for (const result of results) {
-          if (result.posts) {
-            allPosts = [...allPosts, ...result.posts];
-          }
-        }
-      }
-
-      // Keep only non-trashed posts that have a date
-      setPosts(
-        allPosts.filter(
-          (p) => !p.trashed && (p.scheduled_at || p.published_at)
-        )
-      );
+      const data: { posts: MixpostPost[] } = await res.json();
+      setPosts((data.posts || []).filter((p) => !p.trashed));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch posts');
     } finally {
@@ -62,8 +54,19 @@ export function CalendarContent() {
   }, []);
 
   useEffect(() => {
-    fetchAllPosts();
-  }, [fetchAllPosts]);
+    fetchPosts(currentMonth, statusFilter);
+  }, [fetchPosts, currentMonth, statusFilter]);
+
+  // Status counts from loaded posts
+  const counts = useMemo(() => {
+    let queued = 0, published = 0, failed = 0;
+    for (const p of posts) {
+      if (p.status === 'scheduled') queued++;
+      else if (p.status === 'published') published++;
+      else if (p.status === 'failed') failed++;
+    }
+    return { queued, published, failed };
+  }, [posts]);
 
   // Group posts by date key "YYYY-MM-DD"
   const postsByDate = useMemo(() => {
@@ -101,11 +104,18 @@ export function CalendarContent() {
     year: 'numeric',
   });
 
+  const filterTabs: { label: string; value: StatusFilter; color: string }[] = [
+    { label: 'All', value: 'all', color: '' },
+    { label: 'Queued', value: 'scheduled', color: 'text-blue-400' },
+    { label: 'Published', value: 'published', color: 'text-emerald-400' },
+    { label: 'Failed', value: 'failed', color: 'text-red-400' },
+  ];
+
   if (error) {
     return (
       <div className="space-y-2 py-12 text-center">
         <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={fetchAllPosts}>
+        <Button variant="outline" size="sm" onClick={() => fetchPosts(currentMonth, statusFilter)}>
           Retry
         </Button>
       </div>
@@ -114,8 +124,8 @@ export function CalendarContent() {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
-      {/* Month navigation */}
-      <div className="flex items-center justify-between">
+      {/* Month navigation + status counts */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="icon" onClick={goToPrevMonth}>
             <ChevronLeft className="h-4 w-4" />
@@ -127,9 +137,45 @@ export function CalendarContent() {
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* Status count badges */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-blue-400">
+            Queued: {counts.queued}
+          </span>
+          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-400">
+            Published: {counts.published}
+          </span>
+          {counts.failed > 0 && (
+            <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-red-400">
+              Failed: {counts.failed}
+            </span>
+          )}
+        </div>
+
         <Button variant="ghost" size="sm" onClick={goToToday}>
           Today
         </Button>
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted/30 p-1 w-fit">
+        {filterTabs.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => setStatusFilter(tab.value)}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              statusFilter === tab.value
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+              tab.color && statusFilter === tab.value ? tab.color : ''
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Calendar grid */}

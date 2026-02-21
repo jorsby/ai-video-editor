@@ -98,11 +98,13 @@ export async function getOrCreateMixpostToken(
     return { error: `Failed to create Mixpost token: ${insertError.message}` };
   }
 
-  // 5. Cache the plain-text token in user_integrations
+  // 5. Cache the plain-text token in user_integrations.
+  //    Only update if the cache is still null so concurrent requests don't both win.
   const { error: updateError } = await supabase
     .from('user_integrations')
     .update({ mixpost_api_token: plainText })
-    .eq('supabase_user_id', userId);
+    .eq('supabase_user_id', userId)
+    .is('mixpost_api_token', null);
 
   if (updateError) {
     console.warn(
@@ -117,10 +119,12 @@ export async function getOrCreateMixpostToken(
 
 /**
  * Clears the cached token so the next request will generate a fresh one.
+ * Also removes the stale hashed token from mixpost_user_tokens to prevent accumulation.
  */
 export async function clearCachedMixpostToken(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  mixpostUserId?: number
 ): Promise<void> {
   const { error } = await supabase
     .from('user_integrations')
@@ -129,5 +133,19 @@ export async function clearCachedMixpostToken(
 
   if (error) {
     console.warn('Failed to clear cached Mixpost token:', error);
+  }
+
+  // Delete the old hashed token from Mixpost DB so it doesn't accumulate
+  if (mixpostUserId) {
+    const { error: deleteError } = await supabase
+      .schema('mixpost')
+      .from('mixpost_user_tokens')
+      .delete()
+      .eq('user_id', mixpostUserId)
+      .eq('name', 'editor-auto');
+
+    if (deleteError) {
+      console.warn('Failed to delete stale Mixpost token from DB:', deleteError);
+    }
   }
 }

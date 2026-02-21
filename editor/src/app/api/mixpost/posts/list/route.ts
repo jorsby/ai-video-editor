@@ -42,18 +42,27 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const page = searchParams.get('page') || '1';
 
+    const params = new URLSearchParams({ page });
+    const status = searchParams.get('status');
+    const date = searchParams.get('date');
+    const calendarType = searchParams.get('calendar_type');
+    if (status) params.set('status', status);
+    if (date) params.set('date', date);
+    if (calendarType) params.set('calendar_type', calendarType);
+
     const response = await fetch(
-      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts?page=${page}`,
+      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts?${params.toString()}`,
       {
         headers: {
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },

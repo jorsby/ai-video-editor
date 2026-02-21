@@ -8,7 +8,6 @@ interface InstagramOptionsProps {
 }
 
 const POST_TYPES: { value: InstagramPostType; label: string }[] = [
-  { value: 'post', label: 'Post' },
   { value: 'reel', label: 'Reel' },
   { value: 'story', label: 'Story' },
 ];

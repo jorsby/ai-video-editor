@@ -9,18 +9,39 @@ export async function getFacebookPageToken(
   providerId: string,
   userAccessToken: string
 ): Promise<string> {
-  const res = await fetch(
-    `https://graph.facebook.com/v24.0/${providerId}?fields=access_token&access_token=${encodeURIComponent(userAccessToken)}`
-  );
+  console.log('[getFacebookPageToken] Exchanging user token for page token', {
+    providerId,
+    hasUserAccessToken: !!userAccessToken,
+    tokenLength: userAccessToken?.length,
+    tokenPrefix: userAccessToken?.substring(0, 10) + '...',
+  });
+
+  const url = `https://graph.facebook.com/v24.0/${providerId}?fields=access_token&access_token=${encodeURIComponent(userAccessToken)}`;
+  const res = await fetch(url);
+
   if (!res.ok) {
     const err = await res.json().catch(() => null);
-    console.error('[Facebook Page Token Error]', { status: res.status, error: err });
+    console.error('[getFacebookPageToken] FAILED', {
+      status: res.status,
+      statusText: res.statusText,
+      error: err,
+      errorCode: err?.error?.code,
+      errorSubcode: err?.error?.error_subcode,
+      errorType: err?.error?.type,
+      errorMessage: err?.error?.message,
+      providerId,
+    });
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('Facebook token expired. Please re-authorize this account in Mixpost.');
+      throw new TokenExpiredError(`Facebook token expired (${res.status}). API error: ${JSON.stringify(err?.error || err)}. Please re-authorize this account in Mixpost.`);
     }
-    throw new PlatformApiError(`Failed to get Facebook page token. Status: ${res.status}`);
+    throw new PlatformApiError(`Failed to get Facebook page token. Status: ${res.status}, Error: ${JSON.stringify(err?.error || err)}`);
   }
   const data = await res.json();
+  console.log('[getFacebookPageToken] Success', {
+    providerId,
+    hasPageToken: !!data.access_token,
+    responseKeys: Object.keys(data),
+  });
   if (!data.access_token) {
     throw new PlatformApiError('No page access token returned. Ensure the account has manage_pages or pages_read_engagement permission.');
   }

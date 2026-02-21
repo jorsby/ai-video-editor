@@ -50,11 +50,12 @@ export async function GET(
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },
@@ -73,7 +74,27 @@ export async function GET(
       );
     }
 
-    const post = await response.json();
+    const rawBody = await response.json();
+
+    // Mixpost may return the post directly or wrapped in { data: ... }
+    const post = rawBody.data ?? rawBody;
+
+    // Log post status and account errors for debugging publish failures
+    if (post.status === 'failed' || post.status === 4) {
+      const accountSummary = Array.isArray(post.accounts)
+        ? post.accounts.map((a: Record<string, unknown>) => ({
+            id: a.id,
+            name: a.name,
+            provider: a.provider,
+            errors: a.errors,
+            external_url: a.external_url,
+            pivot_errors: (a.pivot as Record<string, unknown> | undefined)?.errors,
+          }))
+        : 'no accounts in response';
+      console.error(
+        `Mixpost post failed: uuid=${post.uuid} status=${post.status} accounts=${JSON.stringify(accountSummary)}`
+      );
+    }
 
     return NextResponse.json({ post });
   } catch (error) {
@@ -131,11 +152,12 @@ export async function DELETE(
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },

@@ -2,10 +2,13 @@
 
 import { useState } from 'react';
 import {
+  AlertCircle,
   ChevronRight,
   ChevronDown,
+  Loader2,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
   Trash2,
   Plus,
   X,
@@ -58,6 +61,9 @@ interface AccountGroupSectionProps {
   onAccountClick: (accountId: number) => void;
   isOpen: boolean;
   onToggle: (groupId: string) => void;
+  tokenInvalidAccountIds?: Set<number>;
+  onFetchPlatformMedia?: (accountId: number, force?: boolean) => void;
+  platformMediaLoading?: Set<number>;
 }
 
 function getInitials(name: string): string {
@@ -85,6 +91,9 @@ export function AccountGroupSection({
   onAccountClick,
   isOpen,
   onToggle,
+  tokenInvalidAccountIds,
+  onFetchPlatformMedia,
+  platformMediaLoading,
 }: AccountGroupSectionProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(group.name);
@@ -102,6 +111,17 @@ export function AccountGroupSection({
   const availableAccounts = allAccounts.filter(
     (a) => !group.account_uuids.includes(a.uuid)
   );
+
+  const isSyncingGroup = memberAccounts.some(
+    (a) => platformMediaLoading?.has(a.id) ?? false
+  );
+
+  const handleSyncGroup = () => {
+    if (!onFetchPlatformMedia || isSyncingGroup) return;
+    for (const account of memberAccounts) {
+      onFetchPlatformMedia(account.id, true);
+    }
+  };
 
   const handleRename = async () => {
     if (!renameValue.trim() || renameValue.trim() === group.name) {
@@ -196,6 +216,23 @@ export function AccountGroupSection({
             </span>
           </CollapsibleTrigger>
 
+          {onFetchPlatformMedia && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={(e) => { e.stopPropagation(); handleSyncGroup(); }}
+              disabled={isSyncingGroup}
+              title="Sync All in Group"
+            >
+              {isSyncingGroup ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
@@ -233,10 +270,12 @@ export function AccountGroupSection({
               <div className="grid gap-2">
                 {memberAccounts.map((account) => {
                   const postCount = postsByAccount.get(account.id)?.length || 0;
+                  const needsReAuth = !account.authorized || (tokenInvalidAccountIds?.has(account.id) ?? false);
+                  const mixpostUrl = process.env.NEXT_PUBLIC_MIXPOST_URL;
                   return (
                     <div
                       key={account.uuid}
-                      className="flex items-center gap-3 rounded-lg border bg-card p-3 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
+                      className={`flex items-center gap-3 rounded-lg border bg-card p-3 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
                       onClick={() => onAccountClick(account.id)}
                     >
                       <Avatar className="h-8 w-8">
@@ -258,6 +297,26 @@ export function AccountGroupSection({
                         <p className="text-xs text-muted-foreground truncate">
                           @{account.username}
                         </p>
+                        {needsReAuth && (
+                          <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                            <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
+                            <span className="text-xs text-amber-600">
+                              Token expired —{' '}
+                              {mixpostUrl ? (
+                                <a
+                                  href={`${mixpostUrl}/accounts`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline font-medium"
+                                >
+                                  Re-authorize in Mixpost
+                                </a>
+                              ) : (
+                                <span className="font-medium">Re-authorize in Mixpost</span>
+                              )}
+                            </span>
+                          </div>
+                        )}
                         <TagInput
                           accountUuid={account.uuid}
                           tags={tags[account.uuid] || []}

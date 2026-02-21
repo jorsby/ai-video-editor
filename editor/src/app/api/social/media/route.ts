@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
       }
     } catch (err) {
       if (err instanceof TokenExpiredError) {
-        return NextResponse.json({ error: err.message }, { status: 403 });
+        return NextResponse.json({ error: err.message, tokenExpired: true }, { status: 403 });
       }
       if (err instanceof RateLimitError) {
         return NextResponse.json({ error: err.message }, { status: 502 });

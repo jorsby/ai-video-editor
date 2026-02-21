@@ -37,6 +37,7 @@ export async function POST() {
       .insert({
         token_hash: tokenHash,
         mixpost_user_id: integration.mixpost_user_id,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
       });
 
     if (insertError) {

@@ -31,24 +31,63 @@ async function deleteFacebook(
   providerId: string,
   userAccessToken: string
 ): Promise<{ success: boolean; error?: string }> {
+  console.log('[deleteFacebook] Starting delete', {
+    postId,
+    providerId,
+    hasUserAccessToken: !!userAccessToken,
+    tokenLength: userAccessToken?.length,
+    tokenPrefix: userAccessToken?.substring(0, 10) + '...',
+  });
+
   let pageToken: string;
   try {
     pageToken = await getFacebookPageToken(providerId, userAccessToken);
+    console.log('[deleteFacebook] Got page token successfully', {
+      pageTokenLength: pageToken?.length,
+      pageTokenPrefix: pageToken?.substring(0, 10) + '...',
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to get page token';
+    console.error('[deleteFacebook] Failed to get page token', {
+      errorName: err instanceof Error ? err.constructor.name : typeof err,
+      errorMessage: msg,
+    });
     return { success: false, error: msg };
   }
 
-  const res = await fetch(
-    `https://graph.facebook.com/v24.0/${postId}?access_token=${encodeURIComponent(pageToken)}`,
-    { method: 'DELETE' }
-  );
+  const url = `https://graph.facebook.com/v24.0/${postId}?access_token=${encodeURIComponent(pageToken)}`;
+  console.log('[deleteFacebook] Calling Facebook Graph API DELETE', {
+    url: url.replace(/access_token=[^&]+/, 'access_token=REDACTED'),
+  });
+
+  const res = await fetch(url, { method: 'DELETE' });
+  const body = await res.text();
+
+  console.log('[deleteFacebook] Facebook API response', {
+    status: res.status,
+    statusText: res.statusText,
+    body,
+    headers: Object.fromEntries(res.headers.entries()),
+  });
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      return { success: false, error: 'Facebook token expired or insufficient permissions. Please re-authorize in Mixpost.' };
+      let parsedError: { error?: { code?: number; message?: string } } | null = null;
+      try { parsedError = JSON.parse(body); } catch { /* ignore */ }
+      const fbCode = parsedError?.error?.code;
+      console.error('[deleteFacebook] Token/permission error from Facebook', {
+        status: res.status,
+        body,
+        fbCode,
+        postId,
+        providerId,
+      });
+      // Facebook error code 200 = app doesn't own this post — not a token issue
+      if (fbCode === 200) {
+        return { success: false, error: `This post cannot be deleted because it was not published through this application. Facebook only allows deleting posts that were originally created via the app.` };
+      }
+      return { success: false, error: `Facebook token expired or insufficient permissions (${res.status}). Response: ${body}. Please re-authorize in Mixpost.` };
     }
-    const body = await res.text();
     return { success: false, error: `Facebook delete failed (${res.status}): ${body}` };
   }
   return { success: true };
@@ -149,7 +188,17 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { platformPostId, accountId, mixpostUuid } = await req.json();
+    const body = await req.json();
+    const { platformPostId, accountId, mixpostUuid } = body;
+    console.log('[DELETE /api/social/posts] Request received', {
+      platformPostId,
+      accountId,
+      mixpostUuid,
+      hasplatformPostId: !!platformPostId,
+      hasAccountId: !!accountId,
+      hasMixpostUuid: !!mixpostUuid,
+    });
+
     if (!accountId || (!platformPostId && !mixpostUuid)) {
       return NextResponse.json({ error: 'accountId and either platformPostId or mixpostUuid are required' }, { status: 400 });
     }
@@ -168,8 +217,20 @@ export async function DELETE(req: NextRequest) {
         provider = creds.provider;
         providerId = creds.providerId;
         accessToken = creds.accessToken;
+        console.log('[DELETE /api/social/posts] Got platform credentials', {
+          resolvedPostId,
+          provider,
+          providerId,
+          hasAccessToken: !!accessToken,
+          tokenLength: accessToken?.length,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to get credentials';
+        console.error('[DELETE /api/social/posts] Failed to get platform credentials', {
+          mixpostUuid,
+          accountId,
+          error: message,
+        });
         return NextResponse.json({ error: message }, { status: 400 });
       }
     } else {
@@ -179,8 +240,19 @@ export async function DELETE(req: NextRequest) {
         provider = creds.provider;
         providerId = creds.providerId;
         accessToken = creds.accessToken;
+        console.log('[DELETE /api/social/posts] Got account credentials', {
+          resolvedPostId,
+          provider,
+          providerId,
+          hasAccessToken: !!accessToken,
+          tokenLength: accessToken?.length,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to get credentials';
+        console.error('[DELETE /api/social/posts] Failed to get account credentials', {
+          accountId,
+          error: message,
+        });
         return NextResponse.json({ error: message }, { status: 400 });
       }
     }
@@ -194,6 +266,13 @@ export async function DELETE(req: NextRequest) {
     } else {
       return NextResponse.json({ error: `Deleting is not supported for ${provider}` }, { status: 400 });
     }
+
+    console.log('[DELETE /api/social/posts] Delete result', {
+      success: result.success,
+      error: result.error,
+      provider,
+      resolvedPostId,
+    });
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });

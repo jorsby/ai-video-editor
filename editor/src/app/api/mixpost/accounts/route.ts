@@ -45,12 +45,13 @@ export async function GET() {
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     // If Mixpost rejects the token, clear the cache so next request creates a fresh one
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },

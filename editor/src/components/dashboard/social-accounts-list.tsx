@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ChevronsDownUp, ChevronsUpDown, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronsDownUp, ChevronsUpDown, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AccountGroupSection } from './account-group-section';
@@ -11,6 +11,8 @@ import { TagInput } from './tag-input';
 import { TagFilter } from './tag-filter';
 import { PlatformFilter } from './platform-filter';
 import { ProviderIcon } from './provider-icon';
+import { CompanionSetupDialog } from '@/components/companion/companion-setup-dialog';
+import { openAccountInBrowser } from '@/lib/companion/client';
 import type {
   MixpostAccount,
   AccountGroupWithMembers,
@@ -40,6 +42,7 @@ interface SocialAccountsListProps {
   platformMediaLoading?: Set<number>;
   platformMediaErrors?: Map<number, string>;
   platformMediaSyncedAt?: Map<number, Date>;
+  tokenInvalidAccountIds?: Set<number>;
 }
 
 function getInitials(name: string): string {
@@ -73,6 +76,7 @@ export function SocialAccountsList({
   platformMediaLoading,
   platformMediaErrors,
   platformMediaSyncedAt,
+  tokenInvalidAccountIds,
 }: SocialAccountsListProps) {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [selectedFilterTags, setSelectedFilterTags] = useState<Set<string>>(
@@ -85,6 +89,9 @@ export function SocialAccountsList({
     new Set()
   );
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
+  const [showCompanionDialog, setShowCompanionDialog] = useState(false);
+  const [pendingBrowserAccount, setPendingBrowserAccount] = useState<{ provider: string; uuid: string; url: string } | null>(null);
+  const [openingBrowserId, setOpeningBrowserId] = useState<number | null>(null);
   const allExpanded = groups.length > 0 && groups.every((g) => openGroupIds.has(g.id));
 
   const isSyncingAny = (platformMediaLoading?.size ?? 0) > 0;
@@ -165,6 +172,33 @@ export function SocialAccountsList({
     setSelectedFilterTags(new Set());
   };
 
+  const BROWSER_MANAGED_PROVIDERS = new Set(['instagram', 'tiktok']);
+  const DEFAULT_BROWSER_URLS: Record<string, string> = {
+    instagram: 'https://www.instagram.com',
+    tiktok: 'https://www.tiktok.com',
+  };
+
+  const handleOpenAccountInBrowser = async (account: { id: number; provider: string; uuid: string }) => {
+    const url = DEFAULT_BROWSER_URLS[account.provider] || 'about:blank';
+    setOpeningBrowserId(account.id);
+    const result = await openAccountInBrowser(account.provider, account.uuid, url);
+    setOpeningBrowserId(null);
+    if (result.notRunning) {
+      setPendingBrowserAccount({ provider: account.provider, uuid: account.uuid, url });
+      setShowCompanionDialog(true);
+    }
+  };
+
+  const handleCompanionReady = async () => {
+    if (!pendingBrowserAccount) return;
+    await openAccountInBrowser(
+      pendingBrowserAccount.provider,
+      pendingBrowserAccount.uuid,
+      pendingBrowserAccount.url
+    );
+    setPendingBrowserAccount(null);
+  };
+
   // Drilldown into a specific account's posts
   if (selectedAccountId !== null) {
     const account = accounts.find((a) => a.id === selectedAccountId);
@@ -184,6 +218,7 @@ export function SocialAccountsList({
         platformMediaError={platformMediaErrors?.get(selectedAccountId) || null}
         onSyncFromPlatform={onFetchPlatformMedia ? (id: number) => onFetchPlatformMedia(id, true) : undefined}
         lastSyncedAt={platformMediaSyncedAt?.get(selectedAccountId) || null}
+        isTokenInvalid={!account.authorized || (tokenInvalidAccountIds?.has(selectedAccountId) ?? false)}
       />
     );
   }
@@ -307,6 +342,9 @@ export function SocialAccountsList({
               onAccountClick={setSelectedAccountId}
               isOpen={openGroupIds.has(group.id)}
               onToggle={handleToggleGroup}
+              tokenInvalidAccountIds={tokenInvalidAccountIds}
+              onFetchPlatformMedia={onFetchPlatformMedia}
+              platformMediaLoading={platformMediaLoading}
             />
           ))}
         </div>
@@ -323,10 +361,12 @@ export function SocialAccountsList({
           <div className="grid gap-2">
             {ungroupedAccounts.map((account) => {
               const postCount = postsByAccount.get(account.id)?.length || 0;
+              const needsReAuth = !account.authorized || (tokenInvalidAccountIds?.has(account.id) ?? false);
+              const mixpostUrl = process.env.NEXT_PUBLIC_MIXPOST_URL;
               return (
                 <div
                   key={account.id}
-                  className="flex items-center gap-3 rounded-lg border bg-card p-4 cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
+                  className={`flex items-center gap-3 rounded-lg border bg-card p-4 cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
                   onClick={() => setSelectedAccountId(account.id)}
                 >
                   <Avatar>
@@ -345,6 +385,26 @@ export function SocialAccountsList({
                     <p className="text-xs text-muted-foreground truncate">
                       @{account.username}
                     </p>
+                    {needsReAuth && (
+                      <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                        <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
+                        <span className="text-xs text-amber-600">
+                          Token expired —{' '}
+                          {mixpostUrl ? (
+                            <a
+                              href={`${mixpostUrl}/accounts`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline font-medium"
+                            >
+                              Re-authorize in Mixpost
+                            </a>
+                          ) : (
+                            <span className="font-medium">Re-authorize in Mixpost</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
                     <TagInput
                       accountUuid={account.uuid}
                       tags={tags[account.uuid] || []}
@@ -354,6 +414,20 @@ export function SocialAccountsList({
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {BROWSER_MANAGED_PROVIDERS.has(account.provider) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleOpenAccountInBrowser(account); }}
+                        disabled={openingBrowserId === account.id}
+                        className="flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
+                      >
+                        {openingBrowserId === account.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <ExternalLink className="h-3 w-3" />
+                        )}
+                        Open
+                      </button>
+                    )}
                     {!postsLoading && (
                       <div className="text-right">
                         <p className="text-lg font-semibold text-foreground">
@@ -377,6 +451,12 @@ export function SocialAccountsList({
         open={showCreateGroup}
         onOpenChange={setShowCreateGroup}
         onCreated={onGroupCreated}
+      />
+
+      <CompanionSetupDialog
+        open={showCompanionDialog}
+        onOpenChange={setShowCompanionDialog}
+        onCompanionReady={handleCompanionReady}
       />
     </div>
   );

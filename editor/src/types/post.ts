@@ -64,7 +64,8 @@ export type MixpostPostStatus =
   | 'scheduled'
   | 'publishing'
   | 'published'
-  | 'failed';
+  | 'failed'
+  | 'unconfirmed'; // polling timed out — post is queued but outcome unknown
 
 export interface PostAccountResult {
   accountId: number;

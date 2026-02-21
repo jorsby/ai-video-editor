@@ -61,7 +61,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     backgroundColor: "transparent",
     borderColor: "#000000",
     borderWidth: 10,
-    boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
+    // boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
     previewUrl:
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset3.webm",
   },

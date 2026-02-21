@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import { X, ChevronRight } from 'lucide-react';
+import { X, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import type {
   MixpostAccount,
   AccountGroupWithMembers,
@@ -123,6 +123,22 @@ export function AccountSelector({
     (a) => !groupedAccountUuids.has(a.uuid) && isAccountVisible(a)
   );
 
+  // Collapse all / expand all
+  const allGroupIds = [
+    ...groups.map((g) => g.id),
+    ...(ungroupedAccounts.length > 0 && groups.length > 0 ? ['__ungrouped'] : []),
+  ];
+  const allExpanded =
+    allGroupIds.length === 0 || allGroupIds.every((id) => !collapsedGroups.has(id));
+
+  const handleToggleExpandAll = () => {
+    if (allExpanded) {
+      setCollapsedGroups(new Set(allGroupIds));
+    } else {
+      setCollapsedGroups(new Set());
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Tag filter */}
@@ -154,6 +170,30 @@ export function AccountSelector({
               Clear
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Collapse All / Expand All */}
+      {allGroupIds.length > 0 && (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground gap-1.5 hover:text-foreground"
+            onClick={handleToggleExpandAll}
+          >
+            {allExpanded ? (
+              <>
+                <ChevronsDownUp className="h-3.5 w-3.5" />
+                Collapse All
+              </>
+            ) : (
+              <>
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+                Expand All
+              </>
+            )}
+          </Button>
         </div>
       )}
 

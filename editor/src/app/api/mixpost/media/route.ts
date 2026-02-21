@@ -47,6 +47,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate URL to prevent SSRF — only allow HTTPS from our own storage domain
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
+    }
+
+    if (parsedUrl.protocol !== 'https:') {
+      return NextResponse.json({ error: 'URL must use HTTPS' }, { status: 400 });
+    }
+
+    const allowedHostnames: string[] = [];
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+    if (supabaseUrl) allowedHostnames.push(new URL(supabaseUrl).hostname);
+    const r2Domain = process.env.R2_PUBLIC_DOMAIN ?? '';
+    if (r2Domain) allowedHostnames.push(new URL(r2Domain).hostname);
+
+    if (allowedHostnames.length === 0 || !allowedHostnames.includes(parsedUrl.hostname)) {
+      return NextResponse.json({ error: 'URL domain not allowed' }, { status: 400 });
+    }
+
     const response = await fetch(
       `${mixpostUrl}/mixpost/api/${workspaceUuid}/media/remote/initiate`,
       {
@@ -57,11 +79,12 @@ export async function POST(req: NextRequest) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ url }),
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },
@@ -74,8 +97,15 @@ export async function POST(req: NextRequest) {
       console.error(
         `Mixpost media upload error: status=${response.status} body=${body}`
       );
+      let detail: string;
+      try {
+        const parsed = JSON.parse(body);
+        detail = parsed.message ?? parsed.error ?? body;
+      } catch {
+        detail = body || `HTTP ${response.status}`;
+      }
       return NextResponse.json(
-        { error: `Failed to upload media to Mixpost (${response.status})` },
+        { error: `Failed to upload media: ${detail}` },
         { status: response.status }
       );
     }
@@ -109,12 +139,32 @@ export async function POST(req: NextRequest) {
               Authorization: `Bearer ${tokenResult.token}`,
               Accept: 'application/json',
             },
+            signal: AbortSignal.timeout(10_000),
           }
         );
 
+        if (statusRes.status === 401) {
+          await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
+          return NextResponse.json(
+            { error: 'Mixpost token expired during upload. Please retry.' },
+            { status: 401 }
+          );
+        }
+
         if (!statusRes.ok) {
-          console.error(`Mixpost poll error: status=${statusRes.status}`);
-          continue;
+          const errBody = await statusRes.text();
+          console.error(`Mixpost poll error: status=${statusRes.status} body=${errBody}`);
+          let detail: string;
+          try {
+            const parsed = JSON.parse(errBody);
+            detail = parsed.message ?? parsed.error ?? errBody;
+          } catch {
+            detail = errBody || `HTTP ${statusRes.status}`;
+          }
+          return NextResponse.json(
+            { error: `Media upload check failed: ${detail}` },
+            { status: statusRes.status }
+          );
         }
 
         const statusData = await statusRes.json();
@@ -137,12 +187,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Unexpected response shape — return as-is for debugging
-    return NextResponse.json({ media: data });
+    // Unexpected response shape
+    console.error('Mixpost media: unexpected response shape', data);
+    return NextResponse.json(
+      { error: 'Unexpected response from Mixpost media upload' },
+      { status: 502 }
+    );
   } catch (error) {
     console.error('Mixpost media upload error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Internal server error: ${(error as Error).message}` },
       { status: 500 }
     );
   }

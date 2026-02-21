@@ -18,6 +18,7 @@ interface AccountPostsListProps {
   platformMediaError?: string | null;
   onSyncFromPlatform?: (accountId: number) => void;
   lastSyncedAt?: Date | null;
+  isTokenInvalid?: boolean;
 }
 
 function getInitials(name: string): string {
@@ -59,6 +60,7 @@ export function AccountPostsList({
   platformMediaError,
   onSyncFromPlatform,
   lastSyncedAt,
+  isTokenInvalid,
 }: AccountPostsListProps) {
   // Sort posts by published date, most recent first
   const sortedPosts = [...posts].sort((a, b) => {
@@ -118,11 +120,53 @@ export function AccountPostsList({
         </div>
       </div>
 
+      {/* Proactive re-auth warning (token invalid but no sync error yet) */}
+      {isTokenInvalid && !platformMediaError && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700">
+            This account needs to be re-authorized.{' '}
+            {process.env.NEXT_PUBLIC_MIXPOST_URL ? (
+              <a
+                href={`${process.env.NEXT_PUBLIC_MIXPOST_URL}/accounts`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium"
+              >
+                Re-authorize in Mixpost
+              </a>
+            ) : (
+              <span className="font-medium">Re-authorize in Mixpost</span>
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Platform media error */}
       {platformMediaError && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
           <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-destructive">{platformMediaError}</p>
+          <div className="text-sm text-destructive">
+            <p>{platformMediaError}</p>
+            {(platformMediaError.toLowerCase().includes('token') ||
+              platformMediaError.includes('401') ||
+              platformMediaError.includes('403')) && (
+              <p className="mt-1">
+                {process.env.NEXT_PUBLIC_MIXPOST_URL ? (
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_MIXPOST_URL}/accounts`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium"
+                  >
+                    Re-authorize in Mixpost
+                  </a>
+                ) : (
+                  <span className="font-medium">Re-authorize in Mixpost</span>
+                )}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

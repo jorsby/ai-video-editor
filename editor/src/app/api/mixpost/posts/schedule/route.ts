@@ -62,11 +62,12 @@ export async function POST(req: NextRequest) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(schedulePayload),
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },
@@ -85,7 +86,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = await response.json();
+    // Mixpost may return 204 No Content or an empty body on success
+    let data: Record<string, unknown> = {};
+    const responseText = await response.text();
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        // Non-JSON response is fine — the schedule action succeeded
+      }
+    }
 
     return NextResponse.json({
       success: true,

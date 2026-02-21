@@ -74,10 +74,16 @@ export async function POST(req: NextRequest) {
     };
 
     // Add schedule fields if scheduled
-    if (body.scheduleType === 'scheduled' && body.scheduledDate && body.scheduledTime) {
+    if (body.scheduleType === 'scheduled') {
+      if (!body.scheduledDate || !body.scheduledTime) {
+        return NextResponse.json(
+          { error: 'scheduledDate and scheduledTime are required for scheduled posts' },
+          { status: 400 }
+        );
+      }
       postPayload.date = body.scheduledDate;
       postPayload.time = body.scheduledTime;
-      postPayload.timezone = body.timezone;
+      postPayload.timezone = body.timezone || 'UTC';
     }
 
     const response = await fetch(
@@ -90,11 +96,12 @@ export async function POST(req: NextRequest) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(postPayload),
+        signal: AbortSignal.timeout(30_000),
       }
     );
 
     if (response.status === 401) {
-      await clearCachedMixpostToken(supabase, user.id);
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
       console.error('Mixpost token rejected (401). Cleared cached token.');
       return NextResponse.json(
         { error: 'Mixpost token expired. Please retry.' },
@@ -107,8 +114,15 @@ export async function POST(req: NextRequest) {
       console.error(
         `Mixpost create post error: status=${response.status} body=${errorBody}`
       );
+      let detail: string;
+      try {
+        const parsed = JSON.parse(errorBody);
+        detail = parsed.message ?? parsed.error ?? errorBody;
+      } catch {
+        detail = errorBody || `HTTP ${response.status}`;
+      }
       return NextResponse.json(
-        { error: `Failed to create post in Mixpost (${response.status})` },
+        { error: `Failed to create post: ${detail}` },
         { status: response.status }
       );
     }
@@ -119,7 +133,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Mixpost create post error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Internal server error: ${(error as Error).message}` },
       { status: 500 }
     );
   }

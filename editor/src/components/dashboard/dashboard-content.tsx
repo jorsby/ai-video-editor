@@ -31,6 +31,7 @@ export function DashboardContent() {
   const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<number>>(new Set());
   const [platformMediaErrors, setPlatformMediaErrors] = useState<Map<number, string>>(new Map());
   const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<Map<number, Date>>(new Map());
+  const [tokenInvalidAccountIds, setTokenInvalidAccountIds] = useState<Set<number>>(new Set());
 
   const fetchAllPosts = useCallback(async () => {
     setPostsLoading(true);
@@ -102,8 +103,11 @@ export function DashboardContent() {
     try {
       const res = await fetch(`/api/social/media?accountId=${accountId}`);
       if (!res.ok) {
-        const { error } = await res.json();
-        setPlatformMediaErrors((prev) => new Map(prev).set(accountId, error || 'Failed to fetch platform media'));
+        const body = await res.json();
+        if (body.tokenExpired) {
+          setTokenInvalidAccountIds((prev) => new Set(prev).add(accountId));
+        }
+        setPlatformMediaErrors((prev) => new Map(prev).set(accountId, body.error || 'Failed to fetch platform media'));
         return;
       }
       const { posts: platformPosts } = await res.json();
@@ -388,6 +392,7 @@ export function DashboardContent() {
             platformMediaLoading={platformMediaLoading}
             platformMediaErrors={platformMediaErrors}
             platformMediaSyncedAt={platformMediaSyncedAt}
+            tokenInvalidAccountIds={tokenInvalidAccountIds}
           />
         </TabsContent>
 
