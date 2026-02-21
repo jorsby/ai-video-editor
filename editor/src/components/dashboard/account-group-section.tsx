@@ -34,11 +34,13 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { AddAccountsDialog } from './add-accounts-dialog';
 import { TagInput } from './tag-input';
+import { ProviderIcon } from './provider-icon';
 import type {
   MixpostAccount,
   AccountGroupWithMembers,
   AccountTagMap,
 } from '@/types/mixpost';
+import type { MixpostPost } from '@/types/calendar';
 
 interface AccountGroupSectionProps {
   group: AccountGroupWithMembers;
@@ -51,6 +53,11 @@ interface AccountGroupSectionProps {
   tags: AccountTagMap;
   onTagAdded: (accountUuid: string, tag: string) => void;
   onTagRemoved: (accountUuid: string, tag: string) => void;
+  postsByAccount: Map<number, MixpostPost[]>;
+  postsLoading: boolean;
+  onAccountClick: (accountId: number) => void;
+  isOpen: boolean;
+  onToggle: (groupId: string) => void;
 }
 
 function getInitials(name: string): string {
@@ -73,8 +80,12 @@ export function AccountGroupSection({
   tags,
   onTagAdded,
   onTagRemoved,
+  postsByAccount,
+  postsLoading,
+  onAccountClick,
+  isOpen,
+  onToggle,
 }: AccountGroupSectionProps) {
-  const [isOpen, setIsOpen] = useState(true);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(group.name);
   const [isRenameLoading, setIsRenameLoading] = useState(false);
@@ -148,7 +159,7 @@ export function AccountGroupSection({
 
   return (
     <>
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <Collapsible open={isOpen} onOpenChange={() => onToggle(group.id)}>
         <div className="flex items-center gap-2 rounded-lg border bg-card px-4 py-3">
           <CollapsibleTrigger className="flex items-center gap-2 flex-1 min-w-0">
             {isOpen ? (
@@ -220,53 +231,70 @@ export function AccountGroupSection({
               </p>
             ) : (
               <div className="grid gap-2">
-                {memberAccounts.map((account) => (
-                  <div
-                    key={account.uuid}
-                    className="flex items-center gap-3 rounded-lg border bg-card p-3 group"
-                  >
-                    <Avatar className="h-8 w-8">
-                      {account.image ? (
-                        <AvatarImage
-                          src={account.image}
-                          alt={account.name}
-                        />
-                      ) : null}
-                      <AvatarFallback className="text-xs">
-                        {getInitials(account.name)}
-                      </AvatarFallback>
-                    </Avatar>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {account.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        @{account.username}
-                      </p>
-                      <TagInput
-                        accountUuid={account.uuid}
-                        tags={tags[account.uuid] || []}
-                        onTagAdded={onTagAdded}
-                        onTagRemoved={onTagRemoved}
-                      />
-                    </div>
-
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
-                      {account.provider}
-                    </span>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      onClick={() => handleRemoveMember(account.uuid)}
-                      disabled={removingUuid === account.uuid}
+                {memberAccounts.map((account) => {
+                  const postCount = postsByAccount.get(account.id)?.length || 0;
+                  return (
+                    <div
+                      key={account.uuid}
+                      className="flex items-center gap-3 rounded-lg border bg-card p-3 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md"
+                      onClick={() => onAccountClick(account.id)}
                     >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
+                      <Avatar className="h-8 w-8">
+                        {account.image ? (
+                          <AvatarImage
+                            src={account.image}
+                            alt={account.name}
+                          />
+                        ) : null}
+                        <AvatarFallback className="text-xs">
+                          {getInitials(account.name)}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {account.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          @{account.username}
+                        </p>
+                        <TagInput
+                          accountUuid={account.uuid}
+                          tags={tags[account.uuid] || []}
+                          onTagAdded={onTagAdded}
+                          onTagRemoved={onTagRemoved}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {!postsLoading && (
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-foreground">
+                              {postCount}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {postCount === 1 ? 'post' : 'posts'}
+                            </p>
+                          </div>
+                        )}
+                        <ProviderIcon provider={account.provider} className="h-5 w-5 text-muted-foreground" />
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveMember(account.uuid);
+                        }}
+                        disabled={removingUuid === account.uuid}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

@@ -63,6 +63,7 @@ export const handleAddClip = async (input: any, studio: Studio) => {
     const url =
       'https://cdn.scenify.io/AUTOCROP/VIDEO/e4545b0a-56e8-4982-80af-9b51094909f7/ec042fbe-01d8-4ef2-8389-c166eae76a77.mp4';
     clip = await Audio.fromUrl(url);
+    clip.volume = 0.35;
   }
 
   if (clip) {

@@ -1,5 +1,6 @@
 import { fontManager } from 'openvideo';
 import * as PIXI from 'pixi.js';
+import { DEFAULT_CAPTION_FONT_SIZE } from '@/components/editor/constant/caption';
 
 /**
  * Fetches caption data from a URL
@@ -290,7 +291,7 @@ export const convertSchemaToExported = async (
             const captionChunks = groupWordsByWidth(
               words,
               800,
-              80,
+              DEFAULT_CAPTION_FONT_SIZE,
               'Bangers-Regular'
             );
 
@@ -329,7 +330,7 @@ export const convertSchemaToExported = async (
                 flip: null,
                 text: chunk.text,
                 style: {
-                  fontSize: 80,
+                  fontSize: DEFAULT_CAPTION_FONT_SIZE,
                   fontFamily: 'Bangers-Regular',
                   fontWeight: '700',
                   fontStyle: 'normal',

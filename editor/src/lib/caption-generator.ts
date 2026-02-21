@@ -1,5 +1,6 @@
 import { groupWordsByWidth } from "@/utils/schema-converter";
 import * as PIXI from "pixi.js";
+import { DEFAULT_CAPTION_FONT_SIZE } from "@/components/editor/constant/caption";
 
 interface CaptionClipOptions {
   videoWidth: number;
@@ -22,7 +23,7 @@ export async function generateCaptionClips(
     videoWidth,
     videoHeight,
     words,
-    fontSize = 80,
+    fontSize = DEFAULT_CAPTION_FONT_SIZE,
     fontFamily = "Bangers-Regular",
     fontUrl = "https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf",
     mode = "multiple",

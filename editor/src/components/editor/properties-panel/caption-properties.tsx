@@ -50,6 +50,7 @@ import useLayoutStore from "../store/use-layout-store";
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "lucide-react";
 import { useStudioStore } from "@/stores/studio-store";
+import { CAPTION_SIZE_STEPS, DEFAULT_CAPTION_FONT_SIZE } from "../constant/caption";
 
 const GROUPED_FONTS = getGroupedFonts();
 
@@ -426,24 +427,27 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
             </SelectContent>
           </Select>
 
-          <InputGroup>
-            <InputGroupInput
-              type="number"
-              value={opts.fontSize || 40}
-              onChange={(e) => {
-                const newSize = parseInt(e.target.value) || 0;
+          <div className="flex items-center gap-2">
+            <IconTextSize className="size-4 text-muted-foreground" />
+            <Slider
+              value={[opts.fontSize || DEFAULT_CAPTION_FONT_SIZE]}
+              onValueChange={(v) => {
+                const newSize = v[0];
                 (captionClip as any).opts.fontSize = newSize;
                 if (captionClip.originalOpts) {
                   captionClip.originalOpts.fontSize = newSize;
                 }
                 captionClip.emit("propsChange", {});
               }}
-              className="text-sm"
+              min={CAPTION_SIZE_STEPS[0]}
+              max={CAPTION_SIZE_STEPS[CAPTION_SIZE_STEPS.length - 1]}
+              step={CAPTION_SIZE_STEPS[1] - CAPTION_SIZE_STEPS[0]}
+              className="flex-1"
             />
-            <InputGroupAddon align="inline-end">
-              <IconTextSize className="size-4" />
-            </InputGroupAddon>
-          </InputGroup>
+            <span className="text-[10px] text-muted-foreground w-6 text-right">
+              {opts.fontSize || DEFAULT_CAPTION_FONT_SIZE}
+            </span>
+          </div>
         </div>
       </div>
 

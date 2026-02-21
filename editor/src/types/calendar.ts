@@ -38,6 +38,7 @@ export interface MixpostPostVersion {
   account_id: number;
   is_original: boolean;
   content: MixpostPostContent[];
+  options?: Record<string, unknown>;
 }
 
 export interface MixpostPostTag {
@@ -59,6 +60,7 @@ export interface MixpostPost {
   published_at: string | null;
   created_at: string;
   trashed: boolean;
+  _source?: 'platform' | 'mixpost';
 }
 
 export interface MixpostPaginationMeta {

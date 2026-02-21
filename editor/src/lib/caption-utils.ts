@@ -1,5 +1,6 @@
 import { Studio, IClip, jsonToClip } from "openvideo";
 import { generateCaptionClips } from "./caption-generator";
+import { DEFAULT_CAPTION_FONT_SIZE } from "@/components/editor/constant/caption";
 
 export type WordsPerLineMode = "single" | "multiple";
 
@@ -77,7 +78,7 @@ export async function regenerateCaptionClips({
     videoHeight: (studio as any).opts.height,
     words: allWords,
     mode: mode,
-    fontSize: fontSize || currentOpts.fontSize || 80,
+    fontSize: fontSize || currentOpts.fontSize || DEFAULT_CAPTION_FONT_SIZE,
     fontFamily: fontFamily || currentOpts.fontFamily || "Bangers-Regular",
     fontUrl: fontUrl || currentOpts.fontUrl,
     style: combinedStyle,

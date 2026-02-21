@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
@@ -98,10 +98,15 @@ export function ExportModal({
   const [renderStarted, setRenderStarted] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
   const resetState = () => {
+    if (uploadAbortRef.current) {
+      uploadAbortRef.current.abort();
+      uploadAbortRef.current = null;
+    }
     if (exportCombinator) {
       exportCombinator.destroy();
       setExportCombinator(null);
@@ -207,6 +212,10 @@ export function ExportModal({
       setExportBlobUrl(blobUrl);
       setIsExporting(false);
 
+      // Free GPU/memory resources before upload begins
+      com.destroy();
+      setExportCombinator(null);
+
       if (mode === 'download') {
         // Download mode: auto-download and close
         setTimeout(() => {
@@ -231,6 +240,7 @@ export function ExportModal({
   const handleCloudUpload = async (blob: Blob, settings: any) => {
     try {
       setIsUploading(true);
+      uploadAbortRef.current = new AbortController();
 
       const file = new File(
         [blob],
@@ -238,8 +248,10 @@ export function ExportModal({
         { type: 'video/mp4' }
       );
 
-      const uploadResult = await smartUpload(file, (progress) =>
-        setUploadProgress(progress)
+      const uploadResult = await smartUpload(
+        file,
+        (progress) => setUploadProgress(progress),
+        uploadAbortRef.current.signal
       );
 
       await fetch('/api/rendered-videos', {
@@ -270,9 +282,14 @@ export function ExportModal({
 
       setShowCompletion(true);
     } catch (error) {
-      Log.error('Cloud upload error:', error);
-      toast.error(`Cloud upload failed: ${(error as Error).message}`);
+      if ((error as DOMException)?.name === 'AbortError') {
+        Log.info('Cloud upload cancelled by user');
+      } else {
+        Log.error('Cloud upload error:', error);
+        toast.error(`Cloud upload failed: ${(error as Error).message}`);
+      }
     } finally {
+      uploadAbortRef.current = null;
       setIsUploading(false);
       setStoreIsExporting(false);
     }

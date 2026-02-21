@@ -8,6 +8,7 @@ import { BaseClip } from './base-clip';
 import { DEFAULT_AUDIO_CONF, type IClip, type IPlaybackCapable } from './iclip';
 import type { AudioJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
+import { AssetManager } from '../utils/asset-manager';
 
 interface IAudioOpts {
   loop?: boolean;
@@ -198,6 +199,13 @@ export class Audio extends BaseClip implements IPlaybackCapable {
         sampleRate: DEFAULT_AUDIO_CONF.sampleRate,
       });
     }
+    if (Audio.ctx.state === 'suspended') {
+      try {
+        await Audio.ctx.resume();
+      } catch (err) {
+        Log.warn('Audio: Failed to resume AudioContext', err);
+      }
+    }
 
     const tStart = performance.now();
     const pcm =
@@ -358,15 +366,34 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       throw new Error('Audio requires a source URL for playback');
     }
 
-    // For AudioClip, src is already a URL (from fromUrl or JSON)
-    const objectUrl = this.src.startsWith('blob:') ? this.src : undefined;
-    const audio = document.createElement('audio');
+    // Try to use OPFS-cached file to avoid a second CORS-sensitive network fetch.
+    // This mirrors Video.createPlaybackElement() which uses localFile.getOriginFile().
+    let audioSrc = this.src;
+    let objectUrl: string | undefined = this.src.startsWith('blob:')
+      ? this.src
+      : undefined;
 
+    if (!this.src.startsWith('blob:') && !this.src.startsWith('data:')) {
+      try {
+        const cachedFile = await AssetManager.get(this.src);
+        if (cachedFile) {
+          const originFile = await cachedFile.getOriginFile();
+          if (originFile) {
+            objectUrl = URL.createObjectURL(originFile);
+            audioSrc = objectUrl;
+          }
+        }
+      } catch (err) {
+        Log.warn('Audio: OPFS cache lookup failed, falling back to URL', err);
+      }
+    }
+
+    const audio = document.createElement('audio');
     audio.crossOrigin = 'anonymous';
     audio.autoplay = false;
     audio.preload = 'auto';
     audio.loop = this.opts.loop || false;
-    audio.src = this.src;
+    audio.src = audioSrc;
 
     // Wait for audio to be ready
     await new Promise<void>((resolve, reject) => {

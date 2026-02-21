@@ -44,9 +44,10 @@ export const uploadFile = async (file: File): Promise<UploadResult> => {
 // --- Multipart upload ---
 
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB
-const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_CONCURRENT = 4;
-const MAX_RETRIES = 3;
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_CONCURRENT = 2;
+const MAX_RETRIES = 5;
+const BASE_RETRY_DELAY_MS = 2000;
 
 interface CompletedPart {
   ETag: string;
@@ -56,13 +57,19 @@ interface CompletedPart {
 async function uploadChunkWithRetry(
   presignedUrl: string,
   chunk: Blob,
-  partNumber: number
+  partNumber: number,
+  signal: AbortSignal
 ): Promise<CompletedPart> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (signal.aborted) {
+      throw new DOMException('Upload cancelled', 'AbortError');
+    }
+
     try {
       const res = await fetch(presignedUrl, {
         method: 'PUT',
         body: chunk,
+        signal,
       });
 
       if (!res.ok) {
@@ -78,9 +85,14 @@ async function uploadChunkWithRetry(
 
       return { ETag: etag, PartNumber: partNumber };
     } catch (error) {
+      if (signal.aborted) {
+        throw new DOMException('Upload cancelled', 'AbortError');
+      }
       if (attempt === MAX_RETRIES - 1) throw error;
-      // Exponential backoff: 1s, 2s, 4s
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+      await new Promise((r) =>
+        setTimeout(r, BASE_RETRY_DELAY_MS * 2 ** attempt)
+      );
     }
   }
 
@@ -91,36 +103,66 @@ async function uploadChunkWithRetry(
 async function uploadWithConcurrency(
   chunks: { url: string; blob: Blob; partNumber: number }[],
   maxConcurrent: number,
-  onChunkComplete: () => void
+  onChunkComplete: () => void,
+  signal: AbortSignal
 ): Promise<CompletedPart[]> {
   const results: CompletedPart[] = [];
   let index = 0;
+  let firstError: Error | null = null;
 
-  async function next(): Promise<void> {
+  // Child controller: when any worker fails, abort all others
+  const childController = new AbortController();
+  const childSignal = childController.signal;
+
+  // Propagate parent abort to child
+  const onParentAbort = () => childController.abort();
+  signal.addEventListener('abort', onParentAbort, { once: true });
+
+  async function worker(): Promise<void> {
     while (index < chunks.length) {
+      if (childSignal.aborted) return;
+
       const current = chunks[index++];
-      const part = await uploadChunkWithRetry(
-        current.url,
-        current.blob,
-        current.partNumber
-      );
-      results.push(part);
-      onChunkComplete();
+      try {
+        const part = await uploadChunkWithRetry(
+          current.url,
+          current.blob,
+          current.partNumber,
+          childSignal
+        );
+        results.push(part);
+        onChunkComplete();
+      } catch (error) {
+        if (!firstError) {
+          firstError = error as Error;
+        }
+        childController.abort();
+        return;
+      }
     }
   }
 
   const workers = Array.from(
     { length: Math.min(maxConcurrent, chunks.length) },
-    () => next()
+    () => worker()
   );
-  await Promise.all(workers);
+
+  // allSettled waits for ALL workers to finish — no background workers left running
+  await Promise.allSettled(workers);
+
+  signal.removeEventListener('abort', onParentAbort);
+
+  if (firstError) {
+    throw firstError;
+  }
 
   return results;
 }
 
 export async function uploadFileMultipart(
   file: File,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<UploadResult> {
   // 1. Initiate multipart upload
   const initRes = await fetch('/api/uploads/multipart/initiate', {
@@ -131,6 +173,7 @@ export async function uploadFileMultipart(
       fileSize: file.size,
       chunkSize: CHUNK_SIZE,
     }),
+    ...(signal ? { signal } : {}),
   });
 
   if (!initRes.ok) {
@@ -155,13 +198,23 @@ export async function uploadFileMultipart(
   let completedCount = 0;
   let parts: CompletedPart[];
 
+  const uploadController = new AbortController();
+  const uploadSignal = signal ?? uploadController.signal;
+
   try {
-    parts = await uploadWithConcurrency(chunks, MAX_CONCURRENT, () => {
-      completedCount++;
-      onProgress?.(completedCount / partCount);
-    });
+    parts = await uploadWithConcurrency(
+      chunks,
+      MAX_CONCURRENT,
+      () => {
+        completedCount++;
+        onProgress?.(completedCount / partCount);
+      },
+      uploadSignal
+    );
   } catch (error) {
-    // Fire-and-forget abort
+    uploadController.abort();
+
+    // Safe to abort on R2 — all workers have terminated (Promise.allSettled)
     fetch('/api/uploads/multipart/abort', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -175,6 +228,7 @@ export async function uploadFileMultipart(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key, uploadId, parts }),
+    ...(signal ? { signal } : {}),
   });
 
   if (!completeRes.ok) {
@@ -192,10 +246,11 @@ export async function uploadFileMultipart(
 
 export async function smartUpload(
   file: File,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<UploadResult> {
   if (file.size <= MULTIPART_THRESHOLD) {
     return uploadFile(file);
   }
-  return uploadFileMultipart(file, onProgress);
+  return uploadFileMultipart(file, onProgress, signal);
 }

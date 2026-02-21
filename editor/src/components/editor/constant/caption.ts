@@ -1,5 +1,8 @@
 import { ICaptionsControlProps } from "../interface/captions";
 
+export const CAPTION_SIZE_STEPS = [40, 60, 80, 100, 120];
+export const DEFAULT_CAPTION_FONT_SIZE = 60; // second-smallest step
+
 export const NONE_PRESET: ICaptionsControlProps = {
   appearedColor: "#ffffff",
   activeColor: "#ffffff",

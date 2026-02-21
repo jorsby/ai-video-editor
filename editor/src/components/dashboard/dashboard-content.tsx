@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ProjectList } from './project-list';
 import { SocialAccountsList } from './social-accounts-list';
-import { PostsTab } from './posts-tab';
 import { CreateProjectModal } from './create-project-modal';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { DBProject } from '@/types/project';
 import type { MixpostAccount, AccountGroupWithMembers, AccountTagMap } from '@/types/mixpost';
+import type { MixpostPost, MixpostPaginationMeta } from '@/types/calendar';
 
 export function DashboardContent() {
   const [projects, setProjects] = useState<DBProject[]>([]);
@@ -24,11 +24,108 @@ export function DashboardContent() {
 
   const [tags, setTags] = useState<AccountTagMap>({});
 
+  const [posts, setPosts] = useState<MixpostPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+
+  const [platformPostsByAccount, setPlatformPostsByAccount] = useState<Map<number, MixpostPost[]>>(new Map());
+  const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<number>>(new Set());
+  const [platformMediaErrors, setPlatformMediaErrors] = useState<Map<number, string>>(new Map());
+  const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<Map<number, Date>>(new Map());
+
+  const fetchAllPosts = useCallback(async () => {
+    setPostsLoading(true);
+    try {
+      const firstRes = await fetch('/api/mixpost/posts/list?page=1');
+      if (!firstRes.ok) return;
+
+      const firstData: { posts: MixpostPost[]; meta: MixpostPaginationMeta } =
+        await firstRes.json();
+      let allPosts: MixpostPost[] = [...firstData.posts];
+
+      if (firstData.meta.last_page > 1) {
+        const pagePromises = [];
+        for (let p = 2; p <= firstData.meta.last_page; p++) {
+          pagePromises.push(
+            fetch(`/api/mixpost/posts/list?page=${p}`).then((r) => r.json())
+          );
+        }
+        const results = await Promise.all(pagePromises);
+        for (const result of results) {
+          if (result.posts) {
+            allPosts = [...allPosts, ...result.posts];
+          }
+        }
+      }
+
+      setPosts(
+        allPosts.filter(
+          (p) => !p.trashed && (p.scheduled_at || p.published_at)
+        )
+      );
+    } catch (error) {
+      console.error('Failed to fetch posts:', error);
+    } finally {
+      setPostsLoading(false);
+    }
+  }, []);
+
+  const postsByAccount = useMemo(() => {
+    const map = new Map<number, MixpostPost[]>();
+    for (const post of posts) {
+      for (const account of post.accounts) {
+        const existing = map.get(account.id) || [];
+        existing.push(post);
+        map.set(account.id, existing);
+      }
+    }
+    return map;
+  }, [posts]);
+
+  const mergedPostsByAccount = useMemo(() => {
+    const merged = new Map<number, MixpostPost[]>(postsByAccount);
+    for (const [accountId, platformPosts] of platformPostsByAccount) {
+      merged.set(accountId, platformPosts);
+    }
+    return merged;
+  }, [postsByAccount, platformPostsByAccount]);
+
+  const fetchPlatformMedia = useCallback(async (accountId: number, force?: boolean) => {
+    if (!force && platformPostsByAccount.has(accountId)) return;
+
+    setPlatformMediaLoading((prev) => new Set(prev).add(accountId));
+    setPlatformMediaErrors((prev) => {
+      const next = new Map(prev);
+      next.delete(accountId);
+      return next;
+    });
+
+    try {
+      const res = await fetch(`/api/social/media?accountId=${accountId}`);
+      if (!res.ok) {
+        const { error } = await res.json();
+        setPlatformMediaErrors((prev) => new Map(prev).set(accountId, error || 'Failed to fetch platform media'));
+        return;
+      }
+      const { posts: platformPosts } = await res.json();
+      setPlatformPostsByAccount((prev) => new Map(prev).set(accountId, platformPosts));
+      setPlatformMediaSyncedAt((prev) => new Map(prev).set(accountId, new Date()));
+    } catch {
+      setPlatformMediaErrors((prev) => new Map(prev).set(accountId, 'Failed to fetch platform media'));
+    } finally {
+      setPlatformMediaLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  }, [platformPostsByAccount]);
+
   useEffect(() => {
     fetchAccounts();
     fetchGroups();
     fetchTags();
-  }, []);
+    fetchAllPosts();
+  }, [fetchAllPosts]);
 
   useEffect(() => {
     fetchProjects(showArchived);
@@ -213,13 +310,46 @@ export function DashboardContent() {
     );
   };
 
+  const handlePostDeleted = (postUuid: string) => {
+    setPosts((prev) => prev.filter((p) => p.uuid !== postUuid));
+    setPlatformPostsByAccount((prev) => {
+      const next = new Map(prev);
+      for (const [accountId, posts] of next) {
+        const filtered = posts.filter((p) => p.uuid !== postUuid);
+        if (filtered.length !== posts.length) {
+          next.set(accountId, filtered);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handlePostUpdated = (postUuid: string, fields: Record<string, string>) => {
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.uuid !== postUuid) return p;
+        // Update the original version's content to reflect the edit
+        const updatedVersions = p.versions.map((v) => {
+          if (!v.is_original) return v;
+          const newBody = fields.description || fields.message || v.content[0]?.body || '';
+          return {
+            ...v,
+            content: v.content.map((c, i) =>
+              i === 0 ? { ...c, body: newBody } : c
+            ),
+          };
+        });
+        return { ...p, versions: updatedVersions };
+      })
+    );
+  };
+
   return (
     <>
-      <Tabs defaultValue="projects">
+      <Tabs defaultValue="projects" className="w-full max-w-3xl mx-auto">
         <TabsList>
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="social">Social</TabsTrigger>
-          <TabsTrigger value="posts">Posts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="projects">
@@ -250,15 +380,17 @@ export function DashboardContent() {
             tags={tags}
             onTagAdded={handleTagAdded}
             onTagRemoved={handleTagRemoved}
+            postsByAccount={mergedPostsByAccount}
+            postsLoading={postsLoading}
+            onPostDeleted={handlePostDeleted}
+            onPostUpdated={handlePostUpdated}
+            onFetchPlatformMedia={fetchPlatformMedia}
+            platformMediaLoading={platformMediaLoading}
+            platformMediaErrors={platformMediaErrors}
+            platformMediaSyncedAt={platformMediaSyncedAt}
           />
         </TabsContent>
 
-        <TabsContent value="posts">
-          <PostsTab
-            accounts={accounts}
-            accountsLoading={accountsLoading}
-          />
-        </TabsContent>
       </Tabs>
 
       <CreateProjectModal

@@ -24,6 +24,7 @@ export async function addMediaToCanvas(
     await studio.addClip(clip);
   } else if (asset.type === 'audio') {
     const clip = await Audio.fromUrl(asset.url);
+    clip.volume = 0.35;
     await studio.addClip(clip, asset.url);
   }
 }

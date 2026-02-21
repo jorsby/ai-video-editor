@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { R2StorageService } from '@/lib/r2';
 
-const DEFAULT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB
 
 interface InitiateRequest {
   fileName: string;

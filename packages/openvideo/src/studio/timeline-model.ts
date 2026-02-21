@@ -1476,6 +1476,10 @@ export class TimelineModel {
         `Failed to setup playback for ${clip.constructor.name}`,
         err
       );
+      this.studio.emit('playback:error', {
+        clip,
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
     }
   }
 
