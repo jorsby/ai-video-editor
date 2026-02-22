@@ -18,6 +18,8 @@
     "@aws-sdk/s3-request-presigner": "^3.946.0",
     "@deepgram/sdk": "^4.11.2",
     "@fal-ai/client": "^1.8.3",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@genkit-ai/ai": "^1.28.0",
     "@genkit-ai/google-genai": "^1.28.0",
     "@genkit-ai/next": "^1.28.0",

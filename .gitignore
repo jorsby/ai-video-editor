@@ -49,3 +49,10 @@ next-env.d.ts
 # Misc
 .DS_Store
 *.pem
+
+# Video downloads
+*.part
+*.ytdl
+*.mp4
+*.webm
+*.mkv

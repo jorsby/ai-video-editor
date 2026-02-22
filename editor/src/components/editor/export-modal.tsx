@@ -11,6 +11,7 @@ import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
+import { remuxToInstagramMp4 } from '@/lib/remux';
 import type { RenderedVideo } from '@/types/rendered-video';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
@@ -95,6 +96,8 @@ export function ExportModal({
   const [selectedLanguage, setSelectedLanguage] = useState(activeLanguage);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isRemuxing, setIsRemuxing] = useState(false);
+  const [remuxProgress, setRemuxProgress] = useState(0);
   const [renderStarted, setRenderStarted] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
@@ -121,6 +124,8 @@ export function ExportModal({
     setExportProgress(0);
     setIsUploading(false);
     setUploadProgress(0);
+    setIsRemuxing(false);
+    setRemuxProgress(0);
     setRenderStarted(false);
     setShowCompletion(false);
     setAllRenders([]);
@@ -187,7 +192,7 @@ export function ExportModal({
         fps: settings.fps || 30,
         bgColor: settings.bgColor || '#000000',
         videoCodec: 'avc1.42E032',
-        bitrate: 10e6, // default to high
+        bitrate: 3_500_000, // 3.5 Mbps — Instagram Reels recommended max
         audio: true,
       };
 
@@ -207,14 +212,23 @@ export function ExportModal({
       await com.loadFromJSON(validJson);
 
       const stream = com.output();
-      const blob = await new Response(stream).blob();
-      const blobUrl = URL.createObjectURL(blob);
-      setExportBlobUrl(blobUrl);
+      const rawBlob = await new Response(stream).blob();
       setIsExporting(false);
 
-      // Free GPU/memory resources before upload begins
+      // Free GPU/memory resources before remux begins
       com.destroy();
       setExportCombinator(null);
+
+      // Remux fMP4 → standard faststart MP4 for Instagram compatibility
+      setIsRemuxing(true);
+      setRemuxProgress(0);
+      const blob = await remuxToInstagramMp4(rawBlob, (p) =>
+        setRemuxProgress(p)
+      );
+      setIsRemuxing(false);
+
+      const blobUrl = URL.createObjectURL(blob);
+      setExportBlobUrl(blobUrl);
 
       if (mode === 'download') {
         // Download mode: auto-download and close
@@ -524,11 +538,17 @@ export function ExportModal({
           <div className="w-full px-1">
             <div className="mb-3 flex items-center justify-between text-[13px]">
               <span className="font-medium text-zinc-300">
-                {isUploading ? 'Uploading to cloud...' : 'Progress'}
+                {isUploading
+                  ? 'Uploading to cloud...'
+                  : isRemuxing
+                    ? 'Converting for social media...'
+                    : 'Progress'}
               </span>
               <span className="font-mono text-zinc-400">
                 {isUploading ? (
                   `Uploading... ${Math.round(uploadProgress * 100)}%`
+                ) : isRemuxing ? (
+                  `Converting... ${Math.round(remuxProgress * 100)}%`
                 ) : (
                   <>
                     {Math.round(exportProgress * 100)}% •{' '}
@@ -549,12 +569,14 @@ export function ExportModal({
             <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
                 className={`absolute bottom-0 left-0 top-0 transition-all duration-300 ease-out ${
-                  isUploading ? 'bg-blue-500' : 'bg-white'
+                  isUploading ? 'bg-blue-500' : isRemuxing ? 'bg-amber-500' : 'bg-white'
                 }`}
                 style={{
                   width: isUploading
                     ? `${Math.round(uploadProgress * 100)}%`
-                    : `${exportProgress * 100}%`,
+                    : isRemuxing
+                      ? `${Math.round(remuxProgress * 100)}%`
+                      : `${exportProgress * 100}%`,
                 }}
               />
             </div>
@@ -566,7 +588,7 @@ export function ExportModal({
               onClick={handleClose}
               className="flex h-11 items-center gap-2.5 rounded-xl border-zinc-800 bg-zinc-900/50 px-8 text-[13px] font-medium text-white transition-all hover:bg-zinc-800 hover:text-white"
             >
-              {(isExporting || isUploading) && (
+              {(isExporting || isRemuxing || isUploading) && (
                 <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
               )}
               Cancel

@@ -1344,8 +1344,8 @@ function createAVEncoder(opts: {
 }) {
   const { canvas, outputAudio, muxer, hasVideoTrack, timeSlice } = opts;
   let frameCnt = 0;
-  // GOP size: 3 seconds
-  const gopSize = Math.floor(3 * opts.fps);
+  // GOP size: 2 seconds (Instagram requires max 2s between keyframes)
+  const gopSize = Math.floor(2 * opts.fps);
 
   const audioTrackBuf = createAudioTrackBuf(1024);
 
