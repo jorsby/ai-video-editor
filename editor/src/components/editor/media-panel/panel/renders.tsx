@@ -16,6 +16,7 @@ import {
   X,
   Trash2,
   Send,
+  Share2,
 } from 'lucide-react';
 import {
   IconDeviceTv,
@@ -570,6 +571,18 @@ export default function PanelRenders() {
                     <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-muted-foreground/70">
                       {batch.resolution}
                     </span>
+                  )}
+                  {batch.renders.length > 1 && projectId && (
+                    <button
+                      onClick={() =>
+                        window.open(`/workflow/${projectId}`, '_blank')
+                      }
+                      className="ml-auto flex items-center gap-1 text-[10px] text-zinc-500 hover:text-white transition-colors"
+                      title="Publish all language videos in this batch"
+                    >
+                      <Share2 className="h-3 w-3" />
+                      Publish all
+                    </button>
                   )}
                 </div>
                 <div className="grid gap-3" style={getGridStyle(batch.resolution, cardSize)}>

@@ -118,7 +118,13 @@ export const handleUpdateClip = async (input: any, studio: Studio) => {
   if (fill !== undefined) updates.fill = fill;
   if (opacity !== undefined) updates.opacity = opacity;
   if (volume !== undefined) updates.volume = volume;
-  if (playbackRate !== undefined) updates.playbackRate = playbackRate;
+  if (playbackRate !== undefined) {
+    updates.playbackRate = playbackRate;
+    const clip = studio.getClipById(id);
+    if (clip && (clip as any).trim) {
+      updates.duration = Math.round(((clip as any).trim.to - (clip as any).trim.from) / playbackRate);
+    }
+  }
 
   await studio.updateClip(id, updates);
 };

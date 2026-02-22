@@ -1,4 +1,5 @@
 import type { IClip } from 'openvideo';
+import { useStudioStore } from '@/stores/studio-store';
 import { IconVolume, IconGauge, IconMusic } from '@tabler/icons-react';
 import {
   InputGroup,
@@ -13,9 +14,16 @@ interface AudioPropertiesProps {
 
 export function AudioProperties({ clip }: AudioPropertiesProps) {
   const audioClip = clip as any;
+  const { studio } = useStudioStore();
 
   const handleUpdate = (updates: any) => {
-    audioClip.update(updates);
+    if ('playbackRate' in updates && studio && audioClip.trim) {
+      const newRate = updates.playbackRate || 1;
+      const newDuration = Math.round((audioClip.trim.to - audioClip.trim.from) / newRate);
+      studio.updateClip(audioClip.id, { ...updates, duration: newDuration });
+    } else {
+      audioClip.update(updates);
+    }
   };
 
   return (

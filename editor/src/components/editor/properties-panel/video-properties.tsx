@@ -47,6 +47,7 @@ import { Slider } from '@/components/ui/slider';
 import color from 'color';
 import { NumberInput } from '@/components/ui/number-input';
 import useLayoutStore from '../store/use-layout-store';
+import { useStudioStore } from '@/stores/studio-store';
 
 interface VideoPropertiesProps {
   clip: IClip;
@@ -56,6 +57,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
   const videoClip = clip as any;
   const style = videoClip.style || {};
   const [, setTick] = useState(0);
+  const { studio } = useStudioStore();
 
   // Listen to clip events for canvas sync
   useEffect(() => {
@@ -79,7 +81,13 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
   }, [videoClip]);
 
   const handleUpdate = (updates: any) => {
-    videoClip.update(updates);
+    if ('playbackRate' in updates && studio && videoClip.trim) {
+      const newRate = updates.playbackRate || 1;
+      const newDuration = Math.round((videoClip.trim.to - videoClip.trim.from) / newRate);
+      studio.updateClip(videoClip.id, { ...updates, duration: newDuration });
+    } else {
+      videoClip.update(updates);
+    }
   };
 
   const handleStyleUpdate = (styleUpdates: any) => {

@@ -543,6 +543,15 @@ export function ExportModal({
                   Render Another Language
                 </Button>
               )}
+              {allRenders.length > 1 && (
+                <Button
+                  onClick={() => window.open(`/workflow/${projectId}`, '_blank')}
+                  className="flex-1 h-11 gap-2 rounded-xl text-[13px] font-medium"
+                >
+                  <Layers className="h-4 w-4" />
+                  Publish All Languages
+                </Button>
+              )}
               {allRenders.length > 0 && (
                 <Button
                   variant="outline"
