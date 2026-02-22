@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Image, Video } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
-import type { MixpostPost } from '@/types/calendar';
+import { ProviderIcon } from '@/components/dashboard/provider-icon';
+import type { MixpostPost, MixpostMedia } from '@/types/calendar';
 
 interface CalendarDayCellProps {
   date: Date;
@@ -16,16 +16,17 @@ interface CalendarDayCellProps {
   isToday: boolean;
   posts: MixpostPost[];
   onPostClick: (post: MixpostPost) => void;
+  timezone?: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
+export const STATUS_COLORS: Record<string, string> = {
   published: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   scheduled: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   draft: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   failed: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
-function getEffectiveStatus(post: MixpostPost): string {
+export function getEffectiveStatus(post: MixpostPost): string {
   if (post.status === 'published') return 'published';
   if (post.scheduled_at && post.status !== 'failed') return 'scheduled';
   return post.status;
@@ -37,53 +38,90 @@ function getPostCaption(post: MixpostPost): string {
   return original.content[0].body || '(no text)';
 }
 
-function hasMedia(post: MixpostPost): 'video' | 'image' | null {
+export function getPostThumbnail(post: MixpostPost): string | null {
   const original = post.versions.find((v) => v.is_original);
   if (!original) return null;
   for (const content of original.content) {
     if (content.media.length > 0) {
-      // If media is an array of objects, check the type
       const first = content.media[0];
-      if (typeof first === 'object' && first !== null && 'is_video' in first) {
-        return first.is_video ? 'video' : 'image';
+      if (typeof first === 'object' && first !== null) {
+        return (first as MixpostMedia).thumb_url || (first as MixpostMedia).url || null;
       }
-      // If just IDs, we can't tell — show generic image icon
-      return 'image';
     }
   }
   return null;
 }
 
-const MAX_VISIBLE = 3;
+export function getPostTime(post: MixpostPost, timezone?: string): string | null {
+  const dateStr = post.scheduled_at || post.published_at;
+  if (!dateStr) return null;
+  const date = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(timezone ? { timeZone: timezone } : {}),
+  });
+}
 
-function PostPill({
+const MAX_VISIBLE = 3;
+const MAX_ICONS = 4;
+
+export function PostPill({
   post,
   onPostClick,
+  timezone,
 }: {
   post: MixpostPost;
   onPostClick: (post: MixpostPost) => void;
+  timezone?: string;
 }) {
   const status = getEffectiveStatus(post);
   const colorClass = STATUS_COLORS[status] || STATUS_COLORS.draft;
   const caption = getPostCaption(post);
-  const mediaType = hasMedia(post);
+  const thumbnail = getPostThumbnail(post);
+  const time = getPostTime(post, timezone);
+  const { accounts } = post;
 
   return (
     <button
-      key={post.uuid}
       type="button"
       onClick={() => onPostClick(post)}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-1 truncate rounded border px-1.5 py-0.5 text-left text-[10px] leading-tight transition-opacity hover:opacity-80',
+        'flex w-full cursor-pointer items-start gap-1.5 rounded border px-1.5 py-1 text-left transition-opacity hover:opacity-80',
         colorClass
       )}
       title={caption}
     >
-      {mediaType === 'video' && <Video className="h-2.5 w-2.5 shrink-0" />}
-      {mediaType === 'image' && <Image className="h-2.5 w-2.5 shrink-0" />}
-      <span className="truncate">
-        {caption.length > 30 ? caption.slice(0, 30) + '...' : caption}
-      </span>
+      {thumbnail && (
+        <img
+          src={thumbnail}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded object-cover"
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[10px] leading-tight">
+          {caption.length > 30 ? caption.slice(0, 30) + '…' : caption}
+        </p>
+        <div className="mt-0.5 flex items-center gap-1">
+          {time && (
+            <span className="text-[9px] leading-none opacity-70">{time}</span>
+          )}
+          {accounts.length > 0 && (
+            <div className="ml-auto flex items-center gap-0.5">
+              {accounts.slice(0, MAX_ICONS).map((a) => (
+                <ProviderIcon key={a.uuid} provider={a.provider} className="h-3 w-3" />
+              ))}
+              {accounts.length > MAX_ICONS && (
+                <span className="text-[9px] leading-none opacity-70">
+                  +{accounts.length - MAX_ICONS}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </button>
   );
 }
@@ -94,6 +132,7 @@ export function CalendarDayCell({
   isToday,
   posts,
   onPostClick,
+  timezone,
 }: CalendarDayCellProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const visiblePosts = posts.slice(0, MAX_VISIBLE);
@@ -130,7 +169,7 @@ export function CalendarDayCell({
       {/* Post indicators */}
       <div className="space-y-0.5">
         {visiblePosts.map((post) => (
-          <PostPill key={post.uuid} post={post} onPostClick={onPostClick} />
+          <PostPill key={post.uuid} post={post} onPostClick={onPostClick} timezone={timezone} />
         ))}
         {overflowCount > 0 && (
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
@@ -154,6 +193,7 @@ export function CalendarDayCell({
                   <PostPill
                     key={post.uuid}
                     post={post}
+                    timezone={timezone}
                     onPostClick={(p) => {
                       setPopoverOpen(false);
                       onPostClick(p);

@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Check, ArrowLeft, AlertTriangle, ExternalLink, XCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Loader2, Check, ArrowLeft, ExternalLink, XCircle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { pollPostStatus, PollAuthError } from '@/lib/post/poll-post-status';
+import { savePendingPost } from '@/lib/post/pending-posts-store';
 import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
@@ -59,6 +60,34 @@ async function fetchWithRetry(
     }
   }
   throw lastError ?? new Error('Request failed after retries');
+}
+
+// Polls the media status endpoint until the download completes or fails.
+// Called client-side when the server returns 202 for large file uploads.
+async function pollMediaDownload(downloadId: string): Promise<{ id: number }> {
+  const POLL_INTERVAL_MS = 3_000;
+  const MAX_ATTEMPTS = 60; // 3 minutes client-side tolerance
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+    const res = await fetch(`/api/mixpost/media?download_id=${encodeURIComponent(downloadId)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || `Media status check failed (${res.status})`);
+    }
+
+    if (data.media) {
+      return data.media as { id: number };
+    }
+
+    if (!data.pending) {
+      throw new Error(data.error || 'Media upload failed');
+    }
+  }
+
+  throw new Error('Media upload timed out. Please try again.');
 }
 
 export function PostPage({ renderedVideoId }: PostPageProps) {
@@ -306,8 +335,15 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
           throw new Error(err.error || 'Failed to upload media');
         }
 
-        const { media } = await mediaRes.json();
-        mediaId = Number(media.id);
+        const mediaResData = await mediaRes.json();
+
+        // 202 = server-side polling exhausted; continue polling client-side
+        if (mediaRes.status === 202 && mediaResData.pending && mediaResData.download_id) {
+          const resolvedMedia = await pollMediaDownload(mediaResData.download_id);
+          mediaId = Number(resolvedMedia.id);
+        } else {
+          mediaId = Number(mediaResData.media.id);
+        }
         setCreatedMediaId(mediaId);
       }
 
@@ -409,12 +445,14 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
           return;
         }
 
-        // published or timeout (scheduled fallback)
+        // published or timeout (unconfirmed)
         setSubmitStep('done');
         if (result.status === 'published') {
           toast.success('Post published successfully!');
+        } else if (result.status === 'unconfirmed') {
+          // Save to localStorage so the background check can notify when it eventually confirms
+          savePendingPost(postUuid, selectedAccounts.map((a) => a.name));
         }
-        // If still 'scheduled' after timeout, we show a warning in the done screen
       } else {
         // Scheduled posts skip verification
         setSubmitStep('done');
@@ -436,7 +474,24 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     setSubmitError(null);
     setVerificationResult(null);
     setVerifyElapsed(0);
-    // Keep createdMediaId and createdPostUuid so retry re-uses the existing post
+    setCreatedPostUuid(null); // Always create a fresh post; media is reused
+  };
+
+  const handleRetry = () => {
+    // Narrow to only failed accounts so already-published accounts aren't double-posted
+    if (verificationResult?.accounts && verificationResult.accounts.length > 0) {
+      const failedIds = verificationResult.accounts
+        .filter((a) => a.status === 'failed')
+        .map((a) => a.accountId);
+      if (failedIds.length > 0) {
+        setSelectedAccountIds(failedIds);
+      }
+    }
+    setSubmitStep('idle');
+    setSubmitError(null);
+    setVerificationResult(null);
+    setVerifyElapsed(0);
+    setCreatedPostUuid(null);
   };
 
   const handleFullReset = () => {
@@ -495,7 +550,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   const headerTitle = isDone
     ? (verificationResult?.status === 'unconfirmed'
-        ? 'Post Queued'
+        ? 'Post Processing'
         : scheduleType === 'now' ? 'Published!' : 'Post Scheduled!')
     : isError
       ? (hasPartialSuccess ? 'Partially Published' : 'Publishing Failed')
@@ -503,7 +558,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   const headerSubtitle = isDone
     ? (verificationResult?.status === 'unconfirmed'
-        ? 'Your post was queued but confirmation is taking longer than expected. Check the calendar for the final status.'
+        ? 'Your video has been sent to all platforms and is being processed. Check back in Mixpost to see the final status.'
         : scheduleType === 'now'
           ? 'Your video has been published to the selected platforms.'
           : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`)
@@ -642,6 +697,13 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                   })}
                 </div>
 
+                {/* Contextual message during long video verification */}
+                {submitStep === 'verifying' && verifyElapsed > 30 && (
+                  <p className="text-xs text-zinc-500 text-center">
+                    Video posts can take a few minutes to process across all platforms — this is normal.
+                  </p>
+                )}
+
                 {/* Pre-verification error message */}
                 {isError && !verificationResult && submitError && (
                   <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
@@ -662,6 +724,8 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                           <div className="flex-shrink-0 flex items-center justify-center h-5 w-5">
                             {account.errors.length > 0 ? (
                               <XCircle className="h-4 w-4 text-red-400" />
+                            ) : verificationResult?.status === 'unconfirmed' ? (
+                              <Loader2 className="h-4 w-4 text-zinc-500 animate-spin" />
                             ) : (
                               <CheckCircle2 className="h-4 w-4 text-green-400" />
                             )}
@@ -684,9 +748,9 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                               href={account.external_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 shrink-0"
+                              className="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 rounded-md px-2 py-0.5 shrink-0 transition-colors"
                             >
-                              View <ExternalLink className="h-3 w-3" />
+                              View post <ExternalLink className="h-3 w-3" />
                             </a>
                           )}
                         </div>
@@ -717,19 +781,60 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     </div>
                   </div>
                 ) : selectedAccounts.length > 0 && verificationResult?.status === 'unconfirmed' ? (
-                  /* Timed out — single notice instead of per-account rows */
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
-                    <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-amber-300/80">
-                      {selectedAccounts.length === 1
-                        ? `Couldn't confirm if the post was published to ${selectedAccounts[0].name}. Check Mixpost or your social media account to verify.`
-                        : `Couldn't confirm the publish status for ${selectedAccounts.length} accounts. Check Mixpost or your social media accounts to verify.`}
-                    </p>
+                  /* Timed out with no account data — show neutral processing rows */
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Accounts
+                    </h3>
+                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 divide-y divide-white/[0.06]">
+                      {selectedAccounts.map((account) => (
+                        <div key={account.id} className="flex items-center gap-3 px-4 py-3">
+                          <Loader2 className="h-4 w-4 text-zinc-500 animate-spin flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-white truncate block">
+                              {account.name}
+                            </span>
+                            <span className="text-[10px] uppercase text-zinc-500">
+                              {account.provider} · Processing
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 
+                {isDone &&
+                  verificationResult?.status === 'published' &&
+                  verificationResult.accounts.some((a) => a.external_url) && (
+                    <div className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-4 space-y-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-green-400">
+                        Live on
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        {verificationResult.accounts
+                          .filter((a) => a.external_url)
+                          .map((account) => (
+                            <a
+                              key={account.accountId}
+                              href={account.external_url!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-sm text-white hover:text-green-300 transition-colors group"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 text-green-400 flex-shrink-0 group-hover:text-green-300" />
+                              <span className="truncate">{account.accountName}</span>
+                              <span className="text-[10px] uppercase text-zinc-500 ml-auto flex-shrink-0">
+                                {account.provider}
+                              </span>
+                            </a>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
                 {/* Footer: escape hatch during verifying, or action buttons after done/error */}
-                {submitStep === 'verifying' && (
+                {submitStep === 'verifying' && verifyElapsed <= 30 && (
                   <p className="text-center text-xs text-muted-foreground">
                     Post is queued —{' '}
                     <button
@@ -745,7 +850,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                 {(isDone || isError) && (
                   <div className="flex gap-3">
                     {isError && (
-                      <Button variant="outline" onClick={handleReset} className="gap-2">
+                      <Button variant="outline" onClick={handleRetry} className="gap-2">
                         <RotateCcw className="h-4 w-4" />
                         Retry
                       </Button>

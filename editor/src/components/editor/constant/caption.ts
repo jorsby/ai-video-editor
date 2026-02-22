@@ -15,6 +15,18 @@ export const NONE_PRESET: ICaptionsControlProps = {
 };
 
 export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
+  {
+  appearedColor: "#ffffff",
+  activeColor: "#ffffff",
+  activeFillColor: "transparent",
+  color: "#ffffff",
+  backgroundColor: "transparent",
+  borderColor: "#000000",
+  borderWidth: 6,
+  boxShadow: { color: "#000000", x: 0, y: 0, blur: 14 },
+  fontFamily: "Rubik",
+  fontUrl: "https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf",
+},
     {
     fontUrl: 'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf',
     fontFamily: 'Rubik',

@@ -124,9 +124,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ media: data.media });
     }
 
-    // Async upload (large file) — poll until complete
+    // Async upload (large file) — poll for a safe duration within serverless limits,
+    // then hand off to the client if still pending.
     if (data.status === 'pending' && data.download_id) {
-      const maxAttempts = 60;
+      // 8 attempts × 3s = 24s, safely within the 30s function timeout
+      const maxAttempts = 8;
       const pollInterval = 3000;
 
       for (let i = 0; i < maxAttempts; i++) {
@@ -181,9 +183,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Still pending after server-side polling — hand off to client for continued polling
       return NextResponse.json(
-        { error: 'Media upload timed out' },
-        { status: 504 }
+        { pending: true, download_id: data.download_id },
+        { status: 202 }
       );
     }
 
@@ -195,6 +198,101 @@ export async function POST(req: NextRequest) {
     );
   } catch (error) {
     console.error('Mixpost media upload error:', error);
+    return NextResponse.json(
+      { error: `Internal server error: ${(error as Error).message}` },
+      { status: 500 }
+    );
+  }
+}
+
+// Client-side polling endpoint: checks the status of an async remote upload once.
+// The client calls this repeatedly until status is 'completed' or 'failed'.
+export async function GET(req: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const mixpostUrl = process.env.MIXPOST_URL;
+    const workspaceUuid = process.env.MIXPOST_WORKSPACE_UUID;
+
+    if (!mixpostUrl || !workspaceUuid) {
+      return NextResponse.json(
+        { error: 'Mixpost configuration incomplete.' },
+        { status: 500 }
+      );
+    }
+
+    const downloadId = new URL(req.url).searchParams.get('download_id');
+    if (!downloadId) {
+      return NextResponse.json({ error: 'download_id is required' }, { status: 400 });
+    }
+
+    const tokenResult = await getOrCreateMixpostToken(supabase, user.id);
+
+    if ('error' in tokenResult) {
+      return NextResponse.json({ error: tokenResult.error }, { status: 403 });
+    }
+
+    const statusRes = await fetch(
+      `${mixpostUrl}/mixpost/api/${workspaceUuid}/media/remote/${downloadId}/status`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokenResult.token}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+
+    if (statusRes.status === 401) {
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
+      return NextResponse.json(
+        { error: 'Mixpost token expired. Please retry.' },
+        { status: 401 }
+      );
+    }
+
+    if (!statusRes.ok) {
+      const errBody = await statusRes.text();
+      let detail: string;
+      try {
+        const parsed = JSON.parse(errBody);
+        detail = parsed.message ?? parsed.error ?? errBody;
+      } catch {
+        detail = errBody || `HTTP ${statusRes.status}`;
+      }
+      return NextResponse.json(
+        { error: `Media status check failed: ${detail}` },
+        { status: statusRes.status }
+      );
+    }
+
+    const statusData = await statusRes.json();
+
+    if (statusData.status === 'completed' && statusData.media) {
+      return NextResponse.json({ media: statusData.media });
+    }
+
+    if (statusData.status === 'failed') {
+      return NextResponse.json(
+        { error: statusData.error || 'Remote upload failed' },
+        { status: 422 }
+      );
+    }
+
+    // Still in progress — client should poll again
+    return NextResponse.json(
+      { pending: true, download_id: downloadId, progress: statusData.progress ?? null },
+      { status: 202 }
+    );
+  } catch (error) {
+    console.error('Mixpost media status check error:', error);
     return NextResponse.json(
       { error: `Internal server error: ${(error as Error).message}` },
       { status: 500 }

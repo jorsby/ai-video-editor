@@ -4,12 +4,24 @@ import type {
   PostVerificationResult,
 } from '@/types/post';
 
-const POLL_INTERVAL_MS = 3_000;
-const POLL_TIMEOUT_MS = 90_000;
+const POLL_TIMEOUT_MS = 600_000; // 10 minutes — video processing can take several minutes
 
 const TERMINAL_STATUSES: MixpostPostStatus[] = ['published', 'failed'];
 
 const MAX_CONSECUTIVE_ERRORS = 5;
+
+/**
+ * Returns the next poll interval based on how long we've been waiting.
+ *
+ * - 0–30s  → 3s  (fast resolution for text/image posts)
+ * - 30–120s → 10s (video processing phase)
+ * - 120s+  → 30s (slow platforms / long queues)
+ */
+function getNextInterval(elapsedMs: number): number {
+  if (elapsedMs < 30_000) return 3_000;
+  if (elapsedMs < 120_000) return 10_000;
+  return 30_000;
+}
 
 interface PollOptions {
   postUuid: string;
@@ -36,6 +48,7 @@ export async function pollPostStatus({
 }: PollOptions): Promise<PostVerificationResult> {
   const startTime = Date.now();
   let consecutiveErrors = 0;
+  let lastPost: Record<string, unknown> | null = null;
 
   while (Date.now() - startTime < POLL_TIMEOUT_MS) {
     if (signal?.aborted) {
@@ -85,12 +98,13 @@ export async function pollPostStatus({
           }],
         };
       }
-      await sleep(POLL_INTERVAL_MS, signal);
+      await sleep(getNextInterval(Date.now() - startTime), signal);
       continue;
     }
 
     consecutiveErrors = 0;
     const { post } = await res.json();
+    lastPost = post;
     const status = mapMixpostStatus(post.status);
 
     onStatusChange?.(status);
@@ -102,11 +116,15 @@ export async function pollPostStatus({
       };
     }
 
-    await sleep(POLL_INTERVAL_MS, signal);
+    await sleep(getNextInterval(Date.now() - startTime), signal);
   }
 
-  // Timeout — post is queued but we couldn't confirm the outcome
-  return { status: 'unconfirmed', accounts: [] };
+  // Timeout — post is queued/processing but confirmation didn't arrive in time.
+  // Return the last known account list so the UI can show per-account rows.
+  return {
+    status: 'unconfirmed',
+    accounts: lastPost ? extractAccountResults(lastPost, 'publishing') : [],
+  };
 }
 
 function mapMixpostStatus(rawStatus: number | string): MixpostPostStatus {

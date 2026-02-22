@@ -79,12 +79,6 @@ export async function GET(
     // Mixpost may return the post directly or wrapped in { data: ... }
     const post = rawBody.data ?? rawBody;
 
-    // Temporary diagnostic — log version options to confirm the correct Mixpost options format
-    console.log('Mixpost post versions options:', JSON.stringify(
-      (post.versions as Array<{ options?: unknown }>)?.map(v => v.options),
-      null, 2
-    ));
-
     // Log post status and account errors for debugging publish failures
     if (post.status === 'failed' || post.status === 4) {
       const accountSummary = Array.isArray(post.accounts)
@@ -157,7 +151,9 @@ export async function DELETE(
         headers: {
           Authorization: `Bearer ${tokenResult.token}`,
           Accept: 'application/json',
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ trash: false, delete_mode: 'app_only' }),
         signal: AbortSignal.timeout(30_000),
       }
     );

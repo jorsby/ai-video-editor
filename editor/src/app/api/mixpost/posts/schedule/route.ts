@@ -47,10 +47,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const schedulePayload: Record<string, unknown> = {};
-    if (postNow) {
-      schedulePayload.postNow = true;
-    }
+    const schedulePayload = { postNow: Boolean(postNow) };
 
     const response = await fetch(
       `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts/schedule/${postUuid}`,
@@ -80,8 +77,30 @@ export async function POST(req: NextRequest) {
       console.error(
         `Mixpost schedule post error: status=${response.status} body=${errorBody}`
       );
+      let detail: string;
+      try {
+        const parsed = JSON.parse(errorBody);
+        // Mixpost may wrap the platform error inside parsed.error (object or string)
+        const inner = parsed.message ?? parsed.error;
+        if (inner && typeof inner === 'object') {
+          // e.g. { error: { error_user_msg: "...", message: "..." } }
+          detail =
+            (inner as Record<string, string>).error_user_msg ??
+            (inner as Record<string, string>).message ??
+            JSON.stringify(inner);
+        } else {
+          detail = inner ?? errorBody;
+        }
+      } catch {
+        detail = errorBody || `HTTP ${response.status}`;
+      }
+      // Translate Mixpost internal status codes to user-friendly messages
+      if (detail === 'in_history') {
+        detail = 'This post was already processed by Mixpost (published or failed). Retrying will create a fresh post.';
+      }
+
       return NextResponse.json(
-        { error: `Failed to schedule post in Mixpost (${response.status})` },
+        { error: detail },
         { status: response.status }
       );
     }

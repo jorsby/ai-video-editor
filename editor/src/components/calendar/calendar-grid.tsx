@@ -8,6 +8,7 @@ interface CalendarGridProps {
   currentMonth: Date;
   postsByDate: Map<string, MixpostPost[]>;
   onPostClick: (post: MixpostPost) => void;
+  timezone?: string;
 }
 
 interface DayCellData {
@@ -30,6 +31,7 @@ export function CalendarGrid({
   currentMonth,
   postsByDate,
   onPostClick,
+  timezone,
 }: CalendarGridProps) {
   const days = useMemo(() => {
     const year = currentMonth.getFullYear();
@@ -79,6 +81,7 @@ export function CalendarGrid({
             isToday={day.isToday}
             posts={postsByDate.get(day.dateKey) || []}
             onPostClick={onPostClick}
+            timezone={timezone}
           />
         ))}
       </div>

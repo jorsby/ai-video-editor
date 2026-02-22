@@ -55,29 +55,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Map our internal platformOptions to Mixpost's flat options format.
-    // Mixpost docs don't document the exact keys — based on source conventions:
-    //   - Instagram/Facebook post type → flat "post_type" key (no provider wrapper)
-    //   - YouTube visibility → "visibility" key (our type uses "status")
-    //   - TikTok per-account opts → keyed by numeric account id string
-    // NOTE: If both Instagram and Facebook are selected with different post types,
-    // the last one written wins. Per-account versions would be needed to split them.
+    // Map our internal platformOptions to Mixpost's nested options format.
+    // Mixpost stores options keyed by provider name (PostContentParser.getVersionOptions()
+    // reads: Arr::get(options, account.provider, [])). Provider keys:
+    //   - YouTube  → "youtube"       fields: title, status
+    //   - Instagram → "instagram"    fields: type ("post" | "reel" | "story")
+    //   - Facebook  → "facebook_page" fields: type ("post" | "reel" | "story")
+    //   - TikTok    → "tiktok"       fields: keyed by numeric account id string
     const versionOptions: Record<string, unknown> = {};
 
     const ig = body.platformOptions?.instagram;
     if (ig) {
-      versionOptions.post_type = ig.type;
+      versionOptions.instagram = { type: ig.type };
     }
 
     const fb = body.platformOptions?.facebook;
     if (fb) {
-      versionOptions.post_type = fb.type;
+      versionOptions.facebook_page = { type: fb.type };
     }
 
     const yt = body.platformOptions?.youtube;
     if (yt) {
-      versionOptions.title = yt.title;
-      versionOptions.visibility = yt.status; // our "status" field maps to Mixpost's "visibility"
+      versionOptions.youtube = {
+        title: yt.title,
+        status: yt.status,
+      };
     }
 
     const ttk = body.platformOptions?.tiktok;
@@ -102,6 +104,7 @@ export async function POST(req: NextRequest) {
             {
               body: body.caption || '',
               media: [body.mediaId],
+              url: null,
             },
           ],
           options: versionOptions,
