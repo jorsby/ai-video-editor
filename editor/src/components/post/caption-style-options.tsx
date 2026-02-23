@@ -6,15 +6,26 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type {
   CaptionStyleOptions as CaptionStyleOptionsType,
   CaptionLength,
   CaptionTone,
 } from '@/types/caption-style';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
+import type { LanguageCode } from '@/lib/constants/languages';
 
 interface CaptionStyleOptionsProps {
   value: CaptionStyleOptionsType;
   onChange: (value: CaptionStyleOptionsType) => void;
+  language?: LanguageCode;
+  onLanguageChange?: (lang: LanguageCode) => void;
 }
 
 const LENGTH_OPTIONS: { value: CaptionLength; label: string; hint: string }[] =
@@ -34,6 +45,8 @@ const TONE_OPTIONS: { value: CaptionTone; label: string }[] = [
 export function CaptionStyleOptions({
   value,
   onChange,
+  language,
+  onLanguageChange,
 }: CaptionStyleOptionsProps) {
   return (
     <Collapsible defaultOpen>
@@ -43,6 +56,7 @@ export function CaptionStyleOptions({
         </span>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-muted-foreground">
+            {language?.toUpperCase()},{' '}
             {LENGTH_OPTIONS.find((l) => l.value === value.length)?.label},{' '}
             {TONE_OPTIONS.find((t) => t.value === value.tone)?.label}
           </span>
@@ -51,6 +65,25 @@ export function CaptionStyleOptions({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="space-y-3 pt-2">
+          {/* Language selector */}
+          {language && onLanguageChange && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground">Language</label>
+              <Select value={language} onValueChange={(v) => onLanguageChange(v as LanguageCode)}>
+                <SelectTrigger className="w-full border-zinc-700 bg-zinc-900 text-sm text-zinc-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <SelectItem key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Length selector */}
           <div className="space-y-1.5">
             <label className="text-[11px] text-muted-foreground">Length</label>

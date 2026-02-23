@@ -17,8 +17,10 @@ import { CalendarWeekView } from './calendar-week-view';
 import { CalendarDayView } from './calendar-day-view';
 import { PostDetailDialog } from './post-detail-dialog';
 import { CalendarFilterBar } from './calendar-filter-bar';
+import { WorkflowRunDetailDialog } from './workflow-run-detail-dialog';
 import type { MixpostPost, MixpostPostTag } from '@/types/calendar';
 import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
+import type { WorkflowRun } from '@/types/workflow-run';
 
 type StatusFilter = 'all' | 'scheduled' | 'published' | 'failed';
 type CalendarView = 'month' | 'week' | 'day';
@@ -121,9 +123,11 @@ export function CalendarContent() {
   const [timezoneValue, setTimezoneValue] = useState<string>('local');
   const timezone = timezoneValue === 'local' ? undefined : timezoneValue;
   const [posts, setPosts] = useState<MixpostPost[]>([]);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPost, setSelectedPost] = useState<MixpostPost | null>(null);
+  const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
 
   const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
   const [groups, setGroups] = useState<AccountGroupWithMembers[]>([]);
@@ -135,26 +139,34 @@ export function CalendarContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const results = await Promise.all(
-        months.map(async (month) => {
-          const params = new URLSearchParams({
-            date: formatDateParam(month),
-            calendar_type: 'month',
-          });
-          if (filter !== 'all') params.set('status', filter);
-          const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to fetch posts');
-          }
-          const data: { posts: MixpostPost[] } = await res.json();
-          return (data.posts || []).filter((p) => !p.trashed);
-        })
-      );
-      // Deduplicate across months
+      // Fetch Mixpost posts + workflow runs in parallel
+      const primaryMonth = months[0];
+      const monthParam = formatDateParam(primaryMonth).slice(0, 7); // YYYY-MM
+
+      const [postResults, runsRes] = await Promise.all([
+        Promise.all(
+          months.map(async (month) => {
+            const params = new URLSearchParams({
+              date: formatDateParam(month),
+              calendar_type: 'month',
+            });
+            if (filter !== 'all') params.set('status', filter);
+            const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Failed to fetch posts');
+            }
+            const data: { posts: MixpostPost[] } = await res.json();
+            return (data.posts || []).filter((p) => !p.trashed);
+          })
+        ),
+        fetch(`/api/workflow-runs?month=${monthParam}`).then(r => r.ok ? r.json() : { runs: [] }),
+      ]);
+
+      // Deduplicate posts across months
       const seen = new Set<string>();
       const combined: MixpostPost[] = [];
-      for (const batch of results) {
+      for (const batch of postResults) {
         for (const p of batch) {
           if (!seen.has(p.uuid)) {
             seen.add(p.uuid);
@@ -163,6 +175,7 @@ export function CalendarContent() {
         }
       }
       setPosts(combined);
+      setWorkflowRuns(runsRes.runs ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch posts');
     } finally {
@@ -240,6 +253,42 @@ export function CalendarContent() {
     });
   }, [posts, selectedAccountUuids, selectedGroupIds, selectedTagUuids, groupAccountUuids]);
 
+  // UUIDs of Mixpost posts that belong to a workflow run — excluded from solo post display
+  const groupedUuids = useMemo<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const run of workflowRuns)
+      for (const lane of run.lanes)
+        if (lane.mixpost_uuid) s.add(lane.mixpost_uuid);
+    return s;
+  }, [workflowRuns]);
+
+  // Posts not belonging to any workflow run — displayed as individual PostPills
+  const soloFilteredPosts = useMemo<MixpostPost[]>(
+    () => filteredPosts.filter(p => !groupedUuids.has(p.uuid)),
+    [filteredPosts, groupedUuids]
+  );
+
+  // Mixpost posts keyed by UUID — used by WorkflowRunDetailDialog "View post →" link
+  const postsByUuid = useMemo<Map<string, MixpostPost>>(() => {
+    const m = new Map<string, MixpostPost>();
+    for (const p of posts) m.set(p.uuid, p);
+    return m;
+  }, [posts]);
+
+  // Workflow runs keyed by date (YYYY-MM-DD)
+  const workflowRunsByDate = useMemo<Map<string, WorkflowRun[]>>(() => {
+    const map = new Map<string, WorkflowRun[]>();
+    for (const run of workflowRuns) {
+      const dateKey = run.schedule_type === 'scheduled' && run.base_date
+        ? run.base_date
+        : run.created_at.slice(0, 10);
+      const existing = map.get(dateKey) ?? [];
+      existing.push(run);
+      map.set(dateKey, existing);
+    }
+    return map;
+  }, [workflowRuns]);
+
   const hasActiveFilters =
     selectedAccountUuids.size > 0 || selectedGroupIds.size > 0 || selectedTagUuids.size > 0;
 
@@ -255,7 +304,7 @@ export function CalendarContent() {
 
   const postsByDate = useMemo(() => {
     const map = new Map<string, MixpostPost[]>();
-    for (const post of filteredPosts) {
+    for (const post of soloFilteredPosts) {
       const dateStr = post.published_at || post.scheduled_at;
       if (!dateStr) continue;
       const dayKey = dateStr.slice(0, 10);
@@ -264,7 +313,7 @@ export function CalendarContent() {
       map.set(dayKey, existing);
     }
     return map;
-  }, [filteredPosts]);
+  }, [soloFilteredPosts]);
 
   const goToPrev = useCallback(() => {
     setCurrentDate((prev) => {
@@ -440,7 +489,9 @@ export function CalendarContent() {
         <CalendarGrid
           currentMonth={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)}
           postsByDate={postsByDate}
+          workflowRunsByDate={workflowRunsByDate}
           onPostClick={setSelectedPost}
+          onWorkflowRunClick={setSelectedRun}
           timezone={timezone}
         />
       ) : calendarView === 'week' ? (
@@ -465,6 +516,14 @@ export function CalendarContent() {
         onClose={() => setSelectedPost(null)}
         onDeleted={handlePostDeleted}
         onUpdated={handlePostUpdated}
+      />
+
+      {/* Workflow run detail dialog */}
+      <WorkflowRunDetailDialog
+        run={selectedRun}
+        onClose={() => setSelectedRun(null)}
+        postsByUuid={postsByUuid}
+        onViewPost={(post) => { setSelectedRun(null); setSelectedPost(post); }}
       />
     </div>
   );

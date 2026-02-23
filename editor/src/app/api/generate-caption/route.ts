@@ -138,16 +138,17 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `You are a social media content expert. Generate engaging social media content for a video that will be posted to: ${platformList}.
 
+CRITICAL LANGUAGE REQUIREMENT: You MUST write the caption${hasYouTube ? ', YouTube title,' : ''} and hashtags in ${languageLabel.toUpperCase()} ONLY. This is mandatory regardless of the language of the video script or scene descriptions provided. Do NOT write in any other language under any circumstances.
+
 Rules:
-- Write the caption in ${languageLabel} (language code: ${lang}).
+- LANGUAGE: ${languageLabel} only. Every word of the caption${hasYouTube ? ', title,' : ''} and hashtags must be in ${languageLabel}.
 - The caption should be engaging, hook the reader, and encourage interaction (likes, comments, shares).
 - ${lengthInstruction}
 - ${toneInstruction}
 - Do NOT include hashtags in the caption text itself. Hashtags are generated separately.
-${hasYouTube ? '- Generate a compelling YouTube title (max 100 characters) that is SEO-friendly and attention-grabbing.' : '- Set youtube_title to an empty string since YouTube is not a target platform.'}
+${hasYouTube ? `- Generate a compelling YouTube title (max 100 characters) in ${languageLabel} that is SEO-friendly and attention-grabbing.` : '- Set youtube_title to an empty string since YouTube is not a target platform.'}
 ${videoDuration ? `- The video is ${videoDuration} seconds long.` : ''}
-- Generate 5-10 relevant hashtags. Mix popular broad hashtags with niche-specific ones.
-- Hashtags should be in ${languageLabel} where appropriate, but popular English hashtags are acceptable.
+- Generate 5-10 relevant hashtags in ${languageLabel} where appropriate. Mix popular broad hashtags with niche-specific ones.
 - Do NOT include the # symbol in hashtag strings.`;
 
     const visualFlowText =

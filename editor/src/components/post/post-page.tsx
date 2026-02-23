@@ -30,6 +30,7 @@ import type {
 } from '@/types/post';
 import type { CaptionStyleOptions } from '@/types/caption-style';
 import { DEFAULT_CAPTION_STYLE } from '@/types/caption-style';
+import type { LanguageCode } from '@/lib/constants/languages';
 import { fetchWithRetry, pollMediaDownload } from '@/lib/post/publish-utils';
 
 interface PostPageProps {
@@ -78,6 +79,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
   const [verificationResult, setVerificationResult] = useState<PostVerificationResult | null>(null);
   const [verifyElapsed, setVerifyElapsed] = useState(0);
   const pollAbortRef = useRef<AbortController | null>(null);
+  const isSubmittingRef = useRef(false);
 
   // Track created resources so retry can re-use them instead of creating duplicates
   const [createdMediaId, setCreatedMediaId] = useState<number | null>(null);
@@ -106,6 +108,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [captionStyle, setCaptionStyle] =
     useState<CaptionStyleOptions>(DEFAULT_CAPTION_STYLE);
+  const [captionLanguage, setCaptionLanguage] = useState<LanguageCode>('en');
 
   // Derived: which providers are selected
   const selectedAccounts = useMemo(
@@ -187,6 +190,13 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     loadData();
   }, [renderedVideoId]);
 
+  // Sync caption language from video once loaded
+  useEffect(() => {
+    if (video?.language) {
+      setCaptionLanguage(video.language as LanguageCode);
+    }
+  }, [video?.language]);
+
   const handleGenerateCaption = async () => {
     if (!video?.project_id) return;
 
@@ -197,7 +207,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_id: video.project_id,
-          language: video.language || 'en',
+          language: captionLanguage,
           selected_providers: selectedProviders,
           duration: video.duration,
           caption_style: captionStyle,
@@ -232,6 +242,8 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
   };
 
   const handleSubmit = async () => {
+    if (isSubmittingRef.current) return;
+
     if (selectedAccountIds.length === 0) {
       toast.error('Please select at least one account');
       return;
@@ -252,6 +264,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       return;
     }
 
+    isSubmittingRef.current = true;
     setSubmitError(null);
     setVerificationResult(null);
 
@@ -414,6 +427,8 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
         setSubmitError((error as Error).message);
       }
       toast.error((error as Error).message);
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -841,6 +856,8 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     isGenerating={isGeneratingCaption}
                     captionStyle={captionStyle}
                     onCaptionStyleChange={setCaptionStyle}
+                    language={captionLanguage}
+                    onLanguageChange={setCaptionLanguage}
                   />
                 </section>
 
@@ -903,7 +920,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                   </Button>
                   <Button
                     onClick={handleSubmit}
-                    disabled={selectedAccountIds.length === 0}
+                    disabled={selectedAccountIds.length === 0 || isSubmitting}
                     className="h-11 flex-1 gap-2 rounded-xl text-[13px] font-medium"
                   >
                     {scheduleType === 'now' ? 'Publish Now' : 'Schedule Post'}

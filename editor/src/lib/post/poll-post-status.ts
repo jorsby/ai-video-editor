@@ -110,9 +110,10 @@ export async function pollPostStatus({
     onStatusChange?.(status);
 
     if (TERMINAL_STATUSES.includes(status)) {
+      const accounts = extractAccountResults(post, status);
       return {
         status,
-        accounts: extractAccountResults(post, status),
+        accounts: status === 'published' ? flagSilentFailures(accounts) : accounts,
       };
     }
 
@@ -205,6 +206,40 @@ function extractAccountResults(
       external_url: externalUrl,
     } satisfies PostAccountResult;
   });
+}
+
+// Platforms that always return an external_url on a successful video post.
+// If Mixpost marks a post "published" but none of these accounts have a URL,
+// it likely means the publish job crashed before the platform responded.
+const PLATFORMS_THAT_RETURN_URL = new Set([
+  'facebook', 'facebook_page', 'instagram', 'tiktok', 'youtube',
+]);
+
+/**
+ * After Mixpost reports "published", check for a heuristic silent failure:
+ * if every account that should have an external_url is missing one, the post
+ * likely crashed before the platform confirmed delivery.
+ */
+function flagSilentFailures(accounts: PostAccountResult[]): PostAccountResult[] {
+  const urlExpectedAccounts = accounts.filter(a =>
+    PLATFORMS_THAT_RETURN_URL.has(a.provider) && a.errors.length === 0
+  );
+
+  if (
+    urlExpectedAccounts.length > 0 &&
+    urlExpectedAccounts.every(a => !a.external_url)
+  ) {
+    return accounts.map(a =>
+      PLATFORMS_THAT_RETURN_URL.has(a.provider) && a.errors.length === 0
+        ? {
+            ...a,
+            errors: ['Post marked published but no platform link returned — verify in Mixpost.'],
+          }
+        : a
+    );
+  }
+
+  return accounts;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {

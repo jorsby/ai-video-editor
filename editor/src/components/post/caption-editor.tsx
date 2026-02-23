@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { CaptionStyleOptions } from './caption-style-options';
 import type { MixpostAccount } from '@/types/mixpost';
 import type { CaptionStyleOptions as CaptionStyleOptionsType } from '@/types/caption-style';
+import type { LanguageCode } from '@/lib/constants/languages';
 
 interface CaptionEditorProps {
   value: string;
@@ -14,6 +15,8 @@ interface CaptionEditorProps {
   isGenerating?: boolean;
   captionStyle?: CaptionStyleOptionsType;
   onCaptionStyleChange?: (style: CaptionStyleOptionsType) => void;
+  language?: LanguageCode;
+  onLanguageChange?: (lang: LanguageCode) => void;
 }
 
 export function CaptionEditor({
@@ -24,6 +27,8 @@ export function CaptionEditor({
   isGenerating,
   captionStyle,
   onCaptionStyleChange,
+  language,
+  onLanguageChange,
 }: CaptionEditorProps) {
   const providers = Array.from(
     new Set(selectedAccounts.map((a) => a.provider))
@@ -67,6 +72,8 @@ export function CaptionEditor({
         <CaptionStyleOptions
           value={captionStyle}
           onChange={onCaptionStyleChange}
+          language={language}
+          onLanguageChange={onLanguageChange}
         />
       )}
       <Textarea

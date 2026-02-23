@@ -7,6 +7,6 @@ export interface CaptionStyleOptions {
 }
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyleOptions = {
-  length: 'medium',
+  length: 'short',
   tone: 'casual',
 };

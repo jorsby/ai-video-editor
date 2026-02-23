@@ -3,11 +3,14 @@
 import { useMemo } from 'react';
 import { CalendarDayCell } from './calendar-day-cell';
 import type { MixpostPost } from '@/types/calendar';
+import type { WorkflowRun } from '@/types/workflow-run';
 
 interface CalendarGridProps {
   currentMonth: Date;
   postsByDate: Map<string, MixpostPost[]>;
+  workflowRunsByDate?: Map<string, WorkflowRun[]>;
   onPostClick: (post: MixpostPost) => void;
+  onWorkflowRunClick?: (run: WorkflowRun) => void;
   timezone?: string;
 }
 
@@ -30,7 +33,9 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export function CalendarGrid({
   currentMonth,
   postsByDate,
+  workflowRunsByDate,
   onPostClick,
+  onWorkflowRunClick,
   timezone,
 }: CalendarGridProps) {
   const days = useMemo(() => {
@@ -80,7 +85,9 @@ export function CalendarGrid({
             isCurrentMonth={day.isCurrentMonth}
             isToday={day.isToday}
             posts={postsByDate.get(day.dateKey) || []}
+            workflowRuns={workflowRunsByDate?.get(day.dateKey) || []}
             onPostClick={onPostClick}
+            onWorkflowRunClick={onWorkflowRunClick}
             timezone={timezone}
           />
         ))}

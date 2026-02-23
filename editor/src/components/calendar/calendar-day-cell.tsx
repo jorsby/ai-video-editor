@@ -8,14 +8,18 @@ import {
   PopoverContent,
 } from '@/components/ui/popover';
 import { ProviderIcon } from '@/components/dashboard/provider-icon';
+import { WorkflowRunPill } from './workflow-run-pill';
 import type { MixpostPost, MixpostMedia } from '@/types/calendar';
+import type { WorkflowRun } from '@/types/workflow-run';
 
 interface CalendarDayCellProps {
   date: Date;
   isCurrentMonth: boolean;
   isToday: boolean;
   posts: MixpostPost[];
+  workflowRuns?: WorkflowRun[];
   onPostClick: (post: MixpostPost) => void;
+  onWorkflowRunClick?: (run: WorkflowRun) => void;
   timezone?: string;
 }
 
@@ -131,12 +135,15 @@ export function CalendarDayCell({
   isCurrentMonth,
   isToday,
   posts,
+  workflowRuns = [],
   onPostClick,
+  onWorkflowRunClick,
   timezone,
 }: CalendarDayCellProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const visiblePosts = posts.slice(0, MAX_VISIBLE);
   const overflowCount = posts.length - MAX_VISIBLE;
+  const totalCount = posts.length + workflowRuns.length;
 
   return (
     <div
@@ -159,15 +166,24 @@ export function CalendarDayCell({
         >
           {date.getDate()}
         </span>
-        {posts.length > 0 && (
+        {totalCount > 0 && (
           <span className="text-[10px] text-muted-foreground">
-            {posts.length}
+            {totalCount}
           </span>
         )}
       </div>
 
       {/* Post indicators */}
       <div className="space-y-0.5">
+        {/* Workflow run pills first */}
+        {workflowRuns.map((run) => (
+          <WorkflowRunPill
+            key={run.id}
+            run={run}
+            onClick={onWorkflowRunClick ?? (() => {})}
+          />
+        ))}
+        {/* Solo post pills */}
         {visiblePosts.map((post) => (
           <PostPill key={post.uuid} post={post} onPostClick={onPostClick} timezone={timezone} />
         ))}

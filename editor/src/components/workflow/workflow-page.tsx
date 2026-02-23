@@ -9,9 +9,17 @@ import { SchedulePicker } from '@/components/post/schedule-picker';
 import { fetchWithRetry, pollMediaDownload } from '@/lib/post/publish-utils';
 import { pollPostStatus, PollAuthError } from '@/lib/post/poll-post-status';
 import { savePendingPost } from '@/lib/post/pending-posts-store';
+import {
+  createWorkflowRun,
+  createWorkflowRunLane,
+  updateWorkflowRunLane,
+} from '@/lib/supabase/workflow-run-service';
+import { InstagramOptions } from '@/components/post/platform-options/instagram-options';
+import { YouTubeOptions } from '@/components/post/platform-options/youtube-options';
+import { TikTokOptions } from '@/components/post/platform-options/tiktok-options';
 import type { RenderedVideo } from '@/types/rendered-video';
 import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
-import type { PostFormData, PlatformOptions, PostVerificationResult } from '@/types/post';
+import type { PostFormData, PlatformOptions, TikTokAccountOptions, PostVerificationResult } from '@/types/post';
 import type { CaptionStyleOptions } from '@/types/caption-style';
 import { DEFAULT_CAPTION_STYLE } from '@/types/caption-style';
 
@@ -19,7 +27,7 @@ interface LanguageLane {
   language: string;
   video: RenderedVideo;
   caption: string;
-  youtubeTitle: string;
+  platformOptions: PlatformOptions;
   captionStyle: CaptionStyleOptions;
   assignedGroupId: string | null;
   captionStatus: 'idle' | 'generating' | 'done' | 'error';
@@ -70,6 +78,15 @@ function sanitizeYoutubeTitle(title: string | undefined | null): string {
   return PLACEHOLDER_TITLES.has(t.toLowerCase()) ? '' : t;
 }
 
+/** Advances a "HH:mm" time string by `minutes`, wrapping at 24 h. */
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const totalMinutes = ((h * 60 + m + minutes) % 1440 + 1440) % 1440;
+  const newH = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
+  const newM = (totalMinutes % 60).toString().padStart(2, '0');
+  return `${newH}:${newM}`;
+}
+
 function resolveAccountIds(
   groupId: string | null,
   groups: AccountGroupWithMembers[],
@@ -81,19 +98,35 @@ function resolveAccountIds(
   return accounts.filter(a => group.account_uuids.includes(a.uuid)).map(a => a.id);
 }
 
+const DEFAULT_TIKTOK_OPTIONS: TikTokAccountOptions = {
+  privacy_level: 'PUBLIC_TO_EVERYONE',
+  allow_comments: true,
+  allow_duet: true,
+  allow_stitch: true,
+  is_aigc: false,
+  content_disclosure: false,
+  brand_organic_toggle: false,
+  brand_content_toggle: false,
+};
+
 function defaultPlatformOptions(
   accountIds: number[],
   accounts: MixpostAccount[],
   youtubeTitle: string
 ): PlatformOptions {
-  const providers = accounts
-    .filter(a => accountIds.includes(a.id))
-    .map(a => a.provider);
+  const filteredAccounts = accounts.filter(a => accountIds.includes(a.id));
+  const providers = filteredAccounts.map(a => a.provider);
+
+  const tiktokDefaults: Record<string, TikTokAccountOptions> = {};
+  for (const acc of filteredAccounts.filter(a => a.provider === 'tiktok')) {
+    tiktokDefaults[`account-${acc.id}`] = { ...DEFAULT_TIKTOK_OPTIONS };
+  }
+
   return {
     ...(providers.includes('instagram') && { instagram: { type: 'reel' } }),
     ...(providers.includes('facebook') && { facebook: { type: 'reel' } }),
     ...(providers.includes('youtube') && { youtube: { title: youtubeTitle, status: 'public' } }),
-    ...(providers.includes('tiktok') && { tiktok: {} }),
+    ...(providers.includes('tiktok') && { tiktok: tiktokDefaults }),
   };
 }
 
@@ -219,13 +252,18 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
               )
             : null;
 
+          const autoGroupId = autoGroup?.id ?? null;
+          const autoAccountIds = autoGroupId
+            ? loadedAccounts.filter((a: MixpostAccount) => autoGroup!.account_uuids.includes(a.uuid)).map((a: MixpostAccount) => a.id)
+            : [];
+
           initialLanes[lang] = {
             language: lang,
             video,
             caption: '',
-            youtubeTitle: '',
+            platformOptions: defaultPlatformOptions(autoAccountIds, loadedAccounts, ''),
             captionStyle: { ...DEFAULT_CAPTION_STYLE },
-            assignedGroupId: autoGroup?.id ?? null,
+            assignedGroupId: autoGroupId,
             captionStatus: 'idle',
             publishStatus: { phase: 'idle' },
             createdMediaId: null,
@@ -279,8 +317,16 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
           : '';
       updateLane(language, {
         caption: (caption ?? '') + hashtagStr,
-        youtubeTitle: sanitizeYoutubeTitle(youtube_title),
         captionStatus: 'done',
+        platformOptions: {
+          ...lane.platformOptions,
+          ...(lane.platformOptions.youtube && {
+            youtube: {
+              ...lane.platformOptions.youtube,
+              title: sanitizeYoutubeTitle(youtube_title),
+            },
+          }),
+        },
       });
     } catch {
       updateLane(language, { captionStatus: 'error' });
@@ -293,7 +339,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     await Promise.allSettled(langs.map(lang => generateCaption(lang)));
   }
 
-  async function publishLane(lane: LanguageLane) {
+  async function publishLane(lane: LanguageLane, scheduledTimeOverride?: string, laneId?: string) {
     const signal = laneAbortRefs.current[lane.language]?.signal;
     const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
 
@@ -303,6 +349,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       a => accountIds.includes(a.id) && !a.authorized
     );
     if (unauthorized.length > 0) {
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: 'Unauthorized accounts' }).catch(console.error);
       throw new Error(
         `Unauthorized accounts: ${unauthorized.map(a => `${a.name} (${a.provider})`).join(', ')}`
       );
@@ -312,6 +359,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     let mediaId = lane.createdMediaId;
     if (!mediaId) {
       updateLane(lane.language, { publishStatus: { phase: 'uploading' } });
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'uploading' }).catch(console.error);
       const mediaRes = await fetchWithRetry('/api/mixpost/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -319,7 +367,9 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       });
       if (!mediaRes.ok) {
         const err = await mediaRes.json();
-        throw new Error(err.error || 'Upload failed');
+        const msg = err.error || 'Upload failed';
+        if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
+        throw new Error(msg);
       }
       const mediaData = await mediaRes.json();
       if (mediaRes.status === 202 && mediaData.pending && mediaData.download_id) {
@@ -334,10 +384,13 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     let postUuid = lane.createdPostUuid;
     if (!postUuid) {
       updateLane(lane.language, { publishStatus: { phase: 'creating' } });
-      const hasYouTube = accounts
-        .filter(a => accountIds.includes(a.id))
-        .some(a => a.provider === 'youtube');
-      const ytTitle = lane.youtubeTitle || lane.caption.slice(0, 100);
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'creating' }).catch(console.error);
+
+      // Apply youtube title fallback if empty
+      let platOpts = lane.platformOptions;
+      if (platOpts.youtube && !platOpts.youtube.title.trim()) {
+        platOpts = { ...platOpts, youtube: { ...platOpts.youtube, title: lane.caption.slice(0, 100) } };
+      }
 
       const postBody: PostFormData & { mediaId: number } = {
         caption: lane.caption,
@@ -345,13 +398,9 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
         mediaId,
         scheduleType,
         scheduledDate: scheduleType === 'scheduled' ? scheduledDate : undefined,
-        scheduledTime: scheduleType === 'scheduled' ? scheduledTime : undefined,
+        scheduledTime: scheduleType === 'scheduled' ? (scheduledTimeOverride ?? scheduledTime) : undefined,
         timezone,
-        platformOptions: defaultPlatformOptions(
-          accountIds,
-          accounts,
-          hasYouTube ? ytTitle : ''
-        ),
+        platformOptions: platOpts,
       };
 
       const postRes = await fetchWithRetry('/api/mixpost/posts', {
@@ -361,10 +410,13 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       });
       if (!postRes.ok) {
         const err = await postRes.json();
-        throw new Error(err.error || 'Create post failed');
+        const msg = err.error || 'Create post failed';
+        if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
+        throw new Error(msg);
       }
       postUuid = (await postRes.json()).post.uuid as string;
       updateLane(lane.language, { createdPostUuid: postUuid });
+      if (laneId) updateWorkflowRunLane(laneId, { mixpost_uuid: postUuid }).catch(console.error);
     }
 
     // Schedule / publish
@@ -376,7 +428,9 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     });
     if (!schedRes.ok) {
       const err = await schedRes.json();
-      throw new Error(err.error || 'Schedule failed');
+      const msg = err.error || 'Schedule failed';
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
+      throw new Error(msg);
     }
 
     const schedData = await schedRes.json() as { success: boolean; scheduled_at?: string; postUuid: string };
@@ -386,6 +440,11 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       updateLane(lane.language, { publishStatus: { phase: 'verifying' } });
       const result = await pollPostStatus({ postUuid, signal });
       updateLane(lane.language, { publishStatus: { phase: 'done', result } });
+      if (laneId) {
+        const finalStatus = result.status === 'failed' ? 'failed' : 'published';
+        const errMsg = result.accounts.flatMap(a => a.errors).join('; ') || undefined;
+        updateWorkflowRunLane(laneId, { status: finalStatus, error_message: errMsg }).catch(console.error);
+      }
       if (result.status === 'unconfirmed') {
         savePendingPost(postUuid, []);
       }
@@ -397,35 +456,68 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
           scheduledAt: schedData.scheduled_at ?? undefined,
         },
       });
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'scheduled' }).catch(console.error);
     }
   }
 
   async function runWorkflow() {
     setIsRunning(true);
 
-    // Snapshot current lanes before going async
+    // Snapshot current lanes before going async, sorted consistently
     const snapshot = { ...lanes };
-    const activeLanes = Object.values(snapshot).filter(
-      l => l.assignedGroupId && l.caption.trim()
-    );
+    const activeLanes = Object.values(snapshot)
+      .filter(l => l.assignedGroupId && l.caption.trim())
+      .sort(
+        (a, b) =>
+          (LANG_ORDER.indexOf(a.language) === -1 ? 99 : LANG_ORDER.indexOf(a.language)) -
+          (LANG_ORDER.indexOf(b.language) === -1 ? 99 : LANG_ORDER.indexOf(b.language))
+      );
 
     activeLanes.forEach(l => {
       laneAbortRefs.current[l.language] = new AbortController();
     });
 
-    await Promise.allSettled(
-      activeLanes.map(lane =>
-        publishLane(lane).catch(err => {
-          const msg =
-            err instanceof PollAuthError
-              ? 'Session expired during verification — check Mixpost for status.'
-              : (err as Error).message;
-          updateLane(lane.language, {
-            publishStatus: { phase: 'error', message: msg },
-          });
-        })
-      )
-    );
+    // Create a workflow run record + one lane stub per active lane for observability.
+    // These writes are best-effort — failures must never block publishing.
+    const laneIdMap: Record<string, string> = {};
+    try {
+      const runId = await createWorkflowRun({
+        project_id: projectId,
+        schedule_type: scheduleType,
+        base_date: scheduledDate || undefined,
+        base_time: scheduledTime || undefined,
+        timezone,
+      });
+      for (const lane of activeLanes) {
+        const laneId = await createWorkflowRunLane({ workflow_run_id: runId, language: lane.language });
+        laneIdMap[lane.language] = laneId;
+      }
+    } catch (err) {
+      console.error('Failed to create workflow run record:', err);
+    }
+
+    // Publish sequentially to prevent simultaneous platform API bursts.
+    // For "post now": each lane's schedule call fires only after the previous lane has
+    // completed, ensuring Mixpost processes one batch at a time.
+    // For "scheduled": each lane gets a +2-minute offset so posts are spread across
+    // separate Mixpost cron runs instead of all queuing in the same minute.
+    for (let i = 0; i < activeLanes.length; i++) {
+      const lane = activeLanes[i];
+      const timeOverride =
+        scheduleType === 'scheduled' && scheduledTime
+          ? addMinutesToTime(scheduledTime, i * 2)
+          : undefined;
+
+      await publishLane(lane, timeOverride, laneIdMap[lane.language]).catch(err => {
+        const msg =
+          err instanceof PollAuthError
+            ? 'Session expired during verification — check Mixpost for status.'
+            : (err as Error).message;
+        updateLane(lane.language, {
+          publishStatus: { phase: 'error', message: msg },
+        });
+      });
+    }
 
     setIsRunning(false);
   }
@@ -677,22 +769,34 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                     onCaptionStyleChange={style => updateLane(lane.language, { captionStyle: style })}
                   />
 
-                  {/* YouTube title — only shown when group has YouTube accounts */}
-                  {assignedAccounts.some(a => a.provider === 'youtube') && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-zinc-400">
-                        YouTube Title
-                      </label>
-                      <input
-                        type="text"
-                        value={lane.youtubeTitle}
-                        onChange={e =>
-                          updateLane(lane.language, { youtubeTitle: e.target.value })
-                        }
-                        placeholder="Video title for YouTube..."
-                        disabled={isPublishing || isDone}
-                        className="w-full rounded-md border border-white/[0.06] bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
-                      />
+                  {/* Platform options — shown when group has relevant accounts */}
+                  {assignedAccounts.length > 0 && !isPublishing && !isDone && (
+                    <div className="space-y-3">
+                      {assignedAccounts.some(a => a.provider === 'instagram') && lane.platformOptions.instagram && (
+                        <InstagramOptions
+                          value={lane.platformOptions.instagram}
+                          onChange={v => updateLane(lane.language, {
+                            platformOptions: { ...lane.platformOptions, instagram: v },
+                          })}
+                        />
+                      )}
+                      {assignedAccounts.some(a => a.provider === 'youtube') && lane.platformOptions.youtube && (
+                        <YouTubeOptions
+                          value={lane.platformOptions.youtube}
+                          onChange={v => updateLane(lane.language, {
+                            platformOptions: { ...lane.platformOptions, youtube: v },
+                          })}
+                        />
+                      )}
+                      {assignedAccounts.some(a => a.provider === 'tiktok') && lane.platformOptions.tiktok !== undefined && (
+                        <TikTokOptions
+                          accounts={assignedAccounts.filter(a => a.provider === 'tiktok')}
+                          value={lane.platformOptions.tiktok}
+                          onChange={v => updateLane(lane.language, {
+                            platformOptions: { ...lane.platformOptions, tiktok: v },
+                          })}
+                        />
+                      )}
                     </div>
                   )}
 
@@ -703,11 +807,15 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                     </label>
                     <select
                       value={lane.assignedGroupId ?? ''}
-                      onChange={e =>
+                      onChange={e => {
+                        const newGroupId = e.target.value || null;
+                        const newAccountIds = resolveAccountIds(newGroupId, groups, accounts);
+                        const existingYtTitle = lane.platformOptions?.youtube?.title ?? '';
                         updateLane(lane.language, {
-                          assignedGroupId: e.target.value || null,
-                        })
-                      }
+                          assignedGroupId: newGroupId,
+                          platformOptions: defaultPlatformOptions(newAccountIds, accounts, existingYtTitle),
+                        });
+                      }}
                       disabled={isPublishing || isDone}
                       className="w-full rounded-md border border-white/[0.06] bg-[#0a0a0c] px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-white/20 disabled:opacity-50"
                     >

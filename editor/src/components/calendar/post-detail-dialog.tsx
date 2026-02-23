@@ -284,9 +284,29 @@ export function PostDetailDialog({
                           <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
                             {account.provider}
                           </span>
-                          <span className="ml-auto text-[10px]">
-                            {hasFailed ? '✗ failed' : status === 'published' ? '✓ published' : ''}
-                          </span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <span className="text-[10px]">
+                              {hasFailed ? '✗ failed' : status === 'published' ? '✓ published' : ''}
+                            </span>
+                            {(() => {
+                              const url =
+                                account.external_url ||
+                                account.pivot?.provider_post_data?.url ||
+                                account.pivot?.provider_post_data?.external_url ||
+                                null;
+                              return url ? (
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-blue-400 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  View post →
+                                </a>
+                              ) : null;
+                            })()}
+                          </div>
                         </div>
                         {hasFailed && accountErrors.map((err, i) => (
                           <p key={i} className="px-2 text-[11px] text-red-400/80">{err}</p>
