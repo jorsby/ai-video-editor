@@ -525,7 +525,7 @@ export function ExportModal({
                 <h3 className="mb-3 text-xs font-medium text-zinc-400">
                   All Language Variants
                 </h3>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
                   {allRenders.map((rv) => (
                     <RenderVariantRow key={rv.id} render={rv} />
                   ))}

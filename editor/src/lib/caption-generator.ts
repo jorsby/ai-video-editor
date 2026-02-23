@@ -11,6 +11,7 @@ interface CaptionClipOptions {
   fontUrl?: string;
   mode?: "single" | "multiple";
   style?: any;
+  isRTL?: boolean;
 }
 
 /**
@@ -24,10 +25,14 @@ export async function generateCaptionClips(
     videoHeight,
     words,
     fontSize = DEFAULT_CAPTION_FONT_SIZE,
-    fontFamily = "Bangers-Regular",
-    fontUrl = "https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf",
+    isRTL = false,
     mode = "multiple",
   } = options;
+
+  const fontFamily = options.fontFamily ?? (isRTL ? "Cairo" : "Bangers-Regular");
+  const fontUrl = options.fontUrl ?? (isRTL
+    ? "https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf"
+    : "https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf");
 
   const maxCaptionWidth = videoWidth * 0.8;
   let captionChunks: any[] = [];
@@ -133,8 +138,9 @@ export async function generateCaptionClips(
         fontWeight: "700",
         fontStyle: "normal",
         color: "#ffffff",
-        align: "center",
+        align: isRTL ? "right" : "center",
         fontUrl: fontUrl,
+        isRTL,
         stroke: {
           color: "#000000",
           width: 4,

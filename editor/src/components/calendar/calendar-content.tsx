@@ -286,6 +286,16 @@ export function CalendarContent() {
 
   const goToToday = useCallback(() => setCurrentDate(new Date()), []);
 
+  const handlePostDeleted = useCallback((uuid: string) => {
+    setPosts((prev) => prev.filter((p) => p.uuid !== uuid));
+    setSelectedPost(null);
+  }, []);
+
+  const handlePostUpdated = useCallback(() => {
+    setSelectedPost(null);
+    fetchPosts(getMonthsToFetch(currentDate, calendarView), statusFilter);
+  }, [fetchPosts, currentDate, calendarView, statusFilter]);
+
   const navLabel = buildNavLabel(currentDate, calendarView);
 
   const filterTabs: { label: string; value: StatusFilter; color: string }[] = [
@@ -453,6 +463,8 @@ export function CalendarContent() {
       <PostDetailDialog
         post={selectedPost}
         onClose={() => setSelectedPost(null)}
+        onDeleted={handlePostDeleted}
+        onUpdated={handlePostUpdated}
       />
     </div>
   );

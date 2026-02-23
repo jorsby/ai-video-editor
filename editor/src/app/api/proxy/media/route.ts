@@ -62,7 +62,6 @@ export async function GET(request: NextRequest) {
     if (contentLength) {
       headers.set('Content-Length', contentLength);
     }
-
     return new Response(upstream.body, { status: 200, headers });
   } catch (error) {
     return NextResponse.json(

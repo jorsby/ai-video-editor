@@ -8,6 +8,9 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
+const CAPTION_PRIMARY_MODEL = 'arcee-ai/trinity-large-preview:free';
+const CAPTION_BACKUP_MODEL = 'stepfun/step-3.5-flash:free';
+
 const captionResultSchema = z.object({
   caption: z
     .string()
@@ -20,9 +23,11 @@ const captionResultSchema = z.object({
       'A YouTube video title (max 100 chars), or empty string if YouTube is not a target platform.'
     ),
   hashtags: z
-    .array(z.string())
+    .array(z.string().max(50))
+    .min(3)
+    .max(15)
     .describe(
-      'Relevant hashtags without the # symbol, 5-10 tags mixing popular and niche.'
+      'Relevant hashtags without the # symbol, 5-10 tags mixing popular and niche. Maximum 15 tags.'
     ),
 });
 
@@ -161,17 +166,35 @@ ${visualFlowText}
 
 Generate the social media caption, ${hasYouTube ? 'YouTube title, ' : ''}and hashtags.`;
 
-    const { object: result } = await generateObject({
-      model: openrouter.chat('arcee-ai/trinity-large-preview:free'),
-      schema: captionResultSchema,
-      system: systemPrompt,
-      prompt: userPrompt,
-    });
+    let result: z.infer<typeof captionResultSchema>;
+    try {
+      const { object } = await generateObject({
+        model: openrouter.chat(CAPTION_PRIMARY_MODEL),
+        schema: captionResultSchema,
+        system: systemPrompt,
+        prompt: userPrompt,
+        maxTokens: 1000,
+      });
+      result = object;
+    } catch (primaryError) {
+      console.warn(
+        '[Caption] Primary model failed, retrying with backup:',
+        primaryError instanceof Error ? primaryError.message : primaryError
+      );
+      const { object } = await generateObject({
+        model: openrouter.chat(CAPTION_BACKUP_MODEL),
+        schema: captionResultSchema,
+        system: systemPrompt,
+        prompt: userPrompt,
+        maxTokens: 1000,
+      });
+      result = object;
+    }
 
     return NextResponse.json({
       caption: result.caption,
       youtube_title: result.youtube_title,
-      hashtags: result.hashtags,
+      hashtags: result.hashtags.slice(0, 15),
     });
   } catch (error) {
     console.error('Generate caption error:', error);

@@ -11,10 +11,6 @@ import type {
 } from './types';
 import type { TimelineTrack } from '@/types/timeline';
 import type { SavedSoundsData, SavedSound, SoundEffect } from '@/types/sounds';
-import type {
-  SavedTextPresetsData,
-  SavedTextPreset,
-} from '@/types/text-presets';
 
 export interface StorageStats {
   usedBytes: number;
@@ -28,7 +24,6 @@ export interface StorageStats {
 class StorageService {
   private projectsAdapter: IndexedDBAdapter<SerializedProject>;
   private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
-  private savedTextPresetsAdapter: IndexedDBAdapter<SavedTextPresetsData>;
   private config: StorageConfig;
 
   constructor() {
@@ -37,7 +32,6 @@ class StorageService {
       mediaDb: 'video-editor-media',
       timelineDb: 'video-editor-timelines',
       savedSoundsDb: 'video-editor-saved-sounds',
-      savedTextPresetsDb: 'video-editor-saved-text-presets',
       version: 1,
     };
 
@@ -50,12 +44,6 @@ class StorageService {
     this.savedSoundsAdapter = new IndexedDBAdapter<SavedSoundsData>(
       this.config.savedSoundsDb,
       'saved-sounds',
-      this.config.version
-    );
-
-    this.savedTextPresetsAdapter = new IndexedDBAdapter<SavedTextPresetsData>(
-      this.config.savedTextPresetsDb,
-      'saved-text-presets',
       this.config.version
     );
   }
@@ -478,71 +466,6 @@ class StorageService {
       await this.savedSoundsAdapter.remove('user-sounds');
     } catch (error) {
       console.error('Failed to clear saved sounds:', error);
-      throw error;
-    }
-  }
-
-  // Saved text presets operations
-  async loadSavedTextPresets(): Promise<SavedTextPresetsData> {
-    try {
-      const data = await this.savedTextPresetsAdapter.get('user-text-presets');
-      return (
-        data || {
-          presets: [],
-          lastModified: new Date().toISOString(),
-        }
-      );
-    } catch (error) {
-      console.error('Failed to load saved text presets:', error);
-      return { presets: [], lastModified: new Date().toISOString() };
-    }
-  }
-
-  async saveTextPreset({
-    preset,
-  }: {
-    preset: SavedTextPreset;
-  }): Promise<void> {
-    try {
-      const currentData = await this.loadSavedTextPresets();
-
-      const updatedData: SavedTextPresetsData = {
-        presets: [...currentData.presets, preset],
-        lastModified: new Date().toISOString(),
-      };
-
-      await this.savedTextPresetsAdapter.set('user-text-presets', updatedData);
-    } catch (error) {
-      console.error('Failed to save text preset:', error);
-      throw error;
-    }
-  }
-
-  async removeTextPreset({
-    presetId,
-  }: {
-    presetId: string;
-  }): Promise<void> {
-    try {
-      const currentData = await this.loadSavedTextPresets();
-
-      const updatedData: SavedTextPresetsData = {
-        presets: currentData.presets.filter((p) => p.id !== presetId),
-        lastModified: new Date().toISOString(),
-      };
-
-      await this.savedTextPresetsAdapter.set('user-text-presets', updatedData);
-    } catch (error) {
-      console.error('Failed to remove text preset:', error);
-      throw error;
-    }
-  }
-
-  async clearSavedTextPresets(): Promise<void> {
-    try {
-      await this.savedTextPresetsAdapter.remove('user-text-presets');
-    } catch (error) {
-      console.error('Failed to clear saved text presets:', error);
       throw error;
     }
   }

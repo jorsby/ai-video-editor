@@ -7,6 +7,7 @@ export interface MixpostPostAccount {
   authorized: boolean;
   image?: string | null;
   external_url?: string | null;
+  errors?: string[];
   pivot?: {
     provider_post_data?: {
       url?: string;

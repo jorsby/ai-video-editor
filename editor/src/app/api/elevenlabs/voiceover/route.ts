@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers,
       body: JSON.stringify(data),
+      signal: req.signal,
     });
 
     if (!response.ok) {
@@ -96,6 +97,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ url: publicUrl, id: asset.id });
   } catch (error) {
+    if ((error as DOMException)?.name === 'AbortError') {
+      return new Response(null, { status: 499 });
+    }
     console.error('Voiceover generation error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

@@ -183,6 +183,7 @@ function RenderCard({
   const [isVisible, setIsVisible] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Lazy load: only mount <video> when card enters viewport
   useEffect(() => {
@@ -347,17 +348,38 @@ function RenderCard({
           </button>
 
           {/* Download */}
-          <a
-            href={render.url}
-            download
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+          <button
+            type="button"
+            disabled={isDownloading}
+            onClick={async (e) => {
+              e.stopPropagation();
+              setIsDownloading(true);
+              try {
+                const res = await fetch(render.url);
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = `jorsby_${render.id}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(blobUrl);
+                }, 100);
+              } finally {
+                setIsDownloading(false);
+              }
+            }}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-40"
             title="Download"
-            onClick={(e) => e.stopPropagation()}
           >
-            <Download className="h-4 w-4" />
-          </a>
+            {isDownloading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+          </button>
 
           <div className="flex-1" />
 

@@ -11,21 +11,6 @@ interface StudioTrack {
 }
 
 /**
- * Find which track a clip belongs to
- */
-function findTrackForClip(
-  tracks: StudioTrack[],
-  clipId: string
-): string | null {
-  for (const track of tracks) {
-    if (track.clipIds.includes(clipId)) {
-      return track.id;
-    }
-  }
-  return null;
-}
-
-/**
  * Save timeline (tracks and clips) to Supabase
  */
 export async function saveTimeline(
@@ -78,20 +63,29 @@ export async function saveTimeline(
     if (trackError) throw trackError;
   }
 
-  // Insert clips
-  if (clips.length > 0) {
-    const clipRows = clips
-      .map((clip, i) => {
-        const trackId = findTrackForClip(tracks, clip.id);
-        if (!trackId) return null;
-        return {
-          id: clip.id,
-          track_id: trackId,
-          position: i,
-          data: clipToJSON(clip), // Serialize clip to JSON
-        };
-      })
-      .filter((row) => row !== null);
+  // Insert clips (track-first: use track.clipIds as authoritative order)
+  const clipById = new Map<string, IClip>(clips.map((c) => [c.id, c]));
+  const clipRows: Array<{
+    id: string;
+    track_id: string;
+    position: number;
+    data: ReturnType<typeof clipToJSON>;
+  }> = [];
+
+  for (const track of tracks) {
+    for (let pos = 0; pos < track.clipIds.length; pos++) {
+      const clip = clipById.get(track.clipIds[pos]);
+      if (!clip) continue;
+      clipRows.push({
+        id: clip.id,
+        track_id: track.id,
+        position: pos,
+        data: clipToJSON(clip),
+      });
+    }
+  }
+
+  if (clipRows.length > 0) {
     const { error: clipError } = await supabase.from('clips').insert(clipRows);
     if (clipError) throw clipError;
   }

@@ -66,7 +66,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { generateUUID } from '@/utils/id';
-import { storageService } from '@/lib/storage/storage-service';
+import { saveTextPreset } from '@/lib/supabase/text-presets-service';
 import type { SavedTextPreset, TextPresetStyle, TextPresetClipProperties } from '@/types/text-presets';
 import { toast } from 'sonner';
 
@@ -302,7 +302,7 @@ export function TextProperties({ clip }: TextPropertiesProps) {
     };
 
     try {
-      await storageService.saveTextPreset({ preset });
+      await saveTextPreset(preset);
       toast.success(`Preset "${preset.name}" saved`);
       setSaveDialogOpen(false);
       setPresetName('');

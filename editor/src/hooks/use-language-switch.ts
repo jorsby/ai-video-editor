@@ -49,11 +49,18 @@ export function useLanguageSwitch() {
         // Load target language's timeline
         const savedData = await loadTimeline(projectId, targetLanguage);
 
-        if (savedData && savedData.length > 0) {
+        if (savedData === null) {
+          // loadTimeline only returns null on actual DB/network error
+          toast.error('Failed to load timeline. Please try again.');
+          setIsLanguageSwitching(false);
+          return;
+        }
+
+        if (savedData.length > 0) {
           const projectJson = reconstructProjectJSON(savedData);
           await studio.loadFromJSON(projectJson as any);
         } else {
-          // Empty timeline for new language
+          // Genuinely empty — first time this language is used
           studio.clear();
         }
 

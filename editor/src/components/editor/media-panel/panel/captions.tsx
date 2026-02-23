@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Play, Trash2, RefreshCw } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { fontManager, jsonToClip, Log, type IClip } from 'openvideo';
 import { generateCaptionClips } from '@/lib/caption-generator';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,12 +19,14 @@ import {
 
 export default function PanelCaptions() {
   const { studio } = useStudioStore();
+  const { activeLanguage } = useLanguageStore();
   const projectId = useProjectId();
   const [mediaItems, setMediaItems] = useState<IClip[]>([]);
   const [captionItems, setCaptionItems] = useState<IClip[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
   const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
+  const [captionLanguage, setCaptionLanguage] = useState<string>(activeLanguage);
 
   // Use refs to access latest state inside event listeners without re-binding
   const captionItemsRef = useRef<IClip[]>([]);
@@ -120,9 +124,11 @@ export default function PanelCaptions() {
 
     setIsGenerating(true);
     try {
-      const fontName = 'Bangers-Regular';
-      const fontUrl =
-        'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
+      const isRTL = captionLanguage === 'ar';
+      const fontName = isRTL ? 'Cairo' : 'Bangers-Regular';
+      const fontUrl = isRTL
+        ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
+        : 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
 
       await fontManager.addFont({
         name: fontName,
@@ -137,19 +143,23 @@ export default function PanelCaptions() {
           // 1. Get transcription (check cache first)
           const audioUrl = (mediaClip as any).src;
           if (!audioUrl) continue;
+          if ((mediaClip as any).volume === 0) continue;
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let transcriptionData: any = null;
 
+          // Include language in cache key so Arabic and English don't share a cached result
+          const cacheModel = captionLanguage === 'auto' ? 'nova-3' : `nova-3-${captionLanguage}`;
+
           if (!forceRegenerate) {
-            transcriptionData = await loadTranscription(projectId, audioUrl);
+            transcriptionData = await loadTranscription(projectId, audioUrl, cacheModel);
           }
 
           if (!transcriptionData) {
             const transcribeResponse = await fetch('/api/transcribe', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: audioUrl, model: 'nova-3' }),
+              body: JSON.stringify({ url: audioUrl, model: 'nova-3', language: captionLanguage }),
             });
 
             if (!transcribeResponse.ok) {
@@ -162,7 +172,7 @@ export default function PanelCaptions() {
 
             // Cache the transcription result
             try {
-              await saveTranscription(projectId, audioUrl, transcriptionData);
+              await saveTranscription(projectId, audioUrl, transcriptionData, cacheModel);
             } catch (e) {
               Log.error('Failed to cache transcription:', e);
             }
@@ -178,6 +188,9 @@ export default function PanelCaptions() {
             videoWidth: (studio as any).opts.width,
             videoHeight: (studio as any).opts.height,
             words,
+            isRTL,
+            fontFamily: fontName,
+            fontUrl,
           });
 
           // 3. Prepare clips
@@ -498,6 +511,26 @@ export default function PanelCaptions() {
             <div className="text-sm text-muted-foreground">
               Recognize speech in the selected media and generate captions
               automatically.
+            </div>
+            <div className="w-full flex flex-col gap-1">
+              <select
+                value={captionLanguage}
+                onChange={(e) => setCaptionLanguage(e.target.value)}
+                disabled={isGenerating}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="auto">Auto-detect</option>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+              {captionLanguage === 'auto' && (
+                <p className="text-xs text-muted-foreground text-left">
+                  Auto-detect may not work for all languages (e.g. Arabic).
+                </p>
+              )}
             </div>
             <Button
               onClick={() => handleGenerateCaptions()}

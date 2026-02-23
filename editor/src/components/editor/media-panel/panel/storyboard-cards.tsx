@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -1609,19 +1610,28 @@ export function StoryboardCards({
         {selectedSceneIds.size > 0 && (
           <div className="flex flex-col gap-1.5 px-2">
             <div className="flex items-center gap-1.5">
-              <Select
-                value={timelineAddMode}
-                onValueChange={(v) => setTimelineAddMode(v as TimelineAddMode)}
-              >
-                <SelectTrigger className="h-8 text-xs w-[110px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both">Both</SelectItem>
-                  <SelectItem value="video-only">Video Only</SelectItem>
-                  <SelectItem value="voiceover-only">VO Only</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex rounded-md overflow-hidden border">
+                {(
+                  [
+                    { value: 'voiceover-only', label: 'VO' },
+                    { value: 'video-only', label: 'Video' },
+                    { value: 'both', label: 'Both' },
+                  ] as { value: TimelineAddMode; label: string }[]
+                ).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setTimelineAddMode(value)}
+                    className={cn(
+                      'h-8 px-2.5 text-xs font-medium transition-colors border-r last:border-r-0',
+                      timelineAddMode === value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-accent text-muted-foreground hover:text-accent-foreground'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <Button
                 size="sm"
                 variant="outline"

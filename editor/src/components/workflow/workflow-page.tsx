@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Loader2, ChevronRight, CheckCircle2, XCircle, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,7 @@ type LanePublishPhase = 'idle' | 'preflight' | 'uploading' | 'creating' | 'sched
 
 type LanePublishStatus =
   | { phase: LanePublishPhase }
-  | { phase: 'done'; result: PostVerificationResult }
+  | { phase: 'done'; result: PostVerificationResult; scheduledAt?: string }
   | { phase: 'error'; message: string };
 
 // Maps language codes to fuzzy group name keywords for auto-matching
@@ -63,6 +63,12 @@ const LANG_BADGE_COLOR: Record<string, string> = {
 
 // Language order for consistent display
 const LANG_ORDER = ['en', 'tr', 'ar', 'es', 'fr', 'de', 'it', 'pt'];
+
+const PLACEHOLDER_TITLES = new Set(['unknown', 'n/a', 'title', 'youtube title', 'video title']);
+function sanitizeYoutubeTitle(title: string | undefined | null): string {
+  const t = (title ?? '').trim();
+  return PLACEHOLDER_TITLES.has(t.toLowerCase()) ? '' : t;
+}
 
 function resolveAccountIds(
   groupId: string | null,
@@ -111,13 +117,29 @@ function videoAspectRatio(resolution: string | null): string {
   return p ? `${p.width} / ${p.height}` : '16 / 9';
 }
 
-function StepLabel({ phase }: { phase: string }) {
+function formatScheduledAt(isoString: string | undefined): string | null {
+  if (!isoString) return null;
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return null;
+  }
+}
+
+function StepLabel({ phase, scheduleType }: { phase: string; scheduleType: 'now' | 'scheduled' }) {
   const labels: Record<string, string> = {
     preflight: 'Checking accounts...',
     uploading: 'Uploading video...',
     creating: 'Creating post...',
-    scheduling: 'Scheduling...',
-    verifying: 'Verifying...',
+    scheduling: scheduleType === 'now' ? 'Posting now...' : 'Scheduling...',
+    verifying: 'Confirming post...',
   };
   return (
     <span className="text-xs text-zinc-400 flex items-center gap-1.5">
@@ -257,7 +279,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
           : '';
       updateLane(language, {
         caption: (caption ?? '') + hashtagStr,
-        youtubeTitle: youtube_title ?? '',
+        youtubeTitle: sanitizeYoutubeTitle(youtube_title),
         captionStatus: 'done',
       });
     } catch {
@@ -357,6 +379,8 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       throw new Error(err.error || 'Schedule failed');
     }
 
+    const schedData = await schedRes.json() as { success: boolean; scheduled_at?: string; postUuid: string };
+
     // Verify (only for "post now" — scheduled posts skip verification)
     if (scheduleType === 'now') {
       updateLane(lane.language, { publishStatus: { phase: 'verifying' } });
@@ -370,6 +394,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
         publishStatus: {
           phase: 'done',
           result: { status: 'scheduled', accounts: [] } as unknown as PostVerificationResult,
+          scheduledAt: schedData.scheduled_at ?? undefined,
         },
       });
     }
@@ -440,6 +465,67 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
   const allLanesReady =
     laneList.length > 0 &&
     laneList.every(l => l.assignedGroupId && l.caption.trim() !== '');
+
+  const completedLanesCount = laneList.filter(
+    l => l.publishStatus.phase === 'done' || l.publishStatus.phase === 'error'
+  ).length;
+
+  const publishingActive = useMemo(
+    () => laneList.some(l => l.publishStatus.phase !== 'idle'),
+    [laneList]
+  );
+
+  const lanePillData = useMemo(() =>
+    laneList
+      .filter(l => l.publishStatus.phase !== 'idle')
+      .map(l => {
+        const meta = LANG_META[l.language] ?? { flag: '🌐', label: l.language.toUpperCase() };
+        const status = l.publishStatus;
+        return {
+          language: l.language,
+          flag: meta.flag,
+          phase: status.phase,
+          doneResult:
+            status.phase === 'done'
+              ? (status as { phase: 'done'; result: PostVerificationResult }).result.status
+              : null,
+        };
+      }),
+    [laneList]
+  );
+
+  const publishCounts = useMemo(() => {
+    const active = laneList.filter(l => l.publishStatus.phase !== 'idle');
+    const total = active.length;
+    const done = active.filter(l => l.publishStatus.phase === 'done').length;
+    const errors = active.filter(l => l.publishStatus.phase === 'error').length;
+    const published = active.filter(
+      l => l.publishStatus.phase === 'done' &&
+      (l.publishStatus as { phase: 'done'; result: PostVerificationResult }).result.status === 'published'
+    ).length;
+    const scheduled = active.filter(
+      l => l.publishStatus.phase === 'done' &&
+      (l.publishStatus as { phase: 'done'; result: PostVerificationResult }).result.status === 'scheduled'
+    ).length;
+    return { total, finished: done + errors, published, scheduled, errors };
+  }, [laneList]);
+
+  const isAllDone = !isRunning && publishCounts.finished === publishCounts.total && publishCounts.total > 0;
+  const isAllSuccess = isAllDone && publishCounts.errors === 0;
+
+  function phaseText(phase: string, doneResult: string | null): string {
+    if (phase === 'done') {
+      if (doneResult === 'scheduled') return 'Scheduled';
+      if (doneResult === 'published') return 'Published';
+      return 'Done';
+    }
+    if (phase === 'error') return 'Failed';
+    const map: Record<string, string> = {
+      preflight: 'Checking', uploading: 'Uploading',
+      creating: 'Creating', scheduling: 'Scheduling', verifying: 'Verifying',
+    };
+    return map[phase] ?? phase;
+  }
 
   if (isLoading) {
     return (
@@ -527,16 +613,20 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
 
                 {/* Status (right-aligned) */}
                 <div className="ml-auto flex items-center gap-2">
-                  {isPublishing && <StepLabel phase={status.phase} />}
-                  {isDone && (
-                    <span className="flex items-center gap-1 text-xs text-emerald-400">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {(status as { phase: 'done'; result: PostVerificationResult })
-                        .result.status === 'scheduled'
-                        ? 'Scheduled'
-                        : 'Published'}
-                    </span>
-                  )}
+                  {isPublishing && <StepLabel phase={status.phase} scheduleType={scheduleType} />}
+                  {isDone && (() => {
+                    const doneStatus = status as { phase: 'done'; result: PostVerificationResult; scheduledAt?: string };
+                    const isScheduled = doneStatus.result.status === 'scheduled';
+                    const formattedTime = isScheduled ? formatScheduledAt(doneStatus.scheduledAt) : null;
+                    return (
+                      <span className="flex items-center gap-1 text-xs text-emerald-400">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {isScheduled
+                          ? formattedTime ? `Scheduled · ${formattedTime}` : 'Scheduled'
+                          : 'Published'}
+                      </span>
+                    );
+                  })()}
                   {isError && (
                     <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-xs text-red-400">
@@ -683,47 +773,118 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
 
       {/* Sticky footer */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/[0.06] bg-[#0a0a0c]/95 backdrop-blur-sm px-6 py-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4 max-w-screen-xl mx-auto">
-          {/* Schedule picker */}
-          <div className="flex-1">
-            <SchedulePicker
-              scheduleType={scheduleType}
-              onScheduleTypeChange={setScheduleType}
-              scheduledDate={scheduledDate}
-              onScheduledDateChange={setScheduledDate}
-              scheduledTime={scheduledTime}
-              onScheduledTimeChange={setScheduledTime}
-              timezone={timezone}
-              onTimezoneChange={setTimezone}
-            />
-          </div>
+        <div className="flex flex-col gap-3 max-w-screen-xl mx-auto">
+          {/* Row 1: controls */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
+            {/* Schedule picker — hidden once publishing starts; replaced by status when done */}
+            {!publishingActive ? (
+              <div className="flex-1">
+                <SchedulePicker
+                  scheduleType={scheduleType}
+                  onScheduleTypeChange={setScheduleType}
+                  scheduledDate={scheduledDate}
+                  onScheduledDateChange={setScheduledDate}
+                  scheduledTime={scheduledTime}
+                  onScheduledTimeChange={setScheduledTime}
+                  timezone={timezone}
+                  onTimezoneChange={setTimezone}
+                />
+              </div>
+            ) : isAllDone ? (
+              <div className="flex-1 flex items-center gap-2">
+                {isAllSuccess ? (
+                  <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    All {scheduleType === 'now' ? 'published' : 'scheduled'} successfully
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-sm text-zinc-400">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    Done &middot; {publishCounts.errors} failed
+                  </span>
+                )}
+              </div>
+            ) : null}
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-3 shrink-0">
-            <Button
-              variant="outline"
-              onClick={generateAllCaptions}
-              disabled={isRunning}
-              className="border-zinc-700 text-zinc-300 hover:text-white"
-            >
-              ✨ Generate All Captions
-            </Button>
-
-            <Button
-              onClick={runWorkflow}
-              disabled={!allLanesReady || isRunning}
-              className="gap-2 min-w-[160px]"
-            >
-              {isRunning ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Publishing...
-                </>
-              ) : (
-                `▶ Publish All (${laneList.length})`
+            {/* Action buttons */}
+            <div className="flex items-center gap-3 shrink-0">
+              {!publishingActive && (
+                <Button
+                  variant="outline"
+                  onClick={generateAllCaptions}
+                  disabled={isRunning}
+                  className="border-zinc-700 text-zinc-300 hover:text-white"
+                >
+                  ✨ Generate All Captions
+                </Button>
               )}
-            </Button>
+
+              <Button
+                onClick={runWorkflow}
+                disabled={!allLanesReady || isRunning || isAllSuccess}
+                className={`gap-2 min-w-[160px] ${isAllSuccess ? 'bg-emerald-700 hover:bg-emerald-700 border-emerald-600 text-white opacity-100' : ''}`}
+              >
+                {isRunning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {scheduleType === 'now' ? 'Publishing' : 'Scheduling'} ({publishCounts.finished}/{publishCounts.total})...
+                  </>
+                ) : isAllSuccess ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    {scheduleType === 'now'
+                      ? `All Published (${publishCounts.published})`
+                      : `All Scheduled (${publishCounts.scheduled})`}
+                  </>
+                ) : isAllDone && publishCounts.errors > 0 ? (
+                  `⚠ Retry Failed (${publishCounts.errors})`
+                ) : (
+                  scheduleType === 'now'
+                    ? `▶ Publish All (${laneList.length})`
+                    : `⏰ Schedule All (${laneList.length})`
+                )}
+              </Button>
+            </div>
           </div>
+
+          {/* Row 2: per-lane progress pills — appears when publishing starts */}
+          {publishingActive && (
+            <div className="border-t border-white/[0.06] pt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {lanePillData.map(pill => {
+                  const isInProgress = pill.phase !== 'done' && pill.phase !== 'error';
+                  const pillColor =
+                    pill.phase === 'error'          ? 'bg-red-500/15 text-red-300 border-red-500/25' :
+                    pill.doneResult === 'published' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25' :
+                    pill.doneResult === 'scheduled' ? 'bg-blue-500/15 text-blue-300 border-blue-500/25' :
+                                                      'bg-white/[0.06] text-zinc-400 border-white/[0.08]';
+                  return (
+                    <span
+                      key={pill.language}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${pillColor}`}
+                    >
+                      <span>{pill.flag}</span>
+                      {isInProgress && <Loader2 className="h-3 w-3 animate-spin" />}
+                      {pill.phase === 'done' && <CheckCircle2 className="h-3 w-3" />}
+                      {pill.phase === 'error' && <XCircle className="h-3 w-3" />}
+                      <span>{phaseText(pill.phase, pill.doneResult)}</span>
+                    </span>
+                  );
+                })}
+
+                {/* Right-aligned summary when all lanes have resolved */}
+                {!isRunning && publishCounts.finished === publishCounts.total && publishCounts.total > 0 && (
+                  <span className="ml-auto text-xs text-zinc-400">
+                    {[
+                      publishCounts.published > 0 && `${publishCounts.published} published`,
+                      publishCounts.scheduled > 0 && `${publishCounts.scheduled} scheduled`,
+                      publishCounts.errors    > 0 && `${publishCounts.errors} failed`,
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

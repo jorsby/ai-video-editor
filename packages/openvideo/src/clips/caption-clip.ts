@@ -277,6 +277,11 @@ export interface ICaptionOpts {
    * @default 'multiple'
    */
   wordsPerLine?: "single" | "multiple";
+  /**
+   * Whether to render words in right-to-left order (e.g. Arabic)
+   * @default false
+   */
+  isRTL?: boolean;
 }
 
 /**
@@ -1318,7 +1323,14 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           currentX = containerWidth - line.width - paddingX;
         }
 
-        line.words.forEach((wordText, wordIndex) => {
+        // For RTL languages (e.g. Arabic), reverse word order within the line so the
+        // first spoken word appears rightmost. Shallow copy preserves segmentIndex
+        // timing used by the karaoke updateState() loop.
+        const wordsToLayout = this.opts.isRTL
+          ? [...line.words].reverse()
+          : line.words;
+
+        wordsToLayout.forEach((wordText, wordIndex) => {
           // Position word
           wordText.x = Math.round(currentX);
           wordText.y = Math.round(currentY);
@@ -1326,7 +1338,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           // Advance X (add space unless it's the last word in the line)
           currentX +=
             (wordText.getLocalBounds().width || wordText.width) +
-            (wordIndex < line.words.length - 1 ? spaceWidth : 0);
+            (wordIndex < wordsToLayout.length - 1 ? spaceWidth : 0);
         });
 
         // Advance Y
@@ -1829,6 +1841,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       if (opts.wordWrapWidth !== undefined)
         style.wordWrapWidth = opts.wordWrapWidth;
       if (opts.wordWrap !== undefined) style.wordWrap = opts.wordWrap;
+      if (opts.isRTL !== undefined) style.isRTL = opts.isRTL;
 
       // Handle stroke
       if (opts.stroke) {
@@ -1967,6 +1980,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     if (style.wordWrapWidth !== undefined)
       captionOpts.wordWrapWidth = style.wordWrapWidth;
     if (style.wordWrap !== undefined) captionOpts.wordWrap = style.wordWrap;
+    if (style.isRTL !== undefined) captionOpts.isRTL = style.isRTL;
 
     // Handle wordsPerLine from style or root
     if (style.wordsPerLine !== undefined) {

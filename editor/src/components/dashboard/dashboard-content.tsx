@@ -83,7 +83,7 @@ export function DashboardContent() {
   }, [posts]);
 
   const mergedPostsByAccount = useMemo(() => {
-    const merged = new Map<number, MixpostPost[]>(postsByAccount);
+    const merged = new Map<number, MixpostPost[]>();
     for (const [accountId, platformPosts] of platformPostsByAccount) {
       merged.set(accountId, platformPosts);
     }

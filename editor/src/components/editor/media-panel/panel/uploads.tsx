@@ -327,7 +327,7 @@ export default function PanelUploads() {
       } else if (asset.type === 'audio') {
         const audioClip = await Audio.fromUrl(asset.url);
         audioClip.name = asset.name;
-        audioClip.volume = 0.35;
+        audioClip.volume = 0.12;
         await studio.addClip(audioClip);
       } else {
         const videoClip = await Video.fromUrl(asset.url);

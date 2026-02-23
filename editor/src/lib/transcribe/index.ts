@@ -81,14 +81,18 @@ export async function transcribe(
   // Build Deepgram options
   const deepgramOptions: any = {
     model,
-    smart_format: smartFormat,
     paragraphs,
-    detect_language: true,
   };
 
-  // Add language if provided
   if (language && language !== 'auto') {
+    // When language is known, pass it directly and skip detect_language.
+    // Per Deepgram docs: detect_language overrides the language param if both are set.
     deepgramOptions.language = language;
+    // smart_format is English-centric; disable it for Arabic to avoid garbled output.
+    deepgramOptions.smart_format = language === 'ar' ? false : smartFormat;
+  } else {
+    deepgramOptions.detect_language = true;
+    deepgramOptions.smart_format = smartFormat;
   }
 
   // Transcribe audio

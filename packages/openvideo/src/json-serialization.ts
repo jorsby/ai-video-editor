@@ -128,6 +128,7 @@ export interface TextStyleJSON {
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'title';
   verticalAlign?: 'top' | 'center' | 'bottom';
   wordsPerLine?: 'single' | 'multiple';
+  isRTL?: boolean;
 }
 
 // Text clip specific

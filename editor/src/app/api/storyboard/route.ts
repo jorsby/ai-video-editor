@@ -24,6 +24,40 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
+const STORYBOARD_BACKUP_MODEL = 'stepfun/step-3.5-flash:free';
+
+async function generateObjectWithFallback<T>(params: {
+  primaryModel: string;
+  primaryOptions?: Parameters<ReturnType<typeof createOpenRouter>['chat']>[1];
+  schema: z.ZodType<T>;
+  system: string;
+  prompt: string;
+  label: string;
+}): Promise<{ object: T }> {
+  const { primaryModel, primaryOptions, schema, system, prompt, label } = params;
+  try {
+    return await generateObject({
+      model: openrouter.chat(primaryModel, primaryOptions),
+      schema,
+      system,
+      prompt,
+    });
+  } catch (primaryError) {
+    console.warn(
+      `[Storyboard][${label}] Primary model "${primaryModel}" failed, retrying with backup:`,
+      primaryError instanceof Error ? primaryError.message : primaryError
+    );
+    return await generateObject({
+      model: openrouter.chat(STORYBOARD_BACKUP_MODEL, {
+        plugins: [{ id: 'response-healing' }],
+      }),
+      schema,
+      system,
+      prompt,
+    });
+  }
+}
+
 // --- Image-to-Video schemas ---
 const i2vPlanSchema = z.object({
   rows: z.number(),
@@ -142,14 +176,16 @@ async function generateRefToVideoPlan(
     videoModel,
   });
 
-  const { object: content } = await generateObject({
-    model: openrouter.chat(llmModel, {
+  const { object: content } = await generateObjectWithFallback({
+    primaryModel: llmModel,
+    primaryOptions: {
       plugins: [{ id: 'response-healing' }],
       ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'high' } }),
-    }),
+    },
     system: systemPrompt,
     prompt: userPrompt,
     schema: contentSchemaForModel,
+    label: 'ref_to_video/content',
   });
 
   console.log(
@@ -210,14 +246,16 @@ Return the corrected fields.`;
 
     console.log('[Storyboard][ref_to_video] Reviewer LLM request');
 
-    const { object: reviewed } = await generateObject({
-      model: openrouter.chat(llmModel, {
+    const { object: reviewed } = await generateObjectWithFallback({
+      primaryModel: llmModel,
+      primaryOptions: {
         plugins: [{ id: 'response-healing' }],
         ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'medium' } }),
-      }),
+      },
       system: reviewerSystemPrompt,
       prompt: reviewerUserPrompt,
       schema: reviewerSchema,
+      label: 'ref_to_video/reviewer',
     });
 
     console.log(
@@ -336,14 +374,16 @@ Return the corrected fields.`;
 
   console.log('[Storyboard][ref_to_video] Translation LLM request');
 
-  const { object: translation } = await generateObject({
-    model: openrouter.chat(llmModel, {
+  const { object: translation } = await generateObjectWithFallback({
+    primaryModel: llmModel,
+    primaryOptions: {
       plugins: [{ id: 'response-healing' }],
       ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'medium' } }),
-    }),
+    },
     system: TRANSLATION_SYSTEM_PROMPT,
     prompt: translationPrompt,
     schema: translationSchema,
+    label: 'ref_to_video/translation',
   });
 
   console.log(
@@ -510,14 +550,16 @@ Generate the storyboard.`;
       prompt: userPrompt,
     });
 
-    const { object: content } = await generateObject({
-      model: openrouter.chat(model, {
+    const { object: content } = await generateObjectWithFallback({
+      primaryModel: model,
+      primaryOptions: {
         plugins: [{ id: 'response-healing' }],
         ...(isOpus(model) ? {} : { reasoning: { effort: 'high' } }),
-      }),
+      },
       system: I2V_SYSTEM_PROMPT,
       prompt: userPrompt,
       schema: i2vContentSchema,
+      label: 'i2v/content',
     });
 
     console.log(
@@ -577,14 +619,16 @@ Generate the storyboard.`;
       prompt: translationPrompt,
     });
 
-    const { object: translation } = await generateObject({
-      model: openrouter.chat(model, {
+    const { object: translation } = await generateObjectWithFallback({
+      primaryModel: model,
+      primaryOptions: {
         plugins: [{ id: 'response-healing' }],
         ...(isOpus(model) ? {} : { reasoning: { effort: 'medium' } }),
-      }),
+      },
       system: TRANSLATION_SYSTEM_PROMPT,
       prompt: translationPrompt,
       schema: translationSchema,
+      label: 'i2v/translation',
     });
 
     console.log(

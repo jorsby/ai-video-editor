@@ -187,3 +187,108 @@ export async function DELETE(
     );
   }
 }
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ uuid: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const mixpostUrl = process.env.MIXPOST_URL;
+    const workspaceUuid = process.env.MIXPOST_WORKSPACE_UUID;
+
+    if (!mixpostUrl || !workspaceUuid) {
+      return NextResponse.json(
+        {
+          error:
+            'Mixpost configuration incomplete. MIXPOST_URL and MIXPOST_WORKSPACE_UUID are required.',
+        },
+        { status: 500 }
+      );
+    }
+
+    const tokenResult = await getOrCreateMixpostToken(supabase, user.id);
+
+    if ('error' in tokenResult) {
+      return NextResponse.json(
+        { error: tokenResult.error },
+        { status: 403 }
+      );
+    }
+
+    const { uuid } = await params;
+    const body = await req.json() as {
+      caption: string;
+      date: string;
+      time: string;
+      timezone: string;
+      accountIds: number[];
+      mediaIds: number[];
+    };
+
+    const mixpostPayload = {
+      date: body.date,
+      time: body.time,
+      timezone: body.timezone,
+      accounts: body.accountIds,
+      versions: [
+        {
+          account_id: 0,
+          is_original: true,
+          content: [{ body: body.caption, media: body.mediaIds, url: null }],
+          options: {},
+        },
+      ],
+    };
+
+    const response = await fetch(
+      `${mixpostUrl}/mixpost/api/${workspaceUuid}/posts/${uuid}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${tokenResult.token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(mixpostPayload),
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+
+    if (response.status === 401) {
+      await clearCachedMixpostToken(supabase, user.id, tokenResult.mixpostUserId);
+      console.error('Mixpost token rejected (401). Cleared cached token.');
+      return NextResponse.json(
+        { error: 'Mixpost token expired. Please retry.' },
+        { status: 401 }
+      );
+    }
+
+    if (!response.ok) {
+      const responseBody = await response.text();
+      console.error(
+        `Mixpost update post error: status=${response.status} body=${responseBody}`
+      );
+      return NextResponse.json(
+        { error: `Failed to update post in Mixpost (${response.status})` },
+        { status: response.status }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Update Mixpost post error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
