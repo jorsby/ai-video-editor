@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ProjectTagInput } from './project-tag-input';
 import type { DBProject } from '@/types/project';
 
 interface ProjectCardProps {
@@ -19,6 +20,9 @@ interface ProjectCardProps {
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onClick: () => void;
+  tags: string[];
+  onTagAdded: (projectId: string, tag: string) => void;
+  onTagRemoved: (projectId: string, tag: string) => void;
 }
 
 function formatRelativeTime(dateString: string): string {
@@ -34,7 +38,7 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-export function ProjectCard({ project, isArchived, onDelete, onArchive, onClick }: ProjectCardProps) {
+export function ProjectCard({ project, isArchived, onDelete, onArchive, onClick, tags, onTagAdded, onTagRemoved }: ProjectCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -65,17 +69,25 @@ export function ProjectCard({ project, isArchived, onDelete, onArchive, onClick 
         onClick={onClick}
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="flex-shrink-0 w-10 h-10 rounded-md bg-muted flex items-center justify-center">
               <FolderOpen className="w-5 h-5 text-muted-foreground" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h3 className="font-medium text-foreground truncate">
                 {project.name}
               </h3>
               <p className="text-xs text-muted-foreground">
                 {formatRelativeTime(project.created_at)}
               </p>
+              <div className="mt-1">
+                <ProjectTagInput
+                  projectId={project.id}
+                  tags={tags}
+                  onTagAdded={onTagAdded}
+                  onTagRemoved={onTagRemoved}
+                />
+              </div>
             </div>
           </div>
 

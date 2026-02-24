@@ -494,7 +494,7 @@ export function ExportModal({
     return (
       <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
         <DialogContent
-          className="max-w-[520px] border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
+          className="max-w-[520px] overflow-hidden border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
           showCloseButton={false}
         >
           <div className="flex flex-col p-8 pt-10">

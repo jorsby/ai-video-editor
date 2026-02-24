@@ -4,6 +4,7 @@ import {
   clearCachedMixpostToken,
 } from '@/lib/mixpost/token';
 import { NextResponse, type NextRequest } from 'next/server';
+import type { PlatformOptions } from '@/types/post';
 
 export async function GET(
   req: NextRequest,
@@ -232,7 +233,29 @@ export async function PUT(
       timezone: string;
       accountIds: number[];
       mediaIds: number[];
+      platformOptions?: PlatformOptions;
     };
+
+    // Map platform options to Mixpost's nested format (same as POST handler)
+    const versionOptions: Record<string, unknown> = {};
+
+    const ig = body.platformOptions?.instagram;
+    if (ig) versionOptions.instagram = { type: ig.type };
+
+    const fb = body.platformOptions?.facebook;
+    if (fb) versionOptions.facebook_page = { type: fb.type };
+
+    const yt = body.platformOptions?.youtube;
+    if (yt) versionOptions.youtube = { title: yt.title, status: yt.status };
+
+    const ttk = body.platformOptions?.tiktok;
+    if (ttk) {
+      const tiktokMapped: Record<string, unknown> = {};
+      for (const [key, opts] of Object.entries(ttk)) {
+        tiktokMapped[key.replace('account-', '')] = opts;
+      }
+      versionOptions.tiktok = tiktokMapped;
+    }
 
     const mixpostPayload = {
       date: body.date,
@@ -244,7 +267,7 @@ export async function PUT(
           account_id: 0,
           is_original: true,
           content: [{ body: body.caption, media: body.mediaIds, url: null }],
-          options: {},
+          options: versionOptions,
         },
       ],
     };

@@ -12,6 +12,10 @@ export interface DBProject {
   archived_at: string | null;
 }
 
+export interface ProjectTagMap {
+  [projectId: string]: string[];
+}
+
 export interface Scene {
   id: string;
   name: string;

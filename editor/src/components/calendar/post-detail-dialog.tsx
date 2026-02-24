@@ -11,7 +11,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { EditScheduledPostDialog } from './edit-scheduled-post-dialog';
 import type { MixpostPost, MixpostMedia } from '@/types/calendar';
 
 interface PostDetailDialogProps {
@@ -73,7 +72,6 @@ export function PostDetailDialog({
 }: PostDetailDialogProps) {
   const [fullPost, setFullPost] = useState<MixpostPost | null>(null);
   const [mediaLoading, setMediaLoading] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -85,7 +83,6 @@ export function PostDetailDialog({
     }
 
     // Reset action state when post changes
-    setShowEditDialog(false);
     setConfirmDelete(false);
     setDeleteError(null);
 
@@ -163,14 +160,13 @@ export function PostDetailDialog({
         open={!!post}
         onOpenChange={(open) => {
           if (!open) {
-            setShowEditDialog(false);
             setConfirmDelete(false);
             setDeleteError(null);
             onClose();
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90svh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle>Post Details</DialogTitle>
@@ -362,7 +358,7 @@ export function PostDetailDialog({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setShowEditDialog(true)}
+                      onClick={() => window.open(`/post/edit/${post.uuid}`, '_blank')}
                     >
                       Edit Post
                     </Button>
@@ -412,19 +408,6 @@ export function PostDetailDialog({
         </DialogContent>
       </Dialog>
 
-      {/* Edit sub-dialog — rendered outside the main Dialog to avoid nesting issues */}
-      {isScheduled && (
-        <EditScheduledPostDialog
-          post={post}
-          fullPost={fullPost}
-          open={showEditDialog}
-          onOpenChange={setShowEditDialog}
-          onUpdated={() => {
-            onUpdated?.();
-            onClose();
-          }}
-        />
-      )}
     </>
   );
 }

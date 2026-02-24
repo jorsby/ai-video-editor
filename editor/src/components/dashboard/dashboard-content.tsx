@@ -5,7 +5,7 @@ import { ProjectList } from './project-list';
 import { SocialAccountsList } from './social-accounts-list';
 import { CreateProjectModal } from './create-project-modal';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import type { DBProject } from '@/types/project';
+import type { DBProject, ProjectTagMap } from '@/types/project';
 import type { MixpostAccount, AccountGroupWithMembers, AccountTagMap } from '@/types/mixpost';
 import type { MixpostPost, MixpostPaginationMeta } from '@/types/calendar';
 
@@ -14,6 +14,8 @@ export function DashboardContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [projectTags, setProjectTags] = useState<ProjectTagMap>({});
+  const [selectedProjectTags, setSelectedProjectTags] = useState<Set<string>>(new Set());
 
   const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -90,6 +92,13 @@ export function DashboardContent() {
     return merged;
   }, [postsByAccount, platformPostsByAccount]);
 
+  const filteredProjects = useMemo(() => {
+    if (selectedProjectTags.size === 0) return projects;
+    return projects.filter((p) =>
+      [...selectedProjectTags].every((t) => (projectTags[p.id] ?? []).includes(t))
+    );
+  }, [projects, projectTags, selectedProjectTags]);
+
   const fetchPlatformMedia = useCallback(async (accountId: number, force?: boolean) => {
     if (!force && platformPostsByAccount.has(accountId)) return;
 
@@ -128,6 +137,7 @@ export function DashboardContent() {
     fetchAccounts();
     fetchGroups();
     fetchTags();
+    fetchProjectTags();
     fetchAllPosts();
   }, [fetchAllPosts]);
 
@@ -193,6 +203,18 @@ export function DashboardContent() {
     }
   };
 
+  const fetchProjectTags = async () => {
+    try {
+      const response = await fetch('/api/project-tags');
+      if (response.ok) {
+        const { tags } = await response.json();
+        setProjectTags(tags);
+      }
+    } catch (error) {
+      console.error('Failed to fetch project tags:', error);
+    }
+  };
+
   const handleTagAdded = async (accountUuid: string, tag: string) => {
     setTags((prev) => ({
       ...prev,
@@ -242,6 +264,55 @@ export function DashboardContent() {
     }
   };
 
+  const handleProjectTagAdded = async (projectId: string, tag: string) => {
+    setProjectTags((prev) => ({
+      ...prev,
+      [projectId]: [...(prev[projectId] || []), tag],
+    }));
+    try {
+      const response = await fetch('/api/project-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, tag }),
+      });
+      if (!response.ok) {
+        setProjectTags((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || []).filter((t) => t !== tag),
+        }));
+      }
+    } catch {
+      setProjectTags((prev) => ({
+        ...prev,
+        [projectId]: (prev[projectId] || []).filter((t) => t !== tag),
+      }));
+    }
+  };
+
+  const handleProjectTagRemoved = async (projectId: string, tag: string) => {
+    setProjectTags((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] || []).filter((t) => t !== tag),
+    }));
+    try {
+      const response = await fetch(
+        `/api/project-tags?project_id=${encodeURIComponent(projectId)}&tag=${encodeURIComponent(tag)}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) {
+        setProjectTags((prev) => ({
+          ...prev,
+          [projectId]: [...(prev[projectId] || []), tag],
+        }));
+      }
+    } catch {
+      setProjectTags((prev) => ({
+        ...prev,
+        [projectId]: [...(prev[projectId] || []), tag],
+      }));
+    }
+  };
+
   const handleProjectCreated = (project: DBProject) => {
     setProjects((prev) => [project, ...prev]);
     // Open the new project in a new tab
@@ -250,6 +321,11 @@ export function DashboardContent() {
 
   const handleDeleteProject = (id: string) => {
     setProjects((prev) => prev.filter((p) => p.id !== id));
+    setProjectTags((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const handleArchiveProject = async (id: string) => {
@@ -358,7 +434,7 @@ export function DashboardContent() {
 
         <TabsContent value="projects">
           <ProjectList
-            projects={projects}
+            projects={filteredProjects}
             isLoading={isLoading}
             showArchived={showArchived}
             onToggleArchived={() => setShowArchived((prev) => !prev)}
@@ -366,6 +442,19 @@ export function DashboardContent() {
             onDeleteProject={handleDeleteProject}
             onArchiveProject={handleArchiveProject}
             onOpenProject={handleOpenProject}
+            projectTags={projectTags}
+            selectedProjectTags={selectedProjectTags}
+            onToggleProjectTag={(tag) =>
+              setSelectedProjectTags((prev) => {
+                const next = new Set(prev);
+                if (next.has(tag)) next.delete(tag);
+                else next.add(tag);
+                return next;
+              })
+            }
+            onClearProjectTags={() => setSelectedProjectTags(new Set())}
+            onProjectTagAdded={handleProjectTagAdded}
+            onProjectTagRemoved={handleProjectTagRemoved}
           />
         </TabsContent>
 

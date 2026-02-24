@@ -3,7 +3,8 @@
 import { Plus, FolderPlus, Archive, ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard } from './project-card';
-import type { DBProject } from '@/types/project';
+import { ProjectTagFilter } from './project-tag-filter';
+import type { DBProject, ProjectTagMap } from '@/types/project';
 
 interface ProjectListProps {
   projects: DBProject[];
@@ -14,6 +15,12 @@ interface ProjectListProps {
   onDeleteProject: (id: string) => void;
   onArchiveProject: (id: string) => void;
   onOpenProject: (id: string) => void;
+  projectTags: ProjectTagMap;
+  selectedProjectTags: Set<string>;
+  onToggleProjectTag: (tag: string) => void;
+  onClearProjectTags: () => void;
+  onProjectTagAdded: (projectId: string, tag: string) => void;
+  onProjectTagRemoved: (projectId: string, tag: string) => void;
 }
 
 export function ProjectList({
@@ -25,6 +32,12 @@ export function ProjectList({
   onDeleteProject,
   onArchiveProject,
   onOpenProject,
+  projectTags,
+  selectedProjectTags,
+  onToggleProjectTag,
+  onClearProjectTags,
+  onProjectTagAdded,
+  onProjectTagRemoved,
 }: ProjectListProps) {
   if (isLoading) {
     return (
@@ -115,6 +128,13 @@ export function ProjectList({
         </div>
       </div>
 
+      <ProjectTagFilter
+        tags={projectTags}
+        selectedTags={selectedProjectTags}
+        onToggleTag={onToggleProjectTag}
+        onClear={onClearProjectTags}
+      />
+
       <div className="grid gap-3">
         {projects.map((project) => (
           <ProjectCard
@@ -124,6 +144,9 @@ export function ProjectList({
             onDelete={onDeleteProject}
             onArchive={onArchiveProject}
             onClick={() => onOpenProject(project.id)}
+            tags={projectTags[project.id] ?? []}
+            onTagAdded={onProjectTagAdded}
+            onTagRemoved={onProjectTagRemoved}
           />
         ))}
       </div>
