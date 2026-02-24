@@ -57,7 +57,7 @@ const GROUPED_FONTS = getGroupedFonts();
 interface CaptionPropertiesProps {
   clip: IClip;
 }
-type VerticalAlignMode = "top" | "center" | "bottom";
+type VerticalAlignMode = "top" | "top-quarter" | "center" | "bottom-quarter" | "bottom";
 
 export function CaptionProperties({ clip }: CaptionPropertiesProps) {
   const captionClip = clip as any;
@@ -187,8 +187,12 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
 
       if (v === "top") {
         newTop = 80;
+      } else if (v === "top-quarter") {
+        newTop = videoHeight * 0.25 - clipHeight / 2;
       } else if (v === "center") {
         newTop = (videoHeight - clipHeight) / 2;
+      } else if (v === "bottom-quarter") {
+        newTop = videoHeight * 0.75 - clipHeight / 2;
       } else if (v === "bottom") {
         newTop = videoHeight - clipHeight - 80;
       }
@@ -317,7 +321,9 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="top">Top</SelectItem>
+            <SelectItem value="top-quarter">Upper Quarter</SelectItem>
             <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="bottom-quarter">Lower Quarter</SelectItem>
             <SelectItem value="bottom">Bottom</SelectItem>
           </SelectContent>
         </Select>

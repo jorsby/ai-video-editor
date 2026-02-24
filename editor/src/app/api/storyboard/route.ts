@@ -25,6 +25,7 @@ import {
   I2V_SYSTEM_PROMPT,
   I2V_GRID_PROMPT_PREFIX,
 } from '@/lib/schemas/i2v-plan';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -64,27 +65,6 @@ async function generateObjectWithFallback<T>(params: {
   }
 }
 
-const translationSchema = z.object({
-  en: z.array(z.string()),
-  tr: z.array(z.string()),
-  ar: z.array(z.string()),
-});
-
-const TRANSLATION_SYSTEM_PROMPT = `You are a professional translator for video voiceovers.
-Given voiceover segments in any language, translate ALL segments into English, Turkish, and Arabic.
-Use cultural nuances and idiomatic expressions — do not translate word-for-word.
-If the source is already in one of the target languages, still include it as-is in that language's array.
-Return exactly the same number of segments for each language.
-
-Important: Do not change the order
-Output:
-Return ONLY valid JSON:
-{
-"en": ["<string>", ...],
-"tr": ["<string>", ...],
-"ar": ["<string>", ...]
-}`;
-
 const VALID_MODELS = [
   'google/gemini-3.1-pro-preview',
   'anthropic/claude-opus-4.6',
@@ -100,7 +80,8 @@ const isOpus = (model: string) => model.includes('claude-opus');
 async function generateRefToVideoPlan(
   voiceoverText: string,
   llmModel: string,
-  videoModel: string
+  videoModel: string,
+  sourceLanguage: string
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
   const systemPrompt = isKling
@@ -307,42 +288,10 @@ Return the corrected fields.`;
     }
   }
 
-  // --- Call 2: Translation ---
-  const numberedSegments = content.voiceover_list
-    .map((seg: string, i: number) => `${i + 1}. ${seg}`)
-    .join('\n');
-
-  const translationPrompt = `Translate the following ${sceneCount} voiceover segments:\n\n${numberedSegments}`;
-
-  console.log('[Storyboard][ref_to_video] Translation LLM request');
-
-  const { object: translation } = await generateObjectWithFallback({
-    primaryModel: llmModel,
-    primaryOptions: {
-      plugins: [{ id: 'response-healing' }],
-      ...(isOpus(llmModel) ? {} : { reasoning: { effort: 'medium' } }),
-    },
-    system: TRANSLATION_SYSTEM_PROMPT,
-    prompt: translationPrompt,
-    schema: translationSchema,
-    label: 'ref_to_video/translation',
-  });
-
-  console.log(
-    '[Storyboard][ref_to_video] Translation LLM response:',
-    JSON.stringify(translation, null, 2)
-  );
-
-  const { en, tr, ar } = translation;
-  if (
-    en.length !== sceneCount ||
-    tr.length !== sceneCount ||
-    ar.length !== sceneCount
-  ) {
-    throw new Error(
-      `Translation count mismatch: expected ${sceneCount} segments but got en=${en.length}, tr=${tr.length}, ar=${ar.length}`
-    );
-  }
+  // Build voiceover_list with source language only
+  const voiceover_list: Record<string, string[]> = {
+    [sourceLanguage]: content.voiceover_list,
+  };
 
   // Build final plan — shape depends on video model
   if (isKling) {
@@ -359,7 +308,7 @@ Return the corrected fields.`;
       scene_prompts: klingContent.scene_prompts,
       scene_bg_indices: klingContent.scene_bg_indices,
       scene_object_indices: klingContent.scene_object_indices,
-      voiceover_list: translation,
+      voiceover_list,
     };
   } else {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
@@ -376,7 +325,7 @@ Return the corrected fields.`;
       scene_bg_indices: wanContent.scene_bg_indices,
       scene_object_indices: wanContent.scene_object_indices,
       scene_multi_shots: wanContent.scene_multi_shots,
-      voiceover_list: translation,
+      voiceover_list,
     };
   }
 }
@@ -390,6 +339,7 @@ export async function POST(req: NextRequest) {
       aspectRatio,
       mode = 'image_to_video',
       videoModel,
+      sourceLanguage = 'en',
     } = await req.json();
 
     if (!voiceoverText) {
@@ -416,6 +366,13 @@ export async function POST(req: NextRequest) {
     if (!aspectRatio) {
       return NextResponse.json(
         { error: 'Aspect ratio is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!SUPPORTED_LANGUAGES.find((l) => l.code === sourceLanguage)) {
+      return NextResponse.json(
+        { error: 'Invalid sourceLanguage' },
         { status: 400 }
       );
     }
@@ -447,7 +404,8 @@ export async function POST(req: NextRequest) {
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
         model,
-        videoModel
+        videoModel,
+        sourceLanguage
       );
 
       const { data: storyboard, error: dbError } = await supabase
@@ -480,7 +438,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // --- Image-to-Video mode (existing) ---
+    // --- Image-to-Video mode ---
     const userPrompt = `Voiceover Script:
 ${voiceoverText}
 
@@ -548,57 +506,12 @@ Generate the storyboard.`;
       );
     }
 
-    // --- Call 2: Translation ---
-    const numberedSegments = content.voiceover_list
-      .map((seg, i) => `${i + 1}. ${seg}`)
-      .join('\n');
-
-    const translationPrompt = `Translate the following ${expectedScenes} voiceover segments:\n\n${numberedSegments}`;
-
-    console.log('[Storyboard] Translation LLM request:', {
-      model,
-      system: TRANSLATION_SYSTEM_PROMPT,
-      prompt: translationPrompt,
-    });
-
-    const { object: translation } = await generateObjectWithFallback({
-      primaryModel: model,
-      primaryOptions: {
-        plugins: [{ id: 'response-healing' }],
-        ...(isOpus(model) ? {} : { reasoning: { effort: 'medium' } }),
-      },
-      system: TRANSLATION_SYSTEM_PROMPT,
-      prompt: translationPrompt,
-      schema: translationSchema,
-      label: 'i2v/translation',
-    });
-
-    console.log(
-      '[Storyboard] Translation LLM response:',
-      JSON.stringify(translation, null, 2)
-    );
-
-    // Validate all 3 language arrays match expected count
-    const { en, tr, ar } = translation;
-    if (
-      en.length !== expectedScenes ||
-      tr.length !== expectedScenes ||
-      ar.length !== expectedScenes
-    ) {
-      return NextResponse.json(
-        {
-          error: `Translation count mismatch: expected ${expectedScenes} segments but got en=${en.length}, tr=${tr.length}, ar=${ar.length}`,
-        },
-        { status: 500 }
-      );
-    }
-
-    // Combine into final plan (identical shape to previous output)
+    // Build final plan with source language only
     const finalPlan = {
       rows: content.rows,
       cols: content.cols,
       grid_image_prompt: `${I2V_GRID_PROMPT_PREFIX} ${content.grid_image_prompt}`,
-      voiceover_list: translation,
+      voiceover_list: { [sourceLanguage]: content.voiceover_list },
       visual_flow: content.visual_flow,
     };
 
@@ -797,15 +710,11 @@ export async function PATCH(req: NextRequest) {
       // Validate array lengths match grid dimensions
       const expectedScenes = plan.rows * plan.cols;
       const { voiceover_list, visual_flow } = plan;
-      if (
-        voiceover_list.en.length !== expectedScenes ||
-        voiceover_list.tr.length !== expectedScenes ||
-        voiceover_list.ar.length !== expectedScenes ||
-        visual_flow.length !== expectedScenes
-      ) {
+      const langArrays = Object.values(voiceover_list) as string[][];
+      if (langArrays.length === 0 || !langArrays.every((arr) => arr.length === expectedScenes) || visual_flow.length !== expectedScenes) {
         return NextResponse.json(
           {
-            error: `Scene count mismatch: grid is ${plan.rows}x${plan.cols}=${expectedScenes} but voiceover_list has en=${voiceover_list.en.length}, tr=${voiceover_list.tr.length}, ar=${voiceover_list.ar.length} and visual_flow has ${visual_flow.length} items`,
+            error: `Scene count mismatch: grid is ${plan.rows}x${plan.cols}=${expectedScenes} but voiceover arrays don't match`,
           },
           { status: 400 }
         );

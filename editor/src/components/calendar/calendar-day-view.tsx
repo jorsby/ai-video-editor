@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { cn } from '@/lib/utils';
 import { ProviderIcon } from '@/components/dashboard/provider-icon';
 import {
@@ -31,7 +32,7 @@ function getPostSortKey(post: MixpostPost): number {
   return new Date(dateStr.replace(' ', 'T')).getTime();
 }
 
-function DayPostCard({
+const DayPostCard = React.memo(function DayPostCard({
   post,
   onPostClick,
   timezone,
@@ -94,9 +95,9 @@ function DayPostCard({
       </div>
     </button>
   );
-}
+});
 
-export function CalendarDayView({
+export const CalendarDayView = React.memo(function CalendarDayView({
   date,
   posts,
   onPostClick,
@@ -132,4 +133,4 @@ export function CalendarDayView({
       )}
     </div>
   );
-}
+});

@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { cn } from '@/lib/utils';
 import { PostPill } from './calendar-day-cell';
 import type { MixpostPost } from '@/types/calendar';
@@ -12,6 +13,7 @@ interface CalendarWeekViewProps {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const EMPTY_POSTS: MixpostPost[] = [];
 
 function formatDateKey(date: Date): string {
   const y = date.getFullYear();
@@ -20,7 +22,7 @@ function formatDateKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function CalendarWeekView({
+export const CalendarWeekView = React.memo(function CalendarWeekView({
   weekStart,
   postsByDate,
   onPostClick,
@@ -39,7 +41,7 @@ export function CalendarWeekView({
   return (
     <div className="grid grid-cols-7 gap-1">
       {days.map(({ date, dateKey, isToday }, i) => {
-        const posts = postsByDate.get(dateKey) || [];
+        const posts = postsByDate.get(dateKey) ?? EMPTY_POSTS;
         return (
           <div key={dateKey} className="flex flex-col">
             {/* Column header */}
@@ -91,4 +93,4 @@ export function CalendarWeekView({
       })}
     </div>
   );
-}
+});

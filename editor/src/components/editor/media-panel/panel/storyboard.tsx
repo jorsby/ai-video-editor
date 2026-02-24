@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 import { toast } from 'sonner';
@@ -115,6 +116,7 @@ export default function PanelStoryboard() {
   const [formVideoMode, setFormVideoMode] =
     useState<StoryboardMode>('image_to_video');
   const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
+  const [formSourceLanguage, setFormSourceLanguage] = useState('en');
 
   // Generation state
   const [loading, setLoading] = useState(false);
@@ -264,6 +266,7 @@ export default function PanelStoryboard() {
           projectId,
           aspectRatio: formAspectRatio,
           mode: formVideoMode,
+          sourceLanguage: formSourceLanguage,
           ...(formVideoMode === 'ref_to_video' && {
             videoModel: formVideoModel,
           }),
@@ -280,10 +283,12 @@ export default function PanelStoryboard() {
       }
 
       const data = await response.json();
+      const voiceoverMap = (data.voiceover_list ?? {}) as Record<string, string[]>;
+      const firstLangArr = Object.values(voiceoverMap)[0] as string[] | undefined;
       const sceneCount =
         data.mode === 'ref_to_video'
-          ? (data.voiceover_list?.en?.length ?? data.scene_prompts?.length)
-          : (data.voiceover_list?.en?.length ?? 0);
+          ? (firstLangArr?.length ?? data.scene_prompts?.length ?? 0)
+          : (firstLangArr?.length ?? 0);
       console.log('[Storyboard] Plan generated:', {
         mode: data.mode || 'image_to_video',
         scenes: sceneCount,
@@ -462,6 +467,7 @@ export default function PanelStoryboard() {
               setFormModel('google/gemini-3.1-pro-preview');
               setFormVideoMode('image_to_video');
               setFormVideoModel('klingo3');
+              setFormSourceLanguage('en');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -539,8 +545,7 @@ export default function PanelStoryboard() {
                 Plan (
                 {'scene_prompts' in selectedStoryboard.plan
                   ? selectedStoryboard.plan.scene_prompts.length
-                  : (selectedStoryboard.plan.voiceover_list.en?.length ??
-                    0)}{' '}
+                  : ((Object.values(selectedStoryboard.plan.voiceover_list as Record<string, string[]> ?? {})[0] as string[] | undefined)?.length ?? 0)}{' '}
                 scenes)
                 <IconChevronDown className="size-3 group-data-[state=open]:hidden" />
                 <IconChevronUp className="size-3 hidden group-data-[state=open]:block" />
@@ -648,6 +653,25 @@ export default function PanelStoryboard() {
                   value={formVoiceover}
                   onChange={(e) => setFormVoiceover(e.target.value)}
                 />
+              </div>
+
+              {/* Source Language */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Source Language
+                </span>
+                <Select value={formSourceLanguage} onValueChange={setFormSourceLanguage}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.code}>
+                        {lang.label} — {lang.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Controls Row: Dropdowns */}

@@ -10,6 +10,53 @@ import { useStudioStore } from "@/stores/studio-store";
 import { fontManager } from "openvideo";
 import { regenerateCaptionClips } from "@/lib/caption-utils";
 
+const CSSPresetPreview = ({ preset }: { preset: ICaptionsControlProps }) => {
+  const textShadowParts: string[] = [];
+
+  if (preset.boxShadow) {
+    textShadowParts.push(
+      `${preset.boxShadow.x}px ${preset.boxShadow.y}px ${preset.boxShadow.blur}px ${preset.boxShadow.color}`
+    );
+  }
+
+  if (preset.borderWidth > 0 && preset.borderColor !== "transparent") {
+    const w = Math.min(preset.borderWidth, 4);
+    const offsets = [
+      [-w, 0], [w, 0], [0, -w], [0, w],
+      [-w, -w], [w, -w], [-w, w], [w, w],
+    ];
+    for (const [dx, dy] of offsets) {
+      textShadowParts.push(`${dx}px ${dy}px 0 ${preset.borderColor}`);
+    }
+  }
+
+  return (
+    <div
+      className="flex items-center justify-center w-full h-full rounded-lg px-2"
+      style={{
+        backgroundColor:
+          preset.backgroundColor && preset.backgroundColor !== "transparent"
+            ? preset.backgroundColor
+            : "#27272a",
+      }}
+    >
+      <span
+        style={{
+          color: preset.activeColor,
+          fontFamily: preset.fontFamily || "Bangers-Regular, sans-serif",
+          fontSize: "18px",
+          fontWeight: 700,
+          textTransform: (preset.textTransform as React.CSSProperties["textTransform"]) || "none",
+          textShadow: textShadowParts.length > 0 ? textShadowParts.join(", ") : "none",
+          letterSpacing: "0.5px",
+        }}
+      >
+        {preset.name || "Sample"}
+      </span>
+    </div>
+  );
+};
+
 const CaptionPresetPicker = () => {
   const { setFloatingControl } = useLayoutStore();
   const { studio, selectedClips } = useStudioStore();
@@ -30,6 +77,19 @@ const CaptionPresetPicker = () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [setFloatingControl]);
+
+  // Preload fonts for CSS-previewed presets
+  useEffect(() => {
+    const fontsToLoad = STYLE_CAPTION_PRESETS.filter(
+      (p) => !p.previewUrl && p.fontFamily && p.fontUrl
+    );
+    for (const preset of fontsToLoad) {
+      fontManager.addFont({
+        name: preset.fontFamily!,
+        url: preset.fontUrl!,
+      });
+    }
+  }, []);
 
   const handleApplyPreset = async (preset: ICaptionsControlProps) => {
     if (!studio) return;
@@ -95,6 +155,41 @@ const CaptionPresetPicker = () => {
         if (clipMediaId && processedMediaIds.has(clipMediaId)) continue;
         if (clipMediaId) processedMediaIds.add(clipMediaId);
 
+        // Hook clips have no mediaId — restyle them directly
+        if (!clipMediaId && (clip as any).name === "__video_hook__") {
+          await (clip as any).updateStyle({
+            fill: preset.color,
+            fontFamily: preset.fontFamily,
+            fontUrl: preset.fontUrl,
+            strokeWidth: preset.borderWidth,
+            stroke: { color: preset.borderColor, width: preset.borderWidth },
+            textCase: preset.textTransform || "none",
+            wordsPerLine: mode === "single" ? "single" : "multiple",
+            caption: {
+              colors: {
+                appeared: preset.appearedColor,
+                active: preset.activeColor,
+                activeFill: preset.activeFillColor,
+                background: preset.backgroundColor,
+                keyword: preset.isKeywordColor ?? "transparent",
+              },
+              preserveKeywordColor: preset.preservedColorKeyWord ?? false,
+            },
+            dropShadow: preset.boxShadow
+              ? {
+                  color: preset.boxShadow.color,
+                  alpha: 0.5,
+                  blur: preset.boxShadow.blur,
+                  distance: Math.sqrt(
+                    preset.boxShadow.x ** 2 + preset.boxShadow.y ** 2
+                  ),
+                  angle: Math.PI / 4,
+                }
+              : undefined,
+          });
+          continue;
+        }
+
         await regenerateCaptionClips({
           studio,
           captionClip: clip,
@@ -113,7 +208,7 @@ const CaptionPresetPicker = () => {
   const PresetGrid = ({ presets }: { presets: ICaptionsControlProps[] }) => (
     <div className="grid gap-2 p-4">
       <div
-        className="flex h-[70px] cursor-pointer items-center justify-center bg-zinc-800"
+        className="flex h-[70px] cursor-pointer items-center justify-center bg-zinc-800 rounded-lg"
         onClick={() => {
           handleApplyPreset(NONE_PRESET);
         }}
@@ -124,17 +219,28 @@ const CaptionPresetPicker = () => {
       {presets.map((preset, index) => (
         <div
           key={index}
-          className="text-md flex h-[70px] cursor-pointer items-center justify-center bg-zinc-800 overflow-hidden"
+          className="flex flex-col cursor-pointer"
           onClick={() => handleApplyPreset(preset)}
         >
-          <video
-            src={preset.previewUrl}
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="h-40 place-content-center rounded-lg"
-          />
+          <div className="text-md flex h-[70px] items-center justify-center bg-zinc-800 overflow-hidden rounded-lg">
+            {preset.previewUrl ? (
+              <video
+                src={preset.previewUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="h-40 place-content-center rounded-lg"
+              />
+            ) : (
+              <CSSPresetPreview preset={preset} />
+            )}
+          </div>
+          {preset.name && (
+            <span className="text-[10px] text-muted-foreground text-center mt-1">
+              {preset.name}
+            </span>
+          )}
         </div>
       ))}
     </div>

@@ -46,7 +46,7 @@ interface ApproveGridInput {
   cols: number;
   width: number;
   height: number;
-  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+  voiceover_list: Record<string, string[]>;
   visual_prompt_list: string[];
 }
 
@@ -87,7 +87,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const expectedScenes = rows * cols;
-    const languages = ['en', 'tr', 'ar'] as const;
+    const languages = Object.keys(voiceover_list);
+    if (languages.length === 0) {
+      return errorResponse('voiceover_list must have at least one language', 400);
+    }
     for (const lang of languages) {
       if (voiceover_list[lang].length !== expectedScenes) {
         return errorResponse(

@@ -86,8 +86,9 @@ export async function POST(req: NextRequest) {
     // If rows/cols changed, adjust voiceover_list and visual_flow
     const plan = { ...storyboard.plan };
     const newSceneCount = rows * cols;
-    const languages = ['en', 'tr', 'ar'] as const;
-    const oldSceneCount = plan.voiceover_list.en.length;
+    const voiceoverList = plan.voiceover_list as Record<string, string[]>;
+    const languages = Object.keys(voiceoverList);
+    const oldSceneCount = (Object.values(voiceoverList)[0] as string[] | undefined)?.length ?? 0;
 
     if (
       newSceneCount !== oldSceneCount ||
@@ -99,21 +100,18 @@ export async function POST(req: NextRequest) {
 
       if (newSceneCount < oldSceneCount) {
         for (const lang of languages) {
-          plan.voiceover_list[lang] = plan.voiceover_list[lang].slice(
-            0,
-            newSceneCount
-          );
+          voiceoverList[lang] = voiceoverList[lang].slice(0, newSceneCount);
         }
+        plan.voiceover_list = voiceoverList;
         plan.visual_flow = plan.visual_flow.slice(0, newSceneCount);
       } else if (newSceneCount > oldSceneCount) {
         for (const lang of languages) {
-          const lastVo =
-            plan.voiceover_list[lang][plan.voiceover_list[lang].length - 1] ||
-            '';
-          while (plan.voiceover_list[lang].length < newSceneCount) {
-            plan.voiceover_list[lang].push(lastVo);
+          const lastVo = voiceoverList[lang][voiceoverList[lang].length - 1] || '';
+          while (voiceoverList[lang].length < newSceneCount) {
+            voiceoverList[lang].push(lastVo);
           }
         }
+        plan.voiceover_list = voiceoverList;
         const lastVf = plan.visual_flow[plan.visual_flow.length - 1] || '';
         while (plan.visual_flow.length < newSceneCount) {
           plan.visual_flow.push(lastVf);

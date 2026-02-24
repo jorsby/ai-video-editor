@@ -126,7 +126,7 @@ export interface TextStyleJSON {
   lineHeight?: number;
   letterSpacing?: number;
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'title';
-  verticalAlign?: 'top' | 'center' | 'bottom';
+  verticalAlign?: 'top' | 'top-quarter' | 'center' | 'bottom-quarter' | 'bottom';
   wordsPerLine?: 'single' | 'multiple';
   isRTL?: boolean;
 }

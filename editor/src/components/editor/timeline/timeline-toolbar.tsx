@@ -3,6 +3,7 @@ import { usePlaybackStore } from '@/stores/playback-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { useLanguageSwitch } from '@/hooks/use-language-switch';
 import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
+import { toast } from 'sonner';
 import {
   TooltipProvider,
   Tooltip,
@@ -58,6 +59,8 @@ export function TimelineToolbar({
     useLanguageStore();
   const { switchLanguage, copyAndSwitch } = useLanguageSwitch();
   const [pendingLang, setPendingLang] = useState<LanguageCode | null>(null);
+  const [addLangCode, setAddLangCode] = useState('');
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const handleZoomIn = () => {
     setZoomLevel(Math.min(3.5, zoomLevel + 0.15));
@@ -73,14 +76,7 @@ export function TimelineToolbar({
 
   const handleLanguageClick = (lang: LanguageCode) => {
     if (lang === activeLanguage || isLanguageSwitching) return;
-
-    if (availableLanguages.includes(lang)) {
-      // Language has existing data — switch directly
-      switchLanguage(lang);
-    } else {
-      // No data for this language — prompt the user
-      setPendingLang(lang);
-    }
+    switchLanguage(lang);
   };
 
   return (
@@ -141,38 +137,43 @@ export function TimelineToolbar({
               {isLanguageSwitching && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground mr-1" />
               )}
-              {SUPPORTED_LANGUAGES.map((lang) => {
-                const isActive = lang.code === activeLanguage;
-                const hasData = availableLanguages.includes(lang.code);
+              {availableLanguages.map((code) => {
+                const isActive = code === activeLanguage;
                 return (
-                  <Tooltip key={lang.code}>
+                  <Tooltip key={code}>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
                         disabled={isLanguageSwitching}
-                        onClick={() => handleLanguageClick(lang.code)}
-                        className={`relative px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 ${
+                        onClick={() => handleLanguageClick(code)}
+                        className={`px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 ${
                           isActive
                             ? 'bg-primary text-primary-foreground'
                             : 'hover:bg-secondary/50 text-muted-foreground'
                         }`}
                       >
-                        {lang.label}
-                        {hasData && !isActive && (
-                          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-                        )}
+                        {code.toUpperCase()}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isActive
-                        ? `Editing: ${lang.label}`
-                        : hasData
-                          ? `Switch to ${lang.label}`
-                          : `${lang.label} (no data)`}
+                      {isActive ? `Editing: ${code.toUpperCase()}` : `Switch to ${code.toUpperCase()}`}
                     </TooltipContent>
                   </Tooltip>
                 );
               })}
+              {/* Add language button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => { setAddLangCode(''); setPendingLang('__new__' as LanguageCode); }}
+                    className="px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 rounded transition-colors"
+                  >
+                    +
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Add language</TooltipContent>
+              </Tooltip>
             </div>
           </TooltipProvider>
         </div>
@@ -257,34 +258,73 @@ export function TimelineToolbar({
         </div>
       </div>
 
-      {/* "Copy from / Start empty" prompt dialog */}
+      {/* Add language dialog */}
       <Dialog
         open={pendingLang !== null}
         onOpenChange={(v) => !v && setPendingLang(null)}
       >
         <DialogContent className="max-w-xs">
-          <DialogTitle>New language: {pendingLang?.toUpperCase()}</DialogTitle>
+          <DialogTitle>Add Language</DialogTitle>
           <DialogDescription>
-            No timeline data exists for this language yet.
+            Choose a language to add to the timeline.
           </DialogDescription>
-          <div className="flex flex-col gap-2 mt-2">
-            <Button
-              onClick={() => {
-                if (pendingLang) copyAndSwitch(pendingLang);
-                setPendingLang(null);
-              }}
+          <div className="flex flex-col gap-3 mt-2">
+            <select
+              className="w-full h-8 text-xs border border-border rounded-md px-2 bg-background"
+              value={addLangCode}
+              onChange={(e) => setAddLangCode(e.target.value)}
             >
-              Copy from {activeLanguage.toUpperCase()}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (pendingLang) switchLanguage(pendingLang);
-                setPendingLang(null);
-              }}
-            >
-              Start empty
-            </Button>
+              <option value="">Select language...</option>
+              {SUPPORTED_LANGUAGES.filter((l) => !availableLanguages.includes(l.code)).map((l) => (
+                <option key={l.code} value={l.code}>{l.label} — {l.name}</option>
+              ))}
+            </select>
+            <div className="flex flex-col gap-2">
+              <Button
+                disabled={!addLangCode || isTranslating}
+                onClick={async () => {
+                  if (!addLangCode) return;
+                  setIsTranslating(true);
+                  try {
+                    const res = await fetch('/api/translate-language', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ target_language: addLangCode }),
+                    });
+                    if (!res.ok) throw new Error('Translation failed');
+                    copyAndSwitch(addLangCode);
+                    toast.success(`${addLangCode.toUpperCase()} voiceovers translated`);
+                  } catch {
+                    toast.error('Translation failed');
+                  } finally {
+                    setIsTranslating(false);
+                    setPendingLang(null);
+                  }
+                }}
+              >
+                {isTranslating ? 'Translating...' : `Translate from ${activeLanguage.toUpperCase()}`}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!addLangCode}
+                onClick={() => {
+                  if (addLangCode) copyAndSwitch(addLangCode);
+                  setPendingLang(null);
+                }}
+              >
+                Copy timeline from {activeLanguage.toUpperCase()}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!addLangCode}
+                onClick={() => {
+                  if (addLangCode) switchLanguage(addLangCode);
+                  setPendingLang(null);
+                }}
+              >
+                Start empty
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

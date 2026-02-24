@@ -12,7 +12,7 @@ interface LanguageState {
 
 export const useLanguageStore = create<LanguageState>((set) => ({
   activeLanguage: 'en',
-  availableLanguages: ['en'],
+  availableLanguages: [],
   isLanguageSwitching: false,
   setActiveLanguage: (lang) => set({ activeLanguage: lang }),
   setAvailableLanguages: (langs) => set({ availableLanguages: langs }),

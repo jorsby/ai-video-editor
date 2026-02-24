@@ -25,11 +25,7 @@ export const wan26FlashPlanSchema = z.object({
   scene_multi_shots: z.array(z.boolean()).optional(),
 
   // Voiceovers
-  voiceover_list: z.object({
-    en: z.array(z.string()),
-    tr: z.array(z.string()),
-    ar: z.array(z.string()),
-  }),
+  voiceover_list: z.record(z.string(), z.array(z.string())),
 });
 
 export type Wan26FlashPlan = z.infer<typeof wan26FlashPlanSchema>;

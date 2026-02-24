@@ -4,11 +4,7 @@ export const i2vPlanSchema = z.object({
   rows: z.number(),
   cols: z.number(),
   grid_image_prompt: z.string(),
-  voiceover_list: z.object({
-    en: z.array(z.string()),
-    tr: z.array(z.string()),
-    ar: z.array(z.string()),
-  }),
+  voiceover_list: z.record(z.string(), z.array(z.string())),
   visual_flow: z.array(z.string()),
 });
 

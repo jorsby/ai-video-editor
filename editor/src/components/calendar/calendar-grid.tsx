@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { CalendarDayCell } from './calendar-day-cell';
 import type { MixpostPost } from '@/types/calendar';
 import type { WorkflowRun } from '@/types/workflow-run';
@@ -29,8 +29,10 @@ function formatDateKey(date: Date): string {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const EMPTY_POSTS: MixpostPost[] = [];
+const EMPTY_RUNS: WorkflowRun[] = [];
 
-export function CalendarGrid({
+export const CalendarGrid = React.memo(function CalendarGrid({
   currentMonth,
   postsByDate,
   workflowRunsByDate,
@@ -84,8 +86,8 @@ export function CalendarGrid({
             date={day.date}
             isCurrentMonth={day.isCurrentMonth}
             isToday={day.isToday}
-            posts={postsByDate.get(day.dateKey) || []}
-            workflowRuns={workflowRunsByDate?.get(day.dateKey) || []}
+            posts={postsByDate.get(day.dateKey) ?? EMPTY_POSTS}
+            workflowRuns={workflowRunsByDate?.get(day.dateKey) ?? EMPTY_RUNS}
             onPostClick={onPostClick}
             onWorkflowRunClick={onWorkflowRunClick}
             timezone={timezone}
@@ -94,4 +96,4 @@ export function CalendarGrid({
       </div>
     </div>
   );
-}
+});

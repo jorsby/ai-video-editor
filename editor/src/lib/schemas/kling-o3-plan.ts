@@ -29,11 +29,7 @@ export const klingO3PlanSchema = z.object({
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 
   // Voiceovers
-  voiceover_list: z.object({
-    en: z.array(z.string()),
-    tr: z.array(z.string()),
-    ar: z.array(z.string()),
-  }),
+  voiceover_list: z.record(z.string(), z.array(z.string())),
 });
 
 export type KlingO3Plan = z.infer<typeof klingO3PlanSchema>;

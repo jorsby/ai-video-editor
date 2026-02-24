@@ -62,19 +62,24 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
         previewRef.current?.ready,
       ]);
 
-      // Load from Supabase with active language
-      const { activeLanguage } = useLanguageStore.getState();
+      // Fetch available languages FIRST to determine correct active language
+      const langs = await getAvailableLanguages(projectId);
+      let { activeLanguage } = useLanguageStore.getState();
+
+      if (langs.length > 0) {
+        useLanguageStore.getState().setAvailableLanguages(langs);
+        if (!langs.includes(activeLanguage)) {
+          activeLanguage = langs[0];
+          useLanguageStore.getState().setActiveLanguage(activeLanguage);
+        }
+      }
+
+      // Load timeline for the correct language
       const savedData = await loadTimeline(projectId, activeLanguage);
       if (savedData && savedData.length > 0) {
         console.log('Loading from Supabase...');
         const projectJson = reconstructProjectJSON(savedData);
         await previewRef.current?.loadFromJSON(projectJson as any);
-      }
-
-      // Fetch available languages and update store
-      const langs = await getAvailableLanguages(projectId);
-      if (langs.length > 0) {
-        useLanguageStore.getState().setAvailableLanguages(langs);
       }
 
       console.log('Studio ready');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Popover,
@@ -70,8 +70,10 @@ export function getPostTime(post: MixpostPost, timezone?: string): string | null
 
 const MAX_VISIBLE = 3;
 const MAX_ICONS = 4;
+const EMPTY_RUNS: WorkflowRun[] = [];
+const NOOP_RUN = (_run: WorkflowRun) => {};
 
-export function PostPill({
+export const PostPill = React.memo(function PostPill({
   post,
   onPostClick,
   timezone,
@@ -128,19 +130,23 @@ export function PostPill({
       </div>
     </button>
   );
-}
+});
 
-export function CalendarDayCell({
+export const CalendarDayCell = React.memo(function CalendarDayCell({
   date,
   isCurrentMonth,
   isToday,
   posts,
-  workflowRuns = [],
+  workflowRuns = EMPTY_RUNS,
   onPostClick,
   onWorkflowRunClick,
   timezone,
 }: CalendarDayCellProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const handlePopoverPostClick = useCallback((p: MixpostPost) => {
+    setPopoverOpen(false);
+    onPostClick(p);
+  }, [onPostClick]);
   const visiblePosts = posts.slice(0, MAX_VISIBLE);
   const overflowCount = posts.length - MAX_VISIBLE;
   const totalCount = posts.length + workflowRuns.length;
@@ -180,7 +186,7 @@ export function CalendarDayCell({
           <WorkflowRunPill
             key={run.id}
             run={run}
-            onClick={onWorkflowRunClick ?? (() => {})}
+            onClick={onWorkflowRunClick ?? NOOP_RUN}
           />
         ))}
         {/* Solo post pills */}
@@ -210,10 +216,7 @@ export function CalendarDayCell({
                     key={post.uuid}
                     post={post}
                     timezone={timezone}
-                    onPostClick={(p) => {
-                      setPopoverOpen(false);
-                      onPostClick(p);
-                    }}
+                    onPostClick={handlePopoverPostClick}
                   />
                 ))}
               </div>
@@ -223,4 +226,4 @@ export function CalendarDayCell({
       </div>
     </div>
   );
-}
+});

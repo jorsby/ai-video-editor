@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import useSWR from 'swr';
 import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import {
   Select,
@@ -21,6 +22,7 @@ import { WorkflowRunDetailDialog } from './workflow-run-detail-dialog';
 import type { MixpostPost, MixpostPostTag } from '@/types/calendar';
 import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
 import type { WorkflowRun } from '@/types/workflow-run';
+import { getEffectiveStatus } from './calendar-day-cell';
 
 type StatusFilter = 'all' | 'scheduled' | 'published' | 'failed';
 type CalendarView = 'month' | 'week' | 'day';
@@ -116,16 +118,66 @@ function buildNavLabel(date: Date, view: CalendarView): string {
   return `${startStr} – ${endStr}, ${weekEnd.getFullYear()}`;
 }
 
+// Stable references for React.memo children
+const EMPTY_POSTS: MixpostPost[] = [];
+const EMPTY_RUNS: WorkflowRun[] = [];
+
+const FILTER_TABS: { label: string; value: StatusFilter; color: string }[] = [
+  { label: 'All', value: 'all', color: '' },
+  { label: 'Queued', value: 'scheduled', color: 'text-blue-400' },
+  { label: 'Published', value: 'published', color: 'text-emerald-400' },
+  { label: 'Failed', value: 'failed', color: 'text-red-400' },
+];
+
+// SWR fetcher: fetches posts + workflow runs for given months
+async function fetchCalendarData(key: string): Promise<{
+  posts: MixpostPost[];
+  workflowRuns: WorkflowRun[];
+}> {
+  const monthsJson = key.split('::')[1];
+  const monthParams: string[] = JSON.parse(monthsJson);
+
+  const [postResults, runsRes] = await Promise.all([
+    Promise.all(
+      monthParams.map(async (monthParam) => {
+        const params = new URLSearchParams({
+          date: monthParam,
+          calendar_type: 'month',
+        });
+        const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to fetch posts');
+        }
+        const data: { posts: MixpostPost[] } = await res.json();
+        return (data.posts || []).filter((p) => !p.trashed);
+      })
+    ),
+    fetch(`/api/workflow-runs?month=${monthParams[0].slice(0, 7)}`).then((r) =>
+      r.ok ? r.json() : { runs: [] }
+    ),
+  ]);
+
+  const seen = new Set<string>();
+  const combined: MixpostPost[] = [];
+  for (const batch of postResults) {
+    for (const p of batch) {
+      if (!seen.has(p.uuid)) {
+        seen.add(p.uuid);
+        combined.push(p);
+      }
+    }
+  }
+
+  return { posts: combined, workflowRuns: runsRes.runs ?? [] };
+}
+
 export function CalendarContent() {
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [calendarView, setCalendarView] = useState<CalendarView>('month');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [timezoneValue, setTimezoneValue] = useState<string>('local');
   const timezone = timezoneValue === 'local' ? undefined : timezoneValue;
-  const [posts, setPosts] = useState<MixpostPost[]>([]);
-  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedPost, setSelectedPost] = useState<MixpostPost | null>(null);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
 
@@ -135,57 +187,31 @@ export function CalendarContent() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [selectedTagUuids, setSelectedTagUuids] = useState<Set<string>>(new Set());
 
-  const fetchPosts = useCallback(async (months: Date[], filter: StatusFilter) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      // Fetch Mixpost posts + workflow runs in parallel
-      const primaryMonth = months[0];
-      const monthParam = formatDateParam(primaryMonth).slice(0, 7); // YYYY-MM
+  // SWR: fetch posts + workflow runs with caching and keepPreviousData
+  const monthsToFetch = useMemo(
+    () => getMonthsToFetch(currentDate, calendarView),
+    [currentDate, calendarView]
+  );
+  const swrKey = useMemo(
+    () => `calendar::${JSON.stringify(monthsToFetch.map(formatDateParam))}`,
+    [monthsToFetch]
+  );
 
-      const [postResults, runsRes] = await Promise.all([
-        Promise.all(
-          months.map(async (month) => {
-            const params = new URLSearchParams({
-              date: formatDateParam(month),
-              calendar_type: 'month',
-            });
-            if (filter !== 'all') params.set('status', filter);
-            const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
-            if (!res.ok) {
-              const err = await res.json();
-              throw new Error(err.error || 'Failed to fetch posts');
-            }
-            const data: { posts: MixpostPost[] } = await res.json();
-            return (data.posts || []).filter((p) => !p.trashed);
-          })
-        ),
-        fetch(`/api/workflow-runs?month=${monthParam}`).then(r => r.ok ? r.json() : { runs: [] }),
-      ]);
+  const {
+    data: calendarData,
+    error: swrError,
+    isLoading,
+    isValidating,
+    mutate,
+  } = useSWR(swrKey, fetchCalendarData, {
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+    dedupingInterval: 5000,
+  });
 
-      // Deduplicate posts across months
-      const seen = new Set<string>();
-      const combined: MixpostPost[] = [];
-      for (const batch of postResults) {
-        for (const p of batch) {
-          if (!seen.has(p.uuid)) {
-            seen.add(p.uuid);
-            combined.push(p);
-          }
-        }
-      }
-      setPosts(combined);
-      setWorkflowRuns(runsRes.runs ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch posts');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPosts(getMonthsToFetch(currentDate, calendarView), statusFilter);
-  }, [fetchPosts, currentDate, calendarView, statusFilter]);
+  const posts = calendarData?.posts ?? EMPTY_POSTS;
+  const workflowRuns = calendarData?.workflowRuns ?? EMPTY_RUNS;
+  const error = swrError instanceof Error ? swrError.message : swrError ? String(swrError) : null;
 
   useEffect(() => {
     Promise.all([
@@ -236,9 +262,15 @@ export function CalendarContent() {
     const noChannel = selectedAccountUuids.size === 0;
     const noGroup   = selectedGroupIds.size === 0;
     const noTag     = selectedTagUuids.size === 0;
-    if (noChannel && noGroup && noTag) return posts;
+    const noStatus  = statusFilter === 'all';
+    if (noChannel && noGroup && noTag && noStatus) return posts;
 
     return posts.filter((post) => {
+      // Client-side status filtering
+      if (!noStatus) {
+        const effectiveStatus = getEffectiveStatus(post);
+        if (effectiveStatus !== statusFilter) return false;
+      }
       if (!noChannel || !noGroup) {
         const uuids = post.accounts.map((a) => a.uuid);
         const matchesChannel = !noChannel && uuids.some((u) => selectedAccountUuids.has(u));
@@ -251,7 +283,7 @@ export function CalendarContent() {
       }
       return true;
     });
-  }, [posts, selectedAccountUuids, selectedGroupIds, selectedTagUuids, groupAccountUuids]);
+  }, [posts, statusFilter, selectedAccountUuids, selectedGroupIds, selectedTagUuids, groupAccountUuids]);
 
   // UUIDs of Mixpost posts that belong to a workflow run — excluded from solo post display
   const groupedUuids = useMemo<Set<string>>(() => {
@@ -336,32 +368,38 @@ export function CalendarContent() {
   const goToToday = useCallback(() => setCurrentDate(new Date()), []);
 
   const handlePostDeleted = useCallback((uuid: string) => {
-    setPosts((prev) => prev.filter((p) => p.uuid !== uuid));
+    mutate(
+      (prev) => prev
+        ? { ...prev, posts: prev.posts.filter((p) => p.uuid !== uuid) }
+        : prev,
+      { revalidate: false }
+    );
     setSelectedPost(null);
-  }, []);
+  }, [mutate]);
 
   const handlePostUpdated = useCallback(() => {
     setSelectedPost(null);
-    fetchPosts(getMonthsToFetch(currentDate, calendarView), statusFilter);
-  }, [fetchPosts, currentDate, calendarView, statusFilter]);
+    mutate();
+  }, [mutate]);
 
   const navLabel = buildNavLabel(currentDate, calendarView);
 
-  const filterTabs: { label: string; value: StatusFilter; color: string }[] = [
-    { label: 'All', value: 'all', color: '' },
-    { label: 'Queued', value: 'scheduled', color: 'text-blue-400' },
-    { label: 'Published', value: 'published', color: 'text-emerald-400' },
-    { label: 'Failed', value: 'failed', color: 'text-red-400' },
-  ];
+  // Stable callbacks for dialog close/view actions
+  const handleClosePost = useCallback(() => setSelectedPost(null), []);
+  const handleCloseRun = useCallback(() => setSelectedRun(null), []);
+  const handleViewPost = useCallback((post: MixpostPost) => {
+    setSelectedRun(null);
+    setSelectedPost(post);
+  }, []);
 
-  if (error) {
+  if (error && !calendarData) {
     return (
       <div className="space-y-2 py-12 text-center">
         <p className="text-sm text-destructive">{error}</p>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => fetchPosts(getMonthsToFetch(currentDate, calendarView), statusFilter)}
+          onClick={() => mutate()}
         >
           Retry
         </Button>
@@ -443,7 +481,7 @@ export function CalendarContent() {
 
       {/* Status filter tabs */}
       <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted/30 p-1 w-fit">
-        {filterTabs.map((tab) => (
+        {FILTER_TABS.map((tab) => (
           <button
             key={tab.value}
             type="button"
@@ -477,7 +515,7 @@ export function CalendarContent() {
       />
 
       {/* Calendar view */}
-      {isLoading ? (
+      {isLoading && !calendarData ? (
         calendarView === 'month' ? (
           <CalendarGridSkeleton />
         ) : calendarView === 'week' ? (
@@ -485,35 +523,44 @@ export function CalendarContent() {
         ) : (
           <CalendarDaySkeleton />
         )
-      ) : calendarView === 'month' ? (
-        <CalendarGrid
-          currentMonth={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)}
-          postsByDate={postsByDate}
-          workflowRunsByDate={workflowRunsByDate}
-          onPostClick={setSelectedPost}
-          onWorkflowRunClick={setSelectedRun}
-          timezone={timezone}
-        />
-      ) : calendarView === 'week' ? (
-        <CalendarWeekView
-          weekStart={getWeekStart(currentDate)}
-          postsByDate={postsByDate}
-          onPostClick={setSelectedPost}
-          timezone={timezone}
-        />
       ) : (
-        <CalendarDayView
-          date={currentDate}
-          posts={postsByDate.get(formatDateKey(currentDate)) || []}
-          onPostClick={setSelectedPost}
-          timezone={timezone}
-        />
+        <>
+          {isValidating && (
+            <div className="flex items-center justify-center py-1">
+              <div className="h-1 w-24 animate-pulse rounded-full bg-primary/30" />
+            </div>
+          )}
+          {calendarView === 'month' ? (
+            <CalendarGrid
+              currentMonth={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)}
+              postsByDate={postsByDate}
+              workflowRunsByDate={workflowRunsByDate}
+              onPostClick={setSelectedPost}
+              onWorkflowRunClick={setSelectedRun}
+              timezone={timezone}
+            />
+          ) : calendarView === 'week' ? (
+            <CalendarWeekView
+              weekStart={getWeekStart(currentDate)}
+              postsByDate={postsByDate}
+              onPostClick={setSelectedPost}
+              timezone={timezone}
+            />
+          ) : (
+            <CalendarDayView
+              date={currentDate}
+              posts={postsByDate.get(formatDateKey(currentDate)) ?? EMPTY_POSTS}
+              onPostClick={setSelectedPost}
+              timezone={timezone}
+            />
+          )}
+        </>
       )}
 
       {/* Post detail dialog */}
       <PostDetailDialog
         post={selectedPost}
-        onClose={() => setSelectedPost(null)}
+        onClose={handleClosePost}
         onDeleted={handlePostDeleted}
         onUpdated={handlePostUpdated}
       />
@@ -521,9 +568,9 @@ export function CalendarContent() {
       {/* Workflow run detail dialog */}
       <WorkflowRunDetailDialog
         run={selectedRun}
-        onClose={() => setSelectedRun(null)}
+        onClose={handleCloseRun}
         postsByUuid={postsByUuid}
-        onViewPost={(post) => { setSelectedRun(null); setSelectedPost(post); }}
+        onViewPost={handleViewPost}
       />
     </div>
   );

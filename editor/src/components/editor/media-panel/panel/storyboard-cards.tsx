@@ -41,8 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
-import { useLanguageSwitch } from '@/hooks/use-language-switch';
-import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
+import { DEFAULT_VOICE_MAP, FALLBACK_VOICE, type LanguageCode } from '@/lib/constants/languages';
 import { createClient } from '@/lib/supabase/client';
 import {
   addSceneToTimeline,
@@ -361,11 +360,8 @@ export function StoryboardCards({
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
-  const { switchLanguage } = useLanguageSwitch();
-  const [voiceConfig, setVoiceConfig] = useState({
-    en: { voice: 'NFG5qt843uXKj4pFvR7C' },
-    tr: { voice: '75SIZa3vvET95PHhf1yD' },
-    ar: { voice: 'IES4nrmZdUBHByLBde0P' },
+  const [voiceConfig, setVoiceConfig] = useState<Record<string, { voice: string }>>({
+    en: { voice: DEFAULT_VOICE_MAP.en ?? FALLBACK_VOICE },
   });
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
@@ -381,6 +377,17 @@ export function StoryboardCards({
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [cardMinWidth, setCardMinWidth] = useState(180);
   const { studio } = useStudioStore();
+
+  // Re-initialize voiceConfig from storyboard plan when storyboard loads
+  useEffect(() => {
+    if (!storyboard?.plan?.voiceover_list) return;
+    const langs = Object.keys(storyboard.plan.voiceover_list);
+    setVoiceConfig(
+      Object.fromEntries(
+        langs.map((lang) => [lang, { voice: DEFAULT_VOICE_MAP[lang] ?? FALLBACK_VOICE }])
+      )
+    );
+  }, [storyboard?.id]);
 
   // Refresh data when refreshTrigger changes (new storyboard generated)
   useEffect(() => {
@@ -438,7 +445,7 @@ export function StoryboardCards({
       const { data, error } = await supabase.functions.invoke('generate-tts', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
-          voice: voiceConfig[selectedLanguage].voice,
+          voice: (voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE,
           model: ttsModel,
           language: selectedLanguage,
           speed: ttsSpeed,
@@ -466,7 +473,7 @@ export function StoryboardCards({
     setIsGeneratingAll(true);
     try {
       const supabase = createClient();
-      const languages = ['en', 'tr', 'ar'] as const;
+      const languages = Object.keys(voiceConfig);
       const sceneIds = Array.from(selectedSceneIds);
 
       const results = await Promise.allSettled(
@@ -1240,7 +1247,7 @@ export function StoryboardCards({
       {
         body: {
           scene_ids: [sceneId],
-          voice: voiceConfig[selectedLanguage].voice,
+          voice: (voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE,
           model: ttsModel,
           language: selectedLanguage,
           speed: ttsSpeed,
@@ -1700,24 +1707,6 @@ export function StoryboardCards({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="px-2 py-2 flex flex-col gap-2">
-              {/* Language tabs */}
-              <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-fit">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => switchLanguage(lang.code)}
-                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                      selectedLanguage === lang.code
-                        ? 'bg-primary text-primary-foreground'
-                        : 'hover:bg-secondary/50 text-muted-foreground'
-                    }`}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
-
               {/* Voice select */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
@@ -1725,7 +1714,7 @@ export function StoryboardCards({
                 </span>
                 <div className="flex items-center gap-1.5">
                   <Select
-                    value={voiceConfig[selectedLanguage].voice}
+                    value={(voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE}
                     onValueChange={(value) => {
                       setVoiceConfig((prev) => ({
                         ...prev,
@@ -1819,7 +1808,7 @@ export function StoryboardCards({
                   }
                   onClick={handleGenerateAllVoiceovers}
                   className="h-9 text-xs"
-                  title="Generate voiceovers for all 3 languages (EN, TR, AR)"
+                  title={`Generate voiceovers for all languages (${Object.keys(voiceConfig).map(c => c.toUpperCase()).join(', ')})`}
                 >
                   {isGeneratingAll ? (
                     <IconLoader2 className="size-3.5 animate-spin mr-1" />

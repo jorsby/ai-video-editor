@@ -20,7 +20,7 @@ export interface StoryboardPlan {
   rows: number;
   cols: number;
   grid_image_prompt: string;
-  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+  voiceover_list: Record<string, string[]>;
   visual_flow: string[];
 }
 
@@ -41,7 +41,7 @@ export interface RefPlanBase {
   scene_prompts: (string | string[])[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
-  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+  voiceover_list: Record<string, string[]>;
 }
 
 export interface KlingO3RefPlan extends RefPlanBase {

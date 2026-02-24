@@ -58,7 +58,7 @@ interface RefWorkflowInput {
   scene_prompts: string[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
-  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+  voiceover_list: Record<string, string[]>;
 
   width: number;
   height: number;
@@ -145,10 +145,11 @@ function validateInput(input: RefWorkflowInput): string | null {
   }
 
   // Validate voiceover_list
-  const languages = ['en', 'tr', 'ar'] as const;
+  const languages = Object.keys(voiceover_list);
+  if (languages.length === 0) return 'voiceover_list must have at least one language';
   for (const lang of languages) {
-    if (!voiceover_list[lang] || voiceover_list[lang].length !== sceneCount) {
-      return `voiceover_list.${lang} length (${voiceover_list[lang]?.length}) must equal scene count (${sceneCount})`;
+    if (voiceover_list[lang].length !== sceneCount) {
+      return `voiceover_list.${lang} length must equal scene count (${sceneCount})`;
     }
   }
 

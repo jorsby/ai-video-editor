@@ -245,10 +245,10 @@ export interface ICaptionOpts {
    */
   wordWrap?: boolean;
   /**
-   * Vertical alignment ('top', 'center', 'bottom')
+   * Vertical alignment ('top', 'top-quarter', 'center', 'bottom-quarter', 'bottom')
    * @default 'bottom'
    */
-  verticalAlign?: "top" | "center" | "bottom";
+  verticalAlign?: "top" | "top-quarter" | "center" | "bottom-quarter" | "bottom";
   /**
    * Line height (multiplier)
    * @default 1

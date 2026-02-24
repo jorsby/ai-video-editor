@@ -32,16 +32,13 @@ const captionResultSchema = z.object({
 });
 
 const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English',
-  tr: 'Turkish',
-  ar: 'Arabic',
-  es: 'Spanish',
-  fr: 'French',
-  de: 'German',
-  pt: 'Portuguese',
-  ja: 'Japanese',
-  ko: 'Korean',
-  zh: 'Chinese',
+  en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish',
+  fr: 'French', de: 'German', pt: 'Portuguese', it: 'Italian',
+  ru: 'Russian', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
+  hi: 'Hindi', nl: 'Dutch', pl: 'Polish', sv: 'Swedish',
+  da: 'Danish', fi: 'Finnish', no: 'Norwegian', uk: 'Ukrainian',
+  cs: 'Czech', ro: 'Romanian', hu: 'Hungarian', id: 'Indonesian',
+  ms: 'Malay',
 };
 
 const LENGTH_PROMPTS: Record<string, string> = {

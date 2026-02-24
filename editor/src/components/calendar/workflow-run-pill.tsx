@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { cn } from '@/lib/utils';
 import type { WorkflowRun, WorkflowRunLane } from '@/types/workflow-run';
 
@@ -21,7 +22,7 @@ interface WorkflowRunPillProps {
   onClick: (run: WorkflowRun) => void;
 }
 
-export function WorkflowRunPill({ run, onClick }: WorkflowRunPillProps) {
+export const WorkflowRunPill = React.memo(function WorkflowRunPill({ run, onClick }: WorkflowRunPillProps) {
   const color = getRunStatusColor(run.lanes);
 
   const colorClass = {
@@ -65,7 +66,7 @@ export function WorkflowRunPill({ run, onClick }: WorkflowRunPillProps) {
       </div>
     </button>
   );
-}
+});
 
 function formatTime(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);

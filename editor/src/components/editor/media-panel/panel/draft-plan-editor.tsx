@@ -24,6 +24,7 @@ import type {
   KlingO3RefPlan,
   Wan26FlashRefPlan,
 } from '@/lib/supabase/workflow-service';
+import { getLanguageName } from '@/lib/constants/languages';
 
 interface DraftPlanEditorProps {
   plan: StoryboardPlan | RefPlan;
@@ -68,12 +69,10 @@ export function DraftPlanEditor({
   const [isObjectsOpen, setIsObjectsOpen] = useState(false);
   const [isBgNamesOpen, setIsBgNamesOpen] = useState(false);
 
-  const LANGUAGES = { en: 'English', tr: 'Turkish', ar: 'Arabic' } as const;
-
   const ref = isRefPlan(plan);
   const sceneCount = ref
     ? plan.scene_prompts.length
-    : (plan.voiceover_list?.en?.length ?? 0);
+    : (Object.values(plan.voiceover_list ?? {})[0]?.length ?? 0);
 
   const toggleSceneExpanded = (index: number) => {
     const newExpanded = new Set(expandedScenes);
@@ -88,7 +87,7 @@ export function DraftPlanEditor({
   // --- I2V handlers ---
   const handleVoiceoverChange = (
     index: number,
-    language: keyof typeof LANGUAGES,
+    language: string,
     value: string
   ) => {
     const newList = {
@@ -345,7 +344,8 @@ export function DraftPlanEditor({
             </span>
             {Array.from({ length: sceneCount }).map((_, index) => {
               const isExpanded = expandedScenes.has(index);
-              const enText = plan.voiceover_list.en[index] || '';
+              const firstLang = Object.keys(plan.voiceover_list)[0] ?? 'en';
+              const enText = plan.voiceover_list[firstLang]?.[index] || '';
 
               // Ref scene info
               const sceneObjIndices = ref
@@ -498,21 +498,19 @@ export function DraftPlanEditor({
                       )}
 
                       {/* Voiceovers */}
-                      {(
-                        Object.keys(LANGUAGES) as (keyof typeof LANGUAGES)[]
-                      ).map((lang) => (
+                      {Object.keys(plan.voiceover_list).map((lang) => (
                         <div key={lang}>
                           <label className="text-xs text-muted-foreground block mb-1">
-                            {LANGUAGES[lang]}
+                            {getLanguageName(lang)}
                           </label>
                           <Textarea
-                            value={plan.voiceover_list[lang][index] || ''}
+                            value={plan.voiceover_list[lang]?.[index] || ''}
                             onChange={(e) =>
                               handleVoiceoverChange(index, lang, e.target.value)
                             }
                             readOnly={readOnly}
                             className="text-xs min-h-[60px]"
-                            placeholder={`${LANGUAGES[lang]} voiceover...`}
+                            placeholder={`${getLanguageName(lang)} voiceover...`}
                           />
                         </div>
                       ))}

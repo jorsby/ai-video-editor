@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -84,7 +85,7 @@ function CheckItem({ id, checked, onToggle, children }: CheckItemProps) {
   );
 }
 
-export function CalendarFilterBar({
+export const CalendarFilterBar = React.memo(function CalendarFilterBar({
   accounts,
   selectedAccountUuids,
   onToggleAccount,
@@ -161,4 +162,4 @@ export function CalendarFilterBar({
       )}
     </div>
   );
-}
+});

@@ -119,12 +119,14 @@ export async function generateCaptionClips(
       playbackRate: 1,
       duration: durationUs,
       left: (videoWidth - captionWidth) / 2, // Center horizontally
-      top:
-        options.style?.verticalAlign === "top"
-          ? 80
-          : options.style?.verticalAlign === "center"
-            ? (videoHeight - captionHeight) / 2
-            : videoHeight - captionHeight - 80,
+      top: (() => {
+        const align = options.style?.verticalAlign;
+        if (align === "top") return 80;
+        if (align === "top-quarter") return videoHeight * 0.25 - captionHeight / 2;
+        if (align === "center") return (videoHeight - captionHeight) / 2;
+        if (align === "bottom-quarter") return videoHeight * 0.75 - captionHeight / 2;
+        return videoHeight - captionHeight - 80;
+      })(),
       width: captionWidth,
       height: captionHeight,
       angle: 0,
