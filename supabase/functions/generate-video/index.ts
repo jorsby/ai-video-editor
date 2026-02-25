@@ -138,6 +138,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
+      multi_shots,
     }) => ({
       prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
       multi_prompt: multi_prompt || [],
@@ -145,6 +146,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls: image_urls || [],
       duration: String(duration),
       aspect_ratio: aspect_ratio ?? '16:9',
+      multi_shots: multi_shots ?? false,
     }),
   },
   klingo3pro: {
@@ -159,6 +161,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
+      multi_shots,
     }) => ({
       prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
       multi_prompt: multi_prompt || [],
@@ -166,6 +169,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls: image_urls || [],
       duration: String(duration),
       aspect_ratio: aspect_ratio ?? '16:9',
+      multi_shots: multi_shots ?? false,
     }),
   },
 };
@@ -514,6 +518,7 @@ async function sendRefVideoRequest(
         duration: context.duration,
         aspect_ratio,
         multi_prompt: context.multi_prompt,
+        multi_shots: context.multi_shots,
       });
     }
 

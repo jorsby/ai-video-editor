@@ -39,7 +39,7 @@ import type {
   Background,
 } from '@/lib/supabase/workflow-service';
 
-function parseMultiShotPrompt(
+export function parseMultiShotPrompt(
   prompt: string | null | undefined
 ): string[] | null {
   if (!prompt || !prompt.startsWith('[')) return null;

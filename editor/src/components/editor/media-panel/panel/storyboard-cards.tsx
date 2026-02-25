@@ -20,7 +20,7 @@ import {
   IconAlertTriangle,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { SceneCard, VoiceoverPlayButton } from './scene-card';
+import { SceneCard, VoiceoverPlayButton, parseMultiShotPrompt } from './scene-card';
 import { StatusBadge } from './status-badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -59,6 +59,17 @@ import type {
 import { GridImageReview } from './grid-image-review';
 import { RefGridImageReview } from './ref-grid-image-review';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+
+function buildScenePromptUpdate(editedPrompt: string): {
+  prompt: string | null;
+  multi_prompt: string[] | null;
+} {
+  const parsed = parseMultiShotPrompt(editedPrompt);
+  if (parsed) {
+    return { prompt: null, multi_prompt: parsed };
+  }
+  return { prompt: editedPrompt, multi_prompt: null };
+}
 
 const VOICES = [
   {
@@ -360,6 +371,7 @@ export function StoryboardCards({
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
+  const availableLanguages = useLanguageStore((s) => s.availableLanguages);
   const [voiceConfig, setVoiceConfig] = useState<Record<string, { voice: string }>>({
     en: { voice: DEFAULT_VOICE_MAP.en ?? FALLBACK_VOICE },
   });
@@ -388,6 +400,22 @@ export function StoryboardCards({
       )
     );
   }, [storyboard?.id]);
+
+  // Ensure voiceConfig has entries for all available languages (e.g. after translation)
+  useEffect(() => {
+    if (availableLanguages.length === 0) return;
+    setVoiceConfig((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      for (const lang of availableLanguages) {
+        if (!updated[lang]) {
+          updated[lang] = { voice: DEFAULT_VOICE_MAP[lang] ?? FALLBACK_VOICE };
+          changed = true;
+        }
+      }
+      return changed ? updated : prev;
+    });
+  }, [availableLanguages]);
 
   // Refresh data when refreshTrigger changes (new storyboard generated)
   useEffect(() => {
@@ -1207,15 +1235,31 @@ export function StoryboardCards({
 
   const handleSaveVisualPrompt = async (sceneId: string, newPrompt: string) => {
     const supabase = createClient();
-    const { error } = await supabase
-      .from('first_frames')
-      .update({ visual_prompt: newPrompt })
-      .eq('scene_id', sceneId);
+    const isRef = storyboard?.mode === 'ref_to_video';
 
-    if (error) {
-      console.error('Failed to save visual prompt:', error);
-      toast.error('Failed to save visual prompt');
-      throw error;
+    if (isRef) {
+      const promptUpdate = buildScenePromptUpdate(newPrompt);
+      const { error } = await supabase
+        .from('scenes')
+        .update(promptUpdate)
+        .eq('id', sceneId);
+
+      if (error) {
+        console.error('Failed to save scene prompt:', error);
+        toast.error('Failed to save scene prompt');
+        throw error;
+      }
+    } else {
+      const { error } = await supabase
+        .from('first_frames')
+        .update({ visual_prompt: newPrompt })
+        .eq('scene_id', sceneId);
+
+      if (error) {
+        console.error('Failed to save visual prompt:', error);
+        toast.error('Failed to save visual prompt');
+        throw error;
+      }
     }
   };
 
@@ -1292,10 +1336,11 @@ export function StoryboardCards({
         throw promptError;
       }
     } else {
-      // For ref mode, update the scene prompt
+      // For ref mode, update the correct prompt column on scenes
+      const promptUpdate = buildScenePromptUpdate(newVisualPrompt);
       const { error: promptError } = await supabase
         .from('scenes')
-        .update({ prompt: newVisualPrompt })
+        .update(promptUpdate)
         .eq('id', sceneId);
 
       if (promptError) {
