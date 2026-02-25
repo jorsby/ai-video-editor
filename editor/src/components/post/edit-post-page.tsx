@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
 import { SchedulePicker } from './schedule-picker';
+import { validateScheduleNotInPast, getTodayInTimezone } from '@/lib/schedule-validation';
 import { FacebookOptions } from './platform-options/facebook-options';
 import { YouTubeOptions } from './platform-options/youtube-options';
 import { TikTokOptions } from './platform-options/tiktok-options';
@@ -184,6 +185,11 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
     }
     if (hasYouTube && !youtubeOptions.title.trim()) {
       toast.error('Please enter a YouTube title');
+      return;
+    }
+    const scheduleError = validateScheduleNotInPast(scheduledDate, scheduledTime, timezone);
+    if (scheduleError) {
+      toast.error(scheduleError);
       return;
     }
 
@@ -372,6 +378,7 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
                 onScheduledTimeChange={setScheduledTime}
                 timezone={timezone}
                 onTimezoneChange={setTimezone}
+                minDate={getTodayInTimezone(timezone)}
               />
             </section>
 

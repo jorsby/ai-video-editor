@@ -33,7 +33,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
+import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
+import { useLanguageStore } from '@/stores/language-store';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 import { toast } from 'sonner';
@@ -359,6 +360,26 @@ export default function PanelStoryboard() {
       }
 
       console.log('[Storyboard] Draft approved, scenes generating');
+
+      // Sync language store with storyboard's source language
+      const voiceoverList = (
+        draftPlan as { voiceover_list?: Record<string, string[]> }
+      ).voiceover_list;
+      if (voiceoverList) {
+        const sourceLang = Object.keys(voiceoverList)[0] as LanguageCode;
+        if (sourceLang) {
+          const store = useLanguageStore.getState();
+          if (sourceLang !== store.activeLanguage) {
+            store.setActiveLanguage(sourceLang);
+          }
+          if (!store.availableLanguages.includes(sourceLang)) {
+            store.setAvailableLanguages([
+              ...store.availableLanguages,
+              sourceLang,
+            ]);
+          }
+        }
+      }
 
       // Clear draft state and refresh
       setDraftPlan(null);

@@ -89,136 +89,163 @@ const TEXT_PRESETS = [
 ];
 
 const HOOK_PRESETS = [
-  // --- Bold / Impact ---
+  // 0 — MrBeast: THE viral standard (Bangers, white, heavy outline)
   {
-    name: 'Bold Impact',
+    name: 'MrBeast',
     style: {
-      fontSize: 70,
+      fontSize: 90,
+      fontFamily: 'Bangers-Regular',
+      fontWeight: 'normal',
+      fill: '#ffffff',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 8, join: 'round' },
+      dropShadow: { color: '#000000', alpha: 0.7, blur: 6, angle: Math.PI / 4, distance: 3 },
+      fontUrl: 'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf',
+    },
+  },
+  // 1 — Hormozi: Business/authority (Montserrat, gold, heavy outline)
+  {
+    name: 'Hormozi',
+    style: {
+      fontSize: 88,
+      fontFamily: 'Montserrat',
+      fontWeight: '800',
+      fill: '#FFD700',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 8, join: 'round' },
+      dropShadow: { color: '#000000', alpha: 0.6, blur: 6, angle: Math.PI / 4, distance: 3 },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+    },
+  },
+  // 2 — Clean White: CapCut default, most versatile
+  {
+    name: 'Clean White',
+    style: {
+      fontSize: 85,
       fontFamily: 'Montserrat',
       fontWeight: '800',
       fill: '#ffffff',
-      stroke: { color: '#000000', width: 5, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.6, blur: 6, angle: Math.PI / 4, distance: 3 },
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 7, join: 'round' },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
+  // 3 — Heavy Outline: Gym/motivation, ultra-legible condensed
   {
     name: 'Heavy Outline',
     style: {
-      fontSize: 75,
+      fontSize: 90,
       fontFamily: 'Oswald',
       fontWeight: '700',
       fill: '#ffffff',
-      stroke: { color: '#000000', width: 8, join: 'round' },
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 10, join: 'round' },
     },
   },
-  // --- Clean / Minimal ---
+  // 4 — Ali Abdaal: Educational/professional (white on video, soft shadow)
   {
-    name: 'Clean Minimal',
+    name: 'Ali Abdaal',
     style: {
-      fontSize: 70,
-      fontFamily: 'Inter',
-      fontWeight: 'bold',
-      fill: '#ffffff',
-      dropShadow: { color: '#000000', alpha: 0.4, blur: 4, angle: Math.PI / 4, distance: 2 },
-    },
-  },
-  {
-    name: 'Soft Shadow',
-    style: {
-      fontSize: 65,
+      fontSize: 82,
       fontFamily: 'Poppins',
       fontWeight: '600',
       fill: '#ffffff',
-      dropShadow: { color: '#000000', alpha: 0.5, blur: 12, angle: Math.PI / 2, distance: 4 },
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 5, join: 'round' },
+      dropShadow: { color: '#000000', alpha: 0.5, blur: 10, angle: Math.PI / 2, distance: 3 },
+      fontUrl: 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf',
     },
   },
-  // --- Neon / Glow ---
+  // 5 — Breaking: News/drama urgency (white text, red stroke)
   {
-    name: 'Neon Cyan',
+    name: 'Breaking',
     style: {
-      fontSize: 70,
+      fontSize: 88,
+      fontFamily: 'Roboto',
+      fontWeight: '900',
+      fill: '#ffffff',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#CC0000', width: 8, join: 'round' },
+      fontUrl: 'https://fonts.gstatic.com/s/roboto/v29/KFOlCnqEu92Fr1MmYUtvAx05IsDqlA.ttf',
+    },
+  },
+  // 6 — Neon Green: Gaming/tech/hacker
+  {
+    name: 'Neon Green',
+    style: {
+      fontSize: 85,
       fontFamily: 'Inter',
       fontWeight: 'bold',
-      fill: '#00ffff',
-      dropShadow: { color: '#00ffff', alpha: 0.8, blur: 10, angle: 0, distance: 0 },
+      fill: '#39FF14',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 6, join: 'round' },
+      dropShadow: { color: '#39FF14', alpha: 0.7, blur: 12, angle: 0, distance: 0 },
     },
   },
-  {
-    name: 'Neon Pink',
-    style: {
-      fontSize: 70,
-      fontFamily: 'Inter',
-      fontWeight: 'bold',
-      fill: '#ff00ff',
-      dropShadow: { color: '#ff00ff', alpha: 0.8, blur: 10, angle: 0, distance: 0 },
-    },
-  },
-  // --- Warm / Energetic ---
+  // 7 — Fire: Warm/motivation (orange, heavy outline)
   {
     name: 'Fire',
     style: {
-      fontSize: 70,
-      fontFamily: 'Bangers',
-      fontWeight: 'normal',
-      fill: '#FFD700',
-      stroke: { color: '#FF4500', width: 4, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.7, blur: 8, angle: Math.PI / 4, distance: 3 },
-    },
-  },
-  {
-    name: 'Sunset',
-    style: {
-      fontSize: 70,
+      fontSize: 88,
       fontFamily: 'Montserrat',
-      fontWeight: '800',
-      fill: '#FF6B35',
-      stroke: { color: '#000000', width: 4, join: 'round' },
-      dropShadow: { color: '#FF6B35', alpha: 0.5, blur: 8, angle: 0, distance: 0 },
+      fontWeight: '900',
+      fill: '#FF4D00',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 8, join: 'round' },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
-  // --- Dark / Cinematic ---
+  // 8 — Cinematic: Documentary/luxury (warm serif, soft shadow)
   {
     name: 'Cinematic',
     style: {
-      fontSize: 60,
+      fontSize: 80,
       fontFamily: 'Playfair Display',
       fontWeight: '700',
-      fill: '#E8D5B7',
+      fill: '#F5E6CC',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 6, join: 'round' },
       dropShadow: { color: '#000000', alpha: 0.7, blur: 10, angle: Math.PI / 4, distance: 4 },
     },
   },
+  // 9 — Electric Pop: Tech/finance/gaming (green, heavy outline)
   {
-    name: 'Letterpress',
+    name: 'Electric Pop',
     style: {
-      fontSize: 65,
-      fontFamily: 'Oswald',
-      fontWeight: '700',
-      fill: '#D4D4D4',
-      stroke: { color: '#1a1a1a', width: 3, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.9, blur: 2, angle: Math.PI / 2, distance: 2 },
+      fontSize: 88,
+      fontFamily: 'Montserrat',
+      fontWeight: '900',
+      fill: '#00FF88',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 8, join: 'round' },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
-  // --- Colorful / Pop ---
+  // 10 — Sky Blue: Educational/trust
   {
-    name: 'Electric Blue',
+    name: 'Sky Blue',
     style: {
-      fontSize: 70,
+      fontSize: 85,
       fontFamily: 'Montserrat',
       fontWeight: '800',
-      fill: '#4FC3F7',
-      stroke: { color: '#0D47A1', width: 4, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.6, blur: 6, angle: Math.PI / 4, distance: 3 },
+      fill: '#00BFFF',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 7, join: 'round' },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
+  // 11 — Sunset: Travel/food/warm energy
   {
-    name: 'Lime Pop',
+    name: 'Sunset',
     style: {
-      fontSize: 70,
+      fontSize: 85,
       fontFamily: 'Montserrat',
       fontWeight: '800',
-      fill: '#76FF03',
-      stroke: { color: '#000000', width: 5, join: 'round' },
-      dropShadow: { color: '#76FF03', alpha: 0.4, blur: 8, angle: 0, distance: 0 },
+      fill: '#FF6B35',
+      textCase: 'uppercase' as const,
+      stroke: { color: '#000000', width: 6, join: 'round' },
+      dropShadow: { color: '#FF6B35', alpha: 0.5, blur: 8, angle: 0, distance: 0 },
+      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
 ];
@@ -234,63 +261,18 @@ interface HookPresetAnimation {
   params?: any;
 }
 
-interface AnimatedHookPreset {
-  name: string;
-  style: (typeof HOOK_PRESETS)[0]['style'];
-  animation: HookPresetAnimation;
-}
-
-const ANIMATED_HOOK_PRESETS: AnimatedHookPreset[] = [
-  {
-    name: 'Pop In',
-    style: HOOK_PRESETS[0].style, // Bold Impact
-    animation: { name: 'wobbleZoomIn', opts: { duration: 400_000 } },
-  },
-  {
-    name: 'Typewriter',
-    style: HOOK_PRESETS[2].style, // Clean Minimal
-    animation: { name: 'charTypewriter', opts: { duration: 500_000 } },
-  },
-  {
-    name: 'Slide Up',
-    style: HOOK_PRESETS[3].style, // Soft Shadow
-    animation: { name: 'slideIn', opts: { duration: 400_000 }, params: { direction: 'bottom' } },
-  },
-  {
-    name: 'Slam Down',
-    style: HOOK_PRESETS[1].style, // Heavy Outline
-    animation: { name: 'dropBlurIn', opts: { duration: 350_000 } },
-  },
-  {
-    name: 'Word Reveal',
-    style: HOOK_PRESETS[10].style, // Electric Blue
-    animation: { name: 'wordFadeIn', opts: { duration: 600_000 } },
-  },
-  {
-    name: 'Glitch In',
-    style: HOOK_PRESETS[4].style, // Neon Cyan
-    animation: { name: 'glitchSlideIn', opts: { duration: 500_000 } },
-  },
-  {
-    name: 'Zoom Blur',
-    style: HOOK_PRESETS[8].style, // Cinematic
-    animation: { name: 'zoomBlurIn', opts: { duration: 400_000 } },
-  },
-  {
-    name: 'Spin In',
-    style: HOOK_PRESETS[6].style, // Fire
-    animation: { name: 'spinZoomIn', opts: { duration: 500_000 } },
-  },
-  {
-    name: 'Pulse',
-    style: HOOK_PRESETS[5].style, // Neon Pink
-    animation: { name: 'pulse', opts: { duration: 0, iterCount: Infinity } },
-  },
-  {
-    name: 'Shake',
-    style: HOOK_PRESETS[7].style, // Sunset
-    animation: { name: 'shake', opts: { duration: 500_000 } },
-  },
+const HOOK_ANIMATIONS: { name: string; animation: HookPresetAnimation | null }[] = [
+  { name: 'None', animation: null },
+  { name: 'Pop In', animation: { name: 'wobbleZoomIn', opts: { duration: 400_000 } } },
+  { name: 'Slam Down', animation: { name: 'dropBlurIn', opts: { duration: 350_000 } } },
+  { name: 'Typewriter', animation: { name: 'charTypewriter', opts: { duration: 500_000 } } },
+  { name: 'Slide Up', animation: { name: 'slideIn', opts: { duration: 400_000 }, params: { direction: 'bottom' } } },
+  { name: 'Word Reveal', animation: { name: 'wordFadeIn', opts: { duration: 600_000 } } },
+  { name: 'Glitch In', animation: { name: 'glitchSlideIn', opts: { duration: 500_000 } } },
+  { name: 'Cinematic Zoom', animation: { name: 'zoomBlurIn', opts: { duration: 450_000 } } },
+  { name: 'Flash Zoom', animation: { name: 'flashZoomIn', opts: { duration: 350_000 } } },
+  { name: 'Snap In', animation: { name: 'zoomIn', opts: { duration: 300_000, easing: 'easeOutCubic' } } },
+  { name: 'Char Fade', animation: { name: 'charFadeIn', opts: { duration: 600_000 } } },
 ];
 
 function formatTime(seconds: number) {
@@ -314,6 +296,8 @@ export default function PanelText() {
   const [hookClip, setHookClip] = useState<IClip | null>(null);
   const [isGeneratingHook, setIsGeneratingHook] = useState(false);
   const [mediaItems, setMediaItems] = useState<IClip[]>([]);
+  const [selectedStyleIdx, setSelectedStyleIdx] = useState<number>(0);
+  const [selectedAnimIdx, setSelectedAnimIdx] = useState<number>(0); // 0 = None
 
   // Track clips: media items and existing hook
   useEffect(() => {
@@ -364,12 +348,18 @@ export default function PanelText() {
     setIsGeneratingHook(true);
     try {
       const isRTL = activeLanguage === 'ar';
-      const fontName = isRTL ? 'Cairo' : 'Bangers-Regular';
+      const fontName = isRTL ? 'Cairo' : 'Montserrat';
       const fontUrl = isRTL
         ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
-        : 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
+        : 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf';
 
       await fontManager.addFont({ name: fontName, url: fontUrl });
+
+      // Also load preset font if different from default
+      const presetFontUrl = (presetStyle as any)?.fontUrl;
+      if (presetFontUrl && presetStyle?.fontFamily && presetStyle.fontFamily !== fontName) {
+        await fontManager.addFont({ name: presetStyle.fontFamily, url: presetFontUrl });
+      }
 
       const res = await fetch('/api/generate-hook', {
         method: 'POST',
@@ -442,25 +432,40 @@ export default function PanelText() {
     studio.removeClipById(hookClip.id);
   };
 
-  const handleApplyHookPreset = (preset: (typeof HOOK_PRESETS)[0] | AnimatedHookPreset) => {
+  const handleApplyHookStyle = async (styleIdx: number) => {
+    const preset = HOOK_PRESETS[styleIdx];
+    const fontUrl = (preset.style as any).fontUrl;
+    if (fontUrl && preset.style.fontFamily) {
+      await fontManager.addFont({ name: preset.style.fontFamily, url: fontUrl });
+    }
+
+    setSelectedStyleIdx(styleIdx);
+    const anim = HOOK_ANIMATIONS[selectedAnimIdx].animation;
+
     if (!hookClip) {
-      handleGenerateHook(
-        preset.style,
-        'animation' in preset ? preset.animation : undefined,
-      );
+      handleGenerateHook(preset.style, anim ?? undefined);
       return;
     }
 
     (hookClip as any).update({ style: { ...preset.style } });
     (hookClip as any).clearAnimations();
+    if (anim) {
+      const resolvedOpts = anim.opts.iterCount === Infinity
+        ? { ...anim.opts, duration: hookClip.duration } : anim.opts;
+      (hookClip as any).addAnimation(anim.name, resolvedOpts, anim.params);
+    }
+  };
 
-    if ('animation' in preset && preset.animation) {
-      const { name, opts, params } = preset.animation;
-      const resolvedOpts =
-        opts.iterCount === Infinity
-          ? { ...opts, duration: hookClip.duration }
-          : opts;
-      (hookClip as any).addAnimation(name, resolvedOpts, params);
+  const handleApplyHookAnimation = (animIdx: number) => {
+    setSelectedAnimIdx(animIdx);
+    if (!hookClip) return;
+
+    (hookClip as any).clearAnimations();
+    const anim = HOOK_ANIMATIONS[animIdx].animation;
+    if (anim) {
+      const resolvedOpts = anim.opts.iterCount === Infinity
+        ? { ...anim.opts, duration: hookClip.duration } : anim.opts;
+      (hookClip as any).addAnimation(anim.name, resolvedOpts, anim.params);
     }
   };
 
@@ -569,7 +574,10 @@ export default function PanelText() {
                 variant="ghost"
                 size="sm"
                 className="h-6 text-[10px] text-muted-foreground hover:text-white"
-                onClick={() => handleGenerateHook()}
+                onClick={() => handleGenerateHook(
+                  HOOK_PRESETS[selectedStyleIdx].style,
+                  HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined,
+                )}
                 disabled={isGeneratingHook || mediaItems.length === 0}
               >
                 {isGeneratingHook ? (
@@ -600,40 +608,51 @@ export default function PanelText() {
                 {formatTime(0)} - {formatTime(hookClip.display.to / 1_000_000)}
               </p>
             </div>
-            {/* Animated hook presets */}
-            <p className="text-[10px] text-zinc-500 mt-2 mb-1">Animated</p>
+            {/* Style presets */}
+            <p className="text-[10px] text-zinc-500 mt-2 mb-1">Styles</p>
             <div className="grid grid-cols-4 gap-1.5">
-              {ANIMATED_HOOK_PRESETS.map((preset) => (
+              {HOOK_PRESETS.map((preset, i) => (
                 <button
                   type="button"
                   key={preset.name}
-                  onClick={() => handleApplyHookPreset(preset)}
-                  className="px-2 py-1.5 text-[10px] rounded-md bg-zinc-800/60 border border-white/[0.06] border-l-2 border-l-blue-500/40 text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-colors truncate"
+                  onClick={() => handleApplyHookStyle(i)}
+                  className={`px-2 py-1.5 text-[10px] rounded-md bg-zinc-800/60 border text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-colors truncate ${
+                    selectedStyleIdx === i
+                      ? 'border-blue-500 ring-1 ring-blue-500 text-white'
+                      : 'border-white/[0.06]'
+                  }`}
                   title={preset.name}
                 >
                   {preset.name}
                 </button>
               ))}
             </div>
-            {/* Static style presets */}
-            <p className="text-[10px] text-zinc-500 mt-2 mb-1">Styles</p>
+            {/* Animation presets */}
+            <p className="text-[10px] text-zinc-500 mt-2 mb-1">Animation</p>
             <div className="grid grid-cols-4 gap-1.5">
-              {HOOK_PRESETS.map((preset) => (
+              {HOOK_ANIMATIONS.map((anim, i) => (
                 <button
                   type="button"
-                  key={preset.name}
-                  onClick={() => handleApplyHookPreset(preset)}
-                  className="px-2 py-1.5 text-[10px] rounded-md bg-zinc-800/60 border border-white/[0.06] text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-colors truncate"
-                  title={preset.name}
+                  key={anim.name}
+                  onClick={() => handleApplyHookAnimation(i)}
+                  className={`px-2 py-1.5 text-[10px] rounded-md bg-zinc-800/60 border text-zinc-400 hover:text-white hover:bg-zinc-700/60 transition-colors truncate ${
+                    selectedAnimIdx === i
+                      ? 'border-blue-500 ring-1 ring-blue-500 text-white'
+                      : 'border-white/[0.06]'
+                  }`}
+                  title={anim.name}
                 >
-                  {preset.name}
+                  {anim.name}
                 </button>
               ))}
             </div>
           </>
         ) : (
           <Button
-            onClick={() => handleGenerateHook()}
+            onClick={() => handleGenerateHook(
+              HOOK_PRESETS[selectedStyleIdx].style,
+              HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined,
+            )}
             variant="outline"
             size="sm"
             className="w-full"

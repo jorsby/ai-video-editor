@@ -11,6 +11,7 @@ interface SchedulePickerProps {
   onScheduledTimeChange: (time: string) => void;
   timezone: string;
   onTimezoneChange: (tz: string) => void;
+  minDate?: string;
 }
 
 const COMMON_TIMEZONES = [
@@ -40,6 +41,7 @@ export function SchedulePicker({
   onScheduledTimeChange,
   timezone,
   onTimezoneChange,
+  minDate,
 }: SchedulePickerProps) {
   return (
     <div className="space-y-3">
@@ -84,7 +86,7 @@ export function SchedulePicker({
                 value={scheduledDate}
                 onChange={(e) => onScheduledDateChange(e.target.value)}
                 className="bg-zinc-900/60 border-white/[0.08] text-sm"
-                min={new Date().toISOString().split('T')[0]}
+                min={minDate}
               />
             </div>
             <div>

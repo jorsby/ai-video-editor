@@ -5,6 +5,7 @@ import {
   clearCachedMixpostToken,
 } from '@/lib/mixpost/token';
 import type { PostFormData } from '@/types/post';
+import { validateScheduleNotInPast } from '@/lib/schedule-validation';
 
 export async function POST(req: NextRequest) {
   try {
@@ -119,6 +120,12 @@ export async function POST(req: NextRequest) {
           { error: 'scheduledDate and scheduledTime are required for scheduled posts' },
           { status: 400 }
         );
+      }
+      const scheduleError = validateScheduleNotInPast(
+        body.scheduledDate, body.scheduledTime, body.timezone || 'UTC', 2
+      );
+      if (scheduleError) {
+        return NextResponse.json({ error: scheduleError }, { status: 400 });
       }
       postPayload.date = body.scheduledDate;
       postPayload.time = body.scheduledTime;

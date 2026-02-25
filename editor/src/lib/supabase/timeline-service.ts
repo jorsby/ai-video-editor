@@ -175,25 +175,145 @@ export async function clearTimeline(
 }
 
 /**
- * Get distinct languages that have saved timelines for a project
+ * Get distinct languages available for a project.
+ * Merges languages from three sources:
+ *   1. Saved timeline tracks
+ *   2. Voiceover records (catches translations made before timeline is built)
+ *   3. Storyboard plan (source language)
  */
 export async function getAvailableLanguages(
   projectId: string
 ): Promise<LanguageCode[]> {
   const supabase = createClient();
 
-  const { data, error } = await supabase
+  // 1. Languages from saved timeline tracks
+  const { data: trackData, error: trackError } = await supabase
     .from('tracks')
     .select('language')
     .eq('project_id', projectId);
 
-  if (error) {
-    console.error('Failed to get available languages:', error);
-    return [];
+  if (trackError) {
+    console.error('Failed to get track languages:', trackError);
   }
 
-  const languages = [...new Set((data ?? []).map((t) => t.language))];
-  return languages as LanguageCode[];
+  const allLangs = new Set<string>(
+    (trackData ?? []).map((t) => t.language as string)
+  );
+
+  // 2. Languages from voiceover records (via ALL storyboards → scenes → voiceovers)
+  const { data: storyboards } = await supabase
+    .from('storyboards')
+    .select('id')
+    .eq('project_id', projectId);
+
+  if (storyboards && storyboards.length > 0) {
+    const sbIds = storyboards.map((s) => s.id);
+    const { data: scenes } = await supabase
+      .from('scenes')
+      .select('id')
+      .in('storyboard_id', sbIds);
+
+    if (scenes && scenes.length > 0) {
+      const sceneIds = scenes.map((s) => s.id);
+      const { data: voData, error: voError } = await supabase
+        .from('voiceovers')
+        .select('language')
+        .in('scene_id', sceneIds);
+
+      if (voError) {
+        console.error('Failed to get voiceover languages:', voError);
+      } else {
+        for (const row of voData ?? []) {
+          allLangs.add(row.language as string);
+        }
+      }
+    }
+  }
+
+  // 3. Languages from storyboard plan (source language)
+  const planLangs = await getProjectLanguagesFromStoryboard(projectId);
+  for (const lang of planLangs) {
+    allLangs.add(lang);
+  }
+
+  return [...allLangs] as LanguageCode[];
+}
+
+/**
+ * Get the source language(s) for a project from its storyboard plan.
+ * Used as a fallback when no tracks exist yet.
+ */
+export async function getProjectLanguagesFromStoryboard(
+  projectId: string
+): Promise<LanguageCode[]> {
+  const supabase = createClient();
+
+  const { data: allStoryboards } = await supabase
+    .from('storyboards')
+    .select('plan')
+    .eq('project_id', projectId);
+
+  const allLangs = new Set<string>();
+  for (const sb of allStoryboards ?? []) {
+    if (sb.plan) {
+      const voiceoverList = (sb.plan as Record<string, unknown>)
+        .voiceover_list;
+      if (voiceoverList && typeof voiceoverList === 'object') {
+        for (const lang of Object.keys(
+          voiceoverList as Record<string, unknown>
+        )) {
+          allLangs.add(lang);
+        }
+      }
+    }
+  }
+  return allLangs.size > 0 ? ([...allLangs] as LanguageCode[]) : [];
+}
+
+/**
+ * Remove all data for a specific language from a project.
+ * Deletes: tracks + clips, voiceovers, and rendered videos.
+ */
+export async function removeLanguageData(
+  projectId: string,
+  language: LanguageCode
+) {
+  // 1. Clear timeline (tracks + clips)
+  await clearTimeline(projectId, language);
+
+  const supabase = createClient();
+
+  // 2. Delete voiceovers for this language
+  const { data: storyboards } = await supabase
+    .from('storyboards')
+    .select('id')
+    .eq('project_id', projectId);
+
+  if (storyboards && storyboards.length > 0) {
+    const sbIds = storyboards.map((s) => s.id);
+    const { data: scenes } = await supabase
+      .from('scenes')
+      .select('id')
+      .in('storyboard_id', sbIds);
+
+    if (scenes && scenes.length > 0) {
+      const sceneIds = scenes.map((s) => s.id);
+      const { error: voError } = await supabase
+        .from('voiceovers')
+        .delete()
+        .in('scene_id', sceneIds)
+        .eq('language', language);
+      if (voError) throw voError;
+    }
+  }
+
+  // 3. Delete rendered videos for this language
+  const { error: rvError } = await supabase
+    .from('rendered_videos')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('language', language);
+  if (rvError) throw rvError;
 }
 
 /**

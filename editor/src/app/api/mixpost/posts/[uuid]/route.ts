@@ -5,6 +5,7 @@ import {
 } from '@/lib/mixpost/token';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { PlatformOptions } from '@/types/post';
+import { validateScheduleNotInPast } from '@/lib/schedule-validation';
 
 export async function GET(
   req: NextRequest,
@@ -235,6 +236,12 @@ export async function PUT(
       mediaIds: number[];
       platformOptions?: PlatformOptions;
     };
+
+    // Validate scheduled date/time is not in the past (2-min buffer for network latency)
+    const scheduleError = validateScheduleNotInPast(body.date, body.time, body.timezone, 2);
+    if (scheduleError) {
+      return NextResponse.json({ error: scheduleError }, { status: 400 });
+    }
 
     // Map platform options to Mixpost's nested format (same as POST handler)
     const versionOptions: Record<string, unknown> = {};

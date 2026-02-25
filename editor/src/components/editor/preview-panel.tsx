@@ -62,7 +62,7 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
         previewRef.current?.ready,
       ]);
 
-      // Fetch available languages FIRST to determine correct active language
+      // Fetch available languages (queries tracks + voiceovers + storyboard plan)
       const langs = await getAvailableLanguages(projectId);
       let { activeLanguage } = useLanguageStore.getState();
 

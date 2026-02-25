@@ -16,7 +16,7 @@ interface ProjectListProps {
   onArchiveProject: (id: string) => void;
   onOpenProject: (id: string) => void;
   projectTags: ProjectTagMap;
-  selectedProjectTags: Set<string>;
+  selectedProjectTags: Map<string, 'include' | 'exclude'>;
   onToggleProjectTag: (tag: string) => void;
   onClearProjectTags: () => void;
   onProjectTagAdded: (projectId: string, tag: string) => void;

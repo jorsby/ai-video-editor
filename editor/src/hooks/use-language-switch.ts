@@ -10,6 +10,7 @@ import {
   reconstructProjectJSON,
   getAvailableLanguages,
   copyTimeline,
+  removeLanguageData,
 } from '@/lib/supabase/timeline-service';
 import type { LanguageCode } from '@/lib/constants/languages';
 
@@ -67,13 +68,12 @@ export function useLanguageSwitch() {
         // Update active language
         setActiveLanguage(targetLanguage);
 
-        // Refresh available languages, ensuring the target language is included
-        // (it may not have DB tracks yet if starting empty)
-        const langs = await getAvailableLanguages(projectId);
-        if (!langs.includes(targetLanguage)) {
-          langs.push(targetLanguage);
-        }
-        setAvailableLanguages(langs);
+        // Refresh available languages — merge DB results with current store
+        // to prevent losing languages that have no DB footprint (e.g. "Start empty")
+        const dbLangs = await getAvailableLanguages(projectId);
+        const { availableLanguages: currentLangs } = useLanguageStore.getState();
+        const merged = [...new Set([...currentLangs, ...dbLangs, targetLanguage])];
+        setAvailableLanguages(merged);
       } catch (error) {
         console.error('Language switch error:', error);
         toast.error('Failed to switch language.');
@@ -120,5 +120,87 @@ export function useLanguageSwitch() {
     [projectId, switchLanguage]
   );
 
-  return { switchLanguage, copyAndSwitch };
+  const copyToMultiple = useCallback(
+    async (targetLanguages: LanguageCode[]) => {
+      const { activeLanguage, setAvailableLanguages } =
+        useLanguageStore.getState();
+      const { studio } = useStudioStore.getState();
+
+      if (!studio || targetLanguages.length === 0) return;
+
+      // Wait for any in-flight auto-save
+      await waitForSave();
+
+      // Save current language first
+      await saveTimeline(projectId, studio.tracks, studio.clips, activeLanguage);
+
+      // Copy to each target sequentially to avoid DB connection pool issues
+      for (const lang of targetLanguages) {
+        await copyTimeline(projectId, activeLanguage, lang);
+      }
+
+      // Refresh available languages, ensuring all targets are included
+      const langs = await getAvailableLanguages(projectId);
+      for (const lang of targetLanguages) {
+        if (!langs.includes(lang)) langs.push(lang);
+      }
+      setAvailableLanguages(langs);
+    },
+    [projectId]
+  );
+
+  const addEmptyLanguages = useCallback(
+    async (targetLanguages: LanguageCode[]) => {
+      const { setAvailableLanguages } = useLanguageStore.getState();
+
+      const langs = await getAvailableLanguages(projectId);
+      for (const lang of targetLanguages) {
+        if (!langs.includes(lang)) langs.push(lang);
+      }
+      setAvailableLanguages(langs);
+    },
+    [projectId]
+  );
+
+  const removeLanguage = useCallback(
+    async (language: LanguageCode) => {
+      const { activeLanguage, availableLanguages, setAvailableLanguages, setIsLanguageSwitching } =
+        useLanguageStore.getState();
+      const { studio } = useStudioStore.getState();
+
+      if (availableLanguages.length <= 1) {
+        toast.error('Cannot remove the only language.');
+        return;
+      }
+
+      setIsLanguageSwitching(true);
+
+      try {
+        await waitForSave();
+
+        // If removing the active language, switch to another one first
+        if (language === activeLanguage && studio) {
+          const remaining = availableLanguages.filter((l) => l !== language);
+          await switchLanguage(remaining[0]);
+        }
+
+        // Delete all data for this language
+        await removeLanguageData(projectId, language);
+
+        // Update available languages
+        const { availableLanguages: currentLangs } = useLanguageStore.getState();
+        setAvailableLanguages(currentLangs.filter((l) => l !== language));
+
+        toast.success(`Removed ${language.toUpperCase()} language.`);
+      } catch (error) {
+        console.error('Remove language error:', error);
+        toast.error('Failed to remove language.');
+      } finally {
+        setIsLanguageSwitching(false);
+      }
+    },
+    [projectId, switchLanguage]
+  );
+
+  return { switchLanguage, copyAndSwitch, copyToMultiple, addEmptyLanguages, removeLanguage };
 }

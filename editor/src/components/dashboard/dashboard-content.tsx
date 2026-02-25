@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { DBProject, ProjectTagMap } from '@/types/project';
 import type { MixpostAccount, AccountGroupWithMembers, AccountTagMap } from '@/types/mixpost';
 import type { MixpostPost, MixpostPaginationMeta } from '@/types/calendar';
+import { toast } from 'sonner';
 
 export function DashboardContent() {
   const [projects, setProjects] = useState<DBProject[]>([]);
@@ -15,7 +16,7 @@ export function DashboardContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [projectTags, setProjectTags] = useState<ProjectTagMap>({});
-  const [selectedProjectTags, setSelectedProjectTags] = useState<Set<string>>(new Set());
+  const [selectedProjectTags, setSelectedProjectTags] = useState<Map<string, 'include' | 'exclude'>>(new Map());
 
   const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -94,9 +95,18 @@ export function DashboardContent() {
 
   const filteredProjects = useMemo(() => {
     if (selectedProjectTags.size === 0) return projects;
-    return projects.filter((p) =>
-      [...selectedProjectTags].every((t) => (projectTags[p.id] ?? []).includes(t))
-    );
+    const includeTags: string[] = [];
+    const excludeTags: string[] = [];
+    for (const [tag, mode] of selectedProjectTags) {
+      if (mode === 'include') includeTags.push(tag);
+      else excludeTags.push(tag);
+    }
+    return projects.filter((p) => {
+      const pTags = projectTags[p.id] ?? [];
+      if (includeTags.length > 0 && !includeTags.every((t) => pTags.includes(t))) return false;
+      if (excludeTags.length > 0 && excludeTags.some((t) => pTags.includes(t))) return false;
+      return true;
+    });
   }, [projects, projectTags, selectedProjectTags]);
 
   const fetchPlatformMedia = useCallback(async (accountId: number, force?: boolean) => {
@@ -280,12 +290,14 @@ export function DashboardContent() {
           ...prev,
           [projectId]: (prev[projectId] || []).filter((t) => t !== tag),
         }));
+        toast.error('Failed to add tag');
       }
     } catch {
       setProjectTags((prev) => ({
         ...prev,
         [projectId]: (prev[projectId] || []).filter((t) => t !== tag),
       }));
+      toast.error('Failed to add tag');
     }
   };
 
@@ -304,12 +316,14 @@ export function DashboardContent() {
           ...prev,
           [projectId]: [...(prev[projectId] || []), tag],
         }));
+        toast.error('Failed to remove tag');
       }
     } catch {
       setProjectTags((prev) => ({
         ...prev,
         [projectId]: [...(prev[projectId] || []), tag],
       }));
+      toast.error('Failed to remove tag');
     }
   };
 
@@ -446,13 +460,15 @@ export function DashboardContent() {
             selectedProjectTags={selectedProjectTags}
             onToggleProjectTag={(tag) =>
               setSelectedProjectTags((prev) => {
-                const next = new Set(prev);
-                if (next.has(tag)) next.delete(tag);
-                else next.add(tag);
+                const next = new Map(prev);
+                const current = next.get(tag);
+                if (!current) next.set(tag, 'include');
+                else if (current === 'include') next.set(tag, 'exclude');
+                else next.delete(tag);
                 return next;
               })
             }
-            onClearProjectTags={() => setSelectedProjectTags(new Set())}
+            onClearProjectTags={() => setSelectedProjectTags(new Map())}
             onProjectTagAdded={handleProjectTagAdded}
             onProjectTagRemoved={handleProjectTagRemoved}
           />

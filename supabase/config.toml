@@ -15,3 +15,12 @@ verify_jwt = false
 
 [functions.webhook]
 verify_jwt = false
+
+[functions.start-ref-workflow]
+verify_jwt = false
+
+[functions.approve-ref-split]
+verify_jwt = false
+
+[functions.approve-grid-split]
+verify_jwt = false

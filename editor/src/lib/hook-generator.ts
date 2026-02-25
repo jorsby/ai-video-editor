@@ -38,9 +38,7 @@ export interface HookTextConfig {
  * Returns duration in microseconds.
  */
 export function calculateHookDuration(hookText: string): number {
-  const wordCount = hookText.split(/\s+/).filter(Boolean).length;
-  const seconds = Math.min(5, Math.max(3, 2 + wordCount * 0.3));
-  return seconds * 1_000_000;
+  return 3 * 1_000_000;
 }
 
 /**
@@ -53,14 +51,14 @@ export function generateHookTextConfig(options: HookClipOptions): HookTextConfig
     videoHeight,
     hookText,
     durationUs,
-    fontSize = 70,
+    fontSize = 85,
     isRTL = false,
   } = options;
 
-  const fontFamily = options.fontFamily ?? (isRTL ? 'Cairo' : 'Bangers-Regular');
+  const fontFamily = options.fontFamily ?? (isRTL ? 'Cairo' : 'Montserrat');
   const fontUrl = options.fontUrl ?? (isRTL
     ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
-    : 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf');
+    : 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf');
 
   const wordWrapWidth = videoWidth * 0.85;
 
@@ -69,14 +67,15 @@ export function generateHookTextConfig(options: HookClipOptions): HookTextConfig
     textOpts: {
       fontSize,
       fontFamily,
-      fontWeight: '700',
+      fontWeight: '800',
       fill: '#ffffff',
       align: isRTL ? 'right' : 'center',
+      textCase: 'uppercase',
       wordWrap: true,
       wordWrapWidth,
       stroke: {
         color: '#000000',
-        width: 5,
+        width: 7,
         join: 'round',
       },
       dropShadow: {
@@ -84,7 +83,7 @@ export function generateHookTextConfig(options: HookClipOptions): HookTextConfig
         alpha: 0.6,
         blur: 6,
         angle: Math.PI / 4,
-        distance: Math.sqrt(2 * 2 + 2 * 2),
+        distance: 3,
       },
       fontUrl,
     },

@@ -57,7 +57,7 @@ interface ApproveRefSplitInput {
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   scene_multi_shots?: boolean[];
-  voiceover_list: { en: string[]; tr: string[]; ar: string[] };
+  voiceover_list: Record<string, string[]>;
   width: number;
   height: number;
 }
@@ -189,7 +189,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const languages = ['en', 'tr', 'ar'] as const;
+    const languages = Object.keys(voiceover_list);
+    if (languages.length === 0) {
+      return errorResponse('voiceover_list must have at least one language', 400);
+    }
     for (const lang of languages) {
       if (voiceover_list[lang].length !== sceneCount) {
         return errorResponse(

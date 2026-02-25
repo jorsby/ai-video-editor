@@ -6,9 +6,12 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { CaptionEditor } from '@/components/post/caption-editor';
 import { SchedulePicker } from '@/components/post/schedule-picker';
+import { getTodayInTimezone } from '@/lib/schedule-validation';
 import { fetchWithRetry, pollMediaDownload } from '@/lib/post/publish-utils';
 import { pollPostStatus, PollAuthError } from '@/lib/post/poll-post-status';
 import { savePendingPost } from '@/lib/post/pending-posts-store';
+import { readDraft, writeDraft, clearDraft } from '@/lib/post/workflow-draft-store';
+import type { WorkflowDraft } from '@/lib/post/workflow-draft-store';
 import {
   createWorkflowRun,
   createWorkflowRunLane,
@@ -30,6 +33,7 @@ interface LanguageLane {
   platformOptions: PlatformOptions;
   captionStyle: CaptionStyleOptions;
   assignedGroupId: string | null;
+  tiktokOverride: boolean;
   captionStatus: 'idle' | 'generating' | 'done' | 'error';
   publishStatus: LanePublishStatus;
   createdMediaId: number | null;
@@ -202,7 +206,12 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     Intl.DateTimeFormat().resolvedOptions().timeZone
   );
 
+  // Shared TikTok options (applied to all lanes unless overridden)
+  const [sharedTikTokOptions, setSharedTikTokOptions] = useState<Record<string, TikTokAccountOptions>>({});
+
   const laneAbortRefs = useRef<Record<string, AbortController>>({});
+  const [publishTotal, setPublishTotal] = useState(0);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateLane = useCallback((language: string, partial: Partial<LanguageLane>) => {
     setLanes(prev => ({
@@ -264,12 +273,58 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
             platformOptions: defaultPlatformOptions(autoAccountIds, loadedAccounts, ''),
             captionStyle: { ...DEFAULT_CAPTION_STYLE },
             assignedGroupId: autoGroupId,
+            tiktokOverride: false,
             captionStatus: 'idle',
             publishStatus: { phase: 'idle' },
             createdMediaId: null,
             createdPostUuid: null,
           };
         }
+
+        // Build shared TikTok defaults from all TikTok accounts across all groups
+        const allTikTokDefaults = new Map<string, TikTokAccountOptions>();
+        for (const lane of Object.values(initialLanes)) {
+          if (lane.platformOptions.tiktok) {
+            for (const [key, opts] of Object.entries(lane.platformOptions.tiktok)) {
+              if (!allTikTokDefaults.has(key)) {
+                allTikTokDefaults.set(key, { ...opts });
+              }
+            }
+          }
+        }
+        const initialSharedTikTok = Object.fromEntries(allTikTokDefaults);
+
+        // Restore saved draft if available
+        const savedDraft = readDraft(projectId);
+        if (savedDraft) {
+          setScheduleType(savedDraft.scheduleType);
+          setScheduledDate(savedDraft.scheduledDate);
+          setScheduledTime(savedDraft.scheduledTime);
+          setTimezone(savedDraft.timezone);
+
+          if (Object.keys(savedDraft.sharedTikTokOptions).length > 0) {
+            setSharedTikTokOptions(savedDraft.sharedTikTokOptions);
+          } else {
+            setSharedTikTokOptions(initialSharedTikTok);
+          }
+
+          // Merge per-lane draft data — only for languages that still have renders
+          for (const [lang, laneDraft] of Object.entries(savedDraft.lanes)) {
+            if (initialLanes[lang]) {
+              initialLanes[lang] = {
+                ...initialLanes[lang],
+                caption: laneDraft.caption,
+                captionStyle: laneDraft.captionStyle,
+                assignedGroupId: laneDraft.assignedGroupId,
+                platformOptions: laneDraft.platformOptions,
+                tiktokOverride: laneDraft.tiktokOverride,
+              };
+            }
+          }
+        } else {
+          setSharedTikTokOptions(initialSharedTikTok);
+        }
+
         setLanes(initialLanes);
       } catch (err) {
         setLoadError((err as Error).message);
@@ -279,6 +334,64 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     }
     load();
   }, [projectId]);
+
+  // Debounced auto-save draft to localStorage
+  useEffect(() => {
+    if (isLoading || isRunning) return;
+    if (Object.keys(lanes).length === 0) return;
+
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const draft: WorkflowDraft = {
+        savedAt: Date.now(),
+        scheduleType,
+        scheduledDate,
+        scheduledTime,
+        timezone,
+        sharedTikTokOptions,
+        lanes: Object.fromEntries(
+          Object.entries(lanes).map(([lang, lane]) => [
+            lang,
+            {
+              caption: lane.caption,
+              captionStyle: lane.captionStyle,
+              assignedGroupId: lane.assignedGroupId,
+              platformOptions: lane.platformOptions,
+              tiktokOverride: lane.tiktokOverride,
+            },
+          ])
+        ),
+      };
+      writeDraft(projectId, draft);
+    }, 500);
+
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [lanes, scheduleType, scheduledDate, scheduledTime, timezone, sharedTikTokOptions, isLoading, isRunning, projectId]);
+
+  // Propagate shared TikTok options to non-override lanes
+  useEffect(() => {
+    if (Object.keys(sharedTikTokOptions).length === 0) return;
+    setLanes(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [lang, lane] of Object.entries(next)) {
+        if (!lane.tiktokOverride && lane.platformOptions.tiktok) {
+          const updatedTiktok: Record<string, TikTokAccountOptions> = {};
+          for (const key of Object.keys(lane.platformOptions.tiktok)) {
+            updatedTiktok[key] = sharedTikTokOptions[key] ?? lane.platformOptions.tiktok[key];
+          }
+          next[lang] = {
+            ...lane,
+            platformOptions: { ...lane.platformOptions, tiktok: updatedTiktok },
+          };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [sharedTikTokOptions]);
 
   async function generateCaption(language: string) {
     const lane = lanes[language];
@@ -473,6 +586,8 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
           (LANG_ORDER.indexOf(b.language) === -1 ? 99 : LANG_ORDER.indexOf(b.language))
       );
 
+    setPublishTotal(activeLanes.length);
+
     activeLanes.forEach(l => {
       laneAbortRefs.current[l.language] = new AbortController();
     });
@@ -567,6 +682,18 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     [laneList]
   );
 
+  // All unique TikTok accounts across all lanes (for shared TikTok section)
+  const allTikTokAccounts = useMemo(() => {
+    const seen = new Map<number, MixpostAccount>();
+    for (const lane of laneList) {
+      const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
+      for (const acc of accounts.filter(a => accountIds.includes(a.id) && a.provider === 'tiktok')) {
+        if (!seen.has(acc.id)) seen.set(acc.id, acc);
+      }
+    }
+    return Array.from(seen.values());
+  }, [laneList, groups, accounts]);
+
   const lanePillData = useMemo(() =>
     laneList
       .filter(l => l.publishStatus.phase !== 'idle')
@@ -588,7 +715,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
 
   const publishCounts = useMemo(() => {
     const active = laneList.filter(l => l.publishStatus.phase !== 'idle');
-    const total = active.length;
+    const total = isRunning ? publishTotal : active.length;
     const done = active.filter(l => l.publishStatus.phase === 'done').length;
     const errors = active.filter(l => l.publishStatus.phase === 'error').length;
     const published = active.filter(
@@ -600,10 +727,17 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       (l.publishStatus as { phase: 'done'; result: PostVerificationResult }).result.status === 'scheduled'
     ).length;
     return { total, finished: done + errors, published, scheduled, errors };
-  }, [laneList]);
+  }, [laneList, isRunning, publishTotal]);
 
   const isAllDone = !isRunning && publishCounts.finished === publishCounts.total && publishCounts.total > 0;
   const isAllSuccess = isAllDone && publishCounts.errors === 0;
+
+  // Clear draft after successful full publish
+  useEffect(() => {
+    if (isAllDone && isAllSuccess) {
+      clearDraft(projectId);
+    }
+  }, [isAllDone, isAllSuccess, projectId]);
 
   function phaseText(phase: string, doneResult: string | null): string {
     if (phase === 'done') {
@@ -657,10 +791,36 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
         <div className="h-4 w-px bg-white/10" />
         <h1 className="text-sm font-semibold">Publish All Languages</h1>
         <span className="text-xs text-zinc-500">{laneList.length} videos</span>
+        <button
+          onClick={() => {
+            clearDraft(projectId);
+            toast.success('Draft cleared');
+            window.location.reload();
+          }}
+          className="ml-auto text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          Clear Draft
+        </button>
       </div>
 
       {/* Lane rows */}
       <div className="flex-1 overflow-auto px-6 py-6 space-y-4 pb-36">
+        {/* Shared TikTok settings (all languages) */}
+        {allTikTokAccounts.length > 0 && !publishingActive && (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+            <h3 className="text-sm font-medium text-zinc-300 mb-3">
+              TikTok Settings (all languages)
+            </h3>
+            <p className="text-[10px] text-zinc-500 mb-3">
+              These settings apply to all languages. Use &quot;Customize&quot; on individual lanes to override.
+            </p>
+            <TikTokOptions
+              accounts={allTikTokAccounts}
+              value={sharedTikTokOptions}
+              onChange={setSharedTikTokOptions}
+            />
+          </div>
+        )}
         {laneList.map(lane => {
           const meta = LANG_META[lane.language] ?? {
             flag: '🌐',
@@ -789,13 +949,44 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                         />
                       )}
                       {assignedAccounts.some(a => a.provider === 'tiktok') && lane.platformOptions.tiktok !== undefined && (
-                        <TikTokOptions
-                          accounts={assignedAccounts.filter(a => a.provider === 'tiktok')}
-                          value={lane.platformOptions.tiktok}
-                          onChange={v => updateLane(lane.language, {
-                            platformOptions: { ...lane.platformOptions, tiktok: v },
-                          })}
-                        />
+                        <div>
+                          {!lane.tiktokOverride ? (
+                            <button
+                              onClick={() => updateLane(lane.language, { tiktokOverride: true })}
+                              className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+                            >
+                              Customize TikTok for {(LANG_META[lane.language]?.label ?? lane.language).toUpperCase()}
+                            </button>
+                          ) : (
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-zinc-400">Custom TikTok Settings</span>
+                                <button
+                                  onClick={() => {
+                                    const updatedTiktok: Record<string, TikTokAccountOptions> = {};
+                                    for (const key of Object.keys(lane.platformOptions.tiktok!)) {
+                                      updatedTiktok[key] = sharedTikTokOptions[key] ?? lane.platformOptions.tiktok![key];
+                                    }
+                                    updateLane(lane.language, {
+                                      tiktokOverride: false,
+                                      platformOptions: { ...lane.platformOptions, tiktok: updatedTiktok },
+                                    });
+                                  }}
+                                  className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+                                >
+                                  Reset to shared
+                                </button>
+                              </div>
+                              <TikTokOptions
+                                accounts={assignedAccounts.filter(a => a.provider === 'tiktok')}
+                                value={lane.platformOptions.tiktok}
+                                onChange={v => updateLane(lane.language, {
+                                  platformOptions: { ...lane.platformOptions, tiktok: v },
+                                })}
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -811,9 +1002,19 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                         const newGroupId = e.target.value || null;
                         const newAccountIds = resolveAccountIds(newGroupId, groups, accounts);
                         const existingYtTitle = lane.platformOptions?.youtube?.title ?? '';
+                        const newPlatOpts = defaultPlatformOptions(newAccountIds, accounts, existingYtTitle);
+                        // Apply shared TikTok options to any TikTok accounts in the new group
+                        if (newPlatOpts.tiktok) {
+                          for (const key of Object.keys(newPlatOpts.tiktok)) {
+                            if (sharedTikTokOptions[key]) {
+                              newPlatOpts.tiktok[key] = { ...sharedTikTokOptions[key] };
+                            }
+                          }
+                        }
                         updateLane(lane.language, {
                           assignedGroupId: newGroupId,
-                          platformOptions: defaultPlatformOptions(newAccountIds, accounts, existingYtTitle),
+                          platformOptions: newPlatOpts,
+                          tiktokOverride: false,
                         });
                       }}
                       disabled={isPublishing || isDone}
@@ -896,6 +1097,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                   onScheduledTimeChange={setScheduledTime}
                   timezone={timezone}
                   onTimezoneChange={setTimezone}
+                  minDate={getTodayInTimezone(timezone)}
                 />
               </div>
             ) : isAllDone ? (

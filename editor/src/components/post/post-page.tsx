@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
 import { SchedulePicker } from './schedule-picker';
+import { getTodayInTimezone } from '@/lib/schedule-validation';
 import { FacebookOptions } from './platform-options/facebook-options';
 import { YouTubeOptions } from './platform-options/youtube-options';
 import { TikTokOptions } from './platform-options/tiktok-options';
@@ -906,6 +907,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     onScheduledTimeChange={setScheduledTime}
                     timezone={timezone}
                     onTimezoneChange={setTimezone}
+                    minDate={getTodayInTimezone(timezone)}
                   />
                 </section>
 

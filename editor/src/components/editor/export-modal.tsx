@@ -601,12 +601,12 @@ export function ExportModal({
               <label className="mb-3 block text-xs font-medium text-zinc-400">
                 Language
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
                     key={lang.code}
                     onClick={() => setSelectedLanguage(lang.code)}
-                    className={`flex h-10 flex-1 items-center justify-center rounded-lg border text-sm font-medium transition-all ${
+                    className={`flex h-10 w-12 items-center justify-center rounded-lg border text-sm font-medium transition-all ${
                       selectedLanguage === lang.code
                         ? 'border-white bg-white text-black'
                         : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'
@@ -655,6 +655,11 @@ export function ExportModal({
                 </Button>
                 <p className="mt-2 text-center text-[11px] text-zinc-600">
                   Renders each language timeline sequentially and uploads to cloud
+                </p>
+                <p className="mt-1 text-center text-[11px] text-zinc-500">
+                  {availableLanguages
+                    .map((code) => SUPPORTED_LANGUAGES.find((l) => l.code === code)?.label ?? code.toUpperCase())
+                    .join(', ')}
                 </p>
               </>
             )}
