@@ -1257,13 +1257,14 @@ export class Studio extends EventEmitter<StudioEvents> {
         timestamp < transitionEndTime;
 
       if (playbackInfo != null && this.isPlaybackCapable(clip)) {
-        const playbackRelativeTime = relativeTime / 1e6; // Convert to seconds
+        const playbackRelativeTime = (relativeTime * clip.playbackRate) / 1e6; // Convert to source-media seconds
 
         // Sync playback using clip method
         clip.syncPlayback(
           playbackInfo.element,
           this.isPlaying,
-          playbackRelativeTime
+          playbackRelativeTime,
+          this.transport.playbackSpeed
         );
 
         // For VideoClip, handle sprite visibility

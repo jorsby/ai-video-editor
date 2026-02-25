@@ -29,6 +29,7 @@ export interface BaseSpriteEvents {
     zIndex: number;
     opacity: number;
     volume: number;
+    playbackRate: number;
   }>;
   [key: string]: any;
   [key: symbol]: any;
@@ -67,13 +68,21 @@ export abstract class BaseSprite<
    */
   duration = 0;
 
+  protected _playbackRate = 1;
   /**
    * Playback rate of current clip, 1 means normal playback
    * **Note**
    *    1. When setting playbackRate, duration must be actively corrected
    *    2. Audio uses the simplest interpolation algorithm to change rate, so changing rate will cause pitch variation, for custom algorithm please use {@link Video.tickInterceptor} to implement
    */
-  playbackRate = 1;
+  get playbackRate(): number {
+    return this._playbackRate;
+  }
+  set playbackRate(v: number) {
+    const changed = this._playbackRate !== v;
+    this._playbackRate = v;
+    if (changed) this.emit('propsChange', { playbackRate: v });
+  }
   /**
    * Trim range of the source media in microseconds
    * from: start time in microseconds

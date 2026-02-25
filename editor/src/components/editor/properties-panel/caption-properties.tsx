@@ -188,11 +188,11 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
       if (v === "top") {
         newTop = 80;
       } else if (v === "top-quarter") {
-        newTop = videoHeight * 0.25 - clipHeight / 2;
+        newTop = videoHeight * 0.30 - clipHeight / 2;
       } else if (v === "center") {
         newTop = (videoHeight - clipHeight) / 2;
       } else if (v === "bottom-quarter") {
-        newTop = videoHeight * 0.75 - clipHeight / 2;
+        newTop = videoHeight * 0.70 - clipHeight / 2;
       } else if (v === "bottom") {
         newTop = videoHeight - clipHeight - 80;
       }

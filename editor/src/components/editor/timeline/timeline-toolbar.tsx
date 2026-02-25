@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { useLanguageSwitch } from '@/hooks/use-language-switch';
+import { useProjectId } from '@/contexts/project-context';
+import { createClient } from '@/lib/supabase/client';
 import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
 import { toast } from 'sonner';
 import {
@@ -58,6 +60,7 @@ export function TimelineToolbar({
   const { activeLanguage, availableLanguages, isLanguageSwitching } =
     useLanguageStore();
   const { switchLanguage, copyAndSwitch } = useLanguageSwitch();
+  const projectId = useProjectId();
   const [pendingLang, setPendingLang] = useState<LanguageCode | null>(null);
   const [addLangCode, setAddLangCode] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
@@ -286,13 +289,25 @@ export function TimelineToolbar({
                   if (!addLangCode) return;
                   setIsTranslating(true);
                   try {
+                    const supabase = createClient();
+                    const { data: sb } = await supabase
+                      .from('storyboards')
+                      .select('id')
+                      .eq('project_id', projectId)
+                      .order('created_at', { ascending: false })
+                      .limit(1)
+                      .single();
+                    if (!sb) {
+                      toast.error('No storyboard found');
+                      return;
+                    }
                     const res = await fetch('/api/translate-language', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ target_language: addLangCode }),
+                      body: JSON.stringify({ storyboard_id: sb.id, target_language: addLangCode }),
                     });
                     if (!res.ok) throw new Error('Translation failed');
-                    copyAndSwitch(addLangCode);
+                    await copyAndSwitch(addLangCode);
                     toast.success(`${addLangCode.toUpperCase()} voiceovers translated`);
                   } catch {
                     toast.error('Translation failed');
@@ -307,8 +322,8 @@ export function TimelineToolbar({
               <Button
                 variant="outline"
                 disabled={!addLangCode}
-                onClick={() => {
-                  if (addLangCode) copyAndSwitch(addLangCode);
+                onClick={async () => {
+                  if (addLangCode) await copyAndSwitch(addLangCode);
                   setPendingLang(null);
                 }}
               >
@@ -317,8 +332,8 @@ export function TimelineToolbar({
               <Button
                 variant="outline"
                 disabled={!addLangCode}
-                onClick={() => {
-                  if (addLangCode) switchLanguage(addLangCode);
+                onClick={async () => {
+                  if (addLangCode) await switchLanguage(addLangCode);
                   setPendingLang(null);
                 }}
               >

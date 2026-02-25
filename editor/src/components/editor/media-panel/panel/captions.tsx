@@ -3,13 +3,13 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Play, Trash2, RefreshCw, Sparkles } from 'lucide-react';
+import { Loader2, Play, Trash2, RefreshCw } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { fontManager, jsonToClip, Log, type IClip } from 'openvideo';
 import { generateCaptionClips } from '@/lib/caption-generator';
-import { generateHookClip, calculateHookDuration } from '@/lib/hook-generator';
+import { HOOK_CLIP_NAME } from '@/lib/hook-generator';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useProjectId } from '@/contexts/project-context';
@@ -28,7 +28,6 @@ export default function PanelCaptions() {
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
   const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
   const [captionLanguage, setCaptionLanguage] = useState<string>(activeLanguage);
-  const [isGeneratingHook, setIsGeneratingHook] = useState(false);
   const [hookClip, setHookClip] = useState<IClip | null>(null);
 
   // Sync captionLanguage when the global language store changes
@@ -60,11 +59,14 @@ export default function PanelCaptions() {
     );
     setMediaItems(mediaClips);
 
-    // Find all captions and separate hook from regular captions
-    const allCaptions = allClips.filter((clip: IClip) => clip.type === 'Caption');
-    const hook = allCaptions.find((clip: IClip) => (clip as any).name === '__video_hook__');
-    const regularCaptions = allCaptions.filter((clip: IClip) => (clip as any).name !== '__video_hook__');
+    // Find hook regardless of type (supports both legacy Caption hooks and new Text hooks)
+    const hook = allClips.find((clip: IClip) => (clip as any).name === HOOK_CLIP_NAME);
     setHookClip(hook || null);
+
+    // Regular captions (exclude hook if it's still a Caption type for backward compat)
+    const regularCaptions = allClips.filter(
+      (clip: IClip) => clip.type === 'Caption' && (clip as any).name !== HOOK_CLIP_NAME
+    );
     const sorted = regularCaptions.sort(
       (a: IClip, b: IClip) => a.display.from - b.display.from
     );
@@ -491,68 +493,6 @@ export default function PanelCaptions() {
     studio.seek(time);
   };
 
-  const handleGenerateHook = async () => {
-    if (!studio || mediaItems.length === 0) return;
-
-    setIsGeneratingHook(true);
-    try {
-      const isRTL = captionLanguage === 'ar';
-      const fontName = isRTL ? 'Cairo' : 'Bangers-Regular';
-      const fontUrl = isRTL
-        ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
-        : 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
-
-      await fontManager.addFont({ name: fontName, url: fontUrl });
-
-      const res = await fetch('/api/generate-hook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: projectId,
-          language: captionLanguage === 'auto' ? 'en' : captionLanguage,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to generate hook');
-      }
-
-      const { line1, line2, line3 } = await res.json();
-      const hookText = `${line1}\n${line2}\n${line3}`;
-
-      const hookJson = generateHookClip({
-        videoWidth: (studio as any).opts.width,
-        videoHeight: (studio as any).opts.height,
-        hookText,
-        durationUs: calculateHookDuration(hookText),
-        fontFamily: fontName,
-        fontUrl,
-        isRTL,
-      });
-
-      // Remove existing hook if any
-      if (hookClip) {
-        studio.removeClipById(hookClip.id);
-      }
-
-      const clip = await jsonToClip({ ...hookJson, name: '__video_hook__' } as any);
-      const hookTrackId = `track_hook_${Date.now()}`;
-      await studio.addClip([clip], { trackId: hookTrackId });
-      updateClips();
-    } catch (error) {
-      Log.error('Failed to generate hook:', error);
-    } finally {
-      setIsGeneratingHook(false);
-    }
-  };
-
-  const handleDeleteHook = () => {
-    if (!studio || !hookClip) return;
-    studio.removeClipById(hookClip.id);
-    updateClips();
-  };
-
   return (
     <div className="h-full flex flex-col">
       <div className="flex flex-1 flex-col gap-4 overflow-hidden min-w-0">
@@ -562,14 +502,6 @@ export default function PanelCaptions() {
           </div>
         ) : captionItems.length > 0 ? (
           <div className="flex-1 overflow-hidden flex flex-col">
-            {/* Hook section */}
-            <HookSection
-              hookClip={hookClip}
-              isGeneratingHook={isGeneratingHook}
-              onGenerate={handleGenerateHook}
-              onDelete={handleDeleteHook}
-              disabled={mediaItems.length === 0}
-            />
             <div className="flex items-center justify-end px-4 pt-2 pb-1">
               <Button
                 variant="ghost"
@@ -608,15 +540,6 @@ export default function PanelCaptions() {
           </div>
         ) : (
           <div className="flex flex-col gap-6 p-4 py-6 items-center text-center">
-            {/* Hook section */}
-            <HookSection
-              hookClip={hookClip}
-              isGeneratingHook={isGeneratingHook}
-              onGenerate={handleGenerateHook}
-              onDelete={handleDeleteHook}
-              disabled={mediaItems.length === 0}
-            />
-            <div className="w-full border-t border-white/[0.06]" />
             <div className="text-sm text-muted-foreground">
               Recognize speech in the selected media and generate captions
               automatically.
@@ -764,88 +687,6 @@ function CaptionItem({
         className="min-h-[20px] p-0 resize-none border-none focus-visible:ring-0 bg-transparent text-sm leading-relaxed text-zinc-300 focus:text-white placeholder:text-zinc-600"
         rows={Math.max(1, Math.ceil(text.length / 40))}
       />
-    </div>
-  );
-}
-
-function HookSection({
-  hookClip,
-  isGeneratingHook,
-  onGenerate,
-  onDelete,
-  disabled,
-}: {
-  hookClip: IClip | null;
-  isGeneratingHook: boolean;
-  onGenerate: () => void;
-  onDelete: () => void;
-  disabled: boolean;
-}) {
-  const hookText = hookClip ? (hookClip as any).text || '' : '';
-
-  return (
-    <div className="w-full flex flex-col gap-2 px-4 pt-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Hook
-        </span>
-        {hookClip && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-[10px] text-muted-foreground hover:text-white"
-              onClick={onGenerate}
-              disabled={isGeneratingHook || disabled}
-            >
-              {isGeneratingHook ? (
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1 h-3 w-3" />
-              )}
-              Regenerate
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-red-400"
-              onClick={onDelete}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
-        )}
-      </div>
-      {hookClip ? (
-        <div className="rounded-md border border-white/[0.08] bg-zinc-900/40 p-3">
-          <p className="text-sm text-zinc-300 whitespace-pre-line leading-relaxed">
-            {hookText}
-          </p>
-          <p className="mt-1.5 text-[10px] font-mono text-muted-foreground">
-            {formatTime(0)} - {formatTime(hookClip.display.to / 1_000_000)}
-          </p>
-        </div>
-      ) : (
-        <Button
-          onClick={onGenerate}
-          variant="outline"
-          size="sm"
-          className="w-full"
-          disabled={isGeneratingHook || disabled}
-        >
-          {isGeneratingHook ? (
-            <>
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles className="mr-2 h-3.5 w-3.5" />
-              Generate Hook
-            </>
-          )}
-        </Button>
-      )}
     </div>
   );
 }

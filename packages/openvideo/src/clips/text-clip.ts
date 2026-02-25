@@ -854,7 +854,30 @@ export class Text extends BaseClip<ITextEvents> {
     if (style.wordWrap && style.wordWrapWidth > 0) {
       contentWidth = Math.max(contentWidth, style.wordWrapWidth);
     }
-    const contentHeight = textHeight;
+    // Account for stroke and drop shadow extending beyond text bounds
+    let extraTop = 0;
+    let extraBottom = 0;
+
+    const strokeW =
+      typeof this.originalOpts.stroke === 'object'
+        ? this.originalOpts.stroke.width ?? 0
+        : this.originalOpts.strokeWidth ?? 0;
+    if (strokeW > 0) {
+      extraTop += strokeW;
+      extraBottom += strokeW;
+    }
+
+    if (this.originalOpts.dropShadow) {
+      const ds = this.originalOpts.dropShadow;
+      const blur = ds.blur ?? 0;
+      const distance = ds.distance ?? 0;
+      const angle = ds.angle ?? 0;
+      const dy = Math.abs(Math.sin(angle) * distance);
+      extraTop += blur;
+      extraBottom += blur + dy;
+    }
+
+    const contentHeight = textHeight + extraTop + extraBottom;
 
     const isAutoWidth =
       this.width === 0 || Math.abs(this.width - this._lastContentWidth) < 0.1;
@@ -881,7 +904,7 @@ export class Text extends BaseClip<ITextEvents> {
       startY = containerHeight - textHeight;
     }
 
-    let currentY = startY;
+    let currentY = startY + extraTop;
     const graphics = new Graphics();
     let hasDecoration = false;
 

@@ -66,13 +66,16 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
       const langs = await getAvailableLanguages(projectId);
       let { activeLanguage } = useLanguageStore.getState();
 
-      if (langs.length > 0) {
-        useLanguageStore.getState().setAvailableLanguages(langs);
-        if (!langs.includes(activeLanguage)) {
-          activeLanguage = langs[0];
-          useLanguageStore.getState().setActiveLanguage(activeLanguage);
-        }
+      if (langs.length > 0 && !langs.includes(activeLanguage)) {
+        activeLanguage = langs[0];
+        useLanguageStore.getState().setActiveLanguage(activeLanguage);
       }
+
+      // Always ensure activeLanguage is in the list
+      if (!langs.includes(activeLanguage)) {
+        langs.push(activeLanguage);
+      }
+      useLanguageStore.getState().setAvailableLanguages(langs);
 
       // Load timeline for the correct language
       const savedData = await loadTimeline(projectId, activeLanguage);

@@ -14,6 +14,7 @@ import {
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
 
 import { useTimelineZoom } from '@/hooks/use-timeline-zoom';
 
@@ -329,8 +330,9 @@ export function Timeline() {
   }, [studio]);
 
   const handleReset = useCallback(async () => {
+    const { activeLanguage } = useLanguageStore.getState();
     if (
-      !window.confirm('Reset timeline? All tracks and clips will be removed.')
+      !window.confirm(`Reset ${activeLanguage.toUpperCase()} timeline? All tracks and clips for this language will be removed.`)
     )
       return;
     try {
@@ -339,7 +341,7 @@ export function Timeline() {
       setDuration(0);
       setIsPlaying(false);
       if (projectId) {
-        await clearTimeline(projectId);
+        await clearTimeline(projectId, activeLanguage);
       }
       toast.success('Timeline reset');
     } catch (err) {

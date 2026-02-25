@@ -67,8 +67,12 @@ export function useLanguageSwitch() {
         // Update active language
         setActiveLanguage(targetLanguage);
 
-        // Refresh available languages
+        // Refresh available languages, ensuring the target language is included
+        // (it may not have DB tracks yet if starting empty)
         const langs = await getAvailableLanguages(projectId);
+        if (!langs.includes(targetLanguage)) {
+          langs.push(targetLanguage);
+        }
         setAvailableLanguages(langs);
       } catch (error) {
         console.error('Language switch error:', error);

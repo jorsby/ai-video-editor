@@ -180,6 +180,33 @@ export const charTypewriter: AnimationFactory = (opts, params) => {
   );
 };
 
+export const wordFadeIn: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, y: 30 },
+      to: { alpha: 1, y: 0 },
+      stagger: normalized?.stagger ?? 0.15,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'wordFadeIn'
+  );
+};
+
+export const shake: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('shake', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(normalized, { ...opts, easing }, 'shake');
+  }
+  return new KeyframeAnimation(defaultParams, { ...opts, easing }, 'shake');
+};
+
 //custom presets in
 export const blurSlideRightIn: AnimationFactory = (opts, params) => {
   const normalized = normalizeParams(params);
@@ -2150,6 +2177,10 @@ animationRegistry.register('collapseRotateZoomIn', collapseRotateZoomIn);
 animationRegistry.register('collapseRotateZoomOut', collapseRotateZoomOut);
 animationRegistry.register('ultraCinematicIn', ultraCinematicIn);
 animationRegistry.register('ultraCinematicOut', ultraCinematicOut);
+animationRegistry.register('charFadeIn', charFadeIn);
+animationRegistry.register('charSlideUp', charSlideUp);
+animationRegistry.register('wordFadeIn', wordFadeIn);
+animationRegistry.register('shake', shake);
 
 /**
  * Get the keyframe template for a preset animation
@@ -3791,6 +3822,21 @@ export function getPresetTemplate(type: string, params?: any): any {
         },
       };
     case 'custom':
+    case 'shake':
+      return {
+        '0%': { x: 0, angle: 0 },
+        '10%': { x: -15, angle: -2 },
+        '20%': { x: 15, angle: 2 },
+        '30%': { x: -12, angle: -1.5 },
+        '40%': { x: 12, angle: 1.5 },
+        '50%': { x: -8, angle: -1 },
+        '60%': { x: 8, angle: 1 },
+        '70%': { x: -4, angle: -0.5 },
+        '80%': { x: 4, angle: 0.5 },
+        '90%': { x: -2, angle: 0 },
+        '100%': { x: 0, angle: 0 },
+      };
+
     default:
       return {
         '0%': {},

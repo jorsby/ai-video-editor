@@ -155,40 +155,8 @@ const CaptionPresetPicker = () => {
         if (clipMediaId && processedMediaIds.has(clipMediaId)) continue;
         if (clipMediaId) processedMediaIds.add(clipMediaId);
 
-        // Hook clips have no mediaId — restyle them directly
-        if (!clipMediaId && (clip as any).name === "__video_hook__") {
-          await (clip as any).updateStyle({
-            fill: preset.color,
-            fontFamily: preset.fontFamily,
-            fontUrl: preset.fontUrl,
-            strokeWidth: preset.borderWidth,
-            stroke: { color: preset.borderColor, width: preset.borderWidth },
-            textCase: preset.textTransform || "none",
-            wordsPerLine: mode === "single" ? "single" : "multiple",
-            caption: {
-              colors: {
-                appeared: preset.appearedColor,
-                active: preset.activeColor,
-                activeFill: preset.activeFillColor,
-                background: preset.backgroundColor,
-                keyword: preset.isKeywordColor ?? "transparent",
-              },
-              preserveKeywordColor: preset.preservedColorKeyWord ?? false,
-            },
-            dropShadow: preset.boxShadow
-              ? {
-                  color: preset.boxShadow.color,
-                  alpha: 0.5,
-                  blur: preset.boxShadow.blur,
-                  distance: Math.sqrt(
-                    preset.boxShadow.x ** 2 + preset.boxShadow.y ** 2
-                  ),
-                  angle: Math.PI / 4,
-                }
-              : undefined,
-          });
-          continue;
-        }
+        // Skip clips without a mediaId (e.g. orphaned clips)
+        if (!clipMediaId) continue;
 
         await regenerateCaptionClips({
           studio,

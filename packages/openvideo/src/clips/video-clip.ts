@@ -882,7 +882,8 @@ export class Video extends BaseClip implements IPlaybackCapable {
   syncPlayback(
     element: HTMLVideoElement | HTMLAudioElement,
     isPlaying: boolean,
-    timeSeconds: number
+    timeSeconds: number,
+    transportSpeed: number = 1
   ): void {
     const video = element as HTMLVideoElement;
     const clipDuration = (this.trim.to - this.trim.from) / 1e6;
@@ -891,6 +892,8 @@ export class Video extends BaseClip implements IPlaybackCapable {
     const trimmedTime = timeSeconds + this.trim.from / 1e6;
     // Sync volume
     video.volume = this.volume;
+    // Sync playback rate: per-clip speed * global transport speed
+    video.playbackRate = this.playbackRate * transportSpeed;
 
     if (isPlaying && isWithinClip) {
       // Should be playing

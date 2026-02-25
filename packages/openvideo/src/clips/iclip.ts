@@ -219,7 +219,8 @@ export interface IPlaybackCapable {
   syncPlayback(
     element: HTMLVideoElement | HTMLAudioElement,
     isPlaying: boolean,
-    timeSeconds: number
+    timeSeconds: number,
+    transportSpeed?: number
   ): void;
 
   /**

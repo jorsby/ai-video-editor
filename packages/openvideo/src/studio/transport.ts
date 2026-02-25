@@ -252,8 +252,8 @@ export class Transport {
       this.playStartTime = this.currentTime;
       this.playStartTimestamp = performance.now();
     }
-    for (const [, { element }] of this.playbackElements) {
-      element.playbackRate = speed;
+    for (const [clip, { element }] of this.playbackElements) {
+      element.playbackRate = speed * (clip.playbackRate ?? 1);
     }
   }
 
