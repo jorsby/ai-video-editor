@@ -265,6 +265,18 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       return;
     }
 
+    // Warn if video exceeds Instagram Reels 90-second API limit
+    if (
+      hasInstagram &&
+      instagramOptions.type === 'reel' &&
+      video.duration &&
+      video.duration > 90
+    ) {
+      toast.warning(
+        `This video is ${Math.round(video.duration)}s long. Instagram Reels have a 90-second limit — it may be rejected.`
+      );
+    }
+
     isSubmittingRef.current = true;
     setSubmitError(null);
     setVerificationResult(null);

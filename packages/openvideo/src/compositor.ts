@@ -86,13 +86,43 @@ async function waitEncoderQueue(getQSize: () => number) {
  * com.output(); // => ReadableStream
  *
  */
+const VIDEO_CODEC_PROFILES = [
+  'avc1.640028', // High profile, Level 4.0
+  'avc1.4D0028', // Main profile, Level 4.0
+  'avc1.420028', // Baseline profile, Level 4.0
+];
+
+async function getBestVideoCodec(args: {
+  width?: number;
+  height?: number;
+  bitrate?: number;
+}): Promise<string> {
+  if (typeof self === 'undefined' || self.VideoEncoder == null) {
+    return VIDEO_CODEC_PROFILES[0];
+  }
+  for (const codec of VIDEO_CODEC_PROFILES) {
+    try {
+      const result = await self.VideoEncoder.isConfigSupported({
+        codec,
+        width: args.width ?? 1920,
+        height: args.height ?? 1080,
+        bitrate: args.bitrate ?? 7e6,
+      });
+      if (result.supported) return codec;
+    } catch {
+      continue;
+    }
+  }
+  return VIDEO_CODEC_PROFILES[0];
+}
+
 export class Compositor extends EventEmitter<{
   OutputProgress: number;
   error: Error;
 }> {
   /**
    * Check compatibility with the current environment
-   * @param args.videoCodec Specify video codec, default avc1.42E032
+   * @param args.videoCodec Specify video codec, default avc1.640028
    * @param args.width Specify video width, default 1920
    * @param args.height Specify video height, default 1080
    * @param args.bitrate Specify video bitrate, default 5e6
@@ -115,7 +145,7 @@ export class Compositor extends EventEmitter<{
         self.AudioData != null &&
         ((
           await self.VideoEncoder.isConfigSupported({
-            codec: args.videoCodec ?? 'avc1.42E032',
+            codec: args.videoCodec ?? (await getBestVideoCodec(args)),
             width: args.width ?? 1920,
             height: args.height ?? 1080,
             bitrate: args.bitrate ?? 7e6,
@@ -165,7 +195,7 @@ export class Compositor extends EventEmitter<{
         bgColor: '#000',
         width: 0,
         height: 0,
-        videoCodec: 'avc1.42E032',
+        videoCodec: 'avc1.640028',
         audio: true,
         bitrate: 5e6,
         fps: 30,

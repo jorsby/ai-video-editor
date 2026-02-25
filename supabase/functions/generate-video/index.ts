@@ -62,6 +62,20 @@ interface ModelConfig {
   }) => Record<string, unknown>;
 }
 
+function splitMultiPromptDurations(
+  prompts: string[],
+  totalDuration: number
+): { prompt: string; duration: string }[] {
+  const count = prompts.length;
+  const base = Math.floor(totalDuration / count);
+  const remainder = totalDuration - base * count;
+
+  return prompts.map((p, i) => {
+    const shotDuration = Math.max(3, Math.min(15, base + (i < remainder ? 1 : 0)));
+    return { prompt: p, duration: String(shotDuration) };
+  });
+}
+
 const MODEL_CONFIG: Record<string, ModelConfig> = {
   'wan2.6': {
     endpoint: 'workflows/octupost/wan26',
@@ -141,7 +155,9 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       multi_shots,
     }) => ({
       prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
-      multi_prompt: multi_prompt || [],
+      multi_prompt: multi_prompt && multi_prompt.length > 0
+        ? splitMultiPromptDurations(multi_prompt, Number(duration))
+        : [],
       elements: elements || [],
       image_urls: image_urls || [],
       duration: String(duration),
@@ -164,7 +180,9 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       multi_shots,
     }) => ({
       prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
-      multi_prompt: multi_prompt || [],
+      multi_prompt: multi_prompt && multi_prompt.length > 0
+        ? splitMultiPromptDurations(multi_prompt, Number(duration))
+        : [],
       elements: elements || [],
       image_urls: image_urls || [],
       duration: String(duration),

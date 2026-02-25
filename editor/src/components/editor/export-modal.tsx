@@ -203,7 +203,7 @@ export function ExportModal({
         height: settings.height || 1080,
         fps: settings.fps || 30,
         bgColor: settings.bgColor || '#000000',
-        videoCodec: 'avc1.42E032',
+        videoCodec: 'avc1.640028',
         bitrate: 3_500_000, // 3.5 Mbps — Instagram Reels recommended max
         audio: true,
       };
@@ -412,7 +412,7 @@ export function ExportModal({
           height: settings.height || 1080,
           fps: settings.fps || 30,
           bgColor: settings.bgColor || '#000000',
-          videoCodec: 'avc1.42E032',
+          videoCodec: 'avc1.640028',
           bitrate: 3_500_000,
           audio: true,
         };

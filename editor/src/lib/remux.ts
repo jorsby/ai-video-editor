@@ -46,16 +46,38 @@ export async function remuxToInstagramMp4(
 
   await ffmpeg.writeFile('input.mp4', await fetchFile(inputBlob));
 
-  await ffmpeg.exec([
+  // First attempt: video copy + audio transcode to AAC
+  // -map 0:a? makes the audio stream optional (won't fail if no audio track)
+  // -fflags +genpts regenerates timestamps, stripping fMP4 edit lists
+  // -avoid_negative_ts make_zero shifts any negative timestamps to zero
+  let exitCode = await ffmpeg.exec([
+    '-fflags', '+genpts',
     '-i', 'input.mp4',
-    '-c:v', 'copy',            // copy video stream — no re-encode
-    '-c:a', 'aac',             // transcode audio to AAC (handles Opus→AAC and AAC→AAC)
-    '-b:a', '128k',            // 128 kbps — Instagram max audio bitrate
-    '-ar', '48000',            // 48 kHz sample rate
-    '-ac', '2',                // stereo
-    '-movflags', '+faststart', // move moov atom to front → standard MP4
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '48000',
+    '-ac', '2',
+    '-avoid_negative_ts', 'make_zero',
+    '-movflags', '+faststart',
     'output.mp4',
   ]);
+
+  // Fallback: if the above failed (e.g. unsupported audio codec), copy video only
+  if (exitCode !== 0) {
+    await ffmpeg.exec([
+      '-fflags', '+genpts',
+      '-i', 'input.mp4',
+      '-map', '0:v:0',
+      '-c:v', 'copy',
+      '-an',
+      '-avoid_negative_ts', 'make_zero',
+      '-movflags', '+faststart',
+      'output.mp4',
+    ]);
+  }
 
   const data = await ffmpeg.readFile('output.mp4');
   return new Blob([data], { type: 'video/mp4' });
