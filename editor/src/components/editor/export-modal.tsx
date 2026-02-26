@@ -9,6 +9,7 @@ import { Loader2, Cloud, Check, Download, Send, Layers } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
+import { INSTAGRAM_REELS_MAX_SECONDS, INSTAGRAM_REELS_MAX_MICROS } from '@/lib/constants/social-limits';
 import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
@@ -494,10 +495,10 @@ export function ExportModal({
     return (
       <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
         <DialogContent
-          className="max-w-[520px] overflow-hidden border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
+          className="max-w-[520px] max-h-[90svh] overflow-hidden border-zinc-800 bg-[#0c0c0e]/95 p-0 text-white backdrop-blur-xl"
           showCloseButton={false}
         >
-          <div className="flex flex-col p-8 pt-10">
+          <div className="flex flex-col p-8 pt-10 overflow-y-auto">
             <DialogTitle className="mb-2 text-center text-xl font-medium tracking-tight">
               {isBatchRender ? 'All Renders Complete' : 'Render Complete'}
             </DialogTitle>
@@ -620,6 +621,17 @@ export function ExportModal({
                 ))}
               </div>
             </div>
+
+            {maxDuration > INSTAGRAM_REELS_MAX_MICROS && (
+              <div className="mb-4 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <p className="text-sm font-medium text-amber-400">
+                  Timeline is {Math.round(maxDuration / 1e6)}s — exceeds Instagram&apos;s {INSTAGRAM_REELS_MAX_SECONDS}s limit
+                </p>
+                <p className="mt-1 text-xs text-amber-400/70">
+                  Instagram will reject this video. Trim your timeline to {INSTAGRAM_REELS_MAX_SECONDS}s or shorter before rendering for Instagram.
+                </p>
+              </div>
+            )}
 
             <div className="flex w-full gap-3">
               <Button

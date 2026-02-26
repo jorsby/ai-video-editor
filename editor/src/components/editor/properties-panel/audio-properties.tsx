@@ -1,12 +1,17 @@
+import { useState, useEffect, useRef } from 'react';
 import type { IClip } from 'openvideo';
 import { useStudioStore } from '@/stores/studio-store';
-import { IconVolume, IconGauge, IconMusic } from '@tabler/icons-react';
+import { IconVolume, IconGauge, IconMusic, IconLoader2, IconRefresh } from '@tabler/icons-react';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group';
 import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { getVoiceoverForClip, regenerateVoiceover } from '@/lib/scene-timeline-utils';
+import type { Voiceover } from '@/lib/supabase/workflow-service';
 
 interface AudioPropertiesProps {
   clip: IClip;
@@ -15,6 +20,56 @@ interface AudioPropertiesProps {
 export function AudioProperties({ clip }: AudioPropertiesProps) {
   const audioClip = clip as any;
   const { studio } = useStudioStore();
+
+  const [voiceover, setVoiceover] = useState<Voiceover | null>(null);
+  const [voiceoverLoading, setVoiceoverLoading] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const abortRef = useRef<(() => void) | null>(null);
+
+  // Look up voiceover record when clip changes
+  useEffect(() => {
+    let cancelled = false;
+    setVoiceover(null);
+    setVoiceoverLoading(true);
+
+    getVoiceoverForClip(clip).then((vo) => {
+      if (!cancelled) {
+        setVoiceover(vo);
+        setVoiceoverLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.src, clip.id]);
+
+  // Cleanup abort handle on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.();
+    };
+  }, []);
+
+  const handleRegenerate = async () => {
+    if (!studio || !voiceover || isRegenerating) return;
+
+    setIsRegenerating(true);
+    toast.info('Voiceover regeneration started...');
+
+    const { promise, abort } = regenerateVoiceover(studio, clip, voiceover);
+    abortRef.current = abort;
+
+    const result = await promise;
+    abortRef.current = null;
+    setIsRegenerating(false);
+
+    if (result.success) {
+      toast.success('Voiceover regenerated successfully');
+    } else if (result.error !== 'Aborted') {
+      toast.error(result.error || 'Voiceover regeneration failed');
+    }
+  };
 
   const handleUpdate = (updates: any) => {
     if ('playbackRate' in updates && studio && audioClip.trim) {
@@ -28,6 +83,34 @@ export function AudioProperties({ clip }: AudioPropertiesProps) {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Voiceover Regeneration Section */}
+      {voiceover && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Voiceover
+          </span>
+          {voiceover.text && (
+            <p className="text-xs text-muted-foreground line-clamp-3">
+              {voiceover.text}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={handleRegenerate}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <IconLoader2 className="size-3.5 animate-spin mr-1.5" />
+            ) : (
+              <IconRefresh className="size-3.5 mr-1.5" />
+            )}
+            {isRegenerating ? 'Regenerating...' : 'Regenerate Voiceover'}
+          </Button>
+        </div>
+      )}
+
       {/* Volume Section */}
       <div className="flex flex-col gap-2">
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">

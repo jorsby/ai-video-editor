@@ -1,5 +1,8 @@
-import type { Studio } from 'openvideo';
+import type { Studio, IClip } from 'openvideo';
 import { Video, Audio } from 'openvideo';
+import { createClient } from '@/lib/supabase/client';
+import type { Voiceover } from '@/lib/supabase/workflow-service';
+import { DEFAULT_VOICE_MAP, FALLBACK_VOICE } from '@/lib/constants/languages';
 
 /**
  * Find a track of the given type that has no clips overlapping [from, to].
@@ -27,7 +30,7 @@ export function findCompatibleTrack(
 
 interface SceneInput {
   videoUrl: string;
-  voiceover?: { audioUrl: string } | null;
+  voiceover?: { audioUrl: string; voiceoverId?: string } | null;
 }
 
 interface AddSceneOptions {
@@ -69,6 +72,9 @@ export async function addSceneToTimeline(
 
   if (scene.voiceover?.audioUrl) {
     const audioClip = await Audio.fromUrl(scene.voiceover.audioUrl);
+    if (scene.voiceover.voiceoverId) {
+      audioClip.style = { ...audioClip.style, voiceoverId: scene.voiceover.voiceoverId };
+    }
     const audioDuration = audioClip.duration;
 
     // Match video duration to voiceover
@@ -143,6 +149,7 @@ export async function addSceneToTimeline(
 
 interface VoiceoverInput {
   audioUrl: string;
+  voiceoverId?: string;
 }
 
 interface AddVoiceoverOptions {
@@ -167,6 +174,9 @@ export async function addVoiceoverToTimeline(
   let usedAudioTrackId = audioTrackId;
 
   const audioClip = await Audio.fromUrl(voiceover.audioUrl);
+  if (voiceover.voiceoverId) {
+    audioClip.style = { ...audioClip.style, voiceoverId: voiceover.voiceoverId };
+  }
 
   audioClip.display.from = startTime;
   audioClip.display.to = startTime + audioClip.duration;
@@ -189,4 +199,158 @@ export async function addVoiceoverToTimeline(
     endTime,
     audioTrackId: usedAudioTrackId,
   };
+}
+
+/**
+ * Look up the voiceover record for a timeline audio clip.
+ * Fast path: uses voiceoverId cached in clip.style.
+ * Fallback: queries by audio_url matching clip.src.
+ */
+export async function getVoiceoverForClip(clip: IClip): Promise<Voiceover | null> {
+  const supabase = createClient();
+  const voiceoverId = (clip as any).style?.voiceoverId;
+
+  if (voiceoverId) {
+    const { data } = await supabase
+      .from('voiceovers')
+      .select('*')
+      .eq('id', voiceoverId)
+      .single();
+    if (data) return data as Voiceover;
+  }
+
+  // Fallback: lookup by audio URL
+  if (clip.src) {
+    const { data } = await supabase
+      .from('voiceovers')
+      .select('*')
+      .eq('audio_url', clip.src)
+      .single();
+    if (data) return data as Voiceover;
+  }
+
+  return null;
+}
+
+const REGEN_TIMEOUT_MS = 120_000; // 2 minutes
+
+/**
+ * Regenerate a voiceover and replace the audio clip in the timeline.
+ * Returns an object with a promise for the result and an abort function for cleanup.
+ */
+export function regenerateVoiceover(
+  studio: Studio,
+  clip: IClip,
+  voiceover: Voiceover
+): { promise: Promise<{ success: boolean; error?: string }>; abort: () => void } {
+  const supabase = createClient();
+  const oldSrc = clip.src;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let aborted = false;
+
+  const promise = new Promise<{ success: boolean; error?: string }>((resolve) => {
+    const cleanup = () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    // Set up realtime subscription before triggering TTS
+    channel = supabase
+      .channel(`voiceover_regen_${voiceover.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'voiceovers',
+          filter: `id=eq.${voiceover.id}`,
+        },
+        async (payload) => {
+          const updated = payload.new as Voiceover;
+
+          if (updated.status === 'success' && updated.audio_url) {
+            cleanup();
+            if (aborted) {
+              resolve({ success: false, error: 'Aborted' });
+              return;
+            }
+
+            try {
+              await studio.timeline.replaceClipsBySource(oldSrc, async (oldClip) => {
+                const newClip = await Audio.fromUrl(updated.audio_url!);
+                newClip.id = oldClip.id;
+                newClip.display.from = oldClip.display.from;
+                newClip.display.to = oldClip.display.from + newClip.duration;
+                newClip.volume = oldClip.volume;
+                newClip.style = { ...newClip.style, voiceoverId: voiceover.id };
+                return newClip;
+              });
+              resolve({ success: true });
+            } catch (err) {
+              resolve({ success: false, error: 'Failed to replace audio clip' });
+            }
+          } else if (updated.status === 'failed') {
+            cleanup();
+            resolve({ success: false, error: 'Voiceover generation failed' });
+          }
+        }
+      )
+      .subscribe();
+
+    // Timeout after 2 minutes
+    timeoutId = setTimeout(() => {
+      cleanup();
+      resolve({ success: false, error: 'Voiceover generation timed out' });
+    }, REGEN_TIMEOUT_MS);
+
+    // Reset voiceover record and trigger TTS
+    (async () => {
+      try {
+        await supabase
+          .from('voiceovers')
+          .update({ status: 'pending', audio_url: null, duration: null })
+          .eq('id', voiceover.id);
+
+        const voice = DEFAULT_VOICE_MAP[voiceover.language] ?? FALLBACK_VOICE;
+        const { error } = await supabase.functions.invoke('generate-tts', {
+          body: {
+            scene_ids: [voiceover.scene_id],
+            voice,
+            model: 'multilingual-v2',
+            language: voiceover.language,
+            speed: 1.0,
+          },
+        });
+
+        if (error) {
+          cleanup();
+          resolve({ success: false, error: 'Failed to invoke TTS' });
+        }
+      } catch (err) {
+        cleanup();
+        resolve({ success: false, error: 'Failed to start regeneration' });
+      }
+    })();
+  });
+
+  const abort = () => {
+    aborted = true;
+    if (channel) {
+      supabase.removeChannel(channel);
+      channel = null;
+    }
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
+  return { promise, abort };
 }

@@ -1309,6 +1309,129 @@ export function StoryboardCards({
     refresh();
   };
 
+  const handleTranslateSceneVoiceover = async (sceneId: string, sourceText: string) => {
+    if (!sourceText.trim()) {
+      toast.error('No voiceover text to translate');
+      return;
+    }
+
+    const targetLanguages = availableLanguages.filter((l) => l !== selectedLanguage);
+    if (targetLanguages.length === 0) {
+      toast.info('No other languages configured');
+      return;
+    }
+
+    const res = await fetch('/api/translate-scene-voiceover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scene_id: sceneId,
+        source_text: sourceText,
+        source_language: selectedLanguage,
+        target_languages: targetLanguages,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      toast.error(data.error ?? 'Translation failed');
+      return;
+    }
+
+    const translatedCount = data.translated?.length ?? 0;
+    const failedCount = data.failed?.length ?? 0;
+
+    if (failedCount > 0 && translatedCount > 0) {
+      toast.warning(`Translated to ${translatedCount} language(s), ${failedCount} failed`);
+    } else if (translatedCount > 0) {
+      toast.success(`Translated to ${translatedCount} language(s)`);
+    } else {
+      toast.error('Translation failed for all languages');
+    }
+
+    refresh();
+  };
+
+  const handleReadSceneAllLanguages = async (sceneId: string, currentText: string) => {
+    const supabase = createClient();
+    const scene = sortedScenes.find((s) => s.id === sceneId);
+    if (!scene) return;
+
+    // Save current language voiceover text first
+    const currentVoiceover = scene.voiceovers?.find(
+      (v) => v.language === selectedLanguage
+    );
+    if (currentVoiceover) {
+      await supabase
+        .from('voiceovers')
+        .update({
+          text: currentText,
+          status: 'pending',
+          audio_url: null,
+          duration: null,
+        })
+        .eq('id', currentVoiceover.id);
+    }
+
+    // Find all languages with voiceover text for this scene
+    const voiceoversWithText = (scene.voiceovers ?? []).filter(
+      (v) => v.text?.trim() && v.language !== selectedLanguage
+    );
+
+    // Include current language if it has text
+    const allLanguages = currentVoiceover
+      ? [selectedLanguage, ...voiceoversWithText.map((v) => v.language)]
+      : voiceoversWithText.map((v) => v.language);
+
+    if (allLanguages.length === 0) {
+      toast.info('No languages with voiceover text');
+      return;
+    }
+
+    // Set non-current voiceovers to pending and clear audio
+    for (const vo of voiceoversWithText) {
+      await supabase
+        .from('voiceovers')
+        .update({ status: 'pending', audio_url: null, duration: null })
+        .eq('id', vo.id);
+    }
+
+    // Fire TTS for all languages in parallel
+    const results = await Promise.allSettled(
+      allLanguages.map((lang) =>
+        supabase.functions.invoke('generate-tts', {
+          body: {
+            scene_ids: [sceneId],
+            voice: voiceConfig[lang]?.voice ?? FALLBACK_VOICE,
+            model: ttsModel,
+            language: lang,
+            speed: ttsSpeed,
+          },
+        })
+      )
+    );
+
+    let successes = 0;
+    let failures = 0;
+    for (const result of results) {
+      if (result.status === 'fulfilled' && !result.value.error) {
+        successes++;
+      } else {
+        failures++;
+      }
+    }
+
+    if (successes > 0) {
+      toast.success(`Voiceover generation started for ${successes} language(s)`);
+    }
+    if (failures > 0) {
+      toast.error(`${failures} language(s) failed to start`);
+    }
+
+    refresh();
+  };
+
   const handleGenerateSceneVideo = async (
     sceneId: string,
     newVisualPrompt: string
@@ -1425,7 +1548,7 @@ export function StoryboardCards({
             if (!hasVoiceover) continue;
             const result = await addVoiceoverToTimeline(
               studio,
-              { audioUrl: voiceover!.audio_url! },
+              { audioUrl: voiceover!.audio_url!, voiceoverId: voiceover!.id },
               { startTime: runningEnd, audioTrackId }
             );
             runningEnd = result.endTime;
@@ -1436,7 +1559,7 @@ export function StoryboardCards({
               {
                 videoUrl: scene.video_url!,
                 voiceover: hasVoiceover
-                  ? { audioUrl: voiceover!.audio_url! }
+                  ? { audioUrl: voiceover!.audio_url!, voiceoverId: voiceover!.id }
                   : null,
               },
               {
@@ -1536,7 +1659,7 @@ export function StoryboardCards({
 
       await addVoiceoverToTimeline(
         studio,
-        { audioUrl: voiceover.audio_url },
+        { audioUrl: voiceover.audio_url, voiceoverId: voiceover.id },
         { startTime: lastClipEnd, audioTrackId: existingAudioTrack?.id }
       );
       toast.success('Voiceover added to timeline');
@@ -2502,6 +2625,8 @@ export function StoryboardCards({
             playingVoiceoverId={playingVoiceoverId}
             setPlayingVoiceoverId={setPlayingVoiceoverId}
             onReadScene={handleReadScene}
+            onTranslateScene={handleTranslateSceneVoiceover}
+            onReadSceneAllLanguages={handleReadSceneAllLanguages}
             onGenerateSceneVideo={handleGenerateSceneVideo}
             onSaveVisualPrompt={handleSaveVisualPrompt}
             onSaveVoiceoverText={handleSaveVoiceoverText}

@@ -12,7 +12,7 @@ const FFMPEG_BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/d
  * standard MP4 with:
  *   - moov atom at the front (faststart)
  *   - AAC audio codec (Opus is rejected by Instagram with error 2207076)
- *   - Audio bitrate ≤ 128 kbps
+ *   - Audio bitrate ≤ 128 kbps (target 96 kbps for VBR safety margin)
  *
  * This function:
  *   - Copies the video stream as-is (no re-encoding, no quality loss)
@@ -57,7 +57,7 @@ export async function remuxToInstagramMp4(
     '-map', '0:a?',
     '-c:v', 'copy',
     '-c:a', 'aac',
-    '-b:a', '128k',
+    '-b:a', '96k',
     '-ar', '48000',
     '-ac', '2',
     '-avoid_negative_ts', 'make_zero',

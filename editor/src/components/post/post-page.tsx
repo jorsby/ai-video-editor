@@ -10,6 +10,7 @@ import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
 import { SchedulePicker } from './schedule-picker';
 import { getTodayInTimezone } from '@/lib/schedule-validation';
+import { INSTAGRAM_REELS_MAX_SECONDS } from '@/lib/constants/social-limits';
 import { FacebookOptions } from './platform-options/facebook-options';
 import { YouTubeOptions } from './platform-options/youtube-options';
 import { TikTokOptions } from './platform-options/tiktok-options';
@@ -265,16 +266,17 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
       return;
     }
 
-    // Warn if video exceeds Instagram Reels 90-second API limit
+    // Hard block: Instagram Graph API rejects all videos > 90 seconds.
+    // Single videos are forced to REELS (90s limit), carousel videos are 60s limit.
     if (
       hasInstagram &&
-      instagramOptions.type === 'reel' &&
       video.duration &&
-      video.duration > 90
+      video.duration > INSTAGRAM_REELS_MAX_SECONDS
     ) {
-      toast.warning(
-        `This video is ${Math.round(video.duration)}s long. Instagram Reels have a 90-second limit — it may be rejected.`
+      toast.error(
+        `This video is ${Math.round(video.duration)}s — Instagram's API rejects all videos over ${INSTAGRAM_REELS_MAX_SECONDS}s. Please re-export with a shorter timeline, or deselect Instagram.`
       );
+      return;
     }
 
     isSubmittingRef.current = true;

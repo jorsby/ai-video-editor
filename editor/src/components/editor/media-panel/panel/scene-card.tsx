@@ -15,6 +15,7 @@ import {
   IconMaximize,
   IconTarget,
   IconSwitchHorizontal,
+  IconVolume,
 } from '@tabler/icons-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -81,6 +82,8 @@ interface SceneCardProps {
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
+  onTranslateScene?: (sceneId: string, sourceText: string) => Promise<void>;
+  onReadSceneAllLanguages?: (sceneId: string, currentText: string) => Promise<void>;
   onGenerateSceneVideo?: (
     sceneId: string,
     newVisualPrompt: string
@@ -106,6 +109,7 @@ interface SceneCardProps {
 
 interface SceneThumbnailProps {
   imageUrl: string | null;
+  videoUrl?: string | null;
   sceneOrder: number;
   firstFrame: FirstFrame | null;
   background: Background | null;
@@ -129,6 +133,7 @@ const ASPECT_RATIO_CLASSES: Record<string, string> = {
 
 function SceneThumbnail({
   imageUrl,
+  videoUrl,
   sceneOrder,
   firstFrame,
   background,
@@ -148,6 +153,25 @@ function SceneThumbnail({
   const isEditFailed = editStatus === 'failed';
   const isGeneratingVideo = videoStatus === 'processing';
 
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = thumbRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (hasVideo && onAddToCanvas) {
@@ -159,17 +183,28 @@ function SceneThumbnail({
 
   const handlePreviewClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (imageUrl && onPreviewImage) {
+    if (onPreviewImage) {
       onPreviewImage();
     }
   };
 
   return (
     <div
+      ref={thumbRef}
       className={`group/thumb relative ${aspectRatio ? ASPECT_RATIO_CLASSES[aspectRatio] || 'aspect-square' : 'aspect-square'} rounded overflow-hidden bg-background/50 ${imageUrl ? 'cursor-pointer' : ''} ${hasVideo ? 'hover:ring-2 hover:ring-primary/50' : ''}`}
       onClick={handleClick}
     >
-      {imageUrl ? (
+      {hasVideo && videoUrl && isVisible ? (
+        <video
+          src={videoUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+          poster={imageUrl || undefined}
+          className="absolute inset-0 w-full h-full object-contain"
+        />
+      ) : imageUrl ? (
         <Image
           src={imageUrl}
           alt={`Scene ${sceneOrder + 1}`}
@@ -229,12 +264,12 @@ function SceneThumbnail({
           </span>
         </div>
       )}
-      {imageUrl && (
+      {(imageUrl || (hasVideo && videoUrl)) && (
         <button
           type="button"
           onClick={handlePreviewClick}
           className="absolute bottom-1 right-1 p-0.5 rounded bg-black/60 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity hover:bg-black/80"
-          title="Preview image"
+          title={hasVideo ? 'Preview video' : 'Preview image'}
         >
           <IconMaximize size={12} />
         </button>
@@ -326,6 +361,8 @@ interface ExpandedContentProps {
   setPlayingVoiceoverId?: (id: string | null) => void;
   sceneId: string;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
+  onTranslateScene?: (sceneId: string, sourceText: string) => Promise<void>;
+  onReadSceneAllLanguages?: (sceneId: string, currentText: string) => Promise<void>;
   onGenerateSceneVideo?: (
     sceneId: string,
     newVisualPrompt: string
@@ -345,6 +382,8 @@ function ExpandedContent({
   setPlayingVoiceoverId,
   sceneId,
   onReadScene,
+  onTranslateScene,
+  onReadSceneAllLanguages,
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
@@ -360,6 +399,8 @@ function ExpandedContent({
   const [editedVoiceover, setEditedVoiceover] = useState('');
   const [isSavingVoiceover, setIsSavingVoiceover] = useState(false);
   const [isReadingTts, setIsReadingTts] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isReadingAllTts, setIsReadingAllTts] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
 
   const handleSaveVoiceover = async () => {
@@ -455,7 +496,7 @@ function ExpandedContent({
               onBlur={() => {
                 // Delay to allow button clicks to register before blur saves
                 setTimeout(() => {
-                  if (!isReadingTts) handleSaveVoiceover();
+                  if (!isReadingTts && !isTranslating && !isReadingAllTts) handleSaveVoiceover();
                 }, 150);
               }}
               onKeyDown={(e) => {
@@ -466,29 +507,76 @@ function ExpandedContent({
               className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-blue-400/30 focus-visible:border-blue-400/50"
               placeholder="Voiceover text..."
             />
-            {onReadScene && (
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-6 text-[10px] px-2"
-                  disabled={isReadingTts}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsReadingTts(true);
-                    onReadScene(sceneId, editedVoiceover).finally(() => {
-                      setIsReadingTts(false);
-                      setIsEditingVoiceover(false);
-                    });
-                  }}
-                >
-                  {isReadingTts ? (
-                    <IconLoader2 size={10} className="animate-spin mr-1" />
-                  ) : (
-                    <IconMicrophone size={10} className="mr-1" />
-                  )}
-                  Read
-                </Button>
+            {(onReadScene || onTranslateScene || onReadSceneAllLanguages) && (
+              <div className="flex justify-end gap-1">
+                {onTranslateScene && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] px-2"
+                    disabled={isReadingTts || isTranslating || isReadingAllTts}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setIsTranslating(true);
+                      onTranslateScene(sceneId, editedVoiceover).finally(() => {
+                        setIsTranslating(false);
+                      });
+                    }}
+                  >
+                    {isTranslating ? (
+                      <IconLoader2 size={10} className="animate-spin mr-1" />
+                    ) : (
+                      <IconSwitchHorizontal size={10} className="mr-1" />
+                    )}
+                    Translate
+                  </Button>
+                )}
+                {onReadScene && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-6 text-[10px] px-2"
+                    disabled={isReadingTts || isTranslating || isReadingAllTts}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setIsReadingTts(true);
+                      onReadScene(sceneId, editedVoiceover).finally(() => {
+                        setIsReadingTts(false);
+                        setIsEditingVoiceover(false);
+                      });
+                    }}
+                  >
+                    {isReadingTts ? (
+                      <IconLoader2 size={10} className="animate-spin mr-1" />
+                    ) : (
+                      <IconMicrophone size={10} className="mr-1" />
+                    )}
+                    Read
+                  </Button>
+                )}
+                {onReadSceneAllLanguages && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-6 text-[10px] px-2"
+                    disabled={isReadingTts || isTranslating || isReadingAllTts}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setIsReadingAllTts(true);
+                      onReadSceneAllLanguages(sceneId, editedVoiceover).finally(() => {
+                        setIsReadingAllTts(false);
+                        setIsEditingVoiceover(false);
+                      });
+                    }}
+                  >
+                    {isReadingAllTts ? (
+                      <IconLoader2 size={10} className="animate-spin mr-1" />
+                    ) : (
+                      <IconVolume size={10} className="mr-1" />
+                    )}
+                    Read ALL
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -818,6 +906,8 @@ export function SceneCard({
   playingVoiceoverId,
   setPlayingVoiceoverId,
   onReadScene,
+  onTranslateScene,
+  onReadSceneAllLanguages,
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
@@ -977,6 +1067,7 @@ export function SceneCard({
       {firstFrame || imageUrl ? (
         <SceneThumbnail
           imageUrl={imageUrl}
+          videoUrl={scene.video_url}
           sceneOrder={scene.order}
           firstFrame={firstFrame}
           background={background}
@@ -1000,13 +1091,25 @@ export function SceneCard({
         >
           {imageUrl ? (
             <>
-              <Image
-                src={imageUrl}
-                alt={`Scene ${scene.order + 1}`}
-                fill
-                className="object-contain"
-                unoptimized
-              />
+              {hasVideo && scene.video_url ? (
+                <video
+                  src={scene.video_url}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  poster={imageUrl || undefined}
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              ) : (
+                <Image
+                  src={imageUrl}
+                  alt={`Scene ${scene.order + 1}`}
+                  fill
+                  className="object-contain"
+                  unoptimized
+                />
+              )}
               <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] font-medium text-white">
                 {scene.order + 1}
               </div>
@@ -1058,7 +1161,7 @@ export function SceneCard({
                   </span>
                 </div>
               )}
-              {imageUrl && (
+              {(imageUrl || hasVideo) && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1066,7 +1169,7 @@ export function SceneCard({
                     setPreviewOpen(true);
                   }}
                   className="absolute bottom-1 right-1 p-0.5 rounded bg-black/60 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity hover:bg-black/80"
-                  title="Preview image"
+                  title={hasVideo ? 'Preview video' : 'Preview image'}
                 >
                   <IconMaximize size={12} />
                 </button>
@@ -1105,11 +1208,24 @@ export function SceneCard({
                   </span>
                 </div>
               ) : hasVideo ? (
-                <div className="absolute top-1 right-1">
-                  <div className="px-1.5 py-0.5 bg-cyan-500/80 rounded text-[10px] font-medium text-white flex items-center gap-0.5">
-                    <IconVideo size={10} />
-                  </div>
-                </div>
+                <>
+                  {scene.video_url ? (
+                    <video
+                      src={scene.video_url}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="absolute top-1 right-1">
+                      <div className="px-1.5 py-0.5 bg-cyan-500/80 rounded text-[10px] font-medium text-white flex items-center gap-0.5">
+                        <IconVideo size={10} />
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="w-full h-full flex items-center justify-center p-2">
                   <p className="text-[10px] text-muted-foreground/70 text-center line-clamp-3">
@@ -1151,6 +1267,8 @@ export function SceneCard({
           setPlayingVoiceoverId={setPlayingVoiceoverId}
           sceneId={scene.id}
           onReadScene={onReadScene}
+          onTranslateScene={onTranslateScene}
+          onReadSceneAllLanguages={onReadSceneAllLanguages}
           onGenerateSceneVideo={onGenerateSceneVideo}
           onSaveVisualPrompt={onSaveVisualPrompt}
           onSaveVoiceoverText={onSaveVoiceoverText}
@@ -1174,13 +1292,20 @@ export function SceneCard({
           <DialogTitle className="sr-only">
             Scene {scene.order + 1} Preview
           </DialogTitle>
-          {imageUrl && (
+          {hasVideo && scene.video_url ? (
+            <video
+              src={scene.video_url}
+              controls
+              autoPlay
+              className="w-full max-h-[80vh] object-contain rounded"
+            />
+          ) : imageUrl ? (
             <img
               src={imageUrl}
               alt={`Scene ${scene.order + 1}`}
               className="w-full h-auto max-h-[80vh] object-contain rounded"
             />
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
