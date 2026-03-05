@@ -207,7 +207,7 @@ export async function addVoiceoverToTimeline(
  * Fallback: queries by audio_url matching clip.src.
  */
 export async function getVoiceoverForClip(clip: IClip): Promise<Voiceover | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
   const voiceoverId = (clip as any).style?.voiceoverId;
 
   if (voiceoverId) {
@@ -243,7 +243,7 @@ export function regenerateVoiceover(
   clip: IClip,
   voiceover: Voiceover
 ): { promise: Promise<{ success: boolean; error?: string }>; abort: () => void } {
-  const supabase = createClient();
+  const supabase = createClient('studio');
   const oldSrc = clip.src;
   let channel: ReturnType<typeof supabase.channel> | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;

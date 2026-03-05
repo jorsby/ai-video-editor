@@ -1,9 +1,9 @@
 import { chromium } from 'playwright';
-import { writeFile, readFile } from 'fs/promises';
-import { EventEmitter } from 'events';
+import { writeFile, readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
 import express from 'express';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 export class Renderer extends EventEmitter {
     config;
     browser = null;
@@ -33,9 +33,9 @@ export class Renderer extends EventEmitter {
      */
     async startLocalServer() {
         const app = express();
-        // Serve @designcombo/video dist files at /core (legacy route)
+        // Serve openvideo dist files at /core (legacy route)
         const currentFileDir = dirname(fileURLToPath(import.meta.url));
-        const coreDistPath = join(currentFileDir, '../node_modules/@designcombo/video/dist');
+        const coreDistPath = join(currentFileDir, '../node_modules/openvideo/dist');
         app.use('/core', express.static(coreDistPath));
         // Serve node_modules for package imports
         const nodeModulesPath = join(currentFileDir, '../node_modules');
@@ -194,7 +194,7 @@ export class Renderer extends EventEmitter {
         }
         if (this.server) {
             await new Promise((resolve) => {
-                this.server.close(() => resolve());
+                this.server?.close(() => resolve());
             });
             this.server = null;
         }

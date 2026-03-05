@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, use } from 'react';
+import { useState, use, useCallback } from 'react';
 import { MediaPanel } from '@/components/editor/media-panel';
 import { PreviewPanel } from '@/components/editor/preview-panel';
 import { Timeline } from '@/components/editor/timeline';
@@ -94,6 +94,7 @@ function EditorContent({ onReady }: { onReady: () => void }) {
 function EditorShell() {
   const [isReady, setIsReady] = useState(false);
   const { saveNow, saveStatus } = useAutoSave();
+  const handleReady = useCallback(() => setIsReady(true), []);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
@@ -103,7 +104,7 @@ function EditorShell() {
         </div>
       )}
       <Header saveNow={saveNow} saveStatus={saveStatus} />
-      <EditorContent onReady={() => setIsReady(true)} />
+      <EditorContent onReady={handleReady} />
     </div>
   );
 }

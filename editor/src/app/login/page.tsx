@@ -4,12 +4,12 @@ import { useState, useId } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { login, signup } from './actions';
+import { login, signup, resetPassword } from './actions';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [isLoading, setIsLoading] = useState(false);
   const emailId = useId();
   const passwordId = useId();
@@ -17,6 +17,19 @@ export default function LoginPage() {
   const handleSubmit = async (formData: FormData) => {
     setIsLoading(true);
     try {
+      if (mode === 'forgot') {
+        const email = formData.get('email') as string;
+        const redirectTo = `${window.location.origin}/auth/confirm`;
+        const result = await resetPassword(email, redirectTo);
+        if (result?.error) {
+          toast.error(result.message);
+        } else {
+          toast.success('Check your email for a password reset link.');
+          setMode('login');
+        }
+        return;
+      }
+
       const result =
         mode === 'login' ? await login(formData) : await signup(formData);
 
@@ -71,12 +84,18 @@ export default function LoginPage() {
               transition={{ duration: 0.2 }}
             >
               <h2 className="text-lg font-medium text-foreground mb-1">
-                {mode === 'login' ? 'Welcome back' : 'Create your account'}
+                {mode === 'login'
+                  ? 'Welcome back'
+                  : mode === 'signup'
+                    ? 'Create your account'
+                    : 'Reset your password'}
               </h2>
               <p className="text-sm text-muted-foreground mb-6">
                 {mode === 'login'
                   ? 'Sign in to continue to your projects'
-                  : 'Start creating amazing videos'}
+                  : mode === 'signup'
+                    ? 'Start creating amazing videos'
+                    : 'Enter your email to receive a reset link'}
               </p>
             </motion.div>
           </AnimatePresence>
@@ -100,24 +119,38 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <label
-                htmlFor={passwordId}
-                className="text-sm font-medium text-foreground"
-              >
-                Password
-              </label>
-              <Input
-                id={passwordId}
-                name="password"
-                type="password"
-                placeholder="••••••••"
-                required
-                minLength={6}
-                disabled={isLoading}
-                className="h-10 bg-background/50"
-              />
-            </div>
+            {mode !== 'forgot' && (
+              <div className="space-y-2">
+                <label
+                  htmlFor={passwordId}
+                  className="text-sm font-medium text-foreground"
+                >
+                  Password
+                </label>
+                <Input
+                  id={passwordId}
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  disabled={isLoading}
+                  className="h-10 bg-background/50"
+                />
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setMode('forgot')}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
 
             <Button
               type="submit"
@@ -128,8 +161,10 @@ export default function LoginPage() {
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : mode === 'login' ? (
                 'Sign in'
-              ) : (
+              ) : mode === 'signup' ? (
                 'Create account'
+              ) : (
+                'Send reset link'
               )}
             </Button>
           </form>
@@ -137,11 +172,18 @@ export default function LoginPage() {
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+              onClick={() =>
+                setMode(mode === 'login' ? 'signup' : 'login')
+              }
               disabled={isLoading}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              {mode === 'login' ? (
+              {mode === 'forgot' ? (
+                <>
+                  Back to{' '}
+                  <span className="text-foreground font-medium">Sign in</span>
+                </>
+              ) : mode === 'login' ? (
                 <>
                   Don&apos;t have an account?{' '}
                   <span className="text-foreground font-medium">Sign up</span>

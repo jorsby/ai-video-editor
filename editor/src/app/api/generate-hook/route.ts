@@ -38,7 +38,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

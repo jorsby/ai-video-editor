@@ -7,5 +7,5 @@ export default async function EditPostRoute({
 }) {
   const { uuid } = await params;
 
-  return <EditPostPage postUuid={uuid} />;
+  return <EditPostPage postId={uuid} />;
 }

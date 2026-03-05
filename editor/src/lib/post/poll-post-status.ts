@@ -1,12 +1,13 @@
 import type {
-  MixpostPostStatus,
+  Platform,
+  PostStatus,
   PostAccountResult,
   PostVerificationResult,
-} from '@/types/post';
+} from '@/types/social';
 
 const POLL_TIMEOUT_MS = 600_000; // 10 minutes — video processing can take several minutes
 
-const TERMINAL_STATUSES: MixpostPostStatus[] = ['published', 'failed'];
+const TERMINAL_STATUSES: PostStatus[] = ['published', 'partial', 'failed'];
 
 const MAX_CONSECUTIVE_ERRORS = 5;
 
@@ -24,9 +25,9 @@ function getNextInterval(elapsedMs: number): number {
 }
 
 interface PollOptions {
-  postUuid: string;
+  postId: string;
   signal?: AbortSignal;
-  onStatusChange?: (status: MixpostPostStatus) => void;
+  onStatusChange?: (status: PostStatus) => void;
 }
 
 export class PollAuthError extends Error {
@@ -37,25 +38,24 @@ export class PollAuthError extends Error {
 }
 
 /**
- * Polls GET /api/mixpost/posts/{uuid} until the post reaches a terminal status
+ * Polls GET /api/v2/posts/{id} until the post reaches a terminal status
  * or the timeout expires. Returns a PostVerificationResult.
  * Throws PollAuthError if authentication fails during polling.
  */
 export async function pollPostStatus({
-  postUuid,
+  postId,
   signal,
   onStatusChange,
 }: PollOptions): Promise<PostVerificationResult> {
   const startTime = Date.now();
   let consecutiveErrors = 0;
-  let lastPost: Record<string, unknown> | null = null;
 
   while (Date.now() - startTime < POLL_TIMEOUT_MS) {
     if (signal?.aborted) {
       return { status: 'scheduled', accounts: [] };
     }
 
-    const res = await fetch(`/api/mixpost/posts/${postUuid}`, { signal });
+    const res = await fetch(`/api/v2/posts/${postId}`, { signal });
 
     if (res.status === 401) {
       throw new PollAuthError();
@@ -74,12 +74,12 @@ export async function pollPostStatus({
         return {
           status: 'failed',
           accounts: [{
-            accountId: 0,
+            accountId: '0',
             accountName: 'System',
-            provider: 'unknown',
+            platform: 'unknown' as PostAccountResult['platform'],
             status: 'failed',
-            errors: [`Post status check failed: ${lastErrorDetail}`],
-            external_url: null,
+            errorMessage: `Post status check failed: ${lastErrorDetail}`,
+            platformPostId: null,
           }],
         };
       }
@@ -89,12 +89,12 @@ export async function pollPostStatus({
         return {
           status: 'failed',
           accounts: [{
-            accountId: 0,
+            accountId: '0',
             accountName: 'System',
-            provider: 'unknown',
+            platform: 'unknown' as PostAccountResult['platform'],
             status: 'failed',
-            errors: [`Unable to verify post status after ${MAX_CONSECUTIVE_ERRORS} attempts: ${lastErrorDetail}`],
-            external_url: null,
+            errorMessage: `Unable to verify post status after ${MAX_CONSECUTIVE_ERRORS} attempts: ${lastErrorDetail}`,
+            platformPostId: null,
           }],
         };
       }
@@ -104,142 +104,36 @@ export async function pollPostStatus({
 
     consecutiveErrors = 0;
     const { post } = await res.json();
-    lastPost = post;
-    const status = mapMixpostStatus(post.status);
+    const status = post.status as PostStatus;
 
     onStatusChange?.(status);
 
     if (TERMINAL_STATUSES.includes(status)) {
-      const accounts = extractAccountResults(post, status);
-      return {
-        status,
-        accounts: status === 'published' ? flagSilentFailures(accounts) : accounts,
-      };
+      const accounts = extractAccountResults(post);
+      return { status, accounts };
     }
 
     await sleep(getNextInterval(Date.now() - startTime), signal);
   }
 
-  // Timeout — post is queued/processing but confirmation didn't arrive in time.
-  // Return the last known account list so the UI can show per-account rows.
-  return {
-    status: 'unconfirmed',
-    accounts: lastPost ? extractAccountResults(lastPost, 'publishing') : [],
-  };
-}
-
-function mapMixpostStatus(rawStatus: number | string): MixpostPostStatus {
-  // Mixpost uses numeric statuses: 0=draft, 1=scheduled, 2=publishing, 3=published, 4=failed
-  const statusMap: Record<number, MixpostPostStatus> = {
-    0: 'draft',
-    1: 'scheduled',
-    2: 'publishing',
-    3: 'published',
-    4: 'failed',
-  };
-
-  if (typeof rawStatus === 'number') {
-    return statusMap[rawStatus] ?? 'scheduled';
-  }
-
-  // If it's already a string status
-  const validStatuses: MixpostPostStatus[] = [
-    'draft',
-    'scheduled',
-    'publishing',
-    'published',
-    'failed',
-  ];
-  if (validStatuses.includes(rawStatus as MixpostPostStatus)) {
-    return rawStatus as MixpostPostStatus;
-  }
-
-  return 'scheduled';
-}
-
-function parseErrors(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map(String);
-  if (typeof raw === 'string' && raw.length > 0) {
-    // Handle JSON-encoded error arrays (e.g. '["service_disabled"]')
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.map(String);
-    } catch {
-      // Not JSON — treat the string itself as the error
-    }
-    return [raw];
-  }
-  return [];
+  // Timeout — return unconfirmed
+  return { status: 'publishing' as PostVerificationResult['status'], accounts: [] };
 }
 
 function extractAccountResults(
-  post: Record<string, unknown>,
-  postStatus: MixpostPostStatus
+  post: Record<string, unknown>
 ): PostAccountResult[] {
-  const accounts = post.accounts as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(accounts)) return [];
+  const postAccounts = post.post_accounts as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(postAccounts)) return [];
 
-  return accounts.map((account) => {
-    // Mixpost API returns errors and external_url directly on the account object.
-    // Also check account.pivot as a fallback for different Mixpost versions.
-    const pivot = account.pivot as Record<string, unknown> | undefined;
-
-    const accountErrors = parseErrors(account.errors);
-    const errorList = accountErrors.length > 0
-      ? accountErrors
-      : parseErrors(pivot?.errors);
-
-    const externalUrl =
-      (account.external_url as string) ??
-      (pivot?.external_url as string) ??
-      ((pivot?.provider_post_data as Record<string, unknown> | undefined)?.url as string) ??
-      null;
-
-    const hasErrors = errorList.length > 0;
-
-    return {
-      accountId: Number(account.id),
-      accountName: (account.name as string) || 'Unknown',
-      provider: (account.provider as string) || 'unknown',
-      status: hasErrors ? 'failed' : postStatus === 'published' ? 'published' : 'pending',
-      errors: errorList,
-      external_url: externalUrl,
-    } satisfies PostAccountResult;
-  });
-}
-
-// Platforms that always return an external_url on a successful video post.
-// If Mixpost marks a post "published" but none of these accounts have a URL,
-// it likely means the publish job crashed before the platform responded.
-const PLATFORMS_THAT_RETURN_URL = new Set([
-  'facebook', 'facebook_page', 'instagram', 'tiktok', 'youtube',
-]);
-
-/**
- * After Mixpost reports "published", check for a heuristic silent failure:
- * if every account that should have an external_url is missing one, the post
- * likely crashed before the platform confirmed delivery.
- */
-function flagSilentFailures(accounts: PostAccountResult[]): PostAccountResult[] {
-  const urlExpectedAccounts = accounts.filter(a =>
-    PLATFORMS_THAT_RETURN_URL.has(a.provider) && a.errors.length === 0
-  );
-
-  if (
-    urlExpectedAccounts.length > 0 &&
-    urlExpectedAccounts.every(a => !a.external_url)
-  ) {
-    return accounts.map(a =>
-      PLATFORMS_THAT_RETURN_URL.has(a.provider) && a.errors.length === 0
-        ? {
-            ...a,
-            errors: ['Post marked published but no platform link returned — verify in Mixpost.'],
-          }
-        : a
-    );
-  }
-
-  return accounts;
+  return postAccounts.map((pa) => ({
+    accountId: (pa.octupost_account_id as string) || '',
+    accountName: (pa.account_name as string) || (pa.platform as string) || 'Unknown',
+    platform: ((pa.platform as string) || 'unknown') as Platform,
+    status: (pa.status as string) === 'published' ? 'published' as const : 'failed' as const,
+    errorMessage: (pa.error_message as string) || null,
+    platformPostId: (pa.platform_post_id as string) || null,
+  }));
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {

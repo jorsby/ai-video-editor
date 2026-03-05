@@ -12,7 +12,7 @@ export async function fetchYouTubeMedia(
   );
 
   if (channelRes.status === 401 || channelRes.status === 403) {
-    throw new TokenExpiredError('YouTube token expired. Please re-authorize this account in Mixpost.');
+    throw new TokenExpiredError('YouTube token expired. Please re-authorize this account.');
   }
   if (channelRes.status === 429) {
     throw new RateLimitError('YouTube API rate limit reached. Please try again later.');
@@ -47,7 +47,7 @@ export async function fetchYouTubeMedia(
     );
 
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('YouTube token expired. Please re-authorize this account in Mixpost.');
+      throw new TokenExpiredError('YouTube token expired. Please re-authorize this account.');
     }
     if (res.status === 429) {
       throw new RateLimitError('YouTube API rate limit reached. Please try again later.');

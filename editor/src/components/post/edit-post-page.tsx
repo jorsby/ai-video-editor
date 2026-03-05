@@ -12,8 +12,7 @@ import { FacebookOptions } from './platform-options/facebook-options';
 import { YouTubeOptions } from './platform-options/youtube-options';
 import { TikTokOptions } from './platform-options/tiktok-options';
 import { InstagramOptions } from './platform-options/instagram-options';
-import type { MixpostAccount, AccountGroupWithMembers, AccountTagMap } from '@/types/mixpost';
-import type { MixpostPost, MixpostMedia } from '@/types/calendar';
+import type { SocialAccount, SocialPost, SocialPostAccount, AccountGroup, AccountTag } from '@/types/social';
 import type {
   PlatformOptions,
   FacebookOptions as FacebookOptionsType,
@@ -23,38 +22,22 @@ import type {
 } from '@/types/post';
 
 interface EditPostPageProps {
-  postUuid: string;
+  postId: string;
 }
 
-function extractMedia(post: MixpostPost): MixpostMedia[] {
-  const media: MixpostMedia[] = [];
-  for (const version of post.versions) {
-    if (!version.is_original) continue;
-    for (const content of version.content) {
-      for (const item of content.media) {
-        if (typeof item === 'object' && item !== null && 'url' in item) {
-          media.push(item as MixpostMedia);
-        }
-      }
-    }
-  }
-  return media;
-}
-
-export function EditPostPage({ postUuid }: EditPostPageProps) {
+export function EditPostPage({ postId }: EditPostPageProps) {
   // Data loading
-  const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
-  const [groups, setGroups] = useState<AccountGroupWithMembers[]>([]);
-  const [tags, setTags] = useState<AccountTagMap>({});
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [groups, setGroups] = useState<AccountGroup[]>([]);
+  const [tags, setTags] = useState<Record<string, AccountTag[]>>({});
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaIsVideo, setMediaIsVideo] = useState(true);
-  const [mediaIds, setMediaIds] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Form state
   const [caption, setCaption] = useState('');
-  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -75,8 +58,8 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
     async function load() {
       try {
         const [postRes, accountsRes] = await Promise.all([
-          fetch(`/api/mixpost/posts/${postUuid}`),
-          fetch('/api/mixpost/accounts'),
+          fetch(`/api/v2/posts/${postId}`),
+          fetch('/api/v2/accounts'),
         ]);
 
         if (!postRes.ok) throw new Error('Failed to load post');
@@ -85,34 +68,53 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
         const postData = await postRes.json();
         const accountsData = await accountsRes.json();
 
-        const post: MixpostPost = postData.post;
-        setAccounts(accountsData.accounts || []);
+        const post: SocialPost & { post_accounts?: SocialPostAccount[] } = postData.post;
+
+        // Map OctupostAccount response to SocialAccount shape
+        const mappedAccounts: SocialAccount[] = (accountsData.accounts || []).map((a: {
+          platform: string;
+          account_id: string;
+          account_name: string;
+          account_username: string | null;
+          language: string | null;
+          expires_at: string;
+        }) => ({
+          id: a.account_id,
+          user_id: '',
+          octupost_account_id: a.account_id,
+          platform: a.platform,
+          account_name: a.account_name,
+          account_username: a.account_username,
+          language: a.language,
+          expires_at: a.expires_at,
+          synced_at: new Date().toISOString(),
+        }));
+        setAccounts(mappedAccounts);
 
         // Pre-fill form from existing post
-        const original = post.versions.find((v) => v.is_original);
-        setCaption(original?.content[0]?.body ?? '');
-        setSelectedAccountIds(post.accounts.map((a) => a.id));
+        setCaption(post.caption ?? '');
+        setSelectedAccountIds(
+          (post.accounts || post.post_accounts || []).map((a) => a.octupost_account_id)
+        );
 
         if (post.scheduled_at) {
           setScheduledDate(post.scheduled_at.slice(0, 10));
           setScheduledTime(post.scheduled_at.slice(11, 16));
         }
 
-        // Media
-        const media = extractMedia(post);
-        if (media.length > 0) {
-          setMediaPreviewUrl(media[0].url);
-          setMediaIsVideo(media[0].is_video);
-          setMediaIds(media.map((m) => m.id));
+        // Media preview
+        if (post.media_url) {
+          setMediaPreviewUrl(post.media_url);
+          setMediaIsVideo(post.media_type === 'video');
         }
 
-        // Platform options — map from Mixpost format back to our internal format
-        const opts = (original?.options ?? {}) as Record<string, unknown>;
+        // Platform options
+        const opts = (post.platform_options ?? {}) as Record<string, unknown>;
 
         const ig = opts.instagram as { type?: string } | undefined;
         if (ig?.type) setInstagramOptions({ type: ig.type as InstagramOptionsType['type'] });
 
-        const fb = opts.facebook_page as { type?: string } | undefined;
+        const fb = opts.facebook as { type?: string } | undefined;
         if (fb?.type) setFacebookOptions({ type: fb.type as FacebookOptionsType['type'] });
 
         const yt = opts.youtube as { title?: string; status?: string } | undefined;
@@ -124,13 +126,7 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
         }
 
         const ttk = opts.tiktok as Record<string, TikTokAccountOptions> | undefined;
-        if (ttk) {
-          const mapped: Record<string, TikTokAccountOptions> = {};
-          for (const [id, data] of Object.entries(ttk)) {
-            mapped[`account-${id}`] = data;
-          }
-          setTiktokOptions(mapped);
-        }
+        if (ttk) setTiktokOptions(ttk);
 
         // Optional: groups and tags
         try {
@@ -151,16 +147,16 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
     }
 
     load();
-  }, [postUuid]);
+  }, [postId]);
 
   // Derived: which providers are selected
   const selectedAccounts = useMemo(
-    () => accounts.filter((a) => selectedAccountIds.includes(a.id)),
+    () => accounts.filter((a) => selectedAccountIds.includes(a.octupost_account_id)),
     [accounts, selectedAccountIds]
   );
 
   const selectedProviders = useMemo(
-    () => Array.from(new Set(selectedAccounts.map((a) => a.provider))),
+    () => Array.from(new Set(selectedAccounts.map((a) => a.platform))),
     [selectedAccounts]
   );
 
@@ -170,7 +166,7 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
   const hasInstagram = selectedProviders.includes('instagram');
 
   const tiktokAccounts = useMemo(
-    () => selectedAccounts.filter((a) => a.provider === 'tiktok'),
+    () => selectedAccounts.filter((a) => a.platform === 'tiktok'),
     [selectedAccounts]
   );
 
@@ -203,16 +199,15 @@ export function EditPostPage({ postUuid }: EditPostPageProps) {
     if (hasInstagram) platformOptions.instagram = instagramOptions;
 
     try {
-      const res = await fetch(`/api/mixpost/posts/${postUuid}`, {
+      const res = await fetch(`/api/v2/posts/${postId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           caption,
-          date: scheduledDate,
-          time: scheduledTime,
+          scheduledDate,
+          scheduledTime,
           timezone,
           accountIds: selectedAccountIds,
-          mediaIds,
           platformOptions,
         }),
       });

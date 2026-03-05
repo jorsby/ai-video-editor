@@ -9,16 +9,16 @@ import {
 } from '@/components/ui/popover';
 import { ProviderIcon } from '@/components/dashboard/provider-icon';
 import { WorkflowRunPill } from './workflow-run-pill';
-import type { MixpostPost, MixpostMedia } from '@/types/calendar';
+import type { SocialPost } from '@/types/social';
 import type { WorkflowRun } from '@/types/workflow-run';
 
 interface CalendarDayCellProps {
   date: Date;
   isCurrentMonth: boolean;
   isToday: boolean;
-  posts: MixpostPost[];
+  posts: SocialPost[];
   workflowRuns?: WorkflowRun[];
-  onPostClick: (post: MixpostPost) => void;
+  onPostClick: (post: SocialPost) => void;
   onWorkflowRunClick?: (run: WorkflowRun) => void;
   timezone?: string;
 }
@@ -30,34 +30,20 @@ export const STATUS_COLORS: Record<string, string> = {
   failed: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
-export function getEffectiveStatus(post: MixpostPost): string {
-  if (post.status === 'published') return 'published';
-  if (post.scheduled_at && post.status !== 'failed') return 'scheduled';
+export function getEffectiveStatus(post: SocialPost): string {
   return post.status;
 }
 
-function getPostCaption(post: MixpostPost): string {
-  const original = post.versions.find((v) => v.is_original);
-  if (!original || original.content.length === 0) return '(no content)';
-  return original.content[0].body || '(no text)';
+function getPostCaption(post: SocialPost): string {
+  return post.caption || '(no content)';
 }
 
-export function getPostThumbnail(post: MixpostPost): string | null {
-  const original = post.versions.find((v) => v.is_original);
-  if (!original) return null;
-  for (const content of original.content) {
-    if (content.media.length > 0) {
-      const first = content.media[0];
-      if (typeof first === 'object' && first !== null) {
-        return (first as MixpostMedia).thumb_url || (first as MixpostMedia).url || null;
-      }
-    }
-  }
-  return null;
+export function getPostThumbnail(post: SocialPost): string | null {
+  return post.media_url || null;
 }
 
-export function getPostTime(post: MixpostPost, timezone?: string): string | null {
-  const dateStr = post.scheduled_at || post.published_at;
+export function getPostTime(post: SocialPost, timezone?: string): string | null {
+  const dateStr = post.scheduled_at;
   if (!dateStr) return null;
   const date = new Date(dateStr.replace(' ', 'T'));
   if (isNaN(date.getTime())) return null;
@@ -78,8 +64,8 @@ export const PostPill = React.memo(function PostPill({
   onPostClick,
   timezone,
 }: {
-  post: MixpostPost;
-  onPostClick: (post: MixpostPost) => void;
+  post: SocialPost;
+  onPostClick: (post: SocialPost) => void;
   timezone?: string;
 }) {
   const status = getEffectiveStatus(post);
@@ -87,7 +73,7 @@ export const PostPill = React.memo(function PostPill({
   const caption = getPostCaption(post);
   const thumbnail = getPostThumbnail(post);
   const time = getPostTime(post, timezone);
-  const { accounts } = post;
+  const accounts = post.accounts || [];
 
   return (
     <button
@@ -108,7 +94,7 @@ export const PostPill = React.memo(function PostPill({
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-[10px] leading-tight">
-          {caption.length > 30 ? caption.slice(0, 30) + '…' : caption}
+          {caption.length > 30 ? caption.slice(0, 30) + '...' : caption}
         </p>
         <div className="mt-0.5 flex items-center gap-1">
           {time && (
@@ -117,7 +103,7 @@ export const PostPill = React.memo(function PostPill({
           {accounts.length > 0 && (
             <div className="ml-auto flex items-center gap-0.5">
               {accounts.slice(0, MAX_ICONS).map((a) => (
-                <ProviderIcon key={a.uuid} provider={a.provider} className="h-3 w-3" />
+                <ProviderIcon key={a.octupost_account_id} provider={a.platform} className="h-3 w-3" />
               ))}
               {accounts.length > MAX_ICONS && (
                 <span className="text-[9px] leading-none opacity-70">
@@ -143,7 +129,7 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
   timezone,
 }: CalendarDayCellProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const handlePopoverPostClick = useCallback((p: MixpostPost) => {
+  const handlePopoverPostClick = useCallback((p: SocialPost) => {
     setPopoverOpen(false);
     onPostClick(p);
   }, [onPostClick]);
@@ -191,7 +177,7 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
         ))}
         {/* Solo post pills */}
         {visiblePosts.map((post) => (
-          <PostPill key={post.uuid} post={post} onPostClick={onPostClick} timezone={timezone} />
+          <PostPill key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
         ))}
         {overflowCount > 0 && (
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
@@ -213,7 +199,7 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
               <div className="space-y-1">
                 {posts.map((post) => (
                   <PostPill
-                    key={post.uuid}
+                    key={post.id}
                     post={post}
                     timezone={timezone}
                     onPostClick={handlePopoverPostClick}

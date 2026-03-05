@@ -436,7 +436,7 @@ export default function PanelRenders() {
   useEffect(() => {
     if (!projectId) return;
 
-    const supabase = createClient();
+    const supabase = createClient('studio');
 
     const channel = supabase
       .channel(`rendered_videos_${projectId}`)

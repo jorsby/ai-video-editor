@@ -25,6 +25,23 @@ export async function login(formData: FormData) {
   redirect('/dashboard');
 }
 
+export async function resetPassword(email: string, redirectTo: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+
+  if (error) {
+    return {
+      error: 'auth_error',
+      message: error.message || 'Could not send reset link',
+    };
+  }
+
+  return { success: true };
+}
+
 export async function signup(formData: FormData) {
   const supabase = await createClient();
 

@@ -14,7 +14,7 @@ export async function migrateIndexedDBPresetsToSupabase(): Promise<void> {
 
     const data = await adapter.get('user-text-presets');
     if (data && data.presets.length > 0) {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       await supabase.from('text_presets').upsert(
@@ -36,7 +36,7 @@ export async function migrateIndexedDBPresetsToSupabase(): Promise<void> {
 }
 
 export async function loadTextPresets(): Promise<SavedTextPreset[]> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('text_presets')
@@ -55,7 +55,7 @@ export async function loadTextPresets(): Promise<SavedTextPreset[]> {
 }
 
 export async function saveTextPreset(preset: SavedTextPreset): Promise<void> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -72,7 +72,7 @@ export async function saveTextPreset(preset: SavedTextPreset): Promise<void> {
 }
 
 export async function removeTextPreset(presetId: string): Promise<void> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { error } = await supabase
     .from('text_presets')

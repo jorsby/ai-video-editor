@@ -1,4 +1,4 @@
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import type { RenderConfig, RenderEventMap } from './types.js';
 export declare class Renderer extends EventEmitter {
     private config;

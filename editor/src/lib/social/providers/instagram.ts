@@ -19,7 +19,7 @@ export async function fetchInstagramMedia(
     const res = await fetch(url);
 
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('Instagram token expired. Please re-authorize this account in Mixpost.');
+      throw new TokenExpiredError('Instagram token expired. Please re-authorize this account.');
     }
     if (res.status === 429) {
       throw new RateLimitError('Instagram API rate limit reached. Please try again later.');

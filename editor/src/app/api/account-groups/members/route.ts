@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // POST - Add an account to a group
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 // DELETE - Remove an account from a group
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();

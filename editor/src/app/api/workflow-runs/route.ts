@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {

@@ -1,11 +1,34 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getAccountCredentials } from '@/lib/mixpost/account-credentials';
-import { transformToMixpostPosts } from '@/lib/social/transform';
+import { fetchToken } from '@/lib/octupost/client';
 import { fetchInstagramMedia, TokenExpiredError, RateLimitError, PlatformApiError } from '@/lib/social/providers/instagram';
 import { fetchTikTokMedia } from '@/lib/social/providers/tiktok';
 import { fetchYouTubeMedia } from '@/lib/social/providers/youtube';
 import { fetchFacebookMedia } from '@/lib/social/providers/facebook';
+import type { PlatformMediaItem } from '@/lib/social/types';
+
+function transformToPosts(
+  items: PlatformMediaItem[],
+  account: {
+    accountId: string;
+    name: string;
+    provider: string;
+  }
+) {
+  return items.map((item) => ({
+    id: `${account.provider.slice(0, 2)}-${item.platformId}`,
+    platform_post_id: item.platformId,
+    caption: item.title ? `${item.title}\n\n${item.caption}` : item.caption,
+    media_url: item.mediaUrl || item.thumbnailUrl || null,
+    media_type: item.mediaType,
+    permalink: item.permalink,
+    published_at: item.publishedAt,
+    provider: item.provider,
+    account_id: account.accountId,
+    account_name: account.name,
+    _source: 'platform' as const,
+  }));
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,30 +42,24 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const accountIdParam = searchParams.get('accountId');
+    const accountId = searchParams.get('accountId');
     const limitParam = searchParams.get('limit');
 
-    if (!accountIdParam) {
+    if (!accountId) {
       return NextResponse.json({ error: 'Missing accountId parameter' }, { status: 400 });
-    }
-
-    const accountId = parseInt(accountIdParam, 10);
-    if (isNaN(accountId)) {
-      return NextResponse.json({ error: 'Invalid accountId' }, { status: 400 });
     }
 
     const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 50, 100) : 50;
 
-    let credentials;
+    let token;
     try {
-      credentials = await getAccountCredentials(supabase, accountId);
+      token = await fetchToken(accountId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get account credentials';
-      const status = message.includes('No access token') ? 403 : 500;
-      return NextResponse.json({ error: message }, { status });
+      return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    const { provider, providerId, accessToken, accountUuid, name, username } = credentials;
+    const { platform: provider, access_token: accessToken, account_id: providerId, account_name: name } = token;
 
     let items;
     try {
@@ -80,11 +97,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `Failed to fetch media from ${provider}. ${message}` }, { status: 502 });
     }
 
-    const posts = transformToMixpostPosts(items, {
-      id: accountId,
-      uuid: accountUuid,
+    const posts = transformToPosts(items, {
+      accountId,
       name,
-      username,
       provider,
     });
 

@@ -6,8 +6,8 @@ import { SocialAccountsList } from './social-accounts-list';
 import { CreateProjectModal } from './create-project-modal';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { DBProject, ProjectTagMap } from '@/types/project';
-import type { MixpostAccount, AccountGroupWithMembers, AccountTagMap } from '@/types/mixpost';
-import type { MixpostPost, MixpostPaginationMeta } from '@/types/calendar';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
 import { toast } from 'sonner';
 
 export function DashboardContent() {
@@ -18,7 +18,7 @@ export function DashboardContent() {
   const [projectTags, setProjectTags] = useState<ProjectTagMap>({});
   const [selectedProjectTags, setSelectedProjectTags] = useState<Map<string, 'include' | 'exclude'>>(new Map());
 
-  const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
+  const [accounts, setAccounts] = useState<OctupostAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [accountsError, setAccountsError] = useState<string | null>(null);
 
@@ -27,30 +27,33 @@ export function DashboardContent() {
 
   const [tags, setTags] = useState<AccountTagMap>({});
 
-  const [posts, setPosts] = useState<MixpostPost[]>([]);
+  const [posts, setPosts] = useState<SocialPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
-  const [platformPostsByAccount, setPlatformPostsByAccount] = useState<Map<number, MixpostPost[]>>(new Map());
-  const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<number>>(new Set());
-  const [platformMediaErrors, setPlatformMediaErrors] = useState<Map<number, string>>(new Map());
-  const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<Map<number, Date>>(new Map());
-  const [tokenInvalidAccountIds, setTokenInvalidAccountIds] = useState<Set<number>>(new Set());
+  const [platformPostsByAccount, setPlatformPostsByAccount] = useState<Map<string, SocialPost[]>>(new Map());
+  const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<string>>(new Set());
+  const [platformMediaErrors, setPlatformMediaErrors] = useState<Map<string, string>>(new Map());
+  const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<Map<string, Date>>(new Map());
+  const [tokenInvalidAccountIds, setTokenInvalidAccountIds] = useState<Set<string>>(new Set());
 
   const fetchAllPosts = useCallback(async () => {
     setPostsLoading(true);
     try {
-      const firstRes = await fetch('/api/mixpost/posts/list?page=1');
+      const PAGE_SIZE = 100;
+      const firstRes = await fetch(`/api/v2/posts/list?limit=${PAGE_SIZE}&offset=0`);
       if (!firstRes.ok) return;
 
-      const firstData: { posts: MixpostPost[]; meta: MixpostPaginationMeta } =
+      const firstData: { posts: SocialPost[]; total: number } =
         await firstRes.json();
-      let allPosts: MixpostPost[] = [...firstData.posts];
+      let allPosts: SocialPost[] = [...firstData.posts];
 
-      if (firstData.meta.last_page > 1) {
+      if (firstData.total > PAGE_SIZE) {
+        const remaining = firstData.total - PAGE_SIZE;
+        const pages = Math.ceil(remaining / PAGE_SIZE);
         const pagePromises = [];
-        for (let p = 2; p <= firstData.meta.last_page; p++) {
+        for (let p = 1; p <= pages; p++) {
           pagePromises.push(
-            fetch(`/api/mixpost/posts/list?page=${p}`).then((r) => r.json())
+            fetch(`/api/v2/posts/list?limit=${PAGE_SIZE}&offset=${p * PAGE_SIZE}`).then((r) => r.json())
           );
         }
         const results = await Promise.all(pagePromises);
@@ -61,11 +64,7 @@ export function DashboardContent() {
         }
       }
 
-      setPosts(
-        allPosts.filter(
-          (p) => !p.trashed && (p.scheduled_at || p.published_at)
-        )
-      );
+      setPosts(allPosts);
     } catch (error) {
       console.error('Failed to fetch posts:', error);
     } finally {
@@ -74,21 +73,29 @@ export function DashboardContent() {
   }, []);
 
   const postsByAccount = useMemo(() => {
-    const map = new Map<number, MixpostPost[]>();
+    const map = new Map<string, SocialPost[]>();
     for (const post of posts) {
-      for (const account of post.accounts) {
-        const existing = map.get(account.id) || [];
+      for (const account of (post.accounts || [])) {
+        const existing = map.get(account.octupost_account_id) || [];
         existing.push(post);
-        map.set(account.id, existing);
+        map.set(account.octupost_account_id, existing);
       }
     }
     return map;
   }, [posts]);
 
   const mergedPostsByAccount = useMemo(() => {
-    const merged = new Map<number, MixpostPost[]>();
+    const merged = new Map<string, SocialPost[]>();
+    // Start with DB posts
+    for (const [accountId, dbPosts] of postsByAccount) {
+      merged.set(accountId, [...dbPosts]);
+    }
+    // Overlay platform posts
     for (const [accountId, platformPosts] of platformPostsByAccount) {
-      merged.set(accountId, platformPosts);
+      const existing = merged.get(accountId) || [];
+      const existingIds = new Set(existing.map((p) => p.id));
+      const newPosts = platformPosts.filter((p) => !existingIds.has(p.id));
+      merged.set(accountId, [...existing, ...newPosts]);
     }
     return merged;
   }, [postsByAccount, platformPostsByAccount]);
@@ -109,7 +116,7 @@ export function DashboardContent() {
     });
   }, [projects, projectTags, selectedProjectTags]);
 
-  const fetchPlatformMedia = useCallback(async (accountId: number, force?: boolean) => {
+  const fetchPlatformMedia = useCallback(async (accountId: string, force?: boolean) => {
     if (!force && platformPostsByAccount.has(accountId)) return;
 
     setPlatformMediaLoading((prev) => new Set(prev).add(accountId));
@@ -151,11 +158,7 @@ export function DashboardContent() {
     fetchAllPosts();
   }, [fetchAllPosts]);
 
-  useEffect(() => {
-    fetchProjects(showArchived);
-  }, [showArchived]);
-
-  const fetchProjects = async (archived = false) => {
+  const fetchProjects = useCallback(async (archived = false) => {
     setIsLoading(true);
     try {
       const response = await fetch(`/api/projects?archived=${archived}`);
@@ -168,11 +171,15 @@ export function DashboardContent() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchProjects(showArchived);
+  }, [showArchived, fetchProjects]);
 
   const fetchAccounts = async () => {
     try {
-      const response = await fetch('/api/mixpost/accounts');
+      const response = await fetch('/api/v2/accounts');
       if (response.ok) {
         const { accounts } = await response.json();
         setAccounts(accounts);
@@ -404,12 +411,12 @@ export function DashboardContent() {
     );
   };
 
-  const handlePostDeleted = (postUuid: string) => {
-    setPosts((prev) => prev.filter((p) => p.uuid !== postUuid));
+  const handlePostDeleted = (postId: string) => {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
     setPlatformPostsByAccount((prev) => {
       const next = new Map(prev);
       for (const [accountId, posts] of next) {
-        const filtered = posts.filter((p) => p.uuid !== postUuid);
+        const filtered = posts.filter((p) => p.id !== postId);
         if (filtered.length !== posts.length) {
           next.set(accountId, filtered);
         }
@@ -418,22 +425,11 @@ export function DashboardContent() {
     });
   };
 
-  const handlePostUpdated = (postUuid: string, fields: Record<string, string>) => {
+  const handlePostUpdated = (postId: string, fields: Record<string, string>) => {
     setPosts((prev) =>
       prev.map((p) => {
-        if (p.uuid !== postUuid) return p;
-        // Update the original version's content to reflect the edit
-        const updatedVersions = p.versions.map((v) => {
-          if (!v.is_original) return v;
-          const newBody = fields.description || fields.message || v.content[0]?.body || '';
-          return {
-            ...v,
-            content: v.content.map((c, i) =>
-              i === 0 ? { ...c, body: newBody } : c
-            ),
-          };
-        });
-        return { ...p, versions: updatedVersions };
+        if (p.id !== postId) return p;
+        return { ...p, caption: fields.description || fields.message || p.caption };
       })
     );
   };

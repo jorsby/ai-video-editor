@@ -19,7 +19,7 @@ export async function saveTimeline(
   clips: IClip[],
   language: LanguageCode = 'en'
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // Fetch existing track IDs for this project+language
   const { data: existingTracks, error: fetchError } = await supabase
@@ -112,7 +112,7 @@ export async function loadTimeline(
   projectId: string,
   language: LanguageCode = 'en'
 ): Promise<TrackWithClips[] | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data: tracks, error } = await supabase
     .from('tracks')
@@ -138,7 +138,7 @@ export async function clearTimeline(
   projectId: string,
   language?: LanguageCode
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // Fetch track IDs for this project (optionally filtered by language)
   let query = supabase
@@ -184,7 +184,7 @@ export async function clearTimeline(
 export async function getAvailableLanguages(
   projectId: string
 ): Promise<LanguageCode[]> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // 1. Languages from saved timeline tracks
   const { data: trackData, error: trackError } = await supabase
@@ -246,7 +246,7 @@ export async function getAvailableLanguages(
 export async function getProjectLanguagesFromStoryboard(
   projectId: string
 ): Promise<LanguageCode[]> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data: allStoryboards } = await supabase
     .from('storyboards')
@@ -281,7 +281,7 @@ export async function removeLanguageData(
   // 1. Clear timeline (tracks + clips)
   await clearTimeline(projectId, language);
 
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // 2. Delete voiceovers for this language
   const { data: storyboards } = await supabase
@@ -328,7 +328,7 @@ export async function copyTimeline(
   const sourceTracks = await loadTimeline(projectId, fromLang);
   if (!sourceTracks || sourceTracks.length === 0) return;
 
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   for (const track of sourceTracks) {
     const newTrackId = crypto.randomUUID();

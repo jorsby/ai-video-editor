@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // GET - Fetch user's account groups with member UUIDs
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -49,7 +49,7 @@ export async function GET() {
 // POST - Create a new group
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 // PATCH - Rename a group
 export async function PATCH(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -150,7 +150,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE - Remove a group (members cascade-delete)
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('social_auth');
     const {
       data: { user },
     } = await supabase.auth.getUser();

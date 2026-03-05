@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Save to Supabase
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

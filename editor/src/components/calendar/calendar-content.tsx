@@ -19,8 +19,9 @@ import { CalendarDayView } from './calendar-day-view';
 import { PostDetailDialog } from './post-detail-dialog';
 import { CalendarFilterBar } from './calendar-filter-bar';
 import { WorkflowRunDetailDialog } from './workflow-run-detail-dialog';
-import type { MixpostPost, MixpostPostTag } from '@/types/calendar';
-import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
+import type { SocialPost } from '@/types/social';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { AccountGroupWithMembers } from '@/types/social';
 import type { WorkflowRun } from '@/types/workflow-run';
 import { getEffectiveStatus } from './calendar-day-cell';
 
@@ -119,7 +120,7 @@ function buildNavLabel(date: Date, view: CalendarView): string {
 }
 
 // Stable references for React.memo children
-const EMPTY_POSTS: MixpostPost[] = [];
+const EMPTY_POSTS: SocialPost[] = [];
 const EMPTY_RUNS: WorkflowRun[] = [];
 
 const FILTER_TABS: { label: string; value: StatusFilter; color: string }[] = [
@@ -131,7 +132,7 @@ const FILTER_TABS: { label: string; value: StatusFilter; color: string }[] = [
 
 // SWR fetcher: fetches posts + workflow runs for given months
 async function fetchCalendarData(key: string): Promise<{
-  posts: MixpostPost[];
+  posts: SocialPost[];
   workflowRuns: WorkflowRun[];
 }> {
   const monthsJson = key.split('::')[1];
@@ -141,16 +142,16 @@ async function fetchCalendarData(key: string): Promise<{
     Promise.all(
       monthParams.map(async (monthParam) => {
         const params = new URLSearchParams({
-          date: monthParam,
-          calendar_type: 'month',
+          date: monthParam.slice(0, 7),
+          limit: '100',
         });
-        const res = await fetch(`/api/mixpost/posts/list?${params.toString()}`);
+        const res = await fetch(`/api/v2/posts/list?${params.toString()}`);
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.error || 'Failed to fetch posts');
         }
-        const data: { posts: MixpostPost[] } = await res.json();
-        return (data.posts || []).filter((p) => !p.trashed);
+        const data: { posts: SocialPost[]; total: number } = await res.json();
+        return data.posts || [];
       })
     ),
     fetch(`/api/workflow-runs?month=${monthParams[0].slice(0, 7)}`).then((r) =>
@@ -159,11 +160,11 @@ async function fetchCalendarData(key: string): Promise<{
   ]);
 
   const seen = new Set<string>();
-  const combined: MixpostPost[] = [];
+  const combined: SocialPost[] = [];
   for (const batch of postResults) {
     for (const p of batch) {
-      if (!seen.has(p.uuid)) {
-        seen.add(p.uuid);
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
         combined.push(p);
       }
     }
@@ -178,14 +179,14 @@ export function CalendarContent() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [timezoneValue, setTimezoneValue] = useState<string>('local');
   const timezone = timezoneValue === 'local' ? undefined : timezoneValue;
-  const [selectedPost, setSelectedPost] = useState<MixpostPost | null>(null);
+  const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
 
-  const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
+  const [accounts, setAccounts] = useState<OctupostAccount[]>([]);
   const [groups, setGroups] = useState<AccountGroupWithMembers[]>([]);
   const [selectedAccountUuids, setSelectedAccountUuids] = useState<Set<string>>(new Set());
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
-  const [selectedTagUuids, setSelectedTagUuids] = useState<Set<string>>(new Set());
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
   // SWR: fetch posts + workflow runs with caching and keepPreviousData
   const monthsToFetch = useMemo(
@@ -215,7 +216,7 @@ export function CalendarContent() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/mixpost/accounts').then((r) => r.json()),
+      fetch('/api/v2/accounts').then((r) => r.json()),
       fetch('/api/account-groups').then((r) => r.json()),
     ]).then(([a, g]) => {
       setAccounts(a.accounts ?? []);
@@ -229,23 +230,23 @@ export function CalendarContent() {
   const toggleGroup = useCallback((id: string) => {
     setSelectedGroupIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
-  const toggleTag = useCallback((uuid: string) => {
-    setSelectedTagUuids((prev) => { const n = new Set(prev); n.has(uuid) ? n.delete(uuid) : n.add(uuid); return n; });
+  const toggleTag = useCallback((tag: string) => {
+    setSelectedTags((prev) => { const n = new Set(prev); n.has(tag) ? n.delete(tag) : n.add(tag); return n; });
   }, []);
   const clearAllFilters = useCallback(() => {
     setSelectedAccountUuids(new Set());
     setSelectedGroupIds(new Set());
-    setSelectedTagUuids(new Set());
+    setSelectedTags(new Set());
   }, []);
 
-  const postTags = useMemo<MixpostPostTag[]>(() => {
-    const seen = new Map<string, MixpostPostTag>();
+  const postTags = useMemo<string[]>(() => {
+    const seen = new Set<string>();
     for (const post of posts) {
       for (const tag of post.tags) {
-        if (!seen.has(tag.uuid)) seen.set(tag.uuid, tag);
+        seen.add(tag);
       }
     }
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [posts]);
 
   const groupAccountUuids = useMemo<Set<string>>(() => {
@@ -258,10 +259,10 @@ export function CalendarContent() {
     return uuids;
   }, [groups, selectedGroupIds]);
 
-  const filteredPosts = useMemo<MixpostPost[]>(() => {
+  const filteredPosts = useMemo<SocialPost[]>(() => {
     const noChannel = selectedAccountUuids.size === 0;
     const noGroup   = selectedGroupIds.size === 0;
-    const noTag     = selectedTagUuids.size === 0;
+    const noTag     = selectedTags.size === 0;
     const noStatus  = statusFilter === 'all';
     if (noChannel && noGroup && noTag && noStatus) return posts;
 
@@ -272,20 +273,19 @@ export function CalendarContent() {
         if (effectiveStatus !== statusFilter) return false;
       }
       if (!noChannel || !noGroup) {
-        const uuids = post.accounts.map((a) => a.uuid);
+        const uuids = (post.accounts || []).map((a) => a.octupost_account_id);
         const matchesChannel = !noChannel && uuids.some((u) => selectedAccountUuids.has(u));
         const matchesGroup   = !noGroup   && uuids.some((u) => groupAccountUuids.has(u));
         if (!matchesChannel && !matchesGroup) return false;
       }
       if (!noTag) {
-        const postTagUuids = new Set(post.tags.map((t) => t.uuid));
-        if (!Array.from(selectedTagUuids).some((u) => postTagUuids.has(u))) return false;
+        if (!post.tags.some((t) => selectedTags.has(t))) return false;
       }
       return true;
     });
-  }, [posts, statusFilter, selectedAccountUuids, selectedGroupIds, selectedTagUuids, groupAccountUuids]);
+  }, [posts, statusFilter, selectedAccountUuids, selectedGroupIds, selectedTags, groupAccountUuids]);
 
-  // UUIDs of Mixpost posts that belong to a workflow run — excluded from solo post display
+  // IDs of posts that belong to a workflow run — excluded from solo post display
   const groupedUuids = useMemo<Set<string>>(() => {
     const s = new Set<string>();
     for (const run of workflowRuns)
@@ -295,15 +295,15 @@ export function CalendarContent() {
   }, [workflowRuns]);
 
   // Posts not belonging to any workflow run — displayed as individual PostPills
-  const soloFilteredPosts = useMemo<MixpostPost[]>(
-    () => filteredPosts.filter(p => !groupedUuids.has(p.uuid)),
+  const soloFilteredPosts = useMemo<SocialPost[]>(
+    () => filteredPosts.filter(p => !groupedUuids.has(p.id)),
     [filteredPosts, groupedUuids]
   );
 
-  // Mixpost posts keyed by UUID — used by WorkflowRunDetailDialog "View post →" link
-  const postsByUuid = useMemo<Map<string, MixpostPost>>(() => {
-    const m = new Map<string, MixpostPost>();
-    for (const p of posts) m.set(p.uuid, p);
+  // Posts keyed by ID — used by WorkflowRunDetailDialog "View post →" link
+  const postsById = useMemo<Map<string, SocialPost>>(() => {
+    const m = new Map<string, SocialPost>();
+    for (const p of posts) m.set(p.id, p);
     return m;
   }, [posts]);
 
@@ -322,7 +322,7 @@ export function CalendarContent() {
   }, [workflowRuns]);
 
   const hasActiveFilters =
-    selectedAccountUuids.size > 0 || selectedGroupIds.size > 0 || selectedTagUuids.size > 0;
+    selectedAccountUuids.size > 0 || selectedGroupIds.size > 0 || selectedTags.size > 0;
 
   const counts = useMemo(() => {
     let queued = 0, published = 0, failed = 0;
@@ -335,9 +335,9 @@ export function CalendarContent() {
   }, [filteredPosts]);
 
   const postsByDate = useMemo(() => {
-    const map = new Map<string, MixpostPost[]>();
+    const map = new Map<string, SocialPost[]>();
     for (const post of soloFilteredPosts) {
-      const dateStr = post.published_at || post.scheduled_at;
+      const dateStr = post.scheduled_at || post.created_at;
       if (!dateStr) continue;
       const dayKey = dateStr.slice(0, 10);
       const existing = map.get(dayKey) || [];
@@ -367,10 +367,10 @@ export function CalendarContent() {
 
   const goToToday = useCallback(() => setCurrentDate(new Date()), []);
 
-  const handlePostDeleted = useCallback((uuid: string) => {
+  const handlePostDeleted = useCallback((id: string) => {
     mutate(
       (prev) => prev
-        ? { ...prev, posts: prev.posts.filter((p) => p.uuid !== uuid) }
+        ? { ...prev, posts: prev.posts.filter((p) => p.id !== id) }
         : prev,
       { revalidate: false }
     );
@@ -387,7 +387,7 @@ export function CalendarContent() {
   // Stable callbacks for dialog close/view actions
   const handleClosePost = useCallback(() => setSelectedPost(null), []);
   const handleCloseRun = useCallback(() => setSelectedRun(null), []);
-  const handleViewPost = useCallback((post: MixpostPost) => {
+  const handleViewPost = useCallback((post: SocialPost) => {
     setSelectedRun(null);
     setSelectedPost(post);
   }, []);
@@ -508,7 +508,7 @@ export function CalendarContent() {
         selectedGroupIds={selectedGroupIds}
         onToggleGroup={toggleGroup}
         postTags={postTags}
-        selectedTagUuids={selectedTagUuids}
+        selectedTags={selectedTags}
         onToggleTag={toggleTag}
         hasActiveFilters={hasActiveFilters}
         onClearAll={clearAllFilters}
@@ -569,7 +569,7 @@ export function CalendarContent() {
       <WorkflowRunDetailDialog
         run={selectedRun}
         onClose={handleCloseRun}
-        postsByUuid={postsByUuid}
+        postsById={postsById}
         onViewPost={handleViewPost}
       />
     </div>

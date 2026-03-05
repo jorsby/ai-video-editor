@@ -10,7 +10,7 @@ export async function saveTranscription(
   data: Record<string, unknown>,
   model: string = 'nova-3'
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { error } = await supabase.from('transcriptions').upsert(
     {
@@ -35,7 +35,7 @@ export async function loadTranscription(
   sourceUrl: string,
   model: string = 'nova-3'
 ): Promise<Record<string, unknown> | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('transcriptions')
@@ -57,7 +57,7 @@ export async function loadTranscription(
  * Delete a specific transcription by ID.
  */
 export async function deleteTranscription(transcriptionId: string) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { error } = await supabase
     .from('transcriptions')

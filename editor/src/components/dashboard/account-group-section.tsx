@@ -34,20 +34,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { AddAccountsDialog } from './add-accounts-dialog';
 import { TagInput } from './tag-input';
 import { ProviderIcon } from './provider-icon';
-import type {
-  MixpostAccount,
-  AccountGroupWithMembers,
-  AccountTagMap,
-} from '@/types/mixpost';
-import type { MixpostPost } from '@/types/calendar';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
 
 interface AccountGroupSectionProps {
   group: AccountGroupWithMembers;
-  allAccounts: MixpostAccount[];
+  allAccounts: OctupostAccount[];
   filteredUuids: Set<string>;
   onRenamed: (id: string, name: string) => void;
   onDeleted: (id: string) => void;
@@ -56,14 +52,14 @@ interface AccountGroupSectionProps {
   tags: AccountTagMap;
   onTagAdded: (accountUuid: string, tag: string) => void;
   onTagRemoved: (accountUuid: string, tag: string) => void;
-  postsByAccount: Map<number, MixpostPost[]>;
+  postsByAccount: Map<string, SocialPost[]>;
   postsLoading: boolean;
-  onAccountClick: (accountId: number) => void;
+  onAccountClick: (accountId: string) => void;
   isOpen: boolean;
   onToggle: (groupId: string) => void;
-  tokenInvalidAccountIds?: Set<number>;
-  onFetchPlatformMedia?: (accountId: number, force?: boolean) => void;
-  platformMediaLoading?: Set<number>;
+  tokenInvalidAccountIds?: Set<string>;
+  onFetchPlatformMedia?: (accountId: string, force?: boolean) => void;
+  platformMediaLoading?: Set<string>;
 }
 
 function getInitials(name: string): string {
@@ -105,21 +101,21 @@ export function AccountGroupSection({
 
   const memberAccounts = allAccounts.filter(
     (a) =>
-      group.account_uuids.includes(a.uuid) && filteredUuids.has(a.uuid)
+      group.account_uuids.includes(a.account_id) && filteredUuids.has(a.account_id)
   );
 
   const availableAccounts = allAccounts.filter(
-    (a) => !group.account_uuids.includes(a.uuid)
+    (a) => !group.account_uuids.includes(a.account_id)
   );
 
   const isSyncingGroup = memberAccounts.some(
-    (a) => platformMediaLoading?.has(a.id) ?? false
+    (a) => platformMediaLoading?.has(a.account_id) ?? false
   );
 
   const handleSyncGroup = () => {
     if (!onFetchPlatformMedia || isSyncingGroup) return;
     for (const account of memberAccounts) {
-      onFetchPlatformMedia(account.id, true);
+      onFetchPlatformMedia(account.account_id, true);
     }
   };
 
@@ -269,57 +265,38 @@ export function AccountGroupSection({
             ) : (
               <div className="grid gap-2">
                 {memberAccounts.map((account) => {
-                  const postCount = postsByAccount.get(account.id)?.length || 0;
-                  const needsReAuth = !account.authorized || (tokenInvalidAccountIds?.has(account.id) ?? false);
-                  const mixpostUrl = process.env.NEXT_PUBLIC_MIXPOST_URL;
+                  const postCount = postsByAccount.get(account.account_id)?.length || 0;
+                  const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
                   return (
                     <div
-                      key={account.uuid}
+                      key={account.account_id}
                       className={`flex items-center gap-3 rounded-lg border bg-card p-3 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
-                      onClick={() => onAccountClick(account.id)}
+                      onClick={() => onAccountClick(account.account_id)}
                     >
                       <Avatar className="h-8 w-8">
-                        {account.image ? (
-                          <AvatarImage
-                            src={account.image}
-                            alt={account.name}
-                          />
-                        ) : null}
                         <AvatarFallback className="text-xs">
-                          {getInitials(account.name)}
+                          {getInitials(account.account_name)}
                         </AvatarFallback>
                       </Avatar>
 
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">
-                          {account.name}
+                          {account.account_name}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
-                          @{account.username}
+                          {account.account_username ? `@${account.account_username}` : account.platform}
                         </p>
                         {needsReAuth && (
                           <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
                             <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
                             <span className="text-xs text-amber-600">
-                              Token expired —{' '}
-                              {mixpostUrl ? (
-                                <a
-                                  href={`${mixpostUrl}/accounts`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline font-medium"
-                                >
-                                  Re-authorize in Mixpost
-                                </a>
-                              ) : (
-                                <span className="font-medium">Re-authorize in Mixpost</span>
-                              )}
+                              Token expired — please re-authorize
                             </span>
                           </div>
                         )}
                         <TagInput
-                          accountUuid={account.uuid}
-                          tags={tags[account.uuid] || []}
+                          accountUuid={account.account_id}
+                          tags={tags[account.account_id] || []}
                           onTagAdded={onTagAdded}
                           onTagRemoved={onTagRemoved}
                         />
@@ -336,7 +313,7 @@ export function AccountGroupSection({
                             </p>
                           </div>
                         )}
-                        <ProviderIcon provider={account.provider} className="h-5 w-5 text-muted-foreground" />
+                        <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
                       </div>
 
                       <Button
@@ -345,9 +322,9 @@ export function AccountGroupSection({
                         className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleRemoveMember(account.uuid);
+                          handleRemoveMember(account.account_id);
                         }}
-                        disabled={removingUuid === account.uuid}
+                        disabled={removingUuid === account.account_id}
                       >
                         <X className="h-3 w-3" />
                       </Button>

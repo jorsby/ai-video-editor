@@ -3,17 +3,17 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { PostPill } from './calendar-day-cell';
-import type { MixpostPost } from '@/types/calendar';
+import type { SocialPost } from '@/types/social';
 
 interface CalendarWeekViewProps {
   weekStart: Date; // Always a Sunday
-  postsByDate: Map<string, MixpostPost[]>;
-  onPostClick: (post: MixpostPost) => void;
+  postsByDate: Map<string, SocialPost[]>;
+  onPostClick: (post: SocialPost) => void;
   timezone?: string;
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const EMPTY_POSTS: MixpostPost[] = [];
+const EMPTY_POSTS: SocialPost[] = [];
 
 function formatDateKey(date: Date): string {
   const y = date.getFullYear();
@@ -83,7 +83,7 @@ export const CalendarWeekView = React.memo(function CalendarWeekView({
                   style={{ maxHeight: '560px' }}
                 >
                   {posts.map((post) => (
-                    <PostPill key={post.uuid} post={post} onPostClick={onPostClick} timezone={timezone} />
+                    <PostPill key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
                   ))}
                 </div>
               )}

@@ -14,7 +14,7 @@ export interface WorkflowRunLane {
   workflow_run_id: string;
   language: string;
   mixpost_uuid: string | null;
-  status: 'pending' | 'uploading' | 'creating' | 'scheduled' | 'published' | 'failed';
+  status: 'pending' | 'uploading' | 'creating' | 'publishing' | 'scheduled' | 'published' | 'partial' | 'failed';
   error_message: string | null;
   created_at: string;
   updated_at: string;

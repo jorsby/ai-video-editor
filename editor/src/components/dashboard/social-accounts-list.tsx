@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, ChevronsDownUp, ChevronsUpDown, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AccountGroupSection } from './account-group-section';
 import { AccountPostsList } from './account-posts-list';
@@ -13,15 +13,11 @@ import { PlatformFilter } from './platform-filter';
 import { ProviderIcon } from './provider-icon';
 import { CompanionSetupDialog } from '@/components/companion/companion-setup-dialog';
 import { openAccountInBrowser } from '@/lib/companion/client';
-import type {
-  MixpostAccount,
-  AccountGroupWithMembers,
-  AccountTagMap,
-} from '@/types/mixpost';
-import type { MixpostPost } from '@/types/calendar';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
 
 interface SocialAccountsListProps {
-  accounts: MixpostAccount[];
+  accounts: OctupostAccount[];
   isLoading: boolean;
   error: string | null;
   groups: AccountGroupWithMembers[];
@@ -34,15 +30,15 @@ interface SocialAccountsListProps {
   tags: AccountTagMap;
   onTagAdded: (accountUuid: string, tag: string) => void;
   onTagRemoved: (accountUuid: string, tag: string) => void;
-  postsByAccount: Map<number, MixpostPost[]>;
+  postsByAccount: Map<string, SocialPost[]>;
   postsLoading: boolean;
-  onPostDeleted?: (postUuid: string) => void;
-  onPostUpdated?: (postUuid: string, fields: Record<string, string>) => void;
-  onFetchPlatformMedia?: (accountId: number, force?: boolean) => void;
-  platformMediaLoading?: Set<number>;
-  platformMediaErrors?: Map<number, string>;
-  platformMediaSyncedAt?: Map<number, Date>;
-  tokenInvalidAccountIds?: Set<number>;
+  onPostDeleted?: (postId: string) => void;
+  onPostUpdated?: (postId: string, fields: Record<string, string>) => void;
+  onFetchPlatformMedia?: (accountId: string, force?: boolean) => void;
+  platformMediaLoading?: Set<string>;
+  platformMediaErrors?: Map<string, string>;
+  platformMediaSyncedAt?: Map<string, Date>;
+  tokenInvalidAccountIds?: Set<string>;
 }
 
 function getInitials(name: string): string {
@@ -82,7 +78,7 @@ export function SocialAccountsList({
   const [selectedFilterTags, setSelectedFilterTags] = useState<Set<string>>(
     new Set()
   );
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null
   );
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
@@ -90,8 +86,8 @@ export function SocialAccountsList({
   );
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
   const [showCompanionDialog, setShowCompanionDialog] = useState(false);
-  const [pendingBrowserAccount, setPendingBrowserAccount] = useState<{ provider: string; uuid: string; url: string } | null>(null);
-  const [openingBrowserId, setOpeningBrowserId] = useState<number | null>(null);
+  const [pendingBrowserAccount, setPendingBrowserAccount] = useState<{ provider: string; accountId: string; url: string } | null>(null);
+  const [openingBrowserId, setOpeningBrowserId] = useState<string | null>(null);
   const allExpanded = groups.length > 0 && groups.every((g) => openGroupIds.has(g.id));
 
   const isSyncingAny = (platformMediaLoading?.size ?? 0) > 0;
@@ -99,7 +95,7 @@ export function SocialAccountsList({
   const handleSyncAll = () => {
     if (!onFetchPlatformMedia || isSyncingAny) return;
     for (const account of filteredAccounts) {
-      onFetchPlatformMedia(account.id, true);
+      onFetchPlatformMedia(account.account_id, true);
     }
   };
 
@@ -124,7 +120,7 @@ export function SocialAccountsList({
   };
 
   const availablePlatforms = useMemo(
-    () => Array.from(new Set(accounts.map((a) => a.provider))).sort(),
+    () => Array.from(new Set(accounts.map((a) => a.platform))).sort(),
     [accounts]
   );
 
@@ -147,9 +143,9 @@ export function SocialAccountsList({
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((a) => {
-      if (!selectedPlatforms.has(a.provider)) return false;
+      if (!selectedPlatforms.has(a.platform)) return false;
       if (selectedFilterTags.size === 0) return true;
-      const accountTags = tags[a.uuid] || [];
+      const accountTags = tags[a.account_id] || [];
       return Array.from(selectedFilterTags).every((t) =>
         accountTags.includes(t)
       );
@@ -178,13 +174,13 @@ export function SocialAccountsList({
     tiktok: 'https://www.tiktok.com',
   };
 
-  const handleOpenAccountInBrowser = async (account: { id: number; provider: string; uuid: string }) => {
-    const url = DEFAULT_BROWSER_URLS[account.provider] || 'about:blank';
-    setOpeningBrowserId(account.id);
-    const result = await openAccountInBrowser(account.provider, account.uuid, url);
+  const handleOpenAccountInBrowser = async (account: OctupostAccount) => {
+    const url = DEFAULT_BROWSER_URLS[account.platform] || 'about:blank';
+    setOpeningBrowserId(account.account_id);
+    const result = await openAccountInBrowser(account.platform, account.account_id, url);
     setOpeningBrowserId(null);
     if (result.notRunning) {
-      setPendingBrowserAccount({ provider: account.provider, uuid: account.uuid, url });
+      setPendingBrowserAccount({ provider: account.platform, accountId: account.account_id, url });
       setShowCompanionDialog(true);
     }
   };
@@ -193,7 +189,7 @@ export function SocialAccountsList({
     if (!pendingBrowserAccount) return;
     await openAccountInBrowser(
       pendingBrowserAccount.provider,
-      pendingBrowserAccount.uuid,
+      pendingBrowserAccount.accountId,
       pendingBrowserAccount.url
     );
     setPendingBrowserAccount(null);
@@ -201,7 +197,7 @@ export function SocialAccountsList({
 
   // Drilldown into a specific account's posts
   if (selectedAccountId !== null) {
-    const account = accounts.find((a) => a.id === selectedAccountId);
+    const account = accounts.find((a) => a.account_id === selectedAccountId);
     if (!account) {
       setSelectedAccountId(null);
       return null;
@@ -216,9 +212,9 @@ export function SocialAccountsList({
         onPostUpdated={onPostUpdated}
         isLoadingPlatformMedia={platformMediaLoading?.has(selectedAccountId)}
         platformMediaError={platformMediaErrors?.get(selectedAccountId) || null}
-        onSyncFromPlatform={onFetchPlatformMedia ? (id: number) => onFetchPlatformMedia(id, true) : undefined}
+        onSyncFromPlatform={onFetchPlatformMedia ? (id: string) => onFetchPlatformMedia(id, true) : undefined}
         lastSyncedAt={platformMediaSyncedAt?.get(selectedAccountId) || null}
-        isTokenInvalid={!account.authorized || (tokenInvalidAccountIds?.has(selectedAccountId) ?? false)}
+        isTokenInvalid={new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(selectedAccountId) ?? false)}
       />
     );
   }
@@ -254,10 +250,10 @@ export function SocialAccountsList({
     );
   }
 
-  const filteredSet = new Set(filteredAccounts.map((a) => a.uuid));
+  const filteredSet = new Set(filteredAccounts.map((a) => a.account_id));
   const groupedUuids = new Set(groups.flatMap((g) => g.account_uuids));
   const ungroupedAccounts = filteredAccounts.filter(
-    (a) => !groupedUuids.has(a.uuid)
+    (a) => !groupedUuids.has(a.account_id)
   );
 
   return (
@@ -360,67 +356,51 @@ export function SocialAccountsList({
           )}
           <div className="grid gap-2">
             {ungroupedAccounts.map((account) => {
-              const postCount = postsByAccount.get(account.id)?.length || 0;
-              const needsReAuth = !account.authorized || (tokenInvalidAccountIds?.has(account.id) ?? false);
-              const mixpostUrl = process.env.NEXT_PUBLIC_MIXPOST_URL;
+              const postCount = postsByAccount.get(account.account_id)?.length || 0;
+              const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
               return (
                 <div
-                  key={account.id}
+                  key={account.account_id}
                   className={`flex items-center gap-3 rounded-lg border bg-card p-4 cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
-                  onClick={() => setSelectedAccountId(account.id)}
+                  onClick={() => setSelectedAccountId(account.account_id)}
                 >
                   <Avatar>
-                    {account.image ? (
-                      <AvatarImage src={account.image} alt={account.name} />
-                    ) : null}
                     <AvatarFallback>
-                      {getInitials(account.name)}
+                      {getInitials(account.account_name)}
                     </AvatarFallback>
                   </Avatar>
 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">
-                      {account.name}
+                      {account.account_name}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
-                      @{account.username}
+                      {account.account_username ? `@${account.account_username}` : account.platform}
                     </p>
                     {needsReAuth && (
                       <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
                         <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
                         <span className="text-xs text-amber-600">
-                          Token expired —{' '}
-                          {mixpostUrl ? (
-                            <a
-                              href={`${mixpostUrl}/accounts`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline font-medium"
-                            >
-                              Re-authorize in Mixpost
-                            </a>
-                          ) : (
-                            <span className="font-medium">Re-authorize in Mixpost</span>
-                          )}
+                          Token expired — please re-authorize
                         </span>
                       </div>
                     )}
                     <TagInput
-                      accountUuid={account.uuid}
-                      tags={tags[account.uuid] || []}
+                      accountUuid={account.account_id}
+                      tags={tags[account.account_id] || []}
                       onTagAdded={onTagAdded}
                       onTagRemoved={onTagRemoved}
                     />
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {BROWSER_MANAGED_PROVIDERS.has(account.provider) && (
+                    {BROWSER_MANAGED_PROVIDERS.has(account.platform) && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleOpenAccountInBrowser(account); }}
-                        disabled={openingBrowserId === account.id}
+                        disabled={openingBrowserId === account.account_id}
                         className="flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
                       >
-                        {openingBrowserId === account.id ? (
+                        {openingBrowserId === account.account_id ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
                           <ExternalLink className="h-3 w-3" />
@@ -438,7 +418,7 @@ export function SocialAccountsList({
                         </p>
                       </div>
                     )}
-                    <ProviderIcon provider={account.provider} className="h-5 w-5 text-muted-foreground" />
+                    <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
                   </div>
                 </div>
               );

@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // GET - Fetch all tags for the user, grouped by project_id
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -47,7 +47,7 @@ export async function GET() {
 // POST - Add a tag to a project
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 // DELETE - Remove a tag from a project
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

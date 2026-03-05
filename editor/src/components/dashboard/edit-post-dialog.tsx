@@ -13,16 +13,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { MixpostPost } from '@/types/calendar';
+import type { SocialPost } from '@/types/social';
 
 interface EditPostDialogProps {
-  post: MixpostPost;
-  accountId: number;
+  post: SocialPost;
+  accountId: string;
   provider: string;
-  isPlatformPost?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUpdated?: (postUuid: string, fields: Record<string, string>) => void;
+  onUpdated?: (postId: string, fields: Record<string, string>) => void;
 }
 
 function getProviderLabel(provider: string): string {
@@ -34,22 +33,16 @@ function getProviderLabel(provider: string): string {
   return labels[provider] || provider;
 }
 
-function getOriginalContent(post: MixpostPost): { body: string; options?: Record<string, unknown> } {
-  const original = post.versions.find((v) => v.is_original);
-  const body = original?.content[0]?.body || '';
-  return { body, options: original?.options };
-}
-
 export function EditPostDialog({
   post,
   accountId,
   provider,
-  isPlatformPost = false,
   open,
   onOpenChange,
   onUpdated,
 }: EditPostDialogProps) {
-  const { body, options } = getOriginalContent(post);
+  const body = post.caption || '';
+  const options = post.platform_options;
   const isYouTube = provider === 'youtube';
 
   const [title, setTitle] = useState('');
@@ -81,23 +74,11 @@ export function EditPostDialog({
       : { message };
 
     try {
-      let res: Response;
-      if (isPlatformPost) {
-        // Synced platform post: use direct platform API with platform post ID
-        const platformPostId = post.uuid.replace(/^(ig|tt|yt|fb)-/, '');
-        res = await fetch('/api/social/posts', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platformPostId, accountId, fields }),
-        });
-      } else {
-        // Mixpost post: use existing platform update route
-        res = await fetch(`/api/mixpost/posts/${post.uuid}/platform`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId, fields }),
-        });
-      }
+      const res = await fetch(`/api/v2/posts/${post.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption: fields.description || fields.message }),
+      });
 
       const data = await res.json();
 
@@ -106,7 +87,7 @@ export function EditPostDialog({
         return;
       }
 
-      onUpdated?.(post.uuid, fields);
+      onUpdated?.(post.id, fields);
       onOpenChange(false);
     } catch (err) {
       console.error('Failed to update post:', err);

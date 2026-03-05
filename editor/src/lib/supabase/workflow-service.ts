@@ -200,7 +200,7 @@ export interface StoryboardWithScenes extends Storyboard {
 export async function getLatestStoryboard(
   projectId: string
 ): Promise<Storyboard | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('storyboards')
@@ -232,7 +232,7 @@ export async function getLatestGridImage(
   const storyboard = await getLatestStoryboard(projectId);
   if (!storyboard) return null;
 
-  const supabase = createClient();
+  const supabase = createClient('studio');
   const { data, error } = await supabase
     .from('grid_images')
     .select('*')
@@ -259,7 +259,7 @@ export async function getLatestGridImage(
 export async function getLatestSuccessfulGridImage(
   projectId: string
 ): Promise<GridImage | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // Query grid_images through storyboards
   const { data, error } = await supabase
@@ -288,7 +288,7 @@ export async function getLatestSuccessfulGridImage(
 export async function getStoryboardsForProject(
   projectId: string
 ): Promise<Storyboard[]> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('storyboards')
@@ -310,7 +310,7 @@ export async function getStoryboardsForProject(
 export async function getStoryboardWithScenesById(
   storyboardId: string
 ): Promise<StoryboardWithScenes | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('storyboards')
@@ -351,7 +351,7 @@ export async function getStoryboardWithScenesById(
 export async function getLatestStoryboardWithScenes(
   projectId: string
 ): Promise<StoryboardWithScenes | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // Get the latest storyboard with grid_images and scenes
   const { data: storyboard, error: storyboardError } = await supabase
@@ -398,7 +398,7 @@ export function subscribeToGridImageStatus(
   gridImageId: string,
   onUpdate: (gridImage: GridImage) => void
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const channel = supabase
     .channel(`grid_image_${gridImageId}`)
@@ -406,7 +406,7 @@ export function subscribeToGridImageStatus(
       'postgres_changes',
       {
         event: 'UPDATE',
-        schema: 'public',
+        schema: 'studio',
         table: 'grid_images',
         filter: `id=eq.${gridImageId}`,
       },
@@ -430,7 +430,7 @@ export function subscribeToFirstFrameUpdates(
   gridImageId: string,
   onUpdate: (firstFrame: FirstFrame) => void
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   // We need to join through scenes to filter by grid_image_id
   // For simplicity, we'll subscribe to all first_frames changes
@@ -441,7 +441,7 @@ export function subscribeToFirstFrameUpdates(
       'postgres_changes',
       {
         event: 'UPDATE',
-        schema: 'public',
+        schema: 'studio',
         table: 'first_frames',
       },
       (payload) => {
@@ -488,7 +488,7 @@ export function subscribeToSceneUpdates(
   callbacks: SceneUpdateCallbacks,
   storyboardId?: string
 ) {
-  const supabase = createClient();
+  const supabase = createClient('studio');
   const channels: RealtimeChannel[] = [];
 
   // Storyboard updates (plan_status transitions)
@@ -499,7 +499,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: 'UPDATE',
-          schema: 'public',
+          schema: 'studio',
           table: 'storyboards',
           filter: `id=eq.${storyboardId}`,
         },
@@ -519,7 +519,7 @@ export function subscribeToSceneUpdates(
           'postgres_changes',
           {
             event: 'UPDATE',
-            schema: 'public',
+            schema: 'studio',
             table: 'grid_images',
             filter: `id=eq.${gid}`,
           },
@@ -540,7 +540,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: 'UPDATE',
-          schema: 'public',
+          schema: 'studio',
           table: 'first_frames',
         },
         (payload) => callbacks.onFirstFrameUpdate?.(payload.new as FirstFrame)
@@ -557,7 +557,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: 'UPDATE',
-          schema: 'public',
+          schema: 'studio',
           table: 'scenes',
         },
         (payload) => callbacks.onSceneUpdate?.(payload.new as SceneRow)
@@ -574,7 +574,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: '*',
-          schema: 'public',
+          schema: 'studio',
           table: 'voiceovers',
         },
         (payload) => {
@@ -598,7 +598,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: '*',
-          schema: 'public',
+          schema: 'studio',
           table: 'backgrounds',
         },
         (payload) => {
@@ -622,7 +622,7 @@ export function subscribeToSceneUpdates(
         'postgres_changes',
         {
           event: '*',
-          schema: 'public',
+          schema: 'studio',
           table: 'objects',
         },
         (payload) => {
@@ -653,7 +653,7 @@ export function subscribeToSceneUpdates(
 export async function getDraftStoryboard(
   projectId: string
 ): Promise<Storyboard | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('storyboards')
@@ -681,7 +681,7 @@ export async function getDraftStoryboard(
 export async function getStoryboardById(
   storyboardId: string
 ): Promise<Storyboard | null> {
-  const supabase = createClient();
+  const supabase = createClient('studio');
 
   const { data, error } = await supabase
     .from('storyboards')

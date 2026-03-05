@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // GET - Fetch user's projects
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 // POST - Create a new project
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 // PATCH - Update a project (rename and/or archive/unarchive)
 export async function PATCH(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -171,7 +171,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE - Remove project by ID (assets cascade delete via FK)
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

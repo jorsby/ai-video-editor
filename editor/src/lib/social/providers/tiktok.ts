@@ -30,7 +30,7 @@ export async function fetchTikTokMedia(
     );
 
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('TikTok token expired. Please re-authorize this account in Mixpost.');
+      throw new TokenExpiredError('TikTok token expired. Please re-authorize this account.');
     }
     if (res.status === 429) {
       throw new RateLimitError('TikTok API rate limit reached. Please try again later.');

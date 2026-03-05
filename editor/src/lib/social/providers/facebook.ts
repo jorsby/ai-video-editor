@@ -17,7 +17,7 @@ export async function getFacebookPageToken(
   });
 
   const url = `https://graph.facebook.com/v24.0/${providerId}?fields=access_token&access_token=${encodeURIComponent(userAccessToken)}`;
-  const res = await fetch(url);
+  const res: Response = await fetch(url);
 
   if (!res.ok) {
     const err = await res.json().catch(() => null);
@@ -32,11 +32,11 @@ export async function getFacebookPageToken(
       providerId,
     });
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError(`Facebook token expired (${res.status}). API error: ${JSON.stringify(err?.error || err)}. Please re-authorize this account in Mixpost.`);
+      throw new TokenExpiredError(`Facebook token expired (${res.status}). API error: ${JSON.stringify(err?.error || err)}. Please re-authorize this account.`);
     }
     throw new PlatformApiError(`Failed to get Facebook page token. Status: ${res.status}, Error: ${JSON.stringify(err?.error || err)}`);
   }
-  const data = await res.json();
+  const data: any = await res.json();
   console.log('[getFacebookPageToken] Success', {
     providerId,
     hasPageToken: !!data.access_token,
@@ -60,7 +60,7 @@ export async function fetchFacebookMedia(
     `https://graph.facebook.com/v24.0/${providerId}/published_posts?fields=id,message,created_time,permalink_url,full_picture&limit=${Math.min(limit, 50)}&access_token=${encodeURIComponent(pageAccessToken)}`;
 
   while (url && items.length < limit) {
-    const res = await fetch(url);
+    const res: Response = await fetch(url);
 
     if (!res.ok) {
       const errorBody = await res.json().catch(() => null);
@@ -71,7 +71,7 @@ export async function fetchFacebookMedia(
       });
 
       if (res.status === 401 || res.status === 403) {
-        throw new TokenExpiredError(`Facebook token expired. Please re-authorize this account in Mixpost. (API: ${JSON.stringify(errorBody?.error || errorBody)})`);
+        throw new TokenExpiredError(`Facebook token expired. Please re-authorize this account. (API: ${JSON.stringify(errorBody?.error || errorBody)})`);
       }
       if (res.status === 429) {
         throw new RateLimitError('Facebook API rate limit reached. Please try again later.');
@@ -79,7 +79,7 @@ export async function fetchFacebookMedia(
       throw new PlatformApiError(`Failed to fetch media from Facebook. Status: ${res.status} — ${JSON.stringify(errorBody?.error || errorBody)}`);
     }
 
-    const data = await res.json();
+    const data: any = await res.json();
     const posts: unknown[] = data.data || [];
 
     for (const raw of posts) {

@@ -15,13 +15,13 @@ import {
 import { EditPostDialog } from './edit-post-dialog';
 import { CompanionSetupDialog } from '@/components/companion/companion-setup-dialog';
 import { openAccountInBrowser } from '@/lib/companion/client';
-import type { MixpostPost, MixpostPostAccount, MixpostMedia } from '@/types/calendar';
+import type { SocialPost, SocialPostAccount } from '@/types/social';
 
 interface PostItemCardProps {
-  post: MixpostPost;
-  accountId: number;
-  onDeleted?: (postUuid: string) => void;
-  onUpdated?: (postUuid: string, fields: Record<string, string>) => void;
+  post: SocialPost;
+  accountId: string;
+  onDeleted?: (postId: string) => void;
+  onUpdated?: (postId: string, fields: Record<string, string>) => void;
 }
 
 const EDITABLE_PROVIDERS = new Set(['youtube', 'facebook_page', 'facebook']);
@@ -36,28 +36,9 @@ const STATUS_VARIANT: Record<
   scheduled: 'secondary',
   draft: 'outline',
   failed: 'destructive',
+  publishing: 'secondary',
+  partial: 'destructive',
 };
-
-function getEffectiveStatus(post: MixpostPost): string {
-  const raw = post.status;
-  if (raw === 'published' || raw === '3') return 'published';
-  if (raw === 'failed' || raw === '4') return 'failed';
-  if (raw === 'scheduled' || raw === '1') return 'scheduled';
-  if (raw === 'draft' || raw === '0') return 'draft';
-  if (raw === 'publishing' || raw === '2') return 'publishing';
-  return raw;
-}
-
-function getExternalUrl(post: MixpostPost, accountId: number): string | null {
-  const account = post.accounts.find((a) => a.id === accountId);
-  if (!account) return null;
-  if (account.external_url) return account.external_url;
-  if (account.pivot?.provider_post_data?.url)
-    return account.pivot.provider_post_data.url;
-  if (account.pivot?.provider_post_data?.external_url)
-    return account.pivot.provider_post_data.external_url;
-  return null;
-}
 
 function getProviderLabel(provider: string): string {
   const labels: Record<string, string> = {
@@ -68,24 +49,6 @@ function getProviderLabel(provider: string): string {
     youtube: 'YouTube',
   };
   return labels[provider] || provider;
-}
-
-function extractThumbnail(post: MixpostPost): string | null {
-  const original = post.versions.find((v) => v.is_original);
-  if (!original) return null;
-  for (const content of original.content) {
-    for (const item of content.media) {
-      if (typeof item === 'object' && item !== null && 'thumb_url' in item) {
-        return (item as MixpostMedia).thumb_url || (item as MixpostMedia).url;
-      }
-    }
-  }
-  return null;
-}
-
-function getCaption(post: MixpostPost): string {
-  const original = post.versions.find((v) => v.is_original);
-  return original?.content[0]?.body || '(no content)';
 }
 
 function formatDateTime(dateStr: string | null): string {
@@ -99,8 +62,6 @@ function formatDateTime(dateStr: string | null): string {
 }
 
 export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItemCardProps) {
-  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
-  const [fetching, setFetching] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -108,81 +69,29 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
   const [showCompanionDialog, setShowCompanionDialog] = useState(false);
   const [openingBrowser, setOpeningBrowser] = useState(false);
 
-  const status = getEffectiveStatus(post);
-  const thumbnail = extractThumbnail(post);
-  const caption = getCaption(post);
-  const externalUrl = getExternalUrl(post, accountId) || fetchedUrl;
-  const account = post.accounts.find((a) => a.id === accountId);
-  const provider = account?.provider || 'unknown';
-  const isPlatformPost = post._source === 'platform' || /^(ig|tt|yt|fb)-/.test(post.uuid);
+  const status = post.status;
+  const thumbnail = post.media_url && post.media_type === 'image' ? post.media_url : null;
+  const caption = post.caption || '(no content)';
+  const account = (post.accounts || []).find((a: SocialPostAccount) => a.octupost_account_id === accountId);
+  const provider = account?.platform || 'unknown';
   const canEdit = EDITABLE_PROVIDERS.has(provider);
   const canDelete = DELETABLE_PROVIDERS.has(provider) && onDeleted;
   const isBrowserManaged = BROWSER_MANAGED_PROVIDERS.has(provider);
-
-  const handleViewOnPlatform = async () => {
-    if (externalUrl) {
-      window.open(externalUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    // Platform posts should already have a permalink; don't fetch from Mixpost
-    if (isPlatformPost) return;
-    // Lazy-fetch the detail endpoint for external URL
-    setFetching(true);
-    try {
-      const res = await fetch(`/api/mixpost/posts/${post.uuid}`);
-      if (!res.ok) return;
-      const { post: detail } = await res.json();
-      const detailAccount = detail.accounts?.find(
-        (a: MixpostPostAccount) => a.id === accountId
-      );
-      const url =
-        detailAccount?.pivot?.provider_post_data?.url ||
-        detailAccount?.pivot?.provider_post_data?.external_url ||
-        detailAccount?.external_url ||
-        null;
-      if (url) {
-        setFetchedUrl(url);
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
-    } catch (err) {
-      console.error('Failed to fetch post detail:', err);
-    } finally {
-      setFetching(false);
-    }
-  };
 
   const handleDelete = async () => {
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      // Build the platform delete request body
-      const body: Record<string, unknown> = { accountId };
-      if (isPlatformPost) {
-        // Synced posts: extract platform post ID from UUID prefix
-        body.platformPostId = post.uuid.replace(/^(ig|tt|yt|fb)-/, '');
-      } else {
-        // Mixpost posts: let the backend resolve the platform post ID
-        body.mixpostUuid = post.uuid;
-      }
-
-      // 1. Delete from platform (YouTube/Facebook)
-      const res = await fetch('/api/social/posts', {
+      const res = await fetch(`/api/v2/posts/${post.id}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setDeleteError(data?.error || 'Failed to delete from platform');
+        setDeleteError(data?.error || 'Failed to delete post');
         return;
       }
 
-      // 2. Also delete from Mixpost DB if it's a Mixpost post
-      if (!isPlatformPost) {
-        await fetch(`/api/mixpost/posts/${post.uuid}`, { method: 'DELETE' });
-      }
-
-      onDeleted?.(post.uuid);
+      onDeleted?.(post.id);
       setShowDeleteDialog(false);
     } catch (err) {
       console.error('Failed to delete post:', err);
@@ -193,10 +102,10 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
   };
 
   const handleOpenInBrowser = async () => {
-    const accountUuid = account?.uuid;
-    if (!accountUuid) return;
+    const acctId = account?.octupost_account_id;
+    if (!acctId) return;
     setOpeningBrowser(true);
-    const result = await openAccountInBrowser(provider, accountUuid, externalUrl || undefined);
+    const result = await openAccountInBrowser(provider, acctId, undefined);
     setOpeningBrowser(false);
     if (result.notRunning) setShowCompanionDialog(true);
   };
@@ -223,7 +132,7 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
           <p className="text-sm text-foreground line-clamp-2">{caption}</p>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              {formatDateTime(post.published_at || post.scheduled_at)}
+              {formatDateTime(post.scheduled_at)}
             </span>
             <Badge variant={STATUS_VARIANT[status] || 'outline'} className="text-[10px] px-1.5 py-0">
               {status}
@@ -248,18 +157,11 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
               Open in Browser
             </Button>
           ) : (
-            <button
-              onClick={handleViewOnPlatform}
-              disabled={fetching}
-              className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
-            >
-              {fetching ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ExternalLink className="h-3.5 w-3.5" />
-              )}
-              View on {getProviderLabel(provider)}
-            </button>
+            account?.platform_post_id && (
+              <span className="text-xs text-muted-foreground">
+                Published
+              </span>
+            )
           )}
 
           {canEdit && (
@@ -298,7 +200,6 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
         post={post}
         accountId={accountId}
         provider={provider}
-        isPlatformPost={isPlatformPost}
         open={showEditDialog}
         onOpenChange={setShowEditDialog}
         onUpdated={onUpdated}

@@ -6,11 +6,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
-import type { MixpostPostTag } from '@/types/calendar';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { AccountGroupWithMembers } from '@/types/social';
 
 interface CalendarFilterBarProps {
-  accounts: MixpostAccount[];
+  accounts: OctupostAccount[];
   selectedAccountUuids: Set<string>;
   onToggleAccount: (uuid: string) => void;
 
@@ -18,9 +18,9 @@ interface CalendarFilterBarProps {
   selectedGroupIds: Set<string>;
   onToggleGroup: (id: string) => void;
 
-  postTags: MixpostPostTag[];
-  selectedTagUuids: Set<string>;
-  onToggleTag: (uuid: string) => void;
+  postTags: string[];
+  selectedTags: Set<string>;
+  onToggleTag: (tag: string) => void;
 
   hasActiveFilters: boolean;
   onClearAll: () => void;
@@ -93,7 +93,7 @@ export const CalendarFilterBar = React.memo(function CalendarFilterBar({
   selectedGroupIds,
   onToggleGroup,
   postTags,
-  selectedTagUuids,
+  selectedTags,
   onToggleTag,
   hasActiveFilters,
   onClearAll,
@@ -110,12 +110,12 @@ export const CalendarFilterBar = React.memo(function CalendarFilterBar({
         <FilterDropdown label="Channel" activeCount={selectedAccountUuids.size}>
           {accounts.map((account) => (
             <CheckItem
-              key={account.uuid}
-              id={`cal-ch-${account.uuid}`}
-              checked={selectedAccountUuids.has(account.uuid)}
-              onToggle={() => onToggleAccount(account.uuid)}
+              key={account.account_id}
+              id={`cal-ch-${account.account_id}`}
+              checked={selectedAccountUuids.has(account.account_id)}
+              onToggle={() => onToggleAccount(account.account_id)}
             >
-              <span className="truncate">{account.name}</span>
+              <span className="truncate">{account.account_name}</span>
             </CheckItem>
           ))}
         </FilterDropdown>
@@ -137,19 +137,15 @@ export const CalendarFilterBar = React.memo(function CalendarFilterBar({
       )}
 
       {showTags && (
-        <FilterDropdown label="Tags" activeCount={selectedTagUuids.size}>
+        <FilterDropdown label="Tags" activeCount={selectedTags.size}>
           {postTags.map((tag) => (
             <CheckItem
-              key={tag.uuid}
-              id={`cal-tag-${tag.uuid}`}
-              checked={selectedTagUuids.has(tag.uuid)}
-              onToggle={() => onToggleTag(tag.uuid)}
+              key={tag}
+              id={`cal-tag-${tag}`}
+              checked={selectedTags.has(tag)}
+              onToggle={() => onToggleTag(tag)}
             >
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: tag.hex_color }}
-              />
-              <span className="truncate">{tag.name}</span>
+              <span className="truncate">{tag}</span>
             </CheckItem>
           ))}
         </FilterDropdown>

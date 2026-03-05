@@ -4,7 +4,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 // GET - Fetch user's assets (with optional type filter)
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 // POST - Create a new asset (for uploads)
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 // DELETE - Remove asset by ID
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

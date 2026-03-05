@@ -8,7 +8,7 @@ export async function createWorkflowRun(data: {
   base_time?: string;
   timezone?: string;
 }): Promise<string> {
-  const supabase = createClient();
+  const supabase = createClient('social_auth');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
@@ -33,7 +33,7 @@ export async function createWorkflowRunLane(data: {
   workflow_run_id: string;
   language: string;
 }): Promise<string> {
-  const supabase = createClient();
+  const supabase = createClient('social_auth');
 
   const { data: row, error } = await supabase
     .from('workflow_run_lanes')
@@ -52,11 +52,12 @@ export async function updateWorkflowRunLane(
   laneId: string,
   updates: {
     mixpost_uuid?: string;
+    post_id?: string;
     status?: WorkflowRunLane['status'];
     error_message?: string;
   }
 ): Promise<void> {
-  const supabase = createClient();
+  const supabase = createClient('social_auth');
 
   const { error } = await supabase
     .from('workflow_run_lanes')
@@ -67,7 +68,7 @@ export async function updateWorkflowRunLane(
 }
 
 export async function getWorkflowRunsByMonth(monthDate: Date): Promise<WorkflowRun[]> {
-  const supabase = createClient();
+  const supabase = createClient('social_auth');
 
   const year = monthDate.getFullYear();
   const month = String(monthDate.getMonth() + 1).padStart(2, '0');

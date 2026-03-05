@@ -5,10 +5,10 @@ import type {
   TikTokAccountOptions,
   TikTokPrivacy,
 } from '@/types/post';
-import type { MixpostAccount } from '@/types/mixpost';
+import type { SocialAccount } from '@/types/social';
 
 interface TikTokOptionsProps {
-  accounts: MixpostAccount[];
+  accounts: SocialAccount[];
   value: Record<string, TikTokAccountOptions>;
   onChange: (value: Record<string, TikTokAccountOptions>) => void;
 }
@@ -31,8 +31,8 @@ const DEFAULT_OPTIONS: TikTokAccountOptions = {
   brand_content_toggle: false,
 };
 
-function getAccountKey(account: MixpostAccount): string {
-  return `account-${account.id}`;
+function getAccountKey(account: SocialAccount): string {
+  return `account-${account.octupost_account_id}`;
 }
 
 export function TikTokOptions({
@@ -64,15 +64,8 @@ export function TikTokOptions({
           >
             {accounts.length > 1 && (
               <div className="flex items-center gap-2 mb-2">
-                {account.image && (
-                  <img
-                    src={account.image}
-                    alt=""
-                    className="h-5 w-5 rounded-full"
-                  />
-                )}
                 <span className="text-xs font-medium text-zinc-300">
-                  {account.name}
+                  {account.account_name ?? account.octupost_account_id}
                 </span>
               </div>
             )}

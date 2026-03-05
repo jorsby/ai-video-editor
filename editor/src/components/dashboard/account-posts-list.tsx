@@ -1,22 +1,22 @@
 'use client';
 
 import { AlertCircle, ArrowLeft, FileVideo, Loader2, RefreshCw } from 'lucide-react';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { PostItemCard } from './post-item-card';
 import { ProviderIcon } from './provider-icon';
-import type { MixpostAccount } from '@/types/mixpost';
-import type { MixpostPost } from '@/types/calendar';
+import type { OctupostAccount } from '@/lib/octupost/types';
+import type { SocialPost } from '@/types/social';
 
 interface AccountPostsListProps {
-  account: MixpostAccount;
-  posts: MixpostPost[];
+  account: OctupostAccount;
+  posts: SocialPost[];
   onBack: () => void;
-  onPostDeleted?: (postUuid: string) => void;
-  onPostUpdated?: (postUuid: string, fields: Record<string, string>) => void;
+  onPostDeleted?: (postId: string) => void;
+  onPostUpdated?: (postId: string, fields: Record<string, string>) => void;
   isLoadingPlatformMedia?: boolean;
   platformMediaError?: string | null;
-  onSyncFromPlatform?: (accountId: number) => void;
+  onSyncFromPlatform?: (accountId: string) => void;
   lastSyncedAt?: Date | null;
   isTokenInvalid?: boolean;
 }
@@ -64,8 +64,8 @@ export function AccountPostsList({
 }: AccountPostsListProps) {
   // Sort posts by published date, most recent first
   const sortedPosts = [...posts].sort((a, b) => {
-    const dateA = a.published_at || a.scheduled_at || a.created_at;
-    const dateB = b.published_at || b.scheduled_at || b.created_at;
+    const dateA = a.scheduled_at || a.created_at;
+    const dateB = b.scheduled_at || b.created_at;
     return new Date(dateB).getTime() - new Date(dateA).getTime();
   });
 
@@ -80,17 +80,14 @@ export function AccountPostsList({
       {/* Account header */}
       <div className="flex items-center gap-3">
         <Avatar>
-          {account.image ? (
-            <AvatarImage src={account.image} alt={account.name} />
-          ) : null}
-          <AvatarFallback>{getInitials(account.name)}</AvatarFallback>
+          <AvatarFallback>{getInitials(account.account_name)}</AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">
           <p className="text-lg font-semibold text-foreground truncate">
-            {account.name}
+            {account.account_name}
           </p>
           <p className="text-xs text-muted-foreground">
-            @{account.username}
+            {account.account_username ? `@${account.account_username}` : account.platform}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -99,7 +96,7 @@ export function AccountPostsList({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onSyncFromPlatform(account.id)}
+                onClick={() => onSyncFromPlatform(account.account_id)}
                 disabled={isLoadingPlatformMedia}
               >
                 {isLoadingPlatformMedia ? (
@@ -107,7 +104,7 @@ export function AccountPostsList({
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Sync from {getProviderLabel(account.provider)}
+                Sync from {getProviderLabel(account.platform)}
               </Button>
               {lastSyncedAt && !isLoadingPlatformMedia && (
                 <span className="text-[10px] text-muted-foreground">
@@ -116,7 +113,7 @@ export function AccountPostsList({
               )}
             </div>
           )}
-          <ProviderIcon provider={account.provider} className="h-5 w-5 text-muted-foreground" />
+          <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
         </div>
       </div>
 
@@ -125,19 +122,7 @@ export function AccountPostsList({
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
           <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-amber-700">
-            This account needs to be re-authorized.{' '}
-            {process.env.NEXT_PUBLIC_MIXPOST_URL ? (
-              <a
-                href={`${process.env.NEXT_PUBLIC_MIXPOST_URL}/accounts`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-medium"
-              >
-                Re-authorize in Mixpost
-              </a>
-            ) : (
-              <span className="font-medium">Re-authorize in Mixpost</span>
-            )}
+            This account&apos;s token has expired and needs to be re-authorized.
           </p>
         </div>
       )}
@@ -152,18 +137,7 @@ export function AccountPostsList({
               platformMediaError.includes('401') ||
               platformMediaError.includes('403')) && (
               <p className="mt-1">
-                {process.env.NEXT_PUBLIC_MIXPOST_URL ? (
-                  <a
-                    href={`${process.env.NEXT_PUBLIC_MIXPOST_URL}/accounts`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-medium"
-                  >
-                    Re-authorize in Mixpost
-                  </a>
-                ) : (
-                  <span className="font-medium">Re-authorize in Mixpost</span>
-                )}
+                <span className="font-medium">Please re-authorize this account.</span>
               </p>
             )}
           </div>
@@ -189,9 +163,9 @@ export function AccountPostsList({
         <div className="grid gap-2">
           {sortedPosts.map((post) => (
             <PostItemCard
-              key={post.uuid}
+              key={post.id}
               post={post}
-              accountId={account.id}
+              accountId={account.account_id}
               onDeleted={onPostDeleted}
               onUpdated={onPostUpdated}
             />

@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import type { WorkflowRun, WorkflowRunLane } from '@/types/workflow-run';
-import type { MixpostPost } from '@/types/calendar';
+import type { SocialPost } from '@/types/social';
 
 // Maps language codes to display labels
 const LANG_LABEL: Record<string, string> = {
@@ -26,6 +26,8 @@ const STATUS_LABEL: Record<WorkflowRunLane['status'], string> = {
   scheduled: 'Scheduled',
   published: 'Published',
   failed: 'Failed',
+  publishing: 'Publishing',
+  partial: 'Partial',
 };
 
 const STATUS_CLASS: Record<WorkflowRunLane['status'], string> = {
@@ -35,6 +37,8 @@ const STATUS_CLASS: Record<WorkflowRunLane['status'], string> = {
   scheduled: 'text-blue-400',
   published: 'text-emerald-400',
   failed:    'text-red-400',
+  publishing: 'text-blue-400',
+  partial:    'text-yellow-400',
 };
 
 function formatDateTime(isoOrSpace: string | null): string {
@@ -57,19 +61,19 @@ function formatTime(hhmm: string): string {
 interface WorkflowRunDetailDialogProps {
   run: WorkflowRun | null;
   onClose: () => void;
-  /** Mixpost posts keyed by uuid — used to open the full PostDetailDialog */
-  postsByUuid: Map<string, MixpostPost>;
-  onViewPost: (post: MixpostPost) => void;
+  /** Posts keyed by ID — used to open the full PostDetailDialog */
+  postsById: Map<string, SocialPost>;
+  onViewPost: (post: SocialPost) => void;
 }
 
 interface RefreshedLane extends WorkflowRunLane {
-  refreshedPost?: MixpostPost;
+  refreshedPost?: SocialPost;
 }
 
 export function WorkflowRunDetailDialog({
   run,
   onClose,
-  postsByUuid,
+  postsById,
   onViewPost,
 }: WorkflowRunDetailDialogProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -90,7 +94,7 @@ export function WorkflowRunDetailDialog({
         .filter(l => l.mixpost_uuid)
         .map(async (lane) => {
           try {
-            const res = await fetch(`/api/mixpost/posts/${lane.mixpost_uuid}`);
+            const res = await fetch(`/api/v2/posts/${lane.mixpost_uuid}`);
             if (!res.ok) return;
             const data = await res.json();
             updated.set(lane.id, { ...lane, refreshedPost: data.post });
@@ -115,7 +119,7 @@ export function WorkflowRunDetailDialog({
           <div className="space-y-1.5">
             {run.lanes.map((lane) => {
               const refreshed = refreshedLanes.get(lane.id);
-              const cachedPost = lane.mixpost_uuid ? postsByUuid.get(lane.mixpost_uuid) : undefined;
+              const cachedPost = lane.mixpost_uuid ? postsById.get(lane.mixpost_uuid) : undefined;
               const viewPost = refreshed?.refreshedPost ?? cachedPost;
               const langLabel = LANG_LABEL[lane.language] ?? lane.language.toUpperCase();
               const statusLabel = STATUS_LABEL[lane.status];
@@ -161,7 +165,7 @@ export function WorkflowRunDetailDialog({
               disabled={refreshing || run.lanes.every(l => !l.mixpost_uuid)}
             >
               {refreshing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-              {refreshing ? 'Refreshing...' : 'Refresh from Mixpost'}
+              {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
         </div>

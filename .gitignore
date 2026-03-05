@@ -56,3 +56,6 @@ next-env.d.ts
 *.mp4
 *.webm
 *.mkv
+SCHEMA_APP_CHANGES.md
+SCHEMA_MIGRATION_TASK.md
+claude-output.txt

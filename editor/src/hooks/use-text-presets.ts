@@ -20,7 +20,7 @@ export function useTextPresets() {
       })
     );
 
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const channel = supabase
       .channel('text_presets_changes')
       .on(

@@ -4,11 +4,7 @@ import { useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { X, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
-import type {
-  MixpostAccount,
-  AccountGroupWithMembers,
-  AccountTagMap,
-} from '@/types/mixpost';
+import type { SocialAccount, AccountGroup, AccountTag } from '@/types/social';
 
 const PROVIDER_ICONS: Record<string, string> = {
   facebook: '/icons/facebook.svg',
@@ -41,11 +37,11 @@ function ProviderBadge({ provider }: { provider: string }) {
 }
 
 interface AccountSelectorProps {
-  accounts: MixpostAccount[];
-  groups: AccountGroupWithMembers[];
-  tags: AccountTagMap;
-  selectedIds: number[];
-  onSelectionChange: (ids: number[]) => void;
+  accounts: SocialAccount[];
+  groups: AccountGroup[];
+  tags: Record<string, AccountTag[]>;
+  selectedIds: string[];
+  onSelectionChange: (ids: string[]) => void;
 }
 
 export function AccountSelector({
@@ -70,7 +66,7 @@ export function AccountSelector({
     });
   };
 
-  const allTags = Array.from(new Set(Object.values(tags).flat())).sort();
+  const allTags = Array.from(new Set(Object.values(tags).flat().map(t => t.name))).sort();
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => {
@@ -84,13 +80,13 @@ export function AccountSelector({
     });
   };
 
-  const isAccountVisible = (account: MixpostAccount) => {
+  const isAccountVisible = (account: SocialAccount) => {
     if (selectedTags.size === 0) return true;
-    const accountTags = tags[account.uuid] || [];
-    return accountTags.some((t) => selectedTags.has(t));
+    const accountTags = tags[account.id] || [];
+    return accountTags.some((t) => selectedTags.has(t.name));
   };
 
-  const toggleAccount = (id: number) => {
+  const toggleAccount = (id: string) => {
     if (selectedIds.includes(id)) {
       onSelectionChange(selectedIds.filter((i) => i !== id));
     } else {
@@ -98,29 +94,25 @@ export function AccountSelector({
     }
   };
 
-  const selectAllInGroup = (groupAccountUuids: string[]) => {
-    const groupAccountIds = accounts
+  const selectAllInGroup = (groupAccountIds: string[]) => {
+    const visibleIds = accounts
       .filter(
-        (a) => groupAccountUuids.includes(a.uuid) && isAccountVisible(a)
+        (a) => groupAccountIds.includes(a.octupost_account_id) && isAccountVisible(a)
       )
-      .map((a) => a.id);
-    const merged = new Set([...selectedIds, ...groupAccountIds]);
+      .map((a) => a.octupost_account_id);
+    const merged = new Set([...selectedIds, ...visibleIds]);
     onSelectionChange(Array.from(merged));
   };
 
-  const deselectAllInGroup = (groupAccountUuids: string[]) => {
-    const groupAccountIds = new Set(
-      accounts
-        .filter((a) => groupAccountUuids.includes(a.uuid))
-        .map((a) => a.id)
-    );
-    onSelectionChange(selectedIds.filter((id) => !groupAccountIds.has(id)));
+  const deselectAllInGroup = (groupAccountIds: string[]) => {
+    const groupIdSet = new Set(groupAccountIds);
+    onSelectionChange(selectedIds.filter((id) => !groupIdSet.has(id)));
   };
 
   // Accounts that belong to at least one group
-  const groupedAccountUuids = new Set(groups.flatMap((g) => g.account_uuids));
+  const groupedAccountIds = new Set(groups.flatMap((g) => g.account_ids));
   const ungroupedAccounts = accounts.filter(
-    (a) => !groupedAccountUuids.has(a.uuid) && isAccountVisible(a)
+    (a) => !groupedAccountIds.has(a.octupost_account_id) && isAccountVisible(a)
   );
 
   // Collapse all / expand all
@@ -200,17 +192,17 @@ export function AccountSelector({
       {/* Grouped accounts */}
       {groups.map((group) => {
         const groupAccounts = accounts.filter(
-          (a) => group.account_uuids.includes(a.uuid) && isAccountVisible(a)
+          (a) => group.account_ids.includes(a.octupost_account_id) && isAccountVisible(a)
         );
         if (groupAccounts.length === 0) return null;
 
         const allSelected = groupAccounts.every((a) =>
-          selectedIds.includes(a.id)
+          selectedIds.includes(a.octupost_account_id)
         );
 
         const isCollapsed = collapsedGroups.has(group.id);
         const selectedCount = groupAccounts.filter((a) =>
-          selectedIds.includes(a.id)
+          selectedIds.includes(a.octupost_account_id)
         ).length;
 
         return (
@@ -230,8 +222,8 @@ export function AccountSelector({
                 }
                 onCheckedChange={() =>
                   allSelected
-                    ? deselectAllInGroup(group.account_uuids)
-                    : selectAllInGroup(group.account_uuids)
+                    ? deselectAllInGroup(group.account_ids)
+                    : selectAllInGroup(group.account_ids)
                 }
               />
               <button
@@ -265,10 +257,10 @@ export function AccountSelector({
                 <div className="space-y-1.5 px-3 pb-3">
                   {groupAccounts.map((account) => (
                     <AccountRow
-                      key={account.id}
+                      key={account.octupost_account_id}
                       account={account}
-                      checked={selectedIds.includes(account.id)}
-                      onToggle={() => toggleAccount(account.id)}
+                      checked={selectedIds.includes(account.octupost_account_id)}
+                      onToggle={() => toggleAccount(account.octupost_account_id)}
                     />
                   ))}
                 </div>
@@ -310,10 +302,10 @@ export function AccountSelector({
                   <div className="space-y-1.5 px-3 pb-3">
                     {ungroupedAccounts.map((account) => (
                       <AccountRow
-                        key={account.id}
+                        key={account.octupost_account_id}
                         account={account}
-                        checked={selectedIds.includes(account.id)}
-                        onToggle={() => toggleAccount(account.id)}
+                        checked={selectedIds.includes(account.octupost_account_id)}
+                        onToggle={() => toggleAccount(account.octupost_account_id)}
                       />
                     ))}
                   </div>
@@ -324,10 +316,10 @@ export function AccountSelector({
             <div className="space-y-1.5 p-3">
               {ungroupedAccounts.map((account) => (
                 <AccountRow
-                  key={account.id}
+                  key={account.octupost_account_id}
                   account={account}
-                  checked={selectedIds.includes(account.id)}
-                  onToggle={() => toggleAccount(account.id)}
+                  checked={selectedIds.includes(account.octupost_account_id)}
+                  onToggle={() => toggleAccount(account.octupost_account_id)}
                 />
               ))}
             </div>
@@ -338,7 +330,7 @@ export function AccountSelector({
       {accounts.length === 0 && (
         <div className="rounded-lg border border-white/[0.08] bg-zinc-900/40 p-6 text-center">
           <p className="text-sm text-muted-foreground">
-            No social accounts connected. Connect accounts in Mixpost first.
+            No social accounts connected. Connect your accounts to get started.
           </p>
         </div>
       )}
@@ -351,35 +343,23 @@ function AccountRow({
   checked,
   onToggle,
 }: {
-  account: MixpostAccount;
+  account: SocialAccount;
   checked: boolean;
   onToggle: () => void;
 }) {
   return (
     <label className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-white/[0.04]">
       <Checkbox checked={checked} onCheckedChange={onToggle} />
-      {account.image && (
-        <img
-          src={account.image}
-          alt=""
-          className="h-7 w-7 rounded-full object-cover"
-        />
-      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground truncate">
-            {account.name}
+            {account.account_name ?? account.octupost_account_id}
           </span>
-          <ProviderBadge provider={account.provider} />
-          {!account.authorized && (
-            <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-red-600/20 text-red-400">
-              Not Authorized
-            </span>
-          )}
+          <ProviderBadge provider={account.platform} />
         </div>
-        {account.username && (
+        {account.account_username && (
           <span className="text-xs text-muted-foreground truncate block">
-            @{account.username}
+            @{account.account_username}
           </span>
         )}
       </div>

@@ -9,25 +9,23 @@ import {
   getPostThumbnail,
   getPostTime,
 } from './calendar-day-cell';
-import type { MixpostPost, MixpostPostAccount } from '@/types/calendar';
+import type { SocialPost, SocialPostAccount } from '@/types/social';
 
 interface CalendarDayViewProps {
   date: Date;
-  posts: MixpostPost[];
-  onPostClick: (post: MixpostPost) => void;
+  posts: SocialPost[];
+  onPostClick: (post: SocialPost) => void;
   timezone?: string;
 }
 
 const MAX_ICONS = 6;
 
-function getPostCaption(post: MixpostPost): string {
-  const original = post.versions.find((v) => v.is_original);
-  if (!original || original.content.length === 0) return '(no content)';
-  return original.content[0].body || '(no text)';
+function getPostCaption(post: SocialPost): string {
+  return post.caption || '(no content)';
 }
 
-function getPostSortKey(post: MixpostPost): number {
-  const dateStr = post.scheduled_at || post.published_at || post.created_at;
+function getPostSortKey(post: SocialPost): number {
+  const dateStr = post.scheduled_at || post.created_at;
   if (!dateStr) return Infinity;
   return new Date(dateStr.replace(' ', 'T')).getTime();
 }
@@ -37,8 +35,8 @@ const DayPostCard = React.memo(function DayPostCard({
   onPostClick,
   timezone,
 }: {
-  post: MixpostPost;
-  onPostClick: (post: MixpostPost) => void;
+  post: SocialPost;
+  onPostClick: (post: SocialPost) => void;
   timezone?: string;
 }) {
   const status = getEffectiveStatus(post);
@@ -46,7 +44,7 @@ const DayPostCard = React.memo(function DayPostCard({
   const caption = getPostCaption(post);
   const thumbnail = getPostThumbnail(post);
   const time = getPostTime(post, timezone);
-  const { accounts } = post;
+  const accounts = post.accounts || [];
 
   const statusLabel: Record<string, string> = {
     published: 'Published',
@@ -74,7 +72,7 @@ const DayPostCard = React.memo(function DayPostCard({
       )}
       <div className="min-w-0 flex-1">
         <p className="text-xs leading-snug">
-          {caption.length > 120 ? caption.slice(0, 120) + '…' : caption}
+          {caption.length > 120 ? caption.slice(0, 120) + '...' : caption}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           {time && (
@@ -83,8 +81,8 @@ const DayPostCard = React.memo(function DayPostCard({
           <span className="text-[10px] opacity-60">{statusLabel[status] ?? status}</span>
           {accounts.length > 0 && (
             <div className="ml-auto flex items-center gap-1">
-              {accounts.slice(0, MAX_ICONS).map((a: MixpostPostAccount) => (
-                <ProviderIcon key={a.uuid} provider={a.provider} className="h-4 w-4" />
+              {accounts.slice(0, MAX_ICONS).map((a: SocialPostAccount) => (
+                <ProviderIcon key={a.octupost_account_id} provider={a.platform} className="h-4 w-4" />
               ))}
               {accounts.length > MAX_ICONS && (
                 <span className="text-[10px] opacity-70">+{accounts.length - MAX_ICONS}</span>
@@ -127,7 +125,7 @@ export const CalendarDayView = React.memo(function CalendarDayView({
       ) : (
         <div className="space-y-2">
           {sorted.map((post) => (
-            <DayPostCard key={post.uuid} post={post} onPostClick={onPostClick} timezone={timezone} />
+            <DayPostCard key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
           ))}
         </div>
       )}

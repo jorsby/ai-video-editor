@@ -3,14 +3,14 @@
 import { Sparkles, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { CaptionStyleOptions } from './caption-style-options';
-import type { MixpostAccount } from '@/types/mixpost';
+import type { SocialAccount } from '@/types/social';
 import type { CaptionStyleOptions as CaptionStyleOptionsType } from '@/types/caption-style';
 import type { LanguageCode } from '@/lib/constants/languages';
 
 interface CaptionEditorProps {
   value: string;
   onChange: (value: string) => void;
-  selectedAccounts: MixpostAccount[];
+  selectedAccounts: SocialAccount[];
   onGenerateCaption?: () => void;
   isGenerating?: boolean;
   captionStyle?: CaptionStyleOptionsType;
@@ -31,7 +31,7 @@ export function CaptionEditor({
   onLanguageChange,
 }: CaptionEditorProps) {
   const providers = Array.from(
-    new Set(selectedAccounts.map((a) => a.provider))
+    new Set(selectedAccounts.map((a) => a.platform))
   );
 
   // TikTok has the strictest limit at 2200 chars

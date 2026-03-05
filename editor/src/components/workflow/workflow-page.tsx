@@ -7,9 +7,6 @@ import { Button } from '@/components/ui/button';
 import { CaptionEditor } from '@/components/post/caption-editor';
 import { SchedulePicker } from '@/components/post/schedule-picker';
 import { getTodayInTimezone } from '@/lib/schedule-validation';
-import { fetchWithRetry, pollMediaDownload } from '@/lib/post/publish-utils';
-import { pollPostStatus, PollAuthError } from '@/lib/post/poll-post-status';
-import { savePendingPost } from '@/lib/post/pending-posts-store';
 import { readDraft, writeDraft, clearDraft } from '@/lib/post/workflow-draft-store';
 import type { WorkflowDraft } from '@/lib/post/workflow-draft-store';
 import {
@@ -21,8 +18,8 @@ import { InstagramOptions } from '@/components/post/platform-options/instagram-o
 import { YouTubeOptions } from '@/components/post/platform-options/youtube-options';
 import { TikTokOptions } from '@/components/post/platform-options/tiktok-options';
 import type { RenderedVideo } from '@/types/rendered-video';
-import type { MixpostAccount, AccountGroupWithMembers } from '@/types/mixpost';
-import type { PostFormData, PlatformOptions, TikTokAccountOptions, PostVerificationResult } from '@/types/post';
+import type { SocialAccount, SocialPostAccount, AccountGroup } from '@/types/social';
+import type { PlatformOptions, TikTokAccountOptions, PostVerificationResult } from '@/types/post';
 import type { CaptionStyleOptions } from '@/types/caption-style';
 import { DEFAULT_CAPTION_STYLE } from '@/types/caption-style';
 
@@ -36,11 +33,9 @@ interface LanguageLane {
   tiktokOverride: boolean;
   captionStatus: 'idle' | 'generating' | 'done' | 'error';
   publishStatus: LanePublishStatus;
-  createdMediaId: number | null;
-  createdPostUuid: string | null;
 }
 
-type LanePublishPhase = 'idle' | 'preflight' | 'uploading' | 'creating' | 'scheduling' | 'verifying';
+type LanePublishPhase = 'idle' | 'preflight' | 'submitting';
 
 type LanePublishStatus =
   | { phase: LanePublishPhase }
@@ -93,13 +88,15 @@ function addMinutesToTime(time: string, minutes: number): string {
 
 function resolveAccountIds(
   groupId: string | null,
-  groups: AccountGroupWithMembers[],
-  accounts: MixpostAccount[]
-): number[] {
+  groups: AccountGroup[],
+  accounts: SocialAccount[]
+): string[] {
   if (!groupId) return [];
   const group = groups.find(g => g.id === groupId);
   if (!group) return [];
-  return accounts.filter(a => group.account_uuids.includes(a.uuid)).map(a => a.id);
+  return accounts
+    .filter(a => group.account_ids.includes(a.octupost_account_id))
+    .map(a => a.octupost_account_id);
 }
 
 const DEFAULT_TIKTOK_OPTIONS: TikTokAccountOptions = {
@@ -114,23 +111,23 @@ const DEFAULT_TIKTOK_OPTIONS: TikTokAccountOptions = {
 };
 
 function defaultPlatformOptions(
-  accountIds: number[],
-  accounts: MixpostAccount[],
+  accountIds: string[],
+  accounts: SocialAccount[],
   youtubeTitle: string
 ): PlatformOptions {
-  const filteredAccounts = accounts.filter(a => accountIds.includes(a.id));
-  const providers = filteredAccounts.map(a => a.provider);
+  const filteredAccounts = accounts.filter(a => accountIds.includes(a.octupost_account_id));
+  const platforms = filteredAccounts.map(a => a.platform);
 
   const tiktokDefaults: Record<string, TikTokAccountOptions> = {};
-  for (const acc of filteredAccounts.filter(a => a.provider === 'tiktok')) {
-    tiktokDefaults[`account-${acc.id}`] = { ...DEFAULT_TIKTOK_OPTIONS };
+  for (const acc of filteredAccounts.filter(a => a.platform === 'tiktok')) {
+    tiktokDefaults[`account-${acc.octupost_account_id}`] = { ...DEFAULT_TIKTOK_OPTIONS };
   }
 
   return {
-    ...(providers.includes('instagram') && { instagram: { type: 'reel' } }),
-    ...(providers.includes('facebook') && { facebook: { type: 'reel' } }),
-    ...(providers.includes('youtube') && { youtube: { title: youtubeTitle, status: 'public' } }),
-    ...(providers.includes('tiktok') && { tiktok: tiktokDefaults }),
+    ...(platforms.includes('instagram') && { instagram: { type: 'reel' } }),
+    ...(platforms.includes('facebook') && { facebook: { type: 'reel' } }),
+    ...(platforms.includes('youtube') && { youtube: { title: youtubeTitle, status: 'public' } }),
+    ...(platforms.includes('tiktok') && { tiktok: tiktokDefaults }),
   };
 }
 
@@ -173,10 +170,7 @@ function formatScheduledAt(isoString: string | undefined): string | null {
 function StepLabel({ phase, scheduleType }: { phase: string; scheduleType: 'now' | 'scheduled' }) {
   const labels: Record<string, string> = {
     preflight: 'Checking accounts...',
-    uploading: 'Uploading video...',
-    creating: 'Creating post...',
-    scheduling: scheduleType === 'now' ? 'Posting now...' : 'Scheduling...',
-    verifying: 'Confirming post...',
+    submitting: scheduleType === 'now' ? 'Publishing...' : 'Scheduling...',
   };
   return (
     <span className="text-xs text-zinc-400 flex items-center gap-1.5">
@@ -192,8 +186,8 @@ interface WorkflowPageProps {
 
 export function WorkflowPage({ projectId }: WorkflowPageProps) {
   const [lanes, setLanes] = useState<Record<string, LanguageLane>>({});
-  const [accounts, setAccounts] = useState<MixpostAccount[]>([]);
-  const [groups, setGroups] = useState<AccountGroupWithMembers[]>([]);
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [groups, setGroups] = useState<AccountGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -226,7 +220,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
       try {
         const [rendersRes, accountsRes, groupsRes] = await Promise.all([
           fetch(`/api/rendered-videos?project_id=${projectId}`),
-          fetch('/api/mixpost/accounts'),
+          fetch('/api/v2/accounts'),
           fetch('/api/account-groups'),
         ]);
 
@@ -235,11 +229,31 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
         if (!groupsRes.ok) throw new Error('Failed to load groups');
 
         const { rendered_videos } = await rendersRes.json();
-        const { accounts: loadedAccounts } = await accountsRes.json();
+        const accountsData = await accountsRes.json();
         const { groups: loadedGroups } = await groupsRes.json();
 
-        setAccounts(loadedAccounts ?? []);
-        setGroups(loadedGroups ?? []);
+        // Map OctupostAccount response to SocialAccount shape
+        const loadedAccounts: SocialAccount[] = (accountsData.accounts || []).map((a: {
+          platform: string;
+          account_id: string;
+          account_name: string;
+          account_username: string | null;
+          language: string | null;
+          expires_at: string;
+        }) => ({
+          id: a.account_id,
+          user_id: '',
+          octupost_account_id: a.account_id,
+          platform: a.platform,
+          account_name: a.account_name,
+          account_username: a.account_username,
+          language: a.language,
+          expires_at: a.expires_at,
+          synced_at: new Date().toISOString(),
+        }));
+
+        setAccounts(loadedAccounts);
+        setGroups((loadedGroups ?? []).map((g: any) => ({ ...g, account_ids: g.account_uuids || g.account_ids || [] })));
 
         // Deduplicate by language — keep newest per language code
         const byLanguage = new Map<string, RenderedVideo>();
@@ -256,14 +270,16 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
         for (const [lang, video] of byLanguage) {
           const keyword = LANG_KEYWORDS[lang] ?? '';
           const autoGroup = keyword
-            ? loadedGroups.find((g: AccountGroupWithMembers) =>
+            ? loadedGroups.find((g: AccountGroup) =>
                 g.name.toLowerCase().includes(keyword)
               )
             : null;
 
           const autoGroupId = autoGroup?.id ?? null;
           const autoAccountIds = autoGroupId
-            ? loadedAccounts.filter((a: MixpostAccount) => autoGroup!.account_uuids.includes(a.uuid)).map((a: MixpostAccount) => a.id)
+            ? loadedAccounts
+                .filter((a: SocialAccount) => autoGroup!.account_ids.includes(a.octupost_account_id))
+                .map((a: SocialAccount) => a.octupost_account_id)
             : [];
 
           initialLanes[lang] = {
@@ -276,8 +292,6 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
             tiktokOverride: false,
             captionStatus: 'idle',
             publishStatus: { phase: 'idle' },
-            createdMediaId: null,
-            createdPostUuid: null,
           };
         }
 
@@ -407,8 +421,8 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     try {
       const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
       const providers = accounts
-        .filter(a => accountIds.includes(a.id))
-        .map(a => a.provider);
+        .filter(a => accountIds.includes(a.octupost_account_id))
+        .map(a => a.platform);
 
       const res = await fetch('/api/generate-caption', {
         method: 'POST',
@@ -453,123 +467,103 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
   }
 
   async function publishLane(lane: LanguageLane, scheduledTimeOverride?: string, laneId?: string) {
-    const signal = laneAbortRefs.current[lane.language]?.signal;
     const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
 
-    // Preflight — check authorization
+    // Preflight
     updateLane(lane.language, { publishStatus: { phase: 'preflight' } });
-    const unauthorized = accounts.filter(
-      a => accountIds.includes(a.id) && !a.authorized
-    );
-    if (unauthorized.length > 0) {
-      if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: 'Unauthorized accounts' }).catch(console.error);
-      throw new Error(
-        `Unauthorized accounts: ${unauthorized.map(a => `${a.name} (${a.provider})`).join(', ')}`
-      );
+
+    if (accountIds.length === 0) {
+      if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: 'No accounts selected' }).catch(console.error);
+      throw new Error('No accounts selected');
     }
 
-    // Upload (skip if we already have a mediaId from a previous attempt)
-    let mediaId = lane.createdMediaId;
-    if (!mediaId) {
-      updateLane(lane.language, { publishStatus: { phase: 'uploading' } });
-      if (laneId) updateWorkflowRunLane(laneId, { status: 'uploading' }).catch(console.error);
-      const mediaRes = await fetchWithRetry('/api/mixpost/media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: lane.video.url }),
-      });
-      if (!mediaRes.ok) {
-        const err = await mediaRes.json();
-        const msg = err.error || 'Upload failed';
-        if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
-        throw new Error(msg);
-      }
-      const mediaData = await mediaRes.json();
-      if (mediaRes.status === 202 && mediaData.pending && mediaData.download_id) {
-        mediaId = (await pollMediaDownload(mediaData.download_id)).id;
-      } else {
-        mediaId = Number(mediaData.media.id);
-      }
-      updateLane(lane.language, { createdMediaId: mediaId });
+    // Apply youtube title fallback if empty
+    let platOpts = lane.platformOptions;
+    if (platOpts.youtube && !platOpts.youtube.title.trim()) {
+      platOpts = { ...platOpts, youtube: { ...platOpts.youtube, title: lane.caption.slice(0, 100) } };
     }
 
-    // Create post (skip if we already have a postUuid from a previous attempt)
-    let postUuid = lane.createdPostUuid;
-    if (!postUuid) {
-      updateLane(lane.language, { publishStatus: { phase: 'creating' } });
-      if (laneId) updateWorkflowRunLane(laneId, { status: 'creating' }).catch(console.error);
+    // Single API call to create + publish/schedule
+    updateLane(lane.language, { publishStatus: { phase: 'submitting' } });
+    if (laneId) updateWorkflowRunLane(laneId, { status: 'publishing' }).catch(console.error);
 
-      // Apply youtube title fallback if empty
-      let platOpts = lane.platformOptions;
-      if (platOpts.youtube && !platOpts.youtube.title.trim()) {
-        platOpts = { ...platOpts, youtube: { ...platOpts.youtube, title: lane.caption.slice(0, 100) } };
-      }
+    const postBody = {
+      caption: lane.caption,
+      mediaUrl: lane.video.url,
+      mediaType: 'video' as const,
+      accountIds,
+      scheduleType,
+      scheduledDate: scheduleType === 'scheduled' ? scheduledDate : undefined,
+      scheduledTime: scheduleType === 'scheduled' ? (scheduledTimeOverride ?? scheduledTime) : undefined,
+      timezone,
+      platformOptions: platOpts,
+    };
 
-      const postBody: PostFormData & { mediaId: number } = {
-        caption: lane.caption,
-        accountIds,
-        mediaId,
-        scheduleType,
-        scheduledDate: scheduleType === 'scheduled' ? scheduledDate : undefined,
-        scheduledTime: scheduleType === 'scheduled' ? (scheduledTimeOverride ?? scheduledTime) : undefined,
-        timezone,
-        platformOptions: platOpts,
-      };
-
-      const postRes = await fetchWithRetry('/api/mixpost/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody),
-      });
-      if (!postRes.ok) {
-        const err = await postRes.json();
-        const msg = err.error || 'Create post failed';
-        if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
-        throw new Error(msg);
-      }
-      postUuid = (await postRes.json()).post.uuid as string;
-      updateLane(lane.language, { createdPostUuid: postUuid });
-      if (laneId) updateWorkflowRunLane(laneId, { mixpost_uuid: postUuid }).catch(console.error);
-    }
-
-    // Schedule / publish
-    updateLane(lane.language, { publishStatus: { phase: 'scheduling' } });
-    const schedRes = await fetchWithRetry('/api/mixpost/posts/schedule', {
+    const res = await fetch('/api/v2/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ postUuid, postNow: scheduleType === 'now' }),
+      body: JSON.stringify(postBody),
     });
-    if (!schedRes.ok) {
-      const err = await schedRes.json();
-      const msg = err.error || 'Schedule failed';
+
+    if (!res.ok) {
+      const err = await res.json();
+      const msg = err.error || 'Failed to create post';
       if (laneId) updateWorkflowRunLane(laneId, { status: 'failed', error_message: msg }).catch(console.error);
       throw new Error(msg);
     }
 
-    const schedData = await schedRes.json() as { success: boolean; scheduled_at?: string; postUuid: string };
+    const data = await res.json();
+    const postAccounts: SocialPostAccount[] = data.post?.post_accounts || [];
+    const postId = data.post?.id;
 
-    // Verify (only for "post now" — scheduled posts skip verification)
-    if (scheduleType === 'now') {
-      updateLane(lane.language, { publishStatus: { phase: 'verifying' } });
-      const result = await pollPostStatus({ postUuid, signal });
+    // Build verification result from response
+    const failedAccounts = postAccounts.filter(pa => pa.status === 'failed');
+    const allFailed = failedAccounts.length === postAccounts.length;
+    const anyFailed = failedAccounts.length > 0;
+
+    const postStatus = data.post?.status as string;
+    const resultStatus = postStatus === 'published' ? 'published'
+      : postStatus === 'scheduled' ? 'scheduled'
+      : postStatus === 'failed' ? 'failed'
+      : anyFailed ? 'failed' : 'published';
+
+    const result: PostVerificationResult = {
+      status: resultStatus as PostVerificationResult['status'],
+      accounts: postAccounts.map(pa => {
+        const acct = accounts.find(a => a.octupost_account_id === pa.octupost_account_id);
+        return {
+          accountId: pa.octupost_account_id,
+          accountName: pa.account_name ?? acct?.account_name ?? pa.platform,
+          platform: pa.platform,
+          status: pa.status as 'published' | 'failed' | 'pending',
+          errorMessage: pa.error_message,
+          platformPostId: pa.platform_post_id,
+        };
+      }),
+    };
+
+    if (laneId) {
+      const finalStatus = allFailed ? 'failed' : anyFailed ? 'partial' : (scheduleType === 'now' ? 'published' : 'scheduled');
+      const errMsg = failedAccounts.map(a => a.error_message).filter(Boolean).join('; ') || undefined;
+      updateWorkflowRunLane(laneId, { status: finalStatus, error_message: errMsg, mixpost_uuid: postId }).catch(console.error);
+    }
+
+    if (anyFailed && !allFailed) {
+      // Partial success
       updateLane(lane.language, { publishStatus: { phase: 'done', result } });
-      if (laneId) {
-        const finalStatus = result.status === 'failed' ? 'failed' : 'published';
-        const errMsg = result.accounts.flatMap(a => a.errors).join('; ') || undefined;
-        updateWorkflowRunLane(laneId, { status: finalStatus, error_message: errMsg }).catch(console.error);
-      }
-      if (result.status === 'unconfirmed') {
-        savePendingPost(postUuid, []);
-      }
+    } else if (allFailed) {
+      const errMsg = failedAccounts.map(a => a.error_message).filter(Boolean).join('; ') || 'All accounts failed';
+      throw new Error(errMsg);
     } else {
       updateLane(lane.language, {
         publishStatus: {
           phase: 'done',
-          result: { status: 'scheduled', accounts: [] } as unknown as PostVerificationResult,
-          scheduledAt: schedData.scheduled_at ?? undefined,
+          result,
+          ...(scheduleType === 'scheduled' && data.post?.scheduled_at
+            ? { scheduledAt: data.post.scheduled_at }
+            : {}),
         },
       });
-      if (laneId) updateWorkflowRunLane(laneId, { status: 'scheduled' }).catch(console.error);
     }
   }
 
@@ -613,9 +607,9 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
 
     // Publish sequentially to prevent simultaneous platform API bursts.
     // For "post now": each lane's schedule call fires only after the previous lane has
-    // completed, ensuring Mixpost processes one batch at a time.
+    // completed, ensuring the system processes one batch at a time.
     // For "scheduled": each lane gets a +2-minute offset so posts are spread across
-    // separate Mixpost cron runs instead of all queuing in the same minute.
+    // separate scheduled runs instead of all queuing in the same minute.
     for (let i = 0; i < activeLanes.length; i++) {
       const lane = activeLanes[i];
       const timeOverride =
@@ -624,12 +618,8 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
           : undefined;
 
       await publishLane(lane, timeOverride, laneIdMap[lane.language]).catch(err => {
-        const msg =
-          err instanceof PollAuthError
-            ? 'Session expired during verification — check Mixpost for status.'
-            : (err as Error).message;
         updateLane(lane.language, {
-          publishStatus: { phase: 'error', message: msg },
+          publishStatus: { phase: 'error', message: (err as Error).message },
         });
       });
     }
@@ -638,21 +628,15 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
   }
 
   function retryLane(language: string) {
-    // Capture snapshot of lane before state update
     const lane = lanes[language];
     if (!lane) return;
 
-    // Reset status + clear postUuid (keep mediaId for idempotent retry)
     const retryLaneData: LanguageLane = {
       ...lane,
       publishStatus: { phase: 'idle' },
-      createdPostUuid: null,
     };
 
-    updateLane(language, {
-      publishStatus: { phase: 'idle' },
-      createdPostUuid: null,
-    });
+    updateLane(language, { publishStatus: { phase: 'idle' } });
 
     laneAbortRefs.current[language] = new AbortController();
 
@@ -684,11 +668,11 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
 
   // All unique TikTok accounts across all lanes (for shared TikTok section)
   const allTikTokAccounts = useMemo(() => {
-    const seen = new Map<number, MixpostAccount>();
+    const seen = new Map<string, SocialAccount>();
     for (const lane of laneList) {
       const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
-      for (const acc of accounts.filter(a => accountIds.includes(a.id) && a.provider === 'tiktok')) {
-        if (!seen.has(acc.id)) seen.set(acc.id, acc);
+      for (const acc of accounts.filter(a => accountIds.includes(a.octupost_account_id) && a.platform === 'tiktok')) {
+        if (!seen.has(acc.octupost_account_id)) seen.set(acc.octupost_account_id, acc);
       }
     }
     return Array.from(seen.values());
@@ -747,8 +731,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
     }
     if (phase === 'error') return 'Failed';
     const map: Record<string, string> = {
-      preflight: 'Checking', uploading: 'Uploading',
-      creating: 'Creating', scheduling: 'Scheduling', verifying: 'Verifying',
+      preflight: 'Checking', submitting: 'Publishing',
     };
     return map[phase] ?? phase;
   }
@@ -830,7 +813,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
             LANG_BADGE_COLOR[lane.language] ??
             'bg-zinc-500/20 text-zinc-300 border-zinc-500/30';
           const accountIds = resolveAccountIds(lane.assignedGroupId, groups, accounts);
-          const assignedAccounts = accounts.filter(a => accountIds.includes(a.id));
+          const assignedAccounts = accounts.filter(a => accountIds.includes(a.octupost_account_id));
           const status = lane.publishStatus;
           const isPublishing =
             status.phase !== 'idle' &&
@@ -932,7 +915,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                   {/* Platform options — shown when group has relevant accounts */}
                   {assignedAccounts.length > 0 && !isPublishing && !isDone && (
                     <div className="space-y-3">
-                      {assignedAccounts.some(a => a.provider === 'instagram') && lane.platformOptions.instagram && (
+                      {assignedAccounts.some(a => a.platform === 'instagram') && lane.platformOptions.instagram && (
                         <InstagramOptions
                           value={lane.platformOptions.instagram}
                           onChange={v => updateLane(lane.language, {
@@ -940,7 +923,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                           })}
                         />
                       )}
-                      {assignedAccounts.some(a => a.provider === 'youtube') && lane.platformOptions.youtube && (
+                      {assignedAccounts.some(a => a.platform === 'youtube') && lane.platformOptions.youtube && (
                         <YouTubeOptions
                           value={lane.platformOptions.youtube}
                           onChange={v => updateLane(lane.language, {
@@ -948,7 +931,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                           })}
                         />
                       )}
-                      {assignedAccounts.some(a => a.provider === 'tiktok') && lane.platformOptions.tiktok !== undefined && (
+                      {assignedAccounts.some(a => a.platform === 'tiktok') && lane.platformOptions.tiktok !== undefined && (
                         <div>
                           {!lane.tiktokOverride ? (
                             <button
@@ -978,7 +961,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                                 </button>
                               </div>
                               <TikTokOptions
-                                accounts={assignedAccounts.filter(a => a.provider === 'tiktok')}
+                                accounts={assignedAccounts.filter(a => a.platform === 'tiktok')}
                                 value={lane.platformOptions.tiktok}
                                 onChange={v => updateLane(lane.language, {
                                   platformOptions: { ...lane.platformOptions, tiktok: v },
@@ -1023,7 +1006,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                       <option value="">— Select a group —</option>
                       {groups.map(g => (
                         <option key={g.id} value={g.id}>
-                          {g.name} ({g.account_uuids.length})
+                          {g.name} ({g.account_ids.length})
                         </option>
                       ))}
                     </select>
@@ -1032,7 +1015,7 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                     {assignedAccounts.length > 0 && (
                       <p className="text-[10px] text-zinc-500 leading-relaxed">
                         {assignedAccounts
-                          .map(a => `${a.name} (${a.provider})`)
+                          .map(a => `${a.account_name ?? a.octupost_account_id} (${a.platform})`)
                           .join(' · ')}
                       </p>
                     )}
@@ -1053,20 +1036,10 @@ export function WorkflowPage({ projectId }: WorkflowPageProps) {
                               <XCircle className="h-3 w-3 text-red-400 shrink-0" />
                             )}
                             <span className="text-zinc-300">{acc.accountName}</span>
-                            <span className="text-zinc-600">{acc.provider}</span>
-                            {acc.external_url && (
-                              <a
-                                href={acc.external_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:underline ml-1"
-                              >
-                                View →
-                              </a>
-                            )}
-                            {acc.errors.length > 0 && (
+                            <span className="text-zinc-600">{acc.platform}</span>
+                            {acc.errorMessage && (
                               <span className="text-red-400 ml-1">
-                                {acc.errors.join(', ')}
+                                {acc.errorMessage}
                               </span>
                             )}
                           </div>

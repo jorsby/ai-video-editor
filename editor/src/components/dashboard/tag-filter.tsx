@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { AccountTagMap } from '@/types/mixpost';
+import type { AccountTagMap } from '@/types/social';
 
 interface TagFilterProps {
   tags: AccountTagMap;

@@ -9,7 +9,7 @@ const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
 const TRANSLATION_MODEL = 'google/gemini-3.1-pro-preview';
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
+  const supabase = await createClient('studio');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

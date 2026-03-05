@@ -469,7 +469,7 @@ export function StoryboardCards({
 
     setIsGenerating(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('generate-tts', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -500,7 +500,7 @@ export function StoryboardCards({
 
     setIsGeneratingAll(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const languages = Object.keys(voiceConfig);
       const sceneIds = Array.from(selectedSceneIds);
 
@@ -551,7 +551,7 @@ export function StoryboardCards({
 
     setIsOutpainting(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: { scene_ids: Array.from(selectedSceneIds), model: outpaintModel },
       });
@@ -588,7 +588,7 @@ export function StoryboardCards({
 
     setIsEnhancing(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -629,7 +629,7 @@ export function StoryboardCards({
 
     setIsCustomEditing(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -672,7 +672,7 @@ export function StoryboardCards({
 
     setIsRefGenerating(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -716,7 +716,7 @@ export function StoryboardCards({
     if (!confirmed) return;
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const firstFrames = sortedScenes
         .filter((s) => selectedSceneIds.has(s.id))
         .flatMap((s) => s.first_frames)
@@ -749,7 +749,7 @@ export function StoryboardCards({
 
     setIsEnhancing(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -791,7 +791,7 @@ export function StoryboardCards({
 
     setIsCustomEditing(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('edit-image', {
         body: {
           scene_ids: Array.from(selectedSceneIds),
@@ -841,7 +841,7 @@ export function StoryboardCards({
     if (!confirmed) return;
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const backgrounds = sortedScenes
         .filter((s) => selectedSceneIds.has(s.id))
         .flatMap((s) => s.backgrounds ?? [])
@@ -882,7 +882,7 @@ export function StoryboardCards({
 
     setIsEnhancingObject(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const sceneIds = sortedScenes
         .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
         .map((s) => s.id);
@@ -926,7 +926,7 @@ export function StoryboardCards({
 
     setIsCustomEditingObject(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const sceneIds = sortedScenes
         .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
         .map((s) => s.id);
@@ -967,7 +967,7 @@ export function StoryboardCards({
     if (!confirmed) return;
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const objects = sortedScenes
         .flatMap((s) => s.objects ?? [])
         .filter((o) => o.name === objectName && o.url);
@@ -1032,7 +1032,7 @@ export function StoryboardCards({
     if (!source) return;
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const scene = sortedScenes.find((s) => s.id === sceneId);
       const bg = scene?.backgrounds?.[0];
       if (!bg) return;
@@ -1091,7 +1091,7 @@ export function StoryboardCards({
 
     setIsGeneratingVideo(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke(
         'generate-video',
         {
@@ -1143,7 +1143,7 @@ export function StoryboardCards({
     if (!confirmed) return;
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
 
       for (const scene of selectedScenesWithVideo) {
         await supabase
@@ -1174,7 +1174,7 @@ export function StoryboardCards({
 
     setIsGeneratingSfx(true);
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data, error } = await supabase.functions.invoke('generate-sfx', {
         body: { scene_ids: Array.from(selectedSceneIds) },
       });
@@ -1219,7 +1219,7 @@ export function StoryboardCards({
       (v) => v.language === selectedLanguage
     );
     if (!voiceover) return;
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const { error } = await supabase
       .from('voiceovers')
       .update({ text: newText })
@@ -1234,7 +1234,7 @@ export function StoryboardCards({
   };
 
   const handleSaveVisualPrompt = async (sceneId: string, newPrompt: string) => {
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const isRef = storyboard?.mode === 'ref_to_video';
 
     if (isRef) {
@@ -1264,7 +1264,7 @@ export function StoryboardCards({
   };
 
   const handleReadScene = async (sceneId: string, newVoiceoverText: string) => {
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     const voiceover = scene?.voiceovers?.find(
       (v) => v.language === selectedLanguage
@@ -1354,7 +1354,7 @@ export function StoryboardCards({
   };
 
   const handleReadSceneAllLanguages = async (sceneId: string, currentText: string) => {
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     if (!scene) return;
 
@@ -1436,7 +1436,7 @@ export function StoryboardCards({
     sceneId: string,
     newVisualPrompt: string
   ) => {
-    const supabase = createClient();
+    const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     const isRef = storyboard?.mode === 'ref_to_video';
 

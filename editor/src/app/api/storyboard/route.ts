@@ -390,7 +390,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -583,7 +583,7 @@ Generate the storyboard.`;
 // DELETE - Remove storyboard by ID
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -626,7 +626,7 @@ export async function DELETE(req: NextRequest) {
 // PATCH - Update draft storyboard plan
 export async function PATCH(req: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

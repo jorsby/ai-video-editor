@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const publicUrl = await r2.uploadData(fileName, buffer, 'audio/mpeg');
 
     // Save to Supabase
-    const supabase = await createClient();
+    const supabase = await createClient('studio');
     const {
       data: { user },
     } = await supabase.auth.getUser();

@@ -97,7 +97,7 @@ export function TimelineToolbar({
     setTranslateProgress(`Translating ${langs.length} language(s)...`);
 
     try {
-      const supabase = createClient();
+      const supabase = createClient('studio');
       const { data: sb } = await supabase
         .from('storyboards')
         .select('id')
