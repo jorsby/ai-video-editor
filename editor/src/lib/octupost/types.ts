@@ -8,6 +8,7 @@ export interface OctupostAccount {
   language: string | null;
   agent_id: string | null;
   expires_at: string;
+  profile_image_url?: string | null;
 }
 
 export interface OctupostToken {
@@ -16,6 +17,7 @@ export interface OctupostToken {
   account_name: string;
   access_token: string;
   expires_at: string;
+  profile_image_url?: string | null;
 }
 
 // --- DB types ---

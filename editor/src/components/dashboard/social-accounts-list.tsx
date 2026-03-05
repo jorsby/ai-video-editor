@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, ChevronsDownUp, ChevronsUpDown, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AccountGroupSection } from './account-group-section';
 import { AccountPostsList } from './account-posts-list';
@@ -365,6 +365,9 @@ export function SocialAccountsList({
                   onClick={() => setSelectedAccountId(account.account_id)}
                 >
                   <Avatar>
+                    {account.profile_image_url && (
+                      <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+                    )}
                     <AvatarFallback>
                       {getInitials(account.account_name)}
                     </AvatarFallback>

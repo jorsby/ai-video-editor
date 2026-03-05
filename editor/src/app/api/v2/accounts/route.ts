@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server';
-import { fetchAccounts } from '@/lib/octupost/client';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
@@ -13,25 +12,28 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const accounts = await fetchAccounts();
+    // Read accounts directly from social_auth.tokens (single source of truth)
+    const { data: tokens, error } = await supabase
+      .from('tokens')
+      .select('platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url')
+      .order('platform')
+      .order('account_name');
 
-    // Sync to social_accounts table (upsert)
-    if (accounts.length > 0) {
-      const rows = accounts.map((a) => ({
-        user_id: user.id,
-        octupost_account_id: a.account_id,
-        platform: a.platform,
-        account_name: a.account_name,
-        account_username: a.account_username,
-        language: a.language,
-        expires_at: a.expires_at,
-        synced_at: new Date().toISOString(),
-      }));
-
-      await supabase
-        .from('tokens')
-        .upsert(rows, { onConflict: 'user_id,octupost_account_id' });
+    if (error) {
+      console.error('Database error:', error);
+      return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
     }
+
+    const accounts = (tokens ?? []).map((t: any) => ({
+      platform: t.platform,
+      account_id: t.account_id,
+      account_name: t.account_name,
+      account_username: t.account_username,
+      language: t.language,
+      agent_id: t.agent_id,
+      expires_at: t.expires_at,
+      profile_image_url: t.profile_image_url,
+    }));
 
     return NextResponse.json({ accounts });
   } catch (err) {
