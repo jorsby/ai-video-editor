@@ -1,11 +1,16 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { createLogger } from '@/lib/logger';
 
 const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
   '16:9': { width: 1920, height: 1080 },
   '9:16': { width: 1080, height: 1920 },
   '1:1': { width: 1080, height: 1080 },
 };
+
+const FAL_API_KEY = process.env.FAL_KEY!;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
 export async function POST(req: NextRequest) {
   try {
@@ -88,7 +93,8 @@ export async function POST(req: NextRequest) {
     const newSceneCount = rows * cols;
     const voiceoverList = plan.voiceover_list as Record<string, string[]>;
     const languages = Object.keys(voiceoverList);
-    const oldSceneCount = (Object.values(voiceoverList)[0] as string[] | undefined)?.length ?? 0;
+    const oldSceneCount =
+      (Object.values(voiceoverList)[0] as string[] | undefined)?.length ?? 0;
 
     if (
       newSceneCount !== oldSceneCount ||
@@ -106,7 +112,8 @@ export async function POST(req: NextRequest) {
         plan.visual_flow = plan.visual_flow.slice(0, newSceneCount);
       } else if (newSceneCount > oldSceneCount) {
         for (const lang of languages) {
-          const lastVo = voiceoverList[lang][voiceoverList[lang].length - 1] || '';
+          const lastVo =
+            voiceoverList[lang][voiceoverList[lang].length - 1] || '';
           while (voiceoverList[lang].length < newSceneCount) {
             voiceoverList[lang].push(lastVo);
           }
@@ -137,51 +144,149 @@ export async function POST(req: NextRequest) {
     const dimensions =
       ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
 
-    // Call approve-grid-split edge function
-    // User is already verified by getUser() above. We use the anon key as the
-    // bearer token because Supabase Auth issues ES256 JWTs which the edge
-    // function gateway cannot verify (it expects HS256).
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    // ── Inline approve-grid-split logic ──────────────────────────────
 
-    const fnResponse = await fetch(
-      `${supabaseUrl}/functions/v1/approve-grid-split`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({
-          storyboard_id: storyboardId,
-          grid_image_id: gridImageId,
-          grid_image_url: gridImage.url,
-          rows: plan.rows,
-          cols: plan.cols,
-          width: dimensions.width,
-          height: dimensions.height,
-          voiceover_list: plan.voiceover_list,
-          visual_prompt_list: plan.visual_flow,
-        }),
-      }
+    const log = createLogger();
+    log.setContext({ step: 'ApproveGridSplit' });
+
+    const adminSupabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { db: { schema: 'studio' } }
     );
 
-    if (!fnResponse.ok) {
-      const errorBody = await fnResponse.text();
-      console.error('Edge function error:', fnResponse.status, errorBody);
-      return NextResponse.json(
-        { error: 'Failed to start split workflow' },
-        { status: 500 }
-      );
+    const expectedScenes = rows * cols;
+    const visual_prompt_list = plan.visual_flow as string[];
+
+    // Create scenes with first_frames and voiceovers
+    log.info('Creating scenes', { count: expectedScenes });
+    log.startTiming('create_scenes');
+
+    for (let i = 0; i < expectedScenes; i++) {
+      const { data: scene, error: sceneError } = await adminSupabase
+        .from('scenes')
+        .insert({ storyboard_id: storyboardId, order: i })
+        .select()
+        .single();
+
+      if (sceneError || !scene) {
+        log.warn('Failed to insert scene', {
+          index: i,
+          error: sceneError?.message,
+        });
+        continue;
+      }
+
+      await adminSupabase.from('first_frames').insert({
+        scene_id: scene.id,
+        grid_image_id: gridImageId,
+        visual_prompt: visual_prompt_list[i],
+        status: 'processing',
+      });
+
+      for (const lang of languages) {
+        await adminSupabase.from('voiceovers').insert({
+          scene_id: scene.id,
+          text: voiceoverList[lang][i],
+          language: lang,
+          status: 'success',
+        });
+      }
     }
 
-    const fnData = await fnResponse.json();
+    log.success('Scenes created', {
+      count: expectedScenes,
+      time_ms: log.endTiming('create_scenes'),
+    });
 
-    if (fnData && fnData.success === false) {
-      console.error('Split workflow returned failure:', fnData);
+    // Send split request to ComfyUI
+    const splitWebhookParams = new URLSearchParams({
+      step: 'SplitGridImage',
+      grid_image_id: gridImageId,
+      storyboard_id: storyboardId,
+    });
+    const splitWebhookUrl = `${APP_URL}/api/webhook/fal?${splitWebhookParams.toString()}`;
+
+    const falUrl = new URL(
+      'https://queue.fal.run/comfy/octupost/splitgridimage'
+    );
+    falUrl.searchParams.set('fal_webhook', splitWebhookUrl);
+
+    try {
+      log.api('ComfyUI', 'splitgridimage', {
+        rows,
+        cols,
+        width: dimensions.width,
+        height: dimensions.height,
+      });
+      log.startTiming('split_request');
+
+      const splitResponse = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${FAL_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          loadimage_1: gridImage.url,
+          rows,
+          cols,
+          width: dimensions.width,
+          height: dimensions.height,
+        }),
+      });
+
+      if (!splitResponse.ok) {
+        const errorText = await splitResponse.text();
+        log.error('Split request failed', {
+          status: splitResponse.status,
+          error: errorText,
+          time_ms: log.endTiming('split_request'),
+        });
+        throw new Error(`Split request failed: ${splitResponse.status}`);
+      }
+
+      const splitResult = await splitResponse.json();
+      log.success('Split request sent', {
+        request_id: splitResult.request_id,
+        time_ms: log.endTiming('split_request'),
+      });
+
+      // Save split_request_id to grid_images for tracking
+      await adminSupabase
+        .from('grid_images')
+        .update({ split_request_id: splitResult.request_id })
+        .eq('id', gridImageId);
+
+      log.summary('success', {
+        storyboard_id: storyboardId,
+        grid_image_id: gridImageId,
+        scenes_created: expectedScenes,
+        split_request_id: splitResult.request_id,
+      });
+    } catch (splitError) {
+      log.error('Failed to send split request', {
+        error:
+          splitError instanceof Error ? splitError.message : String(splitError),
+      });
+
+      // Mark all first_frames as failed
+      const { data: scenes } = await adminSupabase
+        .from('scenes')
+        .select('id')
+        .eq('storyboard_id', storyboardId);
+
+      if (scenes) {
+        for (const scene of scenes) {
+          await adminSupabase
+            .from('first_frames')
+            .update({ status: 'failed', error_message: 'internal_error' })
+            .eq('scene_id', scene.id);
+        }
+      }
+
       return NextResponse.json(
-        { error: fnData.error || 'Split workflow failed' },
+        { error: 'Failed to send split request' },
         { status: 500 }
       );
     }

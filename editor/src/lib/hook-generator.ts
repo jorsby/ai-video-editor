@@ -22,7 +22,13 @@ export interface HookTextConfig {
     wordWrap: boolean;
     wordWrapWidth: number;
     stroke: { color: string; width: number; join: string };
-    dropShadow: { color: string; alpha: number; blur: number; angle: number; distance: number };
+    dropShadow: {
+      color: string;
+      alpha: number;
+      blur: number;
+      angle: number;
+      distance: number;
+    };
     fontUrl: string;
   };
   clipProps: {
@@ -45,7 +51,9 @@ export function calculateHookDuration(hookText: string): number {
  * Generate a Text clip configuration for the video hook (title card).
  * Returns a config object to be used with `new Text(config.content, config.textOpts)`.
  */
-export function generateHookTextConfig(options: HookClipOptions): HookTextConfig {
+export function generateHookTextConfig(
+  options: HookClipOptions
+): HookTextConfig {
   const {
     videoWidth,
     videoHeight,
@@ -56,9 +64,11 @@ export function generateHookTextConfig(options: HookClipOptions): HookTextConfig
   } = options;
 
   const fontFamily = options.fontFamily ?? (isRTL ? 'Cairo' : 'Montserrat');
-  const fontUrl = options.fontUrl ?? (isRTL
-    ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
-    : 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf');
+  const fontUrl =
+    options.fontUrl ??
+    (isRTL
+      ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
+      : 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf');
 
   const wordWrapWidth = videoWidth * 0.85;
 
@@ -70,7 +80,6 @@ export function generateHookTextConfig(options: HookClipOptions): HookTextConfig
       fontWeight: '800',
       fill: '#ffffff',
       align: isRTL ? 'right' : 'center',
-      textCase: 'uppercase',
       wordWrap: true,
       wordWrapWidth,
       stroke: {

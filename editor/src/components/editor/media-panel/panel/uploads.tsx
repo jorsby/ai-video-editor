@@ -264,7 +264,7 @@ export default function PanelUploads() {
             : 'image';
 
         // Upload to R2
-        let result: { url: string };
+        let result: Awaited<ReturnType<typeof uploadFile>>;
         try {
           result = await uploadFile(file);
         } catch (error) {

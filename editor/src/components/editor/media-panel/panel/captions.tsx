@@ -27,7 +27,8 @@ export default function PanelCaptions() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
   const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
-  const [captionLanguage, setCaptionLanguage] = useState<string>(activeLanguage);
+  const [captionLanguage, setCaptionLanguage] =
+    useState<string>(activeLanguage);
   const [hookClip, setHookClip] = useState<IClip | null>(null);
 
   // Sync captionLanguage when the global language store changes
@@ -60,12 +61,15 @@ export default function PanelCaptions() {
     setMediaItems(mediaClips);
 
     // Find hook regardless of type (supports both legacy Caption hooks and new Text hooks)
-    const hook = allClips.find((clip: IClip) => (clip as any).name === HOOK_CLIP_NAME);
+    const hook = allClips.find(
+      (clip: IClip) => (clip as any).name === HOOK_CLIP_NAME
+    );
     setHookClip(hook || null);
 
     // Regular captions (exclude hook if it's still a Caption type for backward compat)
     const regularCaptions = allClips.filter(
-      (clip: IClip) => clip.type === 'Caption' && (clip as any).name !== HOOK_CLIP_NAME
+      (clip: IClip) =>
+        clip.type === 'Caption' && (clip as any).name !== HOOK_CLIP_NAME
     );
     const sorted = regularCaptions.sort(
       (a: IClip, b: IClip) => a.display.from - b.display.from
@@ -129,7 +133,9 @@ export default function PanelCaptions() {
       if (!cancelled) setHasCachedTranscription(false);
     }
     checkCache();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, mediaItems]);
 
   const handleGenerateCaptions = async (forceRegenerate = false) => {
@@ -162,17 +168,26 @@ export default function PanelCaptions() {
           let transcriptionData: any = null;
 
           // Include language in cache key so Arabic and English don't share a cached result
-          const cacheModel = captionLanguage === 'auto' ? 'nova-3' : `nova-3-${captionLanguage}`;
+          const cacheModel =
+            captionLanguage === 'auto' ? 'nova-3' : `nova-3-${captionLanguage}`;
 
           if (!forceRegenerate) {
-            transcriptionData = await loadTranscription(projectId, audioUrl, cacheModel);
+            transcriptionData = await loadTranscription(
+              projectId,
+              audioUrl,
+              cacheModel
+            );
           }
 
           if (!transcriptionData) {
             const transcribeResponse = await fetch('/api/transcribe', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: audioUrl, model: 'nova-3', language: captionLanguage }),
+              body: JSON.stringify({
+                url: audioUrl,
+                model: 'nova-3',
+                language: captionLanguage,
+              }),
             });
 
             if (!transcribeResponse.ok) {
@@ -185,7 +200,12 @@ export default function PanelCaptions() {
 
             // Cache the transcription result
             try {
-              await saveTranscription(projectId, audioUrl, transcriptionData, cacheModel);
+              await saveTranscription(
+                projectId,
+                audioUrl,
+                transcriptionData,
+                cacheModel
+              );
             } catch (e) {
               Log.error('Failed to cache transcription:', e);
             }
@@ -287,13 +307,14 @@ export default function PanelCaptions() {
 
     const wordsInText: { text: string; start: number; end: number }[] = [];
     const regex = /\S+/g;
-    let match;
-    while ((match = regex.exec(fullText)) !== null) {
+    let match: RegExpExecArray | null = regex.exec(fullText);
+    while (match !== null) {
       wordsInText.push({
         text: match[0],
         start: match.index,
         end: match.index + match[0].length,
       });
+      match = regex.exec(fullText);
     }
 
     let splitWordIndex = -1;
@@ -427,7 +448,7 @@ export default function PanelCaptions() {
     const paragraphIndex = oldWords[0]?.paragraphIndex ?? '';
 
     const isNewWordAdded = newWordsText.length > oldWords.length;
-    let updatedWords;
+    let updatedWords: Array<Record<string, unknown>>;
 
     if (isNewWordAdded) {
       const totalDurationMs =

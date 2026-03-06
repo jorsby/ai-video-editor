@@ -74,7 +74,7 @@ export function TransitionProperties({ clip }: TransitionPropertiesProps) {
         Math.min(maxDurationMicro, newDuration)
       );
 
-      const transitionStart = toClip?.display.from - newDuration / 2;
+      const transitionStart = (toClip?.display?.from ?? 0) - newDuration / 2;
       const transitionEnd = transitionStart + newDuration;
       const transitionMeta = {
         key: newKey,

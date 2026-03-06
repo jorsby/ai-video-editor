@@ -20,7 +20,11 @@ import {
   IconAlertTriangle,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { SceneCard, VoiceoverPlayButton, parseMultiShotPrompt } from './scene-card';
+import {
+  SceneCard,
+  VoiceoverPlayButton,
+  parseMultiShotPrompt,
+} from './scene-card';
 import { StatusBadge } from './status-badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -41,13 +45,40 @@ import { Textarea } from '@/components/ui/textarea';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
-import { DEFAULT_VOICE_MAP, FALLBACK_VOICE, type LanguageCode } from '@/lib/constants/languages';
+import {
+  DEFAULT_VOICE_MAP,
+  FALLBACK_VOICE,
+  type LanguageCode,
+} from '@/lib/constants/languages';
 import { createClient } from '@/lib/supabase/client';
 import {
   addSceneToTimeline,
   addVoiceoverToTimeline,
   findCompatibleTrack,
 } from '@/lib/scene-timeline-utils';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function invokeWorkflow(
+  route: string,
+  body: Record<string, unknown>
+): Promise<{ data: any; error: any }> {
+  try {
+    const res = await fetch(route, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok)
+      return {
+        data: null,
+        error: new Error(data.error || `Request failed: ${res.status}`),
+      };
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+}
 import type {
   GridImage,
   RefObject,
@@ -372,13 +403,16 @@ export function StoryboardCards({
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
   const availableLanguages = useLanguageStore((s) => s.availableLanguages);
-  const [voiceConfig, setVoiceConfig] = useState<Record<string, { voice: string }>>({
+  const [voiceConfig, setVoiceConfig] = useState<
+    Record<string, { voice: string }>
+  >({
     en: { voice: DEFAULT_VOICE_MAP.en ?? FALLBACK_VOICE },
   });
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [videoVolume, setVideoVolume] = useState(0);
-  const [timelineAddMode, setTimelineAddMode] = useState<TimelineAddMode>('both');
+  const [timelineAddMode, setTimelineAddMode] =
+    useState<TimelineAddMode>('both');
   const [playingVoiceoverId, setPlayingVoiceoverId] = useState<string | null>(
     null
   );
@@ -396,7 +430,10 @@ export function StoryboardCards({
     const langs = Object.keys(storyboard.plan.voiceover_list);
     setVoiceConfig(
       Object.fromEntries(
-        langs.map((lang) => [lang, { voice: DEFAULT_VOICE_MAP[lang] ?? FALLBACK_VOICE }])
+        langs.map((lang) => [
+          lang,
+          { voice: DEFAULT_VOICE_MAP[lang] ?? FALLBACK_VOICE },
+        ])
       )
     );
   }, [storyboard?.id]);
@@ -469,21 +506,23 @@ export function StoryboardCards({
 
     setIsGenerating(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('generate-tts', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          voice: (voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE,
-          model: ttsModel,
-          language: selectedLanguage,
-          speed: ttsSpeed,
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/tts', {
+        scene_ids: Array.from(selectedSceneIds),
+        voice:
+          (
+            voiceConfig[selectedLanguage] ??
+            voiceConfig[Object.keys(voiceConfig)[0]]
+          )?.voice ?? FALLBACK_VOICE,
+        model: ttsModel,
+        language: selectedLanguage,
+        speed: ttsSpeed,
       });
 
       if (error) throw error;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       toast.success(
-        `Voiceover generation started for ${data.summary.queued} scene(s)`
+        `Voiceover generation started for ${(data as any).summary.queued} scene(s)`
       );
       clearSelection();
       refresh(); // Fetch updated voiceover statuses to show "Generating..." state
@@ -500,20 +539,17 @@ export function StoryboardCards({
 
     setIsGeneratingAll(true);
     try {
-      const supabase = createClient('studio');
       const languages = Object.keys(voiceConfig);
       const sceneIds = Array.from(selectedSceneIds);
 
       const results = await Promise.allSettled(
         languages.map((lang) =>
-          supabase.functions.invoke('generate-tts', {
-            body: {
-              scene_ids: sceneIds,
-              voice: voiceConfig[lang].voice,
-              model: ttsModel,
-              language: lang,
-              speed: ttsSpeed,
-            },
+          invokeWorkflow('/api/workflow/tts', {
+            scene_ids: sceneIds,
+            voice: voiceConfig[lang].voice,
+            model: ttsModel,
+            language: lang,
+            speed: ttsSpeed,
           })
         )
       );
@@ -551,26 +587,26 @@ export function StoryboardCards({
 
     setIsOutpainting(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: { scene_ids: Array.from(selectedSceneIds), model: outpaintModel },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
-        toast.success(
-          `Image outpaint started for ${data.summary.queued} scene(s)`
-        );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
+        toast.success(`Image outpaint started for ${summary.queued} scene(s)`);
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(
-          `${data.summary.skipped} scene(s) skipped (already processing)`
+          `${summary.skipped} scene(s) skipped (already processing)`
         );
       }
-      if (data.summary.failed > 0) {
+      if (summary.failed > 0) {
         toast.error(
-          `${data.summary.failed} scene(s) failed to submit for outpainting`
+          `${summary.failed} scene(s) failed to submit for outpainting`
         );
       }
       clearSelection();
@@ -588,30 +624,27 @@ export function StoryboardCards({
 
     setIsEnhancing(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          model: outpaintModel,
-          action: 'enhance',
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
+        action: 'enhance',
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
-        toast.success(
-          `Image enhance started for ${data.summary.queued} scene(s)`
-        );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
+        toast.success(`Image enhance started for ${summary.queued} scene(s)`);
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(
-          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+          `${summary.skipped} scene(s) skipped (already processing or no final image)`
         );
       }
-      if (data.summary.failed > 0) {
+      if (summary.failed > 0) {
         toast.error(
-          `${data.summary.failed} scene(s) failed to submit for enhancing`
+          `${summary.failed} scene(s) failed to submit for enhancing`
         );
       }
       clearSelection();
@@ -629,32 +662,27 @@ export function StoryboardCards({
 
     setIsCustomEditing(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          model: outpaintModel,
-          action: 'custom_edit',
-          prompt: editPrompt.trim(),
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
+        action: 'custom_edit',
+        prompt: editPrompt.trim(),
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
-        toast.success(
-          `Custom edit started for ${data.summary.queued} scene(s)`
-        );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
+        toast.success(`Custom edit started for ${summary.queued} scene(s)`);
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(
-          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+          `${summary.skipped} scene(s) skipped (already processing or no final image)`
         );
       }
-      if (data.summary.failed > 0) {
-        toast.error(
-          `${data.summary.failed} scene(s) failed to submit for editing`
-        );
+      if (summary.failed > 0) {
+        toast.error(`${summary.failed} scene(s) failed to submit for editing`);
       }
       clearSelection();
       refresh();
@@ -672,25 +700,24 @@ export function StoryboardCards({
 
     setIsRefGenerating(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          model: outpaintModel,
-          action: 'ref_to_image',
-          prompt: refPrompt.trim(),
-          target_scene_id: targetSceneId,
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
+        action: 'ref_to_image',
+        prompt: refPrompt.trim(),
+        target_scene_id: targetSceneId,
       });
 
       if (error) throw error;
 
-      if (data.success) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any;
+      if (d.success) {
         toast.success(
-          `Reference-to-image started (${data.reference_count} references)`
+          `Reference-to-image started (${d.reference_count} references)`
         );
       } else {
-        toast.error(data.error || 'Failed to start ref-to-image');
+        toast.error(d.error || 'Failed to start ref-to-image');
       }
       clearSelection();
       setTargetSceneId(null);
@@ -749,31 +776,30 @@ export function StoryboardCards({
 
     setIsEnhancing(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          model: outpaintModel,
-          action: 'enhance',
-          source: 'background',
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
+        action: 'enhance',
+        source: 'background',
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
         toast.success(
-          `Background enhance started for ${data.summary.queued} scene(s)`
+          `Background enhance started for ${summary.queued} scene(s)`
         );
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(
-          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+          `${summary.skipped} scene(s) skipped (already processing or no final image)`
         );
       }
-      if (data.summary.failed > 0) {
+      if (summary.failed > 0) {
         toast.error(
-          `${data.summary.failed} scene(s) failed to submit for enhancing`
+          `${summary.failed} scene(s) failed to submit for enhancing`
         );
       }
       clearSelection();
@@ -791,33 +817,30 @@ export function StoryboardCards({
 
     setIsCustomEditing(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: Array.from(selectedSceneIds),
-          model: outpaintModel,
-          action: 'custom_edit',
-          prompt: editPrompt.trim(),
-          source: 'background',
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: Array.from(selectedSceneIds),
+        model: outpaintModel,
+        action: 'custom_edit',
+        prompt: editPrompt.trim(),
+        source: 'background',
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
         toast.success(
-          `Custom edit started for ${data.summary.queued} background(s)`
+          `Custom edit started for ${summary.queued} background(s)`
         );
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(
-          `${data.summary.skipped} scene(s) skipped (already processing or no final image)`
+          `${summary.skipped} scene(s) skipped (already processing or no final image)`
         );
       }
-      if (data.summary.failed > 0) {
-        toast.error(
-          `${data.summary.failed} scene(s) failed to submit for editing`
-        );
+      if (summary.failed > 0) {
+        toast.error(`${summary.failed} scene(s) failed to submit for editing`);
       }
       clearSelection();
       refresh();
@@ -882,26 +905,25 @@ export function StoryboardCards({
 
     setIsEnhancingObject(true);
     try {
-      const supabase = createClient('studio');
       const sceneIds = sortedScenes
         .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
         .map((s) => s.id);
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: sceneIds,
-          object_ids: [obj.id],
-          model: outpaintModel,
-          action: 'enhance',
-          source: 'object',
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: sceneIds,
+        object_ids: [obj.id],
+        model: outpaintModel,
+        action: 'enhance',
+        source: 'object',
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
         toast.success(`Enhance started for "${objectName}"`);
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(`"${objectName}" skipped (already processing)`);
       }
       refresh();
@@ -926,27 +948,26 @@ export function StoryboardCards({
 
     setIsCustomEditingObject(true);
     try {
-      const supabase = createClient('studio');
       const sceneIds = sortedScenes
         .filter((s) => (s.objects ?? []).some((o) => o.name === objectName))
         .map((s) => s.id);
-      const { data, error } = await supabase.functions.invoke('edit-image', {
-        body: {
-          scene_ids: sceneIds,
-          object_ids: [obj.id],
-          model: outpaintModel,
-          action: 'custom_edit',
-          prompt: prompt.trim(),
-          source: 'object',
-        },
+      const { data, error } = await invokeWorkflow('/api/workflow/edit-image', {
+        scene_ids: sceneIds,
+        object_ids: [obj.id],
+        model: outpaintModel,
+        action: 'custom_edit',
+        prompt: prompt.trim(),
+        source: 'object',
       });
 
       if (error) throw error;
 
-      if (data.summary.queued > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any).summary;
+      if (summary.queued > 0) {
         toast.success(`Custom edit started for "${objectName}"`);
       }
-      if (data.summary.skipped > 0) {
+      if (summary.skipped > 0) {
         toast.warning(`"${objectName}" skipped (already processing)`);
       }
       refresh();
@@ -1091,35 +1112,30 @@ export function StoryboardCards({
 
     setIsGeneratingVideo(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke(
-        'generate-video',
-        {
-          body: {
-            scene_ids: Array.from(selectedSceneIds),
-            resolution: videoResolution,
-            model:
-              storyboard?.mode === 'ref_to_video'
-                ? storyboard?.model === 'wan26flash'
-                  ? 'wan26flash'
-                  : refVideoModel
-                : videoModel,
-            aspect_ratio:
-              storyboard && 'aspect_ratio' in storyboard
-                ? storyboard.aspect_ratio
-                : '16:9',
-            ...(fallbackDuration && { fallback_duration: fallbackDuration }),
-            ...(storyboard?.mode === 'ref_to_video' && {
-              storyboard_id: storyboard.id,
-            }),
-          },
-        }
-      );
+      const { data, error } = await invokeWorkflow('/api/workflow/video', {
+        scene_ids: Array.from(selectedSceneIds),
+        resolution: videoResolution,
+        model:
+          storyboard?.mode === 'ref_to_video'
+            ? storyboard?.model === 'wan26flash'
+              ? 'wan26flash'
+              : refVideoModel
+            : videoModel,
+        aspect_ratio:
+          storyboard && 'aspect_ratio' in storyboard
+            ? storyboard.aspect_ratio
+            : '16:9',
+        ...(fallbackDuration && { fallback_duration: fallbackDuration }),
+        ...(storyboard?.mode === 'ref_to_video' && {
+          storyboard_id: storyboard.id,
+        }),
+      });
 
       if (error) throw error;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       toast.success(
-        `Video generation started for ${data.summary.queued} scene(s)`
+        `Video generation started for ${(data as any).summary.queued} scene(s)`
       );
       clearSelection();
       refresh(); // Fetch updated video statuses
@@ -1174,15 +1190,15 @@ export function StoryboardCards({
 
     setIsGeneratingSfx(true);
     try {
-      const supabase = createClient('studio');
-      const { data, error } = await supabase.functions.invoke('generate-sfx', {
-        body: { scene_ids: Array.from(selectedSceneIds) },
+      const { data, error } = await invokeWorkflow('/api/workflow/sfx', {
+        scene_ids: Array.from(selectedSceneIds),
       });
 
       if (error) throw error;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       toast.success(
-        `SFX generation started for ${data.summary.queued} scene(s)`
+        `SFX generation started for ${(data as any).summary.queued} scene(s)`
       );
       clearSelection();
       refresh();
@@ -1286,18 +1302,17 @@ export function StoryboardCards({
       throw voiceoverError;
     }
 
-    const { error: ttsError } = await supabase.functions.invoke(
-      'generate-tts',
-      {
-        body: {
-          scene_ids: [sceneId],
-          voice: (voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE,
-          model: ttsModel,
-          language: selectedLanguage,
-          speed: ttsSpeed,
-        },
-      }
-    );
+    const { error: ttsError } = await invokeWorkflow('/api/workflow/tts', {
+      scene_ids: [sceneId],
+      voice:
+        (
+          voiceConfig[selectedLanguage] ??
+          voiceConfig[Object.keys(voiceConfig)[0]]
+        )?.voice ?? FALLBACK_VOICE,
+      model: ttsModel,
+      language: selectedLanguage,
+      speed: ttsSpeed,
+    });
 
     if (ttsError) {
       console.error('TTS generation failed:', ttsError);
@@ -1309,13 +1324,18 @@ export function StoryboardCards({
     refresh();
   };
 
-  const handleTranslateSceneVoiceover = async (sceneId: string, sourceText: string) => {
+  const handleTranslateSceneVoiceover = async (
+    sceneId: string,
+    sourceText: string
+  ) => {
     if (!sourceText.trim()) {
       toast.error('No voiceover text to translate');
       return;
     }
 
-    const targetLanguages = availableLanguages.filter((l) => l !== selectedLanguage);
+    const targetLanguages = availableLanguages.filter(
+      (l) => l !== selectedLanguage
+    );
     if (targetLanguages.length === 0) {
       toast.info('No other languages configured');
       return;
@@ -1343,7 +1363,9 @@ export function StoryboardCards({
     const failedCount = data.failed?.length ?? 0;
 
     if (failedCount > 0 && translatedCount > 0) {
-      toast.warning(`Translated to ${translatedCount} language(s), ${failedCount} failed`);
+      toast.warning(
+        `Translated to ${translatedCount} language(s), ${failedCount} failed`
+      );
     } else if (translatedCount > 0) {
       toast.success(`Translated to ${translatedCount} language(s)`);
     } else {
@@ -1353,7 +1375,10 @@ export function StoryboardCards({
     refresh();
   };
 
-  const handleReadSceneAllLanguages = async (sceneId: string, currentText: string) => {
+  const handleReadSceneAllLanguages = async (
+    sceneId: string,
+    currentText: string
+  ) => {
     const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     if (!scene) return;
@@ -1400,14 +1425,12 @@ export function StoryboardCards({
     // Fire TTS for all languages in parallel
     const results = await Promise.allSettled(
       allLanguages.map((lang) =>
-        supabase.functions.invoke('generate-tts', {
-          body: {
-            scene_ids: [sceneId],
-            voice: voiceConfig[lang]?.voice ?? FALLBACK_VOICE,
-            model: ttsModel,
-            language: lang,
-            speed: ttsSpeed,
-          },
+        invokeWorkflow('/api/workflow/tts', {
+          scene_ids: [sceneId],
+          voice: voiceConfig[lang]?.voice ?? FALLBACK_VOICE,
+          model: ttsModel,
+          language: lang,
+          speed: ttsSpeed,
         })
       )
     );
@@ -1423,7 +1446,9 @@ export function StoryboardCards({
     }
 
     if (successes > 0) {
-      toast.success(`Voiceover generation started for ${successes} language(s)`);
+      toast.success(
+        `Voiceover generation started for ${successes} language(s)`
+      );
     }
     if (failures > 0) {
       toast.error(`${failures} language(s) failed to start`);
@@ -1488,25 +1513,20 @@ export function StoryboardCards({
       throw resetError;
     }
 
-    const { error: videoError } = await supabase.functions.invoke(
-      'generate-video',
-      {
-        body: {
-          scene_ids: [sceneId],
-          resolution: videoResolution,
-          model: isRef
-            ? storyboard?.model === 'wan26flash'
-              ? 'wan26flash'
-              : refVideoModel
-            : videoModel,
-          aspect_ratio:
-            storyboard && 'aspect_ratio' in storyboard
-              ? storyboard.aspect_ratio
-              : '16:9',
-          ...(isRef && { storyboard_id: storyboard?.id }),
-        },
-      }
-    );
+    const { error: videoError } = await invokeWorkflow('/api/workflow/video', {
+      scene_ids: [sceneId],
+      resolution: videoResolution,
+      model: isRef
+        ? storyboard?.model === 'wan26flash'
+          ? 'wan26flash'
+          : refVideoModel
+        : videoModel,
+      aspect_ratio:
+        storyboard && 'aspect_ratio' in storyboard
+          ? storyboard.aspect_ratio
+          : '16:9',
+      ...(isRef && { storyboard_id: storyboard?.id }),
+    });
 
     if (videoError) {
       console.error('Video generation failed:', videoError);
@@ -1532,8 +1552,8 @@ export function StoryboardCards({
     setIsAddingToTimeline(true);
     try {
       let runningEnd = 0;
-      let videoTrackId: string | undefined = undefined;
-      let audioTrackId: string | undefined = undefined;
+      let videoTrackId: string | undefined;
+      let audioTrackId: string | undefined;
 
       const failedScenes: number[] = [];
       for (const scene of scenesToAdd) {
@@ -1559,7 +1579,10 @@ export function StoryboardCards({
               {
                 videoUrl: scene.video_url!,
                 voiceover: hasVoiceover
-                  ? { audioUrl: voiceover!.audio_url!, voiceoverId: voiceover!.id }
+                  ? {
+                      audioUrl: voiceover!.audio_url!,
+                      voiceoverId: voiceover!.id,
+                    }
                   : null,
               },
               {
@@ -1882,7 +1905,12 @@ export function StoryboardCards({
                 </span>
                 <div className="flex items-center gap-1.5">
                   <Select
-                    value={(voiceConfig[selectedLanguage] ?? voiceConfig[Object.keys(voiceConfig)[0]])?.voice ?? FALLBACK_VOICE}
+                    value={
+                      (
+                        voiceConfig[selectedLanguage] ??
+                        voiceConfig[Object.keys(voiceConfig)[0]]
+                      )?.voice ?? FALLBACK_VOICE
+                    }
                     onValueChange={(value) => {
                       setVoiceConfig((prev) => ({
                         ...prev,
@@ -1976,7 +2004,11 @@ export function StoryboardCards({
                   }
                   onClick={handleGenerateAllVoiceovers}
                   className="h-9 text-xs"
-                  title={`Generate voiceovers for all languages (${Object.keys(voiceConfig).map(c => c.toUpperCase()).join(', ')})`}
+                  title={`Generate voiceovers for all languages (${Object.keys(
+                    voiceConfig
+                  )
+                    .map((c) => c.toUpperCase())
+                    .join(', ')})`}
                 >
                   {isGeneratingAll ? (
                     <IconLoader2 className="size-3.5 animate-spin mr-1" />
@@ -2263,7 +2295,9 @@ export function StoryboardCards({
                   <span className="font-medium text-foreground">
                     {storyboard?.model === 'wan26flash'
                       ? 'WAN 2.6 Flash'
-                      : (storyboard?.model ?? 'N/A')}
+                      : storyboard?.model === 'skyreels'
+                        ? 'SkyReels'
+                        : (storyboard?.model ?? 'N/A')}
                   </span>
                 </div>
               ) : (

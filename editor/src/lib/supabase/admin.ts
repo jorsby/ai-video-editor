@@ -16,3 +16,18 @@ export async function createAdminClient(schema?: DbSchema) {
     }
   );
 }
+
+/**
+ * Create a service-role Supabase client for use in API routes (non-async context).
+ * Returns a loosely-typed client to avoid issues with ungenerated DB types.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createServiceClient(schema: DbSchema = 'studio'): any {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      db: { schema },
+    }
+  );
+}

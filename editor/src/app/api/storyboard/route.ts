@@ -20,6 +20,13 @@ import {
   WAN26_FLASH_REVIEWER_SYSTEM_PROMPT,
 } from '@/lib/schemas/wan26-flash-plan';
 import {
+  skyreelsPlanSchema,
+  skyreelsContentSchema,
+  SKYREELS_SYSTEM_PROMPT,
+  skyreelsReviewerOutputSchema,
+  SKYREELS_REVIEWER_SYSTEM_PROMPT,
+} from '@/lib/schemas/skyreels-plan';
+import {
   i2vPlanSchema,
   i2vContentSchema,
   I2V_SYSTEM_PROMPT,
@@ -41,7 +48,8 @@ async function generateObjectWithFallback<T>(params: {
   prompt: string;
   label: string;
 }): Promise<{ object: T }> {
-  const { primaryModel, primaryOptions, schema, system, prompt, label } = params;
+  const { primaryModel, primaryOptions, schema, system, prompt, label } =
+    params;
   try {
     return await generateObject({
       model: openrouter.chat(primaryModel, primaryOptions),
@@ -72,7 +80,12 @@ const VALID_MODELS = [
   'z-ai/glm-5',
 ] as const;
 
-const VALID_VIDEO_MODELS = ['klingo3', 'klingo3pro', 'wan26flash'] as const;
+const VALID_VIDEO_MODELS = [
+  'klingo3',
+  'klingo3pro',
+  'wan26flash',
+  'skyreels',
+] as const;
 
 const isOpus = (model: string) => model.includes('claude-opus');
 
@@ -84,12 +97,17 @@ async function generateRefToVideoPlan(
   sourceLanguage: string
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
-  const systemPrompt = isKling
-    ? KLING_O3_SYSTEM_PROMPT
-    : WAN26_FLASH_SYSTEM_PROMPT;
-  const contentSchemaForModel = isKling
-    ? klingO3ContentSchema
-    : wan26FlashContentSchema;
+  const isSkyReels = videoModel === 'skyreels';
+  const systemPrompt = isSkyReels
+    ? SKYREELS_SYSTEM_PROMPT
+    : isKling
+      ? KLING_O3_SYSTEM_PROMPT
+      : WAN26_FLASH_SYSTEM_PROMPT;
+  const contentSchemaForModel = isSkyReels
+    ? skyreelsContentSchema
+    : isKling
+      ? klingO3ContentSchema
+      : wan26FlashContentSchema;
 
   const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nGenerate the storyboard.`;
 
@@ -118,9 +136,11 @@ async function generateRefToVideoPlan(
 
   // Compute counts from frozen fields
   const expectedObjects = content.objects_rows * content.objects_cols;
-  const objectCount = isKling
-    ? (content as z.infer<typeof klingO3ContentSchema>).objects.length
-    : (content as z.infer<typeof wan26FlashContentSchema>).objects.length;
+  const objectCount = isSkyReels
+    ? (content as z.infer<typeof skyreelsContentSchema>).objects.length
+    : isKling
+      ? (content as z.infer<typeof klingO3ContentSchema>).objects.length
+      : (content as z.infer<typeof wan26FlashContentSchema>).objects.length;
   const expectedBgs = content.bg_rows * content.bg_cols;
   const sceneCount = content.voiceover_list.length;
 
@@ -138,22 +158,34 @@ async function generateRefToVideoPlan(
 
   // --- Call 1.5: Review & Fix (both Kling and WAN) ---
   {
-    const reviewerSystemPrompt = isKling
-      ? KLING_O3_REVIEWER_SYSTEM_PROMPT
-      : WAN26_FLASH_REVIEWER_SYSTEM_PROMPT;
-    const reviewerSchema = isKling
-      ? klingO3ReviewerOutputSchema
-      : wan26FlashReviewerOutputSchema;
+    const reviewerSystemPrompt = isSkyReels
+      ? SKYREELS_REVIEWER_SYSTEM_PROMPT
+      : isKling
+        ? KLING_O3_REVIEWER_SYSTEM_PROMPT
+        : WAN26_FLASH_REVIEWER_SYSTEM_PROMPT;
+    const reviewerSchema = isSkyReels
+      ? skyreelsReviewerOutputSchema
+      : isKling
+        ? klingO3ReviewerOutputSchema
+        : wan26FlashReviewerOutputSchema;
 
-    const frozenContext = isKling
-      ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof klingO3ContentSchema>).objects)}`
-      : `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).objects)}`;
+    const frozenContext = isSkyReels
+      ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof skyreelsContentSchema>).objects)}`
+      : isKling
+        ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof klingO3ContentSchema>).objects)}`
+        : `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).objects)}`;
 
-    const mutableMultiShots = isKling
-      ? ''
-      : `\n- scene_multi_shots: ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots)}`;
+    const mutableMultiShots =
+      isKling || isSkyReels
+        ? ''
+        : `\n- scene_multi_shots: ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots)}`;
 
-    const reviewerUserPrompt = `Review and improve this ${isKling ? 'Kling O3' : 'WAN 2.6 Flash'} storyboard plan.
+    const modelLabel = isSkyReels
+      ? 'SkyReels'
+      : isKling
+        ? 'Kling O3'
+        : 'WAN 2.6 Flash';
+    const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
 
 FROZEN (do not change):
 ${frozenContext}
@@ -191,8 +223,8 @@ Return the corrected fields.`;
     content.scene_bg_indices = reviewed.scene_bg_indices;
     content.scene_object_indices = reviewed.scene_object_indices;
 
-    // Merge scene_multi_shots for WAN
-    if (!isKling && 'scene_multi_shots' in reviewed) {
+    // Merge scene_multi_shots for WAN (not for Kling or SkyReels)
+    if (!isKling && !isSkyReels && 'scene_multi_shots' in reviewed) {
       (content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots = (
         reviewed as z.infer<typeof wan26FlashReviewerOutputSchema>
       ).scene_multi_shots;
@@ -210,8 +242,8 @@ Return the corrected fields.`;
     );
   }
 
-  // Validate scene_multi_shots length for WAN
-  if (!isKling) {
+  // Validate scene_multi_shots length for WAN (not for Kling or SkyReels)
+  if (!isKling && !isSkyReels) {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
     if (wanContent.scene_multi_shots.length !== sceneCount) {
       throw new Error(
@@ -269,9 +301,20 @@ Return the corrected fields.`;
     }
   }
 
+  // Validate max 3 objects per scene for SkyReels
+  if (isSkyReels) {
+    for (let i = 0; i < sceneCount; i++) {
+      if (content.scene_object_indices[i].length > 3) {
+        throw new Error(
+          `Scene ${i} has ${content.scene_object_indices[i].length} objects but SkyReels max is 3`
+        );
+      }
+    }
+  }
+
   // Validate @ElementN references for WAN plans
   // @Element1 = background, @Element2+ = characters from scene_object_indices
-  if (!isKling) {
+  if (!isKling && !isSkyReels) {
     for (let i = 0; i < sceneCount; i++) {
       const prompt = content.scene_prompts[i] as string;
       const maxElement = content.scene_object_indices[i].length + 1; // +1 for background as @Element1
@@ -294,7 +337,23 @@ Return the corrected fields.`;
   };
 
   // Build final plan — shape depends on video model
-  if (isKling) {
+  if (isSkyReels) {
+    const skyContent = content as z.infer<typeof skyreelsContentSchema>;
+    return {
+      objects_rows: skyContent.objects_rows,
+      objects_cols: skyContent.objects_cols,
+      objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${skyContent.objects_grid_prompt}`,
+      objects: skyContent.objects,
+      bg_rows: skyContent.bg_rows,
+      bg_cols: skyContent.bg_cols,
+      backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${skyContent.backgrounds_grid_prompt}`,
+      background_names: skyContent.background_names,
+      scene_prompts: skyContent.scene_prompts,
+      scene_bg_indices: skyContent.scene_bg_indices,
+      scene_object_indices: skyContent.scene_object_indices,
+      voiceover_list,
+    };
+  } else if (isKling) {
     const klingContent = content as z.infer<typeof klingO3ContentSchema>;
     return {
       objects_rows: klingContent.objects_rows,
@@ -672,9 +731,11 @@ export async function PATCH(req: NextRequest) {
     // Validate plan structure based on mode
     if (storyboard.mode === 'ref_to_video') {
       const schema =
-        storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro'
-          ? klingO3PlanSchema
-          : wan26FlashPlanSchema;
+        storyboard.model === 'skyreels'
+          ? skyreelsPlanSchema
+          : storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro'
+            ? klingO3PlanSchema
+            : wan26FlashPlanSchema;
       const planValidation = schema.safeParse(plan);
       if (!planValidation.success) {
         return NextResponse.json(
@@ -711,7 +772,11 @@ export async function PATCH(req: NextRequest) {
       const expectedScenes = plan.rows * plan.cols;
       const { voiceover_list, visual_flow } = plan;
       const langArrays = Object.values(voiceover_list) as string[][];
-      if (langArrays.length === 0 || !langArrays.every((arr) => arr.length === expectedScenes) || visual_flow.length !== expectedScenes) {
+      if (
+        langArrays.length === 0 ||
+        !langArrays.every((arr) => arr.length === expectedScenes) ||
+        visual_flow.length !== expectedScenes
+      ) {
         return NextResponse.json(
           {
             error: `Scene count mismatch: grid is ${plan.rows}x${plan.cols}=${expectedScenes} but voiceover arrays don't match`,

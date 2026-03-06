@@ -32,12 +32,30 @@ const captionResultSchema = z.object({
 });
 
 const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish',
-  fr: 'French', de: 'German', pt: 'Portuguese', it: 'Italian',
-  ru: 'Russian', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
-  hi: 'Hindi', nl: 'Dutch', pl: 'Polish', sv: 'Swedish',
-  da: 'Danish', fi: 'Finnish', no: 'Norwegian', uk: 'Ukrainian',
-  cs: 'Czech', ro: 'Romanian', hu: 'Hungarian', id: 'Indonesian',
+  en: 'English',
+  tr: 'Turkish',
+  ar: 'Arabic',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+  pt: 'Portuguese',
+  it: 'Italian',
+  ru: 'Russian',
+  ja: 'Japanese',
+  ko: 'Korean',
+  zh: 'Chinese',
+  hi: 'Hindi',
+  nl: 'Dutch',
+  pl: 'Polish',
+  sv: 'Swedish',
+  da: 'Danish',
+  fi: 'Finnish',
+  no: 'Norwegian',
+  uk: 'Ukrainian',
+  cs: 'Czech',
+  ro: 'Romanian',
+  hu: 'Hungarian',
+  id: 'Indonesian',
   ms: 'Malay',
 };
 
@@ -54,7 +72,8 @@ const TONE_PROMPTS: Record<string, string> = {
     'Use a professional, authoritative tone. Sound knowledgeable and credible. Avoid slang or overly casual language.',
   casual:
     'Use a casual, friendly tone. Sound approachable and relatable. Conversational language is encouraged.',
-  witty: 'Use a witty, clever tone. Include wordplay, humor, or unexpected angles. Be entertaining while still informative.',
+  witty:
+    'Use a witty, clever tone. Include wordplay, humor, or unexpected angles. Be entertaining while still informative.',
   inspirational:
     'Use an inspirational, motivational tone. Evoke emotion, aspiration, and positive energy. Encourage the audience to take action or feel empowered.',
 };
@@ -70,8 +89,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { project_id, language, selected_providers, duration, caption_style } =
-      await req.json();
+    const {
+      project_id,
+      language,
+      selected_providers,
+      duration,
+      caption_style,
+    } = await req.json();
 
     if (!project_id || typeof project_id !== 'string') {
       return NextResponse.json(
@@ -111,12 +135,11 @@ export async function POST(req: NextRequest) {
       ? (plan.visual_flow as string[])
       : [];
 
-    const scenes = (
-      storyboard?.scenes as Array<{ prompt: string; order: number }> | null
-    )
-      ?.sort((a, b) => a.order - b.order)
-      .map((s) => s.prompt)
-      .filter(Boolean) || [];
+    const scenes =
+      (storyboard?.scenes as Array<{ prompt: string; order: number }> | null)
+        ?.sort((a, b) => a.order - b.order)
+        .map((s) => s.prompt)
+        .filter(Boolean) || [];
 
     // Build prompts
     const hasYouTube = providers.includes('youtube');
@@ -149,9 +172,7 @@ ${videoDuration ? `- The video is ${videoDuration} seconds long.` : ''}
 - Do NOT include the # symbol in hashtag strings.`;
 
     const visualFlowText =
-      visualFlow.length > 0
-        ? `\nVisual Flow:\n${visualFlow.join('\n')}`
-        : '';
+      visualFlow.length > 0 ? `\nVisual Flow:\n${visualFlow.join('\n')}` : '';
 
     const userPrompt = `Project: "${projectName}"
 
@@ -171,7 +192,7 @@ Generate the social media caption, ${hasYouTube ? 'YouTube title, ' : ''}and has
         schema: captionResultSchema,
         system: systemPrompt,
         prompt: userPrompt,
-        maxTokens: 1000,
+        maxOutputTokens: 1000,
       });
       result = object;
     } catch (primaryError) {
@@ -184,7 +205,7 @@ Generate the social media caption, ${hasYouTube ? 'YouTube title, ' : ''}and has
         schema: captionResultSchema,
         system: systemPrompt,
         prompt: userPrompt,
-        maxTokens: 1000,
+        maxOutputTokens: 1000,
       });
       result = object;
     }

@@ -4,7 +4,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 // Types for workflow data
 
 export type StoryboardMode = 'image_to_video' | 'ref_to_video';
-export type VideoModel = 'klingo3' | 'klingo3pro' | 'wan26flash';
+export type VideoModel = 'klingo3' | 'klingo3pro' | 'wan26flash' | 'skyreels';
 
 export type PlanStatus =
   | 'draft'
@@ -55,7 +55,11 @@ export interface Wan26FlashRefPlan extends RefPlanBase {
   scene_multi_shots?: boolean[];
 }
 
-export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan;
+export interface SkyReelsRefPlan extends RefPlanBase {
+  objects: KlingElement[];
+}
+
+export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan | SkyReelsRefPlan;
 
 export interface Storyboard {
   id: string;

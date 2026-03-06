@@ -33,7 +33,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
+import {
+  SUPPORTED_LANGUAGES,
+  type LanguageCode,
+} from '@/lib/constants/languages';
 import { useLanguageStore } from '@/stores/language-store';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
@@ -75,6 +78,7 @@ const VIDEO_MODES = [
 const VIDEO_MODELS = [
   { value: 'klingo3' as const, label: 'Kling O3' },
   { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
+  { value: 'skyreels' as const, label: 'SkyReels' },
 ] as const;
 
 interface StoryboardResponse {
@@ -284,8 +288,13 @@ export default function PanelStoryboard() {
       }
 
       const data = await response.json();
-      const voiceoverMap = (data.voiceover_list ?? {}) as Record<string, string[]>;
-      const firstLangArr = Object.values(voiceoverMap)[0] as string[] | undefined;
+      const voiceoverMap = (data.voiceover_list ?? {}) as Record<
+        string,
+        string[]
+      >;
+      const firstLangArr = Object.values(voiceoverMap)[0] as
+        | string[]
+        | undefined;
       const sceneCount =
         data.mode === 'ref_to_video'
           ? (firstLangArr?.length ?? data.scene_prompts?.length ?? 0)
@@ -566,7 +575,14 @@ export default function PanelStoryboard() {
                 Plan (
                 {'scene_prompts' in selectedStoryboard.plan
                   ? selectedStoryboard.plan.scene_prompts.length
-                  : ((Object.values(selectedStoryboard.plan.voiceover_list as Record<string, string[]> ?? {})[0] as string[] | undefined)?.length ?? 0)}{' '}
+                  : ((
+                      Object.values(
+                        (selectedStoryboard.plan.voiceover_list as Record<
+                          string,
+                          string[]
+                        >) ?? {}
+                      )[0] as string[] | undefined
+                    )?.length ?? 0)}{' '}
                 scenes)
                 <IconChevronDown className="size-3 group-data-[state=open]:hidden" />
                 <IconChevronUp className="size-3 hidden group-data-[state=open]:block" />
@@ -681,7 +697,10 @@ export default function PanelStoryboard() {
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                   Source Language
                 </span>
-                <Select value={formSourceLanguage} onValueChange={setFormSourceLanguage}>
+                <Select
+                  value={formSourceLanguage}
+                  onValueChange={setFormSourceLanguage}
+                >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>

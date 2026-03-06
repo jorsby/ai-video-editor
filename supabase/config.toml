@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.approve-grid-split]
 verify_jwt = false
+
+[functions.poll-skyreels]
+verify_jwt = false

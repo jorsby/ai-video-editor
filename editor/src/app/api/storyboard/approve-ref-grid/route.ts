@@ -1,11 +1,80 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { createLogger } from '@/lib/logger';
 
 const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
   '16:9': { width: 1920, height: 1080 },
   '9:16': { width: 1080, height: 1920 },
   '1:1': { width: 1080, height: 1080 },
 };
+
+const FAL_API_KEY = process.env.FAL_KEY!;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+
+async function sendSplitRequest(
+  gridImageUrl: string,
+  gridImageId: string,
+  storyboardId: string,
+  rows: number,
+  cols: number,
+  width: number,
+  height: number,
+  log: ReturnType<typeof createLogger>
+): Promise<{ requestId: string | null; error: string | null }> {
+  const splitWebhookParams = new URLSearchParams({
+    step: 'SplitGridImage',
+    grid_image_id: gridImageId,
+    storyboard_id: storyboardId,
+  });
+  const splitWebhookUrl = `${APP_URL}/api/webhook/fal?${splitWebhookParams.toString()}`;
+
+  const falUrl = new URL('https://queue.fal.run/comfy/octupost/splitgridimage');
+  falUrl.searchParams.set('fal_webhook', splitWebhookUrl);
+
+  log.api('ComfyUI', 'splitgridimage', {
+    grid_image_id: gridImageId,
+    rows,
+    cols,
+    width,
+    height,
+  });
+
+  const splitResponse = await fetch(falUrl.toString(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Key ${FAL_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      loadimage_1: gridImageUrl,
+      rows,
+      cols,
+      width,
+      height,
+    }),
+  });
+
+  if (!splitResponse.ok) {
+    const errorText = await splitResponse.text();
+    log.error('Split request failed', {
+      grid_image_id: gridImageId,
+      status: splitResponse.status,
+      error: errorText,
+    });
+    return {
+      requestId: null,
+      error: `Split request failed: ${splitResponse.status}`,
+    };
+  }
+
+  const splitResult = await splitResponse.json();
+  log.success('Split request sent', {
+    grid_image_id: gridImageId,
+    request_id: splitResult.request_id,
+  });
+  return { requestId: splitResult.request_id, error: null };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -143,27 +212,21 @@ export async function POST(req: NextRequest) {
       bgCols !== plan.bg_cols;
 
     if (dimensionsChanged) {
-      // Update dimension fields
       plan.objects_rows = objectsRows;
       plan.objects_cols = objectsCols;
       plan.bg_rows = bgRows;
       plan.bg_cols = bgCols;
 
-      // Adjust objects (both Kling and new WAN use plan.objects; legacy WAN uses plan.object_names)
       if (newObjectCount !== oldObjectCount) {
         if (Array.isArray(plan.objects)) {
           if (newObjectCount < oldObjectCount) {
             plan.objects = plan.objects.slice(0, newObjectCount);
           } else {
             for (let i = oldObjectCount; i < newObjectCount; i++) {
-              plan.objects.push({
-                name: `Object ${i + 1}`,
-                description: '',
-              });
+              plan.objects.push({ name: `Object ${i + 1}`, description: '' });
             }
           }
         }
-        // Legacy WAN plans with object_names
         if (Array.isArray(plan.object_names)) {
           if (newObjectCount < oldObjectCount) {
             plan.object_names = plan.object_names.slice(0, newObjectCount);
@@ -173,8 +236,6 @@ export async function POST(req: NextRequest) {
             }
           }
         }
-
-        // Filter scene_object_indices: remove any index >= new object count
         if (Array.isArray(plan.scene_object_indices)) {
           plan.scene_object_indices = plan.scene_object_indices.map(
             (indices: number[]) =>
@@ -183,7 +244,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Adjust backgrounds
       if (newBgCount !== oldBgCount) {
         if (Array.isArray(plan.background_names)) {
           if (newBgCount < oldBgCount) {
@@ -194,8 +254,6 @@ export async function POST(req: NextRequest) {
             }
           }
         }
-
-        // Clamp scene_bg_indices to valid range
         if (Array.isArray(plan.scene_bg_indices)) {
           plan.scene_bg_indices = plan.scene_bg_indices.map((idx: number) =>
             Math.min(idx, newBgCount - 1)
@@ -203,7 +261,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Persist updated plan to DB
       const { error: updateError } = await supabase
         .from('storyboards')
         .update({ plan })
@@ -221,8 +278,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build object_names and object_descriptions from the (possibly adjusted) plan
-    // Both Kling and new WAN plans use plan.objects; legacy WAN uses plan.object_names
+    // Clamp scene_object_indices to max 3 per scene for SkyReels
+    if (
+      storyboard.model === 'skyreels' &&
+      Array.isArray(plan.scene_object_indices)
+    ) {
+      plan.scene_object_indices = plan.scene_object_indices.map(
+        (indices: number[]) => indices.slice(0, 3)
+      );
+    }
+
     const objectNames: string[] = Array.isArray(plan.objects)
       ? plan.objects.map((o: { name: string }) => o.name)
       : plan.object_names;
@@ -230,58 +295,185 @@ export async function POST(req: NextRequest) {
       ? plan.objects.map((o: { description: string }) => o.description)
       : undefined;
 
-    // Call approve-ref-split edge function
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    // ── Inline approve-ref-split logic ─────────────────────────────
 
-    const fnResponse = await fetch(
-      `${supabaseUrl}/functions/v1/approve-ref-split`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
-        },
-        body: JSON.stringify({
-          storyboard_id: storyboardId,
-          objects_grid_image_id: objectsGrid.id,
-          objects_grid_image_url: objectsGrid.url,
-          objects_rows: plan.objects_rows,
-          objects_cols: plan.objects_cols,
-          bg_grid_image_id: bgGrid.id,
-          bg_grid_image_url: bgGrid.url,
-          bg_rows: plan.bg_rows,
-          bg_cols: plan.bg_cols,
-          object_names: objectNames,
-          object_descriptions: objectDescriptions,
-          background_names: plan.background_names,
-          scene_prompts: plan.scene_prompts,
-          scene_bg_indices: plan.scene_bg_indices,
-          scene_object_indices: plan.scene_object_indices,
-          scene_multi_shots: plan.scene_multi_shots ?? undefined,
-          voiceover_list: plan.voiceover_list,
-          width: dimensions.width,
-          height: dimensions.height,
-        }),
-      }
+    const log = createLogger();
+    log.setContext({ step: 'ApproveRefSplit' });
+
+    const adminSupabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { db: { schema: 'studio' } }
     );
 
-    if (!fnResponse.ok) {
-      const errorBody = await fnResponse.text();
-      console.error('Edge function error:', fnResponse.status, errorBody);
-      return NextResponse.json(
-        { error: 'Failed to start ref split workflow' },
-        { status: 500 }
-      );
+    const scene_prompts = plan.scene_prompts as (string | string[])[];
+    const scene_bg_indices = plan.scene_bg_indices as number[];
+    const scene_object_indices = plan.scene_object_indices as number[][];
+    const scene_multi_shots = plan.scene_multi_shots as boolean[] | undefined;
+    const voiceover_list = plan.voiceover_list as Record<string, string[]>;
+    const sceneCount = scene_prompts.length;
+    const languages = Object.keys(voiceover_list);
+
+    // Step 0: Set plan_status to 'splitting'
+    await adminSupabase
+      .from('storyboards')
+      .update({ plan_status: 'splitting' })
+      .eq('id', storyboardId);
+
+    // Step 1: Create scenes with prompts and voiceovers
+    log.info('Creating scenes', { count: sceneCount });
+    log.startTiming('create_scenes');
+
+    const sceneIds: string[] = [];
+    for (let i = 0; i < sceneCount; i++) {
+      const { data: scene, error: sceneError } = await adminSupabase
+        .from('scenes')
+        .insert({
+          storyboard_id: storyboardId,
+          order: i,
+          prompt: Array.isArray(scene_prompts[i]) ? null : scene_prompts[i],
+          multi_prompt: Array.isArray(scene_prompts[i])
+            ? scene_prompts[i]
+            : null,
+          multi_shots: scene_multi_shots?.[i] ?? null,
+        })
+        .select()
+        .single();
+
+      if (sceneError || !scene) {
+        log.warn('Failed to insert scene', {
+          index: i,
+          error: sceneError?.message,
+        });
+        continue;
+      }
+
+      sceneIds.push(scene.id);
+
+      for (const lang of languages) {
+        await adminSupabase.from('voiceovers').insert({
+          scene_id: scene.id,
+          text: voiceover_list[lang][i],
+          language: lang,
+          status: 'success',
+        });
+      }
     }
 
-    const fnData = await fnResponse.json();
+    log.success('Scenes created', {
+      count: sceneIds.length,
+      time_ms: log.endTiming('create_scenes'),
+    });
 
-    if (fnData && fnData.success === false) {
-      console.error('Ref split workflow returned failure:', fnData);
+    // Step 2: Pre-create objects rows
+    log.startTiming('create_objects');
+    let objectsCreated = 0;
+    for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
+      const objectIndices = scene_object_indices[sceneIdx] || [];
+      for (let pos = 0; pos < objectIndices.length; pos++) {
+        const gridPos = objectIndices[pos];
+        await adminSupabase.from('objects').insert({
+          grid_image_id: objectsGrid.id,
+          scene_id: sceneIds[sceneIdx],
+          scene_order: pos,
+          grid_position: gridPos,
+          name: objectNames[gridPos],
+          description: objectDescriptions?.[gridPos] ?? null,
+          status: 'processing',
+        });
+        objectsCreated++;
+      }
+    }
+    log.success('Objects created', {
+      count: objectsCreated,
+      time_ms: log.endTiming('create_objects'),
+    });
+
+    // Step 3: Pre-create backgrounds rows
+    log.startTiming('create_backgrounds');
+    let backgroundsCreated = 0;
+    for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
+      const bgIndex = scene_bg_indices[sceneIdx];
+      await adminSupabase.from('backgrounds').insert({
+        grid_image_id: bgGrid.id,
+        scene_id: sceneIds[sceneIdx],
+        grid_position: bgIndex,
+        name: plan.background_names[bgIndex],
+        status: 'processing',
+      });
+      backgroundsCreated++;
+    }
+    log.success('Backgrounds created', {
+      count: backgroundsCreated,
+      time_ms: log.endTiming('create_backgrounds'),
+    });
+
+    // Step 4: Send split requests for both grids
+    log.startTiming('split_requests');
+
+    const [objectsSplit, bgSplit] = await Promise.all([
+      sendSplitRequest(
+        objectsGrid.url,
+        objectsGrid.id,
+        storyboardId,
+        plan.objects_rows,
+        plan.objects_cols,
+        dimensions.width,
+        dimensions.height,
+        log
+      ),
+      sendSplitRequest(
+        bgGrid.url,
+        bgGrid.id,
+        storyboardId,
+        plan.bg_rows,
+        plan.bg_cols,
+        dimensions.width,
+        dimensions.height,
+        log
+      ),
+    ]);
+
+    log.info('Split requests sent', {
+      objects_request_id: objectsSplit.requestId,
+      bg_request_id: bgSplit.requestId,
+      objects_error: objectsSplit.error,
+      bg_error: bgSplit.error,
+      time_ms: log.endTiming('split_requests'),
+    });
+
+    // Save split_request_ids
+    if (objectsSplit.requestId) {
+      await adminSupabase
+        .from('grid_images')
+        .update({ split_request_id: objectsSplit.requestId })
+        .eq('id', objectsGrid.id);
+    }
+    if (bgSplit.requestId) {
+      await adminSupabase
+        .from('grid_images')
+        .update({ split_request_id: bgSplit.requestId })
+        .eq('id', bgGrid.id);
+    }
+
+    // If both failed, mark objects/backgrounds as failed
+    if (objectsSplit.error && bgSplit.error) {
+      await adminSupabase
+        .from('objects')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', objectsGrid.id);
+      await adminSupabase
+        .from('backgrounds')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', bgGrid.id);
+      await adminSupabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId);
+
+      log.summary('error', { reason: 'both_split_requests_failed' });
       return NextResponse.json(
-        { error: fnData.error || 'Ref split workflow failed' },
+        { error: 'Failed to send both split requests' },
         { status: 500 }
       );
     }

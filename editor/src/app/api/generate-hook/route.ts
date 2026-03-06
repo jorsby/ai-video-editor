@@ -27,12 +27,30 @@ const hookResultSchema = z.object({
 });
 
 const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish',
-  fr: 'French', de: 'German', pt: 'Portuguese', it: 'Italian',
-  ru: 'Russian', ja: 'Japanese', ko: 'Korean', zh: 'Chinese',
-  hi: 'Hindi', nl: 'Dutch', pl: 'Polish', sv: 'Swedish',
-  da: 'Danish', fi: 'Finnish', no: 'Norwegian', uk: 'Ukrainian',
-  cs: 'Czech', ro: 'Romanian', hu: 'Hungarian', id: 'Indonesian',
+  en: 'English',
+  tr: 'Turkish',
+  ar: 'Arabic',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+  pt: 'Portuguese',
+  it: 'Italian',
+  ru: 'Russian',
+  ja: 'Japanese',
+  ko: 'Korean',
+  zh: 'Chinese',
+  hi: 'Hindi',
+  nl: 'Dutch',
+  pl: 'Polish',
+  sv: 'Swedish',
+  da: 'Danish',
+  fi: 'Finnish',
+  no: 'Norwegian',
+  uk: 'Ukrainian',
+  cs: 'Czech',
+  ro: 'Romanian',
+  hu: 'Hungarian',
+  id: 'Indonesian',
   ms: 'Malay',
 };
 
@@ -82,12 +100,11 @@ export async function POST(req: NextRequest) {
       ? (plan.visual_flow as string[])
       : [];
 
-    const scenes = (
-      storyboard?.scenes as Array<{ prompt: string; order: number }> | null
-    )
-      ?.sort((a, b) => a.order - b.order)
-      .map((s) => s.prompt)
-      .filter(Boolean) || [];
+    const scenes =
+      (storyboard?.scenes as Array<{ prompt: string; order: number }> | null)
+        ?.sort((a, b) => a.order - b.order)
+        .map((s) => s.prompt)
+        .filter(Boolean) || [];
 
     const languageLabel = LANGUAGE_LABELS[lang] || 'English';
 
@@ -105,9 +122,7 @@ Rules:
 - Keep it punchy and attention-grabbing.`;
 
     const visualFlowText =
-      visualFlow.length > 0
-        ? `\nVisual Flow:\n${visualFlow.join('\n')}`
-        : '';
+      visualFlow.length > 0 ? `\nVisual Flow:\n${visualFlow.join('\n')}` : '';
 
     const userPrompt = `Project: "${projectName}"
 
@@ -127,7 +142,7 @@ Generate a 3-line hook for this video in ${languageLabel}.`;
         schema: hookResultSchema,
         system: systemPrompt,
         prompt: userPrompt,
-        maxTokens: 200,
+        maxOutputTokens: 200,
       });
       result = object;
     } catch (primaryError) {
@@ -140,7 +155,7 @@ Generate a 3-line hook for this video in ${languageLabel}.`;
         schema: hookResultSchema,
         system: systemPrompt,
         prompt: userPrompt,
-        maxTokens: 200,
+        maxOutputTokens: 200,
       });
       result = object;
     }

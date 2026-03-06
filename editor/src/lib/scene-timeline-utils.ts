@@ -73,7 +73,10 @@ export async function addSceneToTimeline(
   if (scene.voiceover?.audioUrl) {
     const audioClip = await Audio.fromUrl(scene.voiceover.audioUrl);
     if (scene.voiceover.voiceoverId) {
-      audioClip.style = { ...audioClip.style, voiceoverId: scene.voiceover.voiceoverId };
+      audioClip.style = {
+        ...audioClip.style,
+        voiceoverId: scene.voiceover.voiceoverId,
+      };
     }
     const audioDuration = audioClip.duration;
 
@@ -175,7 +178,10 @@ export async function addVoiceoverToTimeline(
 
   const audioClip = await Audio.fromUrl(voiceover.audioUrl);
   if (voiceover.voiceoverId) {
-    audioClip.style = { ...audioClip.style, voiceoverId: voiceover.voiceoverId };
+    audioClip.style = {
+      ...audioClip.style,
+      voiceoverId: voiceover.voiceoverId,
+    };
   }
 
   audioClip.display.from = startTime;
@@ -206,7 +212,9 @@ export async function addVoiceoverToTimeline(
  * Fast path: uses voiceoverId cached in clip.style.
  * Fallback: queries by audio_url matching clip.src.
  */
-export async function getVoiceoverForClip(clip: IClip): Promise<Voiceover | null> {
+export async function getVoiceoverForClip(
+  clip: IClip
+): Promise<Voiceover | null> {
   const supabase = createClient('studio');
   const voiceoverId = (clip as any).style?.voiceoverId;
 
@@ -242,103 +250,121 @@ export function regenerateVoiceover(
   studio: Studio,
   clip: IClip,
   voiceover: Voiceover
-): { promise: Promise<{ success: boolean; error?: string }>; abort: () => void } {
+): {
+  promise: Promise<{ success: boolean; error?: string }>;
+  abort: () => void;
+} {
   const supabase = createClient('studio');
   const oldSrc = clip.src;
   let channel: ReturnType<typeof supabase.channel> | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let aborted = false;
 
-  const promise = new Promise<{ success: boolean; error?: string }>((resolve) => {
-    const cleanup = () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-        channel = null;
-      }
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-    };
-
-    // Set up realtime subscription before triggering TTS
-    channel = supabase
-      .channel(`voiceover_regen_${voiceover.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'voiceovers',
-          filter: `id=eq.${voiceover.id}`,
-        },
-        async (payload) => {
-          const updated = payload.new as Voiceover;
-
-          if (updated.status === 'success' && updated.audio_url) {
-            cleanup();
-            if (aborted) {
-              resolve({ success: false, error: 'Aborted' });
-              return;
-            }
-
-            try {
-              await studio.timeline.replaceClipsBySource(oldSrc, async (oldClip) => {
-                const newClip = await Audio.fromUrl(updated.audio_url!);
-                newClip.id = oldClip.id;
-                newClip.display.from = oldClip.display.from;
-                newClip.display.to = oldClip.display.from + newClip.duration;
-                newClip.volume = oldClip.volume;
-                newClip.style = { ...newClip.style, voiceoverId: voiceover.id };
-                return newClip;
-              });
-              resolve({ success: true });
-            } catch (err) {
-              resolve({ success: false, error: 'Failed to replace audio clip' });
-            }
-          } else if (updated.status === 'failed') {
-            cleanup();
-            resolve({ success: false, error: 'Voiceover generation failed' });
-          }
+  const promise = new Promise<{ success: boolean; error?: string }>(
+    (resolve) => {
+      const cleanup = () => {
+        if (channel) {
+          supabase.removeChannel(channel);
+          channel = null;
         }
-      )
-      .subscribe();
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
 
-    // Timeout after 2 minutes
-    timeoutId = setTimeout(() => {
-      cleanup();
-      resolve({ success: false, error: 'Voiceover generation timed out' });
-    }, REGEN_TIMEOUT_MS);
-
-    // Reset voiceover record and trigger TTS
-    (async () => {
-      try {
-        await supabase
-          .from('voiceovers')
-          .update({ status: 'pending', audio_url: null, duration: null })
-          .eq('id', voiceover.id);
-
-        const voice = DEFAULT_VOICE_MAP[voiceover.language] ?? FALLBACK_VOICE;
-        const { error } = await supabase.functions.invoke('generate-tts', {
-          body: {
-            scene_ids: [voiceover.scene_id],
-            voice,
-            model: 'multilingual-v2',
-            language: voiceover.language,
-            speed: 1.0,
+      // Set up realtime subscription before triggering TTS
+      channel = supabase
+        .channel(`voiceover_regen_${voiceover.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'voiceovers',
+            filter: `id=eq.${voiceover.id}`,
           },
-        });
+          async (payload) => {
+            const updated = payload.new as Voiceover;
 
-        if (error) {
-          cleanup();
-          resolve({ success: false, error: 'Failed to invoke TTS' });
-        }
-      } catch (err) {
+            if (updated.status === 'success' && updated.audio_url) {
+              cleanup();
+              if (aborted) {
+                resolve({ success: false, error: 'Aborted' });
+                return;
+              }
+
+              try {
+                await studio.timeline.replaceClipsBySource(
+                  oldSrc,
+                  async (oldClip) => {
+                    const newClip = await Audio.fromUrl(updated.audio_url!);
+                    newClip.id = oldClip.id;
+                    newClip.display.from = oldClip.display.from;
+                    newClip.display.to =
+                      oldClip.display.from + newClip.duration;
+                    newClip.volume = oldClip.volume;
+                    newClip.style = {
+                      ...newClip.style,
+                      voiceoverId: voiceover.id,
+                    };
+                    return newClip;
+                  }
+                );
+                resolve({ success: true });
+              } catch (err) {
+                resolve({
+                  success: false,
+                  error: 'Failed to replace audio clip',
+                });
+              }
+            } else if (updated.status === 'failed') {
+              cleanup();
+              resolve({ success: false, error: 'Voiceover generation failed' });
+            }
+          }
+        )
+        .subscribe();
+
+      // Timeout after 2 minutes
+      timeoutId = setTimeout(() => {
         cleanup();
-        resolve({ success: false, error: 'Failed to start regeneration' });
-      }
-    })();
-  });
+        resolve({ success: false, error: 'Voiceover generation timed out' });
+      }, REGEN_TIMEOUT_MS);
+
+      // Reset voiceover record and trigger TTS
+      (async () => {
+        try {
+          await supabase
+            .from('voiceovers')
+            .update({ status: 'pending', audio_url: null, duration: null })
+            .eq('id', voiceover.id);
+
+          const voice = DEFAULT_VOICE_MAP[voiceover.language] ?? FALLBACK_VOICE;
+          const ttsRes = await fetch('/api/workflow/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              scene_ids: [voiceover.scene_id],
+              voice,
+              model: 'multilingual-v2',
+              language: voiceover.language,
+              speed: 1.0,
+            }),
+          });
+          const error = ttsRes.ok ? null : new Error('TTS request failed');
+
+          if (error) {
+            cleanup();
+            resolve({ success: false, error: 'Failed to invoke TTS' });
+          }
+        } catch (err) {
+          cleanup();
+          resolve({ success: false, error: 'Failed to start regeneration' });
+        }
+      })();
+    }
+  );
 
   const abort = () => {
     aborted = true;
