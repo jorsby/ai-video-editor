@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import type { IClip } from 'openvideo';
 import { useStudioStore } from '@/stores/studio-store';
-import { IconVolume, IconGauge, IconMusic, IconLoader2, IconRefresh } from '@tabler/icons-react';
+import {
+  IconVolume,
+  IconGauge,
+  IconMusic,
+  IconLoader2,
+  IconRefresh,
+} from '@tabler/icons-react';
 import {
   InputGroup,
   InputGroupAddon,
@@ -10,7 +16,10 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { getVoiceoverForClip, regenerateVoiceover } from '@/lib/scene-timeline-utils';
+import {
+  getVoiceoverForClip,
+  regenerateVoiceover,
+} from '@/lib/scene-timeline-utils';
 import type { Voiceover } from '@/lib/supabase/workflow-service';
 
 interface AudioPropertiesProps {
@@ -74,7 +83,9 @@ export function AudioProperties({ clip }: AudioPropertiesProps) {
   const handleUpdate = (updates: any) => {
     if ('playbackRate' in updates && studio && audioClip.trim) {
       const newRate = updates.playbackRate || 1;
-      const newDuration = Math.round((audioClip.trim.to - audioClip.trim.from) / newRate);
+      const newDuration = Math.round(
+        (audioClip.trim.to - audioClip.trim.from) / newRate
+      );
       studio.updateClip(audioClip.id, { ...updates, duration: newDuration });
     } else {
       audioClip.update(updates);

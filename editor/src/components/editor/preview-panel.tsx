@@ -27,9 +27,7 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   const onReadyRef = useRef(onReady);
   const { setStudio } = useStudioStore();
   const projectId = useProjectId();
-  const isLanguageSwitching = useLanguageStore(
-    (s) => s.isLanguageSwitching
-  );
+  const isLanguageSwitching = useLanguageStore((s) => s.isLanguageSwitching);
 
   // Keep onReady ref up to date
   useEffect(() => {

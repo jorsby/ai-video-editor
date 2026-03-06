@@ -2,79 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
-
-const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
-  '16:9': { width: 1920, height: 1080 },
-  '9:16': { width: 1080, height: 1920 },
-  '1:1': { width: 1080, height: 1080 },
-};
-
-const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
-
-async function sendSplitRequest(
-  gridImageUrl: string,
-  gridImageId: string,
-  storyboardId: string,
-  rows: number,
-  cols: number,
-  width: number,
-  height: number,
-  log: ReturnType<typeof createLogger>
-): Promise<{ requestId: string | null; error: string | null }> {
-  const splitWebhookParams = new URLSearchParams({
-    step: 'SplitGridImage',
-    grid_image_id: gridImageId,
-    storyboard_id: storyboardId,
-  });
-  const splitWebhookUrl = `${APP_URL}/api/webhook/fal?${splitWebhookParams.toString()}`;
-
-  const falUrl = new URL('https://queue.fal.run/comfy/octupost/splitgridimage');
-  falUrl.searchParams.set('fal_webhook', splitWebhookUrl);
-
-  log.api('ComfyUI', 'splitgridimage', {
-    grid_image_id: gridImageId,
-    rows,
-    cols,
-    width,
-    height,
-  });
-
-  const splitResponse = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${FAL_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      loadimage_1: gridImageUrl,
-      rows,
-      cols,
-      width,
-      height,
-    }),
-  });
-
-  if (!splitResponse.ok) {
-    const errorText = await splitResponse.text();
-    log.error('Split request failed', {
-      grid_image_id: gridImageId,
-      status: splitResponse.status,
-      error: errorText,
-    });
-    return {
-      requestId: null,
-      error: `Split request failed: ${splitResponse.status}`,
-    };
-  }
-
-  const splitResult = await splitResponse.json();
-  log.success('Split request sent', {
-    grid_image_id: gridImageId,
-    request_id: splitResult.request_id,
-  });
-  return { requestId: splitResult.request_id, error: null };
-}
+import { splitGrid } from '@/lib/grid-splitter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -196,8 +124,6 @@ export async function POST(req: NextRequest) {
     }
 
     const plan = storyboard.plan;
-    const dimensions =
-      ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
 
     // --- Adjust plan arrays when dimensions changed ---
     const newObjectCount = objectsRows * objectsCols;
@@ -408,56 +334,44 @@ export async function POST(req: NextRequest) {
       time_ms: log.endTiming('create_backgrounds'),
     });
 
-    // Step 4: Send split requests for both grids
+    // Step 4: Split both grids using Sharp-based auto-splitter
     log.startTiming('split_requests');
 
     const [objectsSplit, bgSplit] = await Promise.all([
-      sendSplitRequest(
-        objectsGrid.url,
-        objectsGrid.id,
-        storyboardId,
-        plan.objects_rows,
-        plan.objects_cols,
-        dimensions.width,
-        dimensions.height,
+      splitGrid(
+        {
+          imageUrl: objectsGrid.url,
+          rows: plan.objects_rows,
+          cols: plan.objects_cols,
+          storyboardId,
+          gridImageId: objectsGrid.id,
+          type: 'objects',
+        },
         log
       ),
-      sendSplitRequest(
-        bgGrid.url,
-        bgGrid.id,
-        storyboardId,
-        plan.bg_rows,
-        plan.bg_cols,
-        dimensions.width,
-        dimensions.height,
+      splitGrid(
+        {
+          imageUrl: bgGrid.url,
+          rows: plan.bg_rows,
+          cols: plan.bg_cols,
+          storyboardId,
+          gridImageId: bgGrid.id,
+          type: 'backgrounds',
+        },
         log
       ),
     ]);
 
-    log.info('Split requests sent', {
-      objects_request_id: objectsSplit.requestId,
-      bg_request_id: bgSplit.requestId,
-      objects_error: objectsSplit.error,
-      bg_error: bgSplit.error,
+    log.info('Split results', {
+      objects_success: objectsSplit.success,
+      objects_tiles: objectsSplit.tiles.length,
+      bg_success: bgSplit.success,
+      bg_tiles: bgSplit.tiles.length,
       time_ms: log.endTiming('split_requests'),
     });
 
-    // Save split_request_ids
-    if (objectsSplit.requestId) {
-      await adminSupabase
-        .from('grid_images')
-        .update({ split_request_id: objectsSplit.requestId })
-        .eq('id', objectsGrid.id);
-    }
-    if (bgSplit.requestId) {
-      await adminSupabase
-        .from('grid_images')
-        .update({ split_request_id: bgSplit.requestId })
-        .eq('id', bgGrid.id);
-    }
-
-    // If both failed, mark objects/backgrounds as failed
-    if (objectsSplit.error && bgSplit.error) {
+    // If both failed, mark as failed
+    if (!objectsSplit.success && !bgSplit.success) {
       await adminSupabase
         .from('objects')
         .update({ status: 'failed' })
@@ -471,12 +385,20 @@ export async function POST(req: NextRequest) {
         .update({ plan_status: 'failed' })
         .eq('id', storyboardId);
 
-      log.summary('error', { reason: 'both_split_requests_failed' });
+      log.summary('error', { reason: 'both_splits_failed' });
       return NextResponse.json(
-        { error: 'Failed to send both split requests' },
+        { error: 'Both grid splits failed' },
         { status: 500 }
       );
     }
+
+    // Mark storyboard as approved even if one split failed — partial success is
+    // acceptable. The failed split will show as failed in the UI and the user can
+    // retry it individually.
+    await adminSupabase
+      .from('storyboards')
+      .update({ plan_status: 'approved' })
+      .eq('id', storyboardId);
 
     return NextResponse.json({
       success: true,

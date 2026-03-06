@@ -83,7 +83,9 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
   const handleUpdate = (updates: any) => {
     if ('playbackRate' in updates && studio && videoClip.trim) {
       const newRate = updates.playbackRate || 1;
-      const newDuration = Math.round((videoClip.trim.to - videoClip.trim.from) / newRate);
+      const newDuration = Math.round(
+        (videoClip.trim.to - videoClip.trim.from) / newRate
+      );
       studio.updateClip(videoClip.id, { ...updates, duration: newDuration });
     } else {
       videoClip.update(updates);

@@ -5,7 +5,10 @@ import { useLanguageSwitch } from '@/hooks/use-language-switch';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 import { createClient } from '@/lib/supabase/client';
-import { SUPPORTED_LANGUAGES, type LanguageCode } from '@/lib/constants/languages';
+import {
+  SUPPORTED_LANGUAGES,
+  type LanguageCode,
+} from '@/lib/constants/languages';
 import { toast } from 'sonner';
 import {
   TooltipProvider,
@@ -68,10 +71,13 @@ export function TimelineToolbar({
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
   const { activeLanguage, availableLanguages, isLanguageSwitching } =
     useLanguageStore();
-  const { switchLanguage, copyToMultiple, addEmptyLanguages, removeLanguage } = useLanguageSwitch();
+  const { switchLanguage, copyToMultiple, addEmptyLanguages, removeLanguage } =
+    useLanguageSwitch();
   const projectId = useProjectId();
   const { confirm: confirmDelete } = useDeleteConfirmation();
-  const [contextMenuLang, setContextMenuLang] = useState<LanguageCode | null>(null);
+  const [contextMenuLang, setContextMenuLang] = useState<LanguageCode | null>(
+    null
+  );
   const [pendingLang, setPendingLang] = useState<LanguageCode | null>(null);
   const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set());
   const [isTranslating, setIsTranslating] = useState(false);
@@ -80,7 +86,9 @@ export function TimelineToolbar({
   const unaddedLanguages = SUPPORTED_LANGUAGES.filter(
     (l) => !availableLanguages.includes(l.code)
   );
-  const allSelected = selectedLangs.size === unaddedLanguages.length && unaddedLanguages.length > 0;
+  const allSelected =
+    selectedLangs.size === unaddedLanguages.length &&
+    unaddedLanguages.length > 0;
   const someSelected = selectedLangs.size > 0;
 
   const closeDialog = () => {
@@ -123,16 +131,24 @@ export function TimelineToolbar({
       }
 
       const result = await res.json();
-      const { translated, failed }: { translated: string[]; failed: { code: string; reason: string }[] } = result;
+      const {
+        translated,
+        failed,
+      }: { translated: string[]; failed: { code: string; reason: string }[] } =
+        result;
 
       if (translated.length > 0) {
-        setTranslateProgress(`Copying timelines for ${translated.length} language(s)...`);
+        setTranslateProgress(
+          `Copying timelines for ${translated.length} language(s)...`
+        );
         await copyToMultiple(translated);
         await switchLanguage(translated[0]);
       }
 
       if (failed.length === 0) {
-        toast.success(`${translated.length} language(s) translated successfully`);
+        toast.success(
+          `${translated.length} language(s) translated successfully`
+        );
       } else if (translated.length > 0) {
         toast.warning(
           `${translated.length} translated, ${failed.length} failed: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
@@ -272,7 +288,13 @@ export function TimelineToolbar({
               {availableLanguages.map((code) => {
                 const isActive = code === activeLanguage;
                 return (
-                  <DropdownMenu key={code} open={contextMenuLang === code} onOpenChange={(open) => { if (!open) setContextMenuLang(null); }}>
+                  <DropdownMenu
+                    key={code}
+                    open={contextMenuLang === code}
+                    onOpenChange={(open) => {
+                      if (!open) setContextMenuLang(null);
+                    }}
+                  >
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <DropdownMenuTrigger asChild>
@@ -282,7 +304,8 @@ export function TimelineToolbar({
                             onClick={() => handleLanguageClick(code)}
                             onContextMenu={(e) => {
                               e.preventDefault();
-                              if (!isLanguageSwitching) setContextMenuLang(code);
+                              if (!isLanguageSwitching)
+                                setContextMenuLang(code);
                             }}
                             className={`px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 ${
                               isActive
@@ -295,10 +318,15 @@ export function TimelineToolbar({
                         </DropdownMenuTrigger>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {isActive ? `Editing: ${code.toUpperCase()}` : `Switch to ${code.toUpperCase()} (right-click to remove)`}
+                        {isActive
+                          ? `Editing: ${code.toUpperCase()}`
+                          : `Switch to ${code.toUpperCase()} (right-click to remove)`}
                       </TooltipContent>
                     </Tooltip>
-                    <DropdownMenuContent align="start" className="min-w-[160px]">
+                    <DropdownMenuContent
+                      align="start"
+                      className="min-w-[160px]"
+                    >
                       <DropdownMenuItem
                         disabled={availableLanguages.length <= 1}
                         className="text-destructive focus:text-destructive"
@@ -319,7 +347,10 @@ export function TimelineToolbar({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => { setSelectedLangs(new Set()); setPendingLang('__new__' as LanguageCode); }}
+                    onClick={() => {
+                      setSelectedLangs(new Set());
+                      setPendingLang('__new__' as LanguageCode);
+                    }}
                     className="px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 rounded transition-colors"
                   >
                     +
@@ -421,8 +452,12 @@ export function TimelineToolbar({
       >
         <DialogContent
           className="max-w-sm"
-          onInteractOutside={(e) => { if (isTranslating) e.preventDefault(); }}
-          onEscapeKeyDown={(e) => { if (isTranslating) e.preventDefault(); }}
+          onInteractOutside={(e) => {
+            if (isTranslating) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (isTranslating) e.preventDefault();
+          }}
           showCloseButton={!isTranslating}
         >
           <DialogTitle>Add Languages</DialogTitle>
@@ -433,7 +468,9 @@ export function TimelineToolbar({
           {isTranslating ? (
             <div className="flex flex-col items-center gap-3 py-6">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{translateProgress}</p>
+              <p className="text-sm text-muted-foreground">
+                {translateProgress}
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-3 mt-2">
@@ -446,10 +483,18 @@ export function TimelineToolbar({
                   {/* Select All */}
                   <label className="flex items-center gap-2 pb-1 border-b cursor-pointer">
                     <Checkbox
-                      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                      checked={
+                        allSelected
+                          ? true
+                          : someSelected
+                            ? 'indeterminate'
+                            : false
+                      }
                       onCheckedChange={(checked) => {
                         if (checked) {
-                          setSelectedLangs(new Set(unaddedLanguages.map((l) => l.code)));
+                          setSelectedLangs(
+                            new Set(unaddedLanguages.map((l) => l.code))
+                          );
                         } else {
                           setSelectedLangs(new Set());
                         }
@@ -490,13 +535,24 @@ export function TimelineToolbar({
                   {/* Action buttons */}
                   <div className="flex flex-col gap-2">
                     <Button disabled={!someSelected} onClick={handleTranslate}>
-                      Translate{someSelected ? ` (${selectedLangs.size})` : ''} from {activeLanguage.toUpperCase()}
+                      Translate{someSelected ? ` (${selectedLangs.size})` : ''}{' '}
+                      from {activeLanguage.toUpperCase()}
                     </Button>
-                    <Button variant="outline" disabled={!someSelected} onClick={handleCopyTimeline}>
-                      Copy timeline{someSelected ? ` (${selectedLangs.size})` : ''}
+                    <Button
+                      variant="outline"
+                      disabled={!someSelected}
+                      onClick={handleCopyTimeline}
+                    >
+                      Copy timeline
+                      {someSelected ? ` (${selectedLangs.size})` : ''}
                     </Button>
-                    <Button variant="outline" disabled={!someSelected} onClick={handleStartEmpty}>
-                      Start empty{someSelected ? ` (${selectedLangs.size})` : ''}
+                    <Button
+                      variant="outline"
+                      disabled={!someSelected}
+                      onClick={handleStartEmpty}
+                    >
+                      Start empty
+                      {someSelected ? ` (${selectedLangs.size})` : ''}
                     </Button>
                   </div>
                 </>

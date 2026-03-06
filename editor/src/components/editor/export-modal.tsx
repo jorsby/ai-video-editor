@@ -9,12 +9,20 @@ import { Loader2, Cloud, Check, Download, Send, Layers } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
-import { INSTAGRAM_REELS_MAX_SECONDS, INSTAGRAM_REELS_MAX_MICROS } from '@/lib/constants/social-limits';
+import {
+  INSTAGRAM_REELS_MAX_SECONDS,
+  INSTAGRAM_REELS_MAX_MICROS,
+} from '@/lib/constants/social-limits';
 import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
 import type { RenderedVideo } from '@/types/rendered-video';
-import { loadTimeline, reconstructProjectJSON, saveTimeline, getAvailableLanguages } from '@/lib/supabase/timeline-service';
+import {
+  loadTimeline,
+  reconstructProjectJSON,
+  saveTimeline,
+  getAvailableLanguages,
+} from '@/lib/supabase/timeline-service';
 import { waitForSave } from '@/hooks/use-auto-save';
 import type { LanguageCode } from '@/lib/constants/languages';
 
@@ -274,11 +282,9 @@ export function ExportModal({
       setIsUploading(true);
       uploadAbortRef.current = new AbortController();
 
-      const file = new File(
-        [blob],
-        `render-${lang}-${Date.now()}.mp4`,
-        { type: 'video/mp4' }
-      );
+      const file = new File([blob], `render-${lang}-${Date.now()}.mp4`, {
+        type: 'video/mp4',
+      });
 
       const uploadResult = await smartUpload(
         file,
@@ -304,7 +310,9 @@ export function ExportModal({
       if (!opts.skipCompletion) {
         // Fetch all renders for this project to show in completion screen
         try {
-          const res = await fetch(`/api/rendered-videos?project_id=${projectId}`);
+          const res = await fetch(
+            `/api/rendered-videos?project_id=${projectId}`
+          );
           if (res.ok) {
             const { rendered_videos } = await res.json();
             setAllRenders(rendered_videos || []);
@@ -376,7 +384,9 @@ export function ExportModal({
         } else {
           const tracks = await loadTimeline(projectId, lang);
           if (!tracks || tracks.length === 0) {
-            toast.warning(`No timeline saved for ${lang.toUpperCase()} — skipping`);
+            toast.warning(
+              `No timeline saved for ${lang.toUpperCase()} — skipping`
+            );
             continue;
           }
           const studioOpts = studio.getOptions();
@@ -398,7 +408,12 @@ export function ExportModal({
           continue;
         }
         const validClips = json.clips.filter((clipJSON: any) => {
-          if (['Text', 'Caption', 'Effect', 'Transition', 'Audio'].includes(clipJSON.type)) return true;
+          if (
+            ['Text', 'Caption', 'Effect', 'Transition', 'Audio'].includes(
+              clipJSON.type
+            )
+          )
+            return true;
           return clipJSON.src && clipJSON.src.trim() !== '';
         });
         if (validClips.length === 0) {
@@ -437,18 +452,24 @@ export function ExportModal({
         // 7. Remux
         setIsRemuxing(true);
         setRemuxProgress(0);
-        const blob = await remuxToInstagramMp4(rawBlob, (p) => setRemuxProgress(p));
+        const blob = await remuxToInstagramMp4(rawBlob, (p) =>
+          setRemuxProgress(p)
+        );
         setIsRemuxing(false);
 
         // 8. Upload — pass explicit language, skip per-language completion logic
-        await handleCloudUpload(blob, combinatorOpts, { language: lang, skipCompletion: true });
-
+        await handleCloudUpload(blob, combinatorOpts, {
+          language: lang,
+          skipCompletion: true,
+        });
       } catch (error) {
         if ((error as DOMException)?.name === 'AbortError') {
           break; // user cancelled — stop batch
         }
         Log.error(`Render failed for ${lang}:`, error);
-        toast.error(`Failed to render ${lang.toUpperCase()}: ${(error as Error).message}`);
+        toast.error(
+          `Failed to render ${lang.toUpperCase()}: ${(error as Error).message}`
+        );
         // continue to next language
       }
     }
@@ -460,7 +481,9 @@ export function ExportModal({
         const { rendered_videos } = await res.json();
         setAllRenders(rendered_videos || []);
       }
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
 
     setShowCompletion(true);
     setStoreIsExporting(false);
@@ -546,7 +569,9 @@ export function ExportModal({
               )}
               {allRenders.length > 1 && (
                 <Button
-                  onClick={() => window.open(`/workflow/${projectId}`, '_blank')}
+                  onClick={() =>
+                    window.open(`/workflow/${projectId}`, '_blank')
+                  }
                   className="flex-1 h-11 gap-2 rounded-xl text-[13px] font-medium"
                 >
                   <Layers className="h-4 w-4" />
@@ -625,10 +650,13 @@ export function ExportModal({
             {maxDuration > INSTAGRAM_REELS_MAX_MICROS && (
               <div className="mb-4 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
                 <p className="text-sm font-medium text-amber-400">
-                  Timeline is {Math.round(maxDuration / 1e6)}s — exceeds Instagram&apos;s {INSTAGRAM_REELS_MAX_SECONDS}s limit
+                  Timeline is {Math.round(maxDuration / 1e6)}s — exceeds
+                  Instagram&apos;s {INSTAGRAM_REELS_MAX_SECONDS}s limit
                 </p>
                 <p className="mt-1 text-xs text-amber-400/70">
-                  Instagram will reject this video. Trim your timeline to {INSTAGRAM_REELS_MAX_SECONDS}s or shorter before rendering for Instagram.
+                  Instagram will reject this video. Trim your timeline to{' '}
+                  {INSTAGRAM_REELS_MAX_SECONDS}s or shorter before rendering for
+                  Instagram.
                 </p>
               </div>
             )}
@@ -666,11 +694,16 @@ export function ExportModal({
                   Render All Languages ({availableLanguages.length})
                 </Button>
                 <p className="mt-2 text-center text-[11px] text-zinc-600">
-                  Renders each language timeline sequentially and uploads to cloud
+                  Renders each language timeline sequentially and uploads to
+                  cloud
                 </p>
                 <p className="mt-1 text-center text-[11px] text-zinc-500">
                   {availableLanguages
-                    .map((code) => SUPPORTED_LANGUAGES.find((l) => l.code === code)?.label ?? code.toUpperCase())
+                    .map(
+                      (code) =>
+                        SUPPORTED_LANGUAGES.find((l) => l.code === code)
+                          ?.label ?? code.toUpperCase()
+                    )
                     .join(', ')}
                 </p>
               </>
@@ -785,7 +818,11 @@ export function ExportModal({
             <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
                 className={`absolute bottom-0 left-0 top-0 transition-all duration-300 ease-out ${
-                  isUploading ? 'bg-blue-500' : isRemuxing ? 'bg-amber-500' : 'bg-white'
+                  isUploading
+                    ? 'bg-blue-500'
+                    : isRemuxing
+                      ? 'bg-amber-500'
+                      : 'bg-white'
                 }`}
                 style={{
                   width: isUploading

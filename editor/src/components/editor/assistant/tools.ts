@@ -122,7 +122,9 @@ export const handleUpdateClip = async (input: any, studio: Studio) => {
     updates.playbackRate = playbackRate;
     const clip = studio.getClipById(id);
     if (clip && (clip as any).trim) {
-      updates.duration = Math.round(((clip as any).trim.to - (clip as any).trim.from) / playbackRate);
+      updates.duration = Math.round(
+        ((clip as any).trim.to - (clip as any).trim.from) / playbackRate
+      );
     }
   }
 

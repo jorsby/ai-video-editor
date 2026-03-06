@@ -332,7 +332,9 @@ export function Timeline() {
   const handleReset = useCallback(async () => {
     const { activeLanguage } = useLanguageStore.getState();
     if (
-      !window.confirm(`Reset ${activeLanguage.toUpperCase()} timeline? All tracks and clips for this language will be removed.`)
+      !window.confirm(
+        `Reset ${activeLanguage.toUpperCase()} timeline? All tracks and clips for this language will be removed.`
+      )
     )
       return;
     try {

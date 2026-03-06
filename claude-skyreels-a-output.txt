@@ -1,0 +1,17 @@
+`SKYREELS_PLAN_A.md` is written. Here's the summary:
+
+### Architecture Decision
+SkyReels goes into the **ref-to-video pipeline** (not I2V). It takes 1-4 reference images (characters + background) + a prompt, which maps perfectly to the existing dual-grid pattern used by Kling O3 and WAN 2.6 Flash.
+
+### Key Changes (minimal)
+- **2 new files**: `skyreels-plan.ts` (schema/prompts) + `generate-video-skyreels/index.ts` (polling edge function)
+- **~5 modified files**: storyboard route (add model branch), approve-ref-grid (add schema validation), generate-video (add MODEL_CONFIG entry + guard), webhook (dispatch to skyreels fn), workflow-service (add type)
+- **10+ unchanged files**: grid generation, splitting, TTS, timeline assembly, UI hooks — all reused as-is
+
+### Biggest Difference from Existing Models
+SkyReels has **no fal.ai webhooks** — the new edge function submits to the SkyReels REST API and polls for completion (10s intervals, 20-min timeout). If edge function timeouts are an issue, a cron-based polling fallback is documented.
+
+### Constraints Respected
+- Max 5s video duration (voiceover splitting targets 3-5s)
+- Max 4 ref_images (schema enforces max 3 objects + 1 background)
+- Max 512 token prompts (system prompt instructs, safety net truncates)

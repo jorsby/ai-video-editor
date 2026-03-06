@@ -1,0 +1,8 @@
+Done. `FAL_DIRECT_ENDPOINTS.md` has been created with complete documentation for all 14 endpoints. Key findings:
+
+**12 direct API endpoints documented** with full input/output schemas, pricing, and constraints:
+- 5 video generation (Kling O3 Standard/Pro, WAN 2.6 Flash, Grok Imagine, Seedance 1.5)
+- 6 image gen/editing (Nano Banana 2 T2I/Edit, FLUX.2 Pro Edit, Kling Image O3, Grok Imagine Edit, Bria Fibo Edit)
+- 1 audio/SFX (Mirelo SFX v1.5)
+
+**2 grid operations have NO direct endpoint** — `workflows/octupost/generategridimage` and `comfy/octupost/splitgridimage` are custom ComfyUI workflows. These must either stay as workflows or be replaced with client-side image manipulation (tiling/cropping don't need GPU).

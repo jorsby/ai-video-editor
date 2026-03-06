@@ -2,15 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
-
-const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
-  '16:9': { width: 1920, height: 1080 },
-  '9:16': { width: 1080, height: 1920 },
-  '1:1': { width: 1080, height: 1080 },
-};
-
-const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+import { splitGrid } from '@/lib/grid-splitter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -140,10 +132,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Get dimensions from aspect ratio
-    const dimensions =
-      ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
-
     // ── Inline approve-grid-split logic ──────────────────────────────
 
     const log = createLogger();
@@ -199,76 +187,27 @@ export async function POST(req: NextRequest) {
       time_ms: log.endTiming('create_scenes'),
     });
 
-    // Send split request to ComfyUI
-    const splitWebhookParams = new URLSearchParams({
-      step: 'SplitGridImage',
-      grid_image_id: gridImageId,
-      storyboard_id: storyboardId,
-    });
-    const splitWebhookUrl = `${APP_URL}/api/webhook/fal?${splitWebhookParams.toString()}`;
-
-    const falUrl = new URL(
-      'https://queue.fal.run/comfy/octupost/splitgridimage'
-    );
-    falUrl.searchParams.set('fal_webhook', splitWebhookUrl);
-
-    try {
-      log.api('ComfyUI', 'splitgridimage', {
+    // Split grid image using Sharp-based auto-splitter
+    log.startTiming('split_grid');
+    const splitResult = await splitGrid(
+      {
+        imageUrl: gridImage.url,
         rows,
         cols,
-        width: dimensions.width,
-        height: dimensions.height,
-      });
-      log.startTiming('split_request');
+        storyboardId,
+        gridImageId,
+        type: 'first_frames',
+      },
+      log
+    );
+    log.info('Grid split completed', {
+      success: splitResult.success,
+      tiles: splitResult.tiles.length,
+      time_ms: log.endTiming('split_grid'),
+    });
 
-      const splitResponse = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${FAL_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          loadimage_1: gridImage.url,
-          rows,
-          cols,
-          width: dimensions.width,
-          height: dimensions.height,
-        }),
-      });
-
-      if (!splitResponse.ok) {
-        const errorText = await splitResponse.text();
-        log.error('Split request failed', {
-          status: splitResponse.status,
-          error: errorText,
-          time_ms: log.endTiming('split_request'),
-        });
-        throw new Error(`Split request failed: ${splitResponse.status}`);
-      }
-
-      const splitResult = await splitResponse.json();
-      log.success('Split request sent', {
-        request_id: splitResult.request_id,
-        time_ms: log.endTiming('split_request'),
-      });
-
-      // Save split_request_id to grid_images for tracking
-      await adminSupabase
-        .from('grid_images')
-        .update({ split_request_id: splitResult.request_id })
-        .eq('id', gridImageId);
-
-      log.summary('success', {
-        storyboard_id: storyboardId,
-        grid_image_id: gridImageId,
-        scenes_created: expectedScenes,
-        split_request_id: splitResult.request_id,
-      });
-    } catch (splitError) {
-      log.error('Failed to send split request', {
-        error:
-          splitError instanceof Error ? splitError.message : String(splitError),
-      });
+    if (!splitResult.success) {
+      log.error('Grid split failed', { error: splitResult.error });
 
       // Mark all first_frames as failed
       const { data: scenes } = await adminSupabase
@@ -280,15 +219,12 @@ export async function POST(req: NextRequest) {
         for (const scene of scenes) {
           await adminSupabase
             .from('first_frames')
-            .update({ status: 'failed', error_message: 'internal_error' })
+            .update({ status: 'failed', error_message: 'split_error' })
             .eq('scene_id', scene.id);
         }
       }
 
-      return NextResponse.json(
-        { error: 'Failed to send split request' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Grid split failed' }, { status: 500 });
     }
 
     // Update plan_status to 'approved'

@@ -67,7 +67,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { generateUUID } from '@/utils/id';
 import { saveTextPreset } from '@/lib/supabase/text-presets-service';
-import type { SavedTextPreset, TextPresetStyle, TextPresetClipProperties } from '@/types/text-presets';
+import type {
+  SavedTextPreset,
+  TextPresetStyle,
+  TextPresetClipProperties,
+} from '@/types/text-presets';
 import { toast } from 'sonner';
 
 const GROUPED_FONTS = getGroupedFonts();
@@ -343,16 +347,10 @@ export function TextProperties({ clip }: TextPropertiesProps) {
             />
           </div>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setSaveDialogOpen(false)}
-            >
+            <Button variant="ghost" onClick={() => setSaveDialogOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleSaveAsPreset}
-              disabled={!presetName.trim()}
-            >
+            <Button onClick={handleSaveAsPreset} disabled={!presetName.trim()}>
               Save
             </Button>
           </DialogFooter>

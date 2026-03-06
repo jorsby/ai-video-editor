@@ -16,7 +16,10 @@
     "overrides": {
       "@types/react": "19.2.8",
       "@types/react-dom": "19.2.3"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
   },
   "dependencies": {
     "assistant-stream": "^0.3.0"
