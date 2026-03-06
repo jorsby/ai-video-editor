@@ -558,6 +558,7 @@ async function executeStartRefWorkflow(
 // ── Route Handler ─────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  let parsedStoryboardId: string | undefined;
   try {
     const supabase = await createClient('studio');
     const {
@@ -569,6 +570,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { storyboardId } = await req.json();
+    parsedStoryboardId = storyboardId;
 
     if (!storyboardId) {
       return NextResponse.json(
@@ -591,9 +593,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (storyboard.plan_status !== 'draft') {
+    if (!['draft', 'failed', 'generating'].includes(storyboard.plan_status)) {
       return NextResponse.json(
-        { error: 'Storyboard is not in draft status' },
+        { error: 'Storyboard is not in a retryable status' },
         { status: 400 }
       );
     }
@@ -703,6 +705,21 @@ export async function POST(req: NextRequest) {
         : { grid_image_id: r.grid_image_id }),
     });
   } catch (error) {
+    // Revert storyboard status on unexpected error
+    if (parsedStoryboardId) {
+      try {
+        const adminClient = createSupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { db: { schema: 'studio' } }
+        );
+        await adminClient
+          .from('storyboards')
+          .update({ plan_status: 'draft' })
+          .eq('id', parsedStoryboardId);
+      } catch {}
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     console.error('Approve storyboard error:', message, error);
     return NextResponse.json(
