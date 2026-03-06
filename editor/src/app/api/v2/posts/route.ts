@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
     if (postError || !post) {
       return NextResponse.json(
-        { error: postError?.message || 'Failed to create post' },
+        { error: 'Failed to create post' },
         { status: 500 }
       );
     }
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     if (paError) {
       return NextResponse.json(
-        { error: paError.message },
+        { error: 'Operation failed' },
         { status: 500 }
       );
     }
@@ -190,6 +190,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[POST /api/v2/posts]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }

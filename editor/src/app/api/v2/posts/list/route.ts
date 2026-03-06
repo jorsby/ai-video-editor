@@ -44,13 +44,14 @@ export async function GET(req: NextRequest) {
     const { data: posts, error, count } = await query;
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('[GET /api/v2/posts/list] query error:', error);
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     return NextResponse.json({ posts, total: count });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[GET /api/v2/posts/list]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }

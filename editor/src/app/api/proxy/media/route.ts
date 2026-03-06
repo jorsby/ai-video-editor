@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,10 @@ function isDomainAllowed(url: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const url = request.nextUrl.searchParams.get('url');
 
   if (!url) {
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
     return new Response(upstream.body, { status: 200, headers });
   } catch (error) {
     return NextResponse.json(
-      { error: `Fetch failed: ${(error as Error).message}` },
+      { error: 'Operation failed' },
       { status: 502 }
     );
   }

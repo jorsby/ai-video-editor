@@ -17,6 +17,11 @@ const openrouter = createOpenRouter({
 const tavilyClient = tavily({ apiKey: process.env.TAVILY_API_KEY });
 
 export async function POST(req: Request) {
+  const { createClient } = await import('@/lib/supabase/server');
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+
   const { messages }: { messages: UIMessage[] } = await req.json();
 
   const result = streamText({

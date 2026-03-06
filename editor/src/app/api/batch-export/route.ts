@@ -1,8 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import fs from 'node:fs';
 import path from 'node:path';
 
 export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const presetsPath = path.join(
       process.cwd(),
@@ -19,14 +23,18 @@ export async function GET() {
 
     return NextResponse.json({ success: true, keys: animationKeys, template });
   } catch (error: any) {
+    console.error('Batch export GET error:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'Operation failed' },
       { status: 500 }
     );
   }
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const formData = await req.formData();
     const file = formData.get('file') as Blob;
@@ -55,7 +63,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('Batch export error:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: 'Operation failed' },
       { status: 500 }
     );
   }

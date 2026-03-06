@@ -29,16 +29,15 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
     if (error || !post) {
       return NextResponse.json(
-        { error: error?.message || 'Post not found' },
+        { error: 'Post not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ post });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[GET /api/v2/posts/[id]]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[GET /api/v2/posts/[id]]', err);
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }
 
@@ -75,7 +74,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
 
     if (fetchErr || !existingPost) {
       return NextResponse.json(
-        { error: fetchErr?.message || 'Post not found' },
+        { error: 'Post not found' },
         { status: 404 }
       );
     }
@@ -100,7 +99,8 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
       .eq('id', id);
 
     if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+      console.error('[PUT /api/v2/posts/[id]] update error:', updateErr);
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     // If accountIds changed, reconcile post_accounts
@@ -195,9 +195,8 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
 
     return NextResponse.json({ post: updatedPost });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[PUT /api/v2/posts/[id]]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[PUT /api/v2/posts/[id]]', err);
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }
 
@@ -224,7 +223,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
 
     if (fetchErr || !post) {
       return NextResponse.json(
-        { error: fetchErr?.message || 'Post not found' },
+        { error: 'Post not found' },
         { status: 404 }
       );
     }
@@ -275,13 +274,13 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
       .eq('user_id', user.id);
 
     if (deleteErr) {
-      return NextResponse.json({ error: deleteErr.message }, { status: 500 });
+      console.error('[DELETE /api/v2/posts/[id]] delete error:', deleteErr);
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[DELETE /api/v2/posts/[id]]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[DELETE /api/v2/posts/[id]]', err);
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }

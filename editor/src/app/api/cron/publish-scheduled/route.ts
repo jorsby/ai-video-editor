@@ -6,11 +6,8 @@ import type { SocialPost, SocialPostAccount, PostStatus } from '@/types/social';
 
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get('authorization');
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  if (!cronSecret || req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
@@ -21,11 +18,11 @@ export async function GET(req: NextRequest) {
       .select('*, post_accounts(*)')
       .eq('status', 'scheduled')
       .lte('scheduled_at', new Date().toISOString())
-      .is('processing_started_at', null);
+      .or(`processing_started_at.is.null,processing_started_at.lt.${new Date(Date.now() - 10 * 60 * 1000).toISOString()}`);
 
     if (error) {
       console.error('[cron/publish-scheduled] query error:', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     let published = 0;
@@ -121,6 +118,6 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[cron/publish-scheduled]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }

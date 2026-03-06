@@ -6,6 +6,9 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code');
   const type = searchParams.get('type');
   let next = searchParams.get('next') ?? '/dashboard';
+  if (!next.startsWith('/') || next.startsWith('//')) {
+    next = '/dashboard';
+  }
 
   if (type === 'recovery') {
     next = '/auth/reset-password';

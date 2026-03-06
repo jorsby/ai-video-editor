@@ -1,8 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 
 export async function GET(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   if (!PEXELS_API_KEY) {
     return NextResponse.json(
       { error: 'PEXELS_API_KEY is not configured' },

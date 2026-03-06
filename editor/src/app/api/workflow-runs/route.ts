@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error('workflow-runs route error:', error);
     return NextResponse.json(
-      { error: `Internal server error: ${(error as Error).message}` },
+      { error: 'Operation failed' },
       { status: 500 }
     );
   }

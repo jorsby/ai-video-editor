@@ -51,12 +51,25 @@ export async function GET(req: NextRequest) {
 
     const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 50, 100) : 50;
 
+    // Verify account belongs to the authenticated user
+    const socialSupabase = await createClient('social_auth');
+    const { data: ownedAccount } = await socialSupabase
+      .from('tokens')
+      .select('account_id')
+      .eq('account_id', accountId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!ownedAccount) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+    }
+
     let token;
     try {
       token = await fetchToken(accountId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to get account credentials';
-      return NextResponse.json({ error: message }, { status: 500 });
+      console.error('Failed to get account credentials:', err);
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     const { platform: provider, access_token: accessToken, account_id: providerId, account_name: name } = token;

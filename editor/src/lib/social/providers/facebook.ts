@@ -12,8 +12,6 @@ export async function getFacebookPageToken(
   console.log('[getFacebookPageToken] Exchanging user token for page token', {
     providerId,
     hasUserAccessToken: !!userAccessToken,
-    tokenLength: userAccessToken?.length,
-    tokenPrefix: userAccessToken?.substring(0, 10) + '...',
   });
 
   const url = `https://graph.facebook.com/v24.0/${providerId}?fields=access_token&access_token=${encodeURIComponent(userAccessToken)}`;

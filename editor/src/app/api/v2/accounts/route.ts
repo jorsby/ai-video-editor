@@ -16,6 +16,7 @@ export async function GET() {
     const { data: tokens, error } = await supabase
       .from('tokens')
       .select('platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url')
+      .eq('user_id', user.id)
       .order('platform')
       .order('account_name');
 
@@ -39,6 +40,6 @@ export async function GET() {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[GET /api/v2/accounts]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
   }
 }
