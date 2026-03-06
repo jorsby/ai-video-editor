@@ -50,7 +50,7 @@ function splitMultiPromptDurations(
 
 const MODEL_CONFIG: Record<string, ModelConfig> = {
   'wan2.6': {
-    endpoint: 'workflows/octupost/wan26',
+    endpoint: 'fal-ai/wan/v2.6/image-to-video',
     mode: 'image_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => (raw <= 5 ? 5 : raw <= 10 ? 10 : 15),
@@ -59,12 +59,13 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_url,
       resolution,
       duration: String(duration),
+      enable_safety_checker: false,
     }),
   },
   'bytedance1.5pro': {
-    endpoint: 'workflows/octupost/bytedancepro15',
+    endpoint: 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
     mode: 'image_to_video',
-    validResolutions: ['480p', '720p', '1080p'],
+    validResolutions: ['480p', '720p'],
     bucketDuration: (raw) => Math.max(4, Math.min(12, raw)),
     buildPayload: ({
       prompt,
@@ -77,11 +78,11 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_url,
       aspect_ratio: aspect_ratio ?? '16:9',
       resolution,
-      duration: String(duration),
+      duration,
     }),
   },
   grok: {
-    endpoint: 'workflows/octupost/grok',
+    endpoint: 'xai/grok-imagine-video/image-to-video',
     mode: 'image_to_video',
     validResolutions: ['480p', '720p'],
     bucketDuration: (raw) => Math.max(1, Math.min(15, raw)),
@@ -89,11 +90,11 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       prompt,
       image_url,
       resolution,
-      duration: String(duration),
+      duration,
     }),
   },
   wan26flash: {
-    endpoint: 'workflows/octupost/wan26flash',
+    endpoint: 'wan/v2.6/image-to-video/flash',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
@@ -105,15 +106,15 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       multi_shots,
     }) => ({
       prompt,
-      image_urls: image_urls || [],
+      image_url: image_urls?.[0] || '',
       resolution,
       duration: String(duration),
-      enable_audio: false,
+      enable_safety_checker: false,
       multi_shots: multi_shots ?? false,
     }),
   },
   klingo3: {
-    endpoint: 'workflows/octupost/klingo3',
+    endpoint: 'fal-ai/kling-video/o3/standard/reference-to-video',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => Math.max(3, Math.min(15, raw)),
@@ -124,22 +125,19 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
-      multi_shots,
     }) => ({
-      prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
-      multi_prompt:
+      prompt:
         multi_prompt && multi_prompt.length > 0
-          ? splitMultiPromptDurations(multi_prompt, Number(duration))
-          : [],
+          ? multi_prompt.join('. ')
+          : prompt,
       elements: elements || [],
       image_urls: image_urls || [],
-      duration: String(duration),
+      duration,
       aspect_ratio: aspect_ratio ?? '16:9',
-      multi_shots: multi_shots ?? false,
     }),
   },
   klingo3pro: {
-    endpoint: 'workflows/octupost/klingo3pro',
+    endpoint: 'fal-ai/kling-video/o3/pro/reference-to-video',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => Math.max(3, Math.min(15, raw)),
@@ -150,18 +148,15 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
-      multi_shots,
     }) => ({
-      prompt: multi_prompt && multi_prompt.length > 0 ? '' : prompt,
-      multi_prompt:
+      prompt:
         multi_prompt && multi_prompt.length > 0
-          ? splitMultiPromptDurations(multi_prompt, Number(duration))
-          : [],
+          ? multi_prompt.join('. ')
+          : prompt,
       elements: elements || [],
       image_urls: image_urls || [],
-      duration: String(duration),
+      duration,
       aspect_ratio: aspect_ratio ?? '16:9',
-      multi_shots: multi_shots ?? false,
     }),
   },
   skyreels: {

@@ -17,11 +17,11 @@ interface EditImageInput {
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
-  kling: 'workflows/octupost/edit-image-kling',
-  banana: 'workflows/octupost/edit-image-banana',
-  fibo: 'workflows/octupost/edit-image-fibo',
-  grok: 'workflows/octupost/edit-image-grok',
-  'flux-pro': 'workflows/octupost/edit-image-flux-pro',
+  kling: 'fal-ai/kling-image/o3/image-to-image',
+  banana: 'fal-ai/nano-banana-2/edit',
+  fibo: 'bria/fibo-edit/edit',
+  grok: 'xai/grok-imagine-image/edit',
+  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 
 const EDIT_PROMPT =
@@ -218,11 +218,23 @@ async function sendEditRequest(
 
   let requestBody: Record<string, unknown>;
   if (referenceUrls && referenceUrls.length > 0) {
-    requestBody = { image_urls: referenceUrls, prompt };
-  } else if (model === 'fibo' || model === 'grok') {
-    requestBody = { image_url: context.image_url, prompt };
+    if (model === 'fibo') {
+      requestBody = { image_url: referenceUrls[0], instruction: prompt };
+    } else {
+      requestBody = { image_urls: referenceUrls, prompt };
+    }
+  } else if (model === 'fibo') {
+    requestBody = { image_url: context.image_url, instruction: prompt };
   } else {
     requestBody = { image_urls: [context.image_url], prompt };
+  }
+
+  // Disable safety checkers where supported
+  if (model === 'flux-pro') {
+    requestBody.enable_safety_checker = false;
+    requestBody.safety_tolerance = '5';
+  } else if (model === 'banana') {
+    requestBody.safety_tolerance = '6';
   }
 
   try {

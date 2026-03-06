@@ -132,10 +132,12 @@ export async function POST(req: NextRequest) {
       });
       const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
-      const falUrl = new URL('https://queue.fal.run/workflows/octupost/sfx');
+      const falUrl = new URL(
+        'https://queue.fal.run/mirelo-ai/sfx-v1.5/video-to-video'
+      );
       falUrl.searchParams.set('fal_webhook', webhookUrl);
 
-      log.api('fal.ai', 'workflows/octupost/sfx', {
+      log.api('fal.ai', 'mirelo-ai/sfx-v1.5/video-to-video', {
         scene_id: context.scene_id,
       });
       log.startTiming(`fal_sfx_request_${i}`);
@@ -149,7 +151,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             video_url: context.video_url,
-            ...(context.sfx_prompt ? { prompt: context.sfx_prompt } : {}),
+            ...(context.sfx_prompt ? { text_prompt: context.sfx_prompt } : {}),
           }),
         });
 
