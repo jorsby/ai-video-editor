@@ -1,5 +1,5 @@
 import { Log } from '../utils/log';
-import { BaseSprite, type BaseSpriteEvents } from '../sprite/base-sprite';
+import { BaseSprite, BaseSpriteEvents } from '../sprite/base-sprite';
 import { changePCMPlaybackRate } from '../utils';
 import type { IClip, IClipMeta, ITransitionInfo } from './iclip';
 import type { ClipJSON } from '../json-serialization';
@@ -43,6 +43,12 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
   abstract readonly meta: IClipMeta;
   abstract clone(): Promise<this>;
   abstract split?(time: number): Promise<[this, this]>;
+
+  constructor() {
+    super();
+    // Note: ready will be set by subclasses in their constructors
+    // This default implementation is just a placeholder
+  }
 
   /**
    * Get video frame and audio at specified time without rendering to canvas
@@ -295,11 +301,16 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
         : undefined;
 
     // Extract new modular animations
-    const animations = this.animations.map((a) => ({
-      type: a.type,
-      opts: a.options,
-      params: a.params || {},
-    }));
+    const animations = this.animations.map((a) => {
+      if ('toJSON' in a && typeof (a as any).toJSON === 'function') {
+        return (a as any).toJSON();
+      }
+      return {
+        type: a.type,
+        opts: a.options,
+        params: a.params || {},
+      };
+    });
 
     return {
       type: this.constructor.name as ClipJSON['type'],
@@ -328,6 +339,7 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
       ...(animation && { animation }),
       ...(animations.length > 0 && { animations }),
       ...(main && { main: true }),
+      chromaKey: this.chromaKey,
     } as ClipJSON;
   }
 

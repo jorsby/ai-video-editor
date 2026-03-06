@@ -1,4 +1,4 @@
-import { type AnimationFactory, animationRegistry } from './registry';
+import { AnimationFactory, animationRegistry } from './registry';
 import { KeyframeAnimation } from './keyframe-animation';
 import { GsapAnimation } from './gsap-animation';
 
@@ -151,8 +151,8 @@ export const charSlideUp: AnimationFactory = (opts, params) => {
   return new GsapAnimation(
     {
       type: 'character',
-      from: { alpha: 0, y: 50 },
-      to: { alpha: 1, y: 0 },
+      from: { alpha: 0, y: '+=50' },
+      to: { alpha: 1, y: '-=50' },
       stagger: normalized?.stagger ?? 0.05,
     },
     {
@@ -180,31 +180,341 @@ export const charTypewriter: AnimationFactory = (opts, params) => {
   );
 };
 
-export const wordFadeIn: AnimationFactory = (opts, params) => {
+export const fadeByWord: AnimationFactory = (opts, params) => {
   const normalized = normalizeParams(params);
   return new GsapAnimation(
     {
       type: 'word',
-      from: { alpha: 0, y: 30 },
-      to: { alpha: 1, y: 0 },
-      stagger: normalized?.stagger ?? 0.15,
+      from: { alpha: 0 },
+      to: { alpha: 1 },
+      stagger: normalized?.stagger ?? 0.05,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'none',
+    },
+    'fadeByWord'
+  );
+};
+export const slideFadeByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, x: '+=50' },
+      to: { alpha: 1, x: '-=50' },
+      stagger: normalized?.stagger ?? 0.05,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'none',
+    },
+    'slideFadeByWord'
+  );
+};
+export const popByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { scale: 0, immediateRender: true },
+      to: {
+        keyframes: {
+          '0%': { scale: 0 },
+          '50%': { scale: 1.2 },
+          '100%': { scale: 1 },
+        },
+        ease: 'none',
+      },
+      stagger: normalized?.stagger ?? 0.05,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'none',
+    },
+    'popByWord'
+  );
+};
+
+export const scaleFadeByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, scale: 0.7 },
+      to: { alpha: 1, scale: 1 },
+      stagger: normalized?.stagger ?? 0.08,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'back.out(1.5)',
+    },
+    'scaleFadeByWord'
+  );
+};
+
+export const bounceByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, y: '-=30', scale: 0.8 },
+      to: { alpha: 1, y: '+=30', scale: 1 },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'bounce.out',
+    },
+    'bounceByWord'
+  );
+};
+
+export const rotateInByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, rotation: -10 },
+      to: { alpha: 1, rotation: 0 },
+      stagger: normalized?.stagger ?? 0.08,
     },
     {
       ...opts,
       easing: normalized?.easing || opts.easing || 'power2.out',
     },
-    'wordFadeIn'
+    'rotateInByWord'
   );
 };
 
-export const shake: AnimationFactory = (opts, params) => {
+export const slideRightByWord: AnimationFactory = (opts, params) => {
   const normalized = normalizeParams(params);
-  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
-  const defaultParams = getPresetTemplate('shake', params);
-  if (normalized && (normalized['0%'] || normalized['100%'])) {
-    return new KeyframeAnimation(normalized, { ...opts, easing }, 'shake');
-  }
-  return new KeyframeAnimation(defaultParams, { ...opts, easing }, 'shake');
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, x: '-=50' },
+      to: { alpha: 1, x: '+=50' },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'slideRightByWord'
+  );
+};
+
+export const slideLeftByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, x: '+=50' },
+      to: { alpha: 1, x: '-=50' },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'slideLeftByWord'
+  );
+};
+
+export const fadeRotateByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, rotation: 90 },
+      to: { alpha: 1, rotation: 0 },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'fadeRotateByWord'
+  );
+};
+
+export const skewByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, skewX: 45 },
+      to: { alpha: 1, skewX: 0 },
+      stagger: normalized?.stagger ?? 0.08,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power3.out',
+    },
+    'skewByWord'
+  );
+};
+
+export const waveByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, y: '+=20' },
+      to: {
+        alpha: 1,
+        y: '-=20',
+        repeat: 1,
+        yoyo: true,
+      },
+      stagger: normalized?.stagger ?? 0.12,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'sine.inOut',
+    },
+    'waveByWord'
+  );
+};
+
+export const blurInByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, blur: 10 },
+      to: { alpha: 1, blur: 0 },
+      stagger: normalized?.stagger ?? 0.08,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'blurInByWord'
+  );
+};
+export const dropSoftByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, y: '-=60', scaleY: 2 },
+      to: { alpha: 1, y: '+=60', scaleY: 1 },
+      stagger: normalized?.stagger ?? 0.09,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power3.out',
+    },
+    'dropSoftByWord'
+  );
+};
+
+export const elasticPopByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, scale: 0 },
+      to: { alpha: 1, scale: 1 },
+      stagger: normalized?.stagger ?? 0.07,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'elastic.out(1, 0.5)',
+    },
+    'elasticPopByWord'
+  );
+};
+
+export const flipUpByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, skewX: -20 },
+      to: { alpha: 1, skewX: 0 },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'flipUpByWord'
+  );
+};
+export const spinInByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, rotation: -180, scale: 0.5 },
+      to: { alpha: 1, rotation: 0, scale: 1 },
+      stagger: normalized?.stagger ?? 0.09,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power3.out',
+    },
+    'spinInByWord'
+  );
+};
+
+export const stretchInByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, scaleX: 1.5, scaleY: 0.5 },
+      to: { alpha: 1, scaleX: 1, scaleY: 1 },
+      stagger: normalized?.stagger ?? 0.08,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power2.out',
+    },
+    'stretchInByWord'
+  );
+};
+
+export const revealZoomByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, scale: 1.4 },
+      to: { alpha: 1, scale: 1 },
+      stagger: normalized?.stagger ?? 0.1,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'power4.out',
+    },
+    'revealZoomByWord'
+  );
+};
+
+export const floatWaveByWord: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  return new GsapAnimation(
+    {
+      type: 'word',
+      from: { alpha: 0, y: '+=25' },
+      to: {
+        alpha: 1,
+        y: '-=25',
+        // repeat: 1,
+        // yoyo: true,
+      },
+      stagger: normalized?.stagger ?? 0.15,
+    },
+    {
+      ...opts,
+      easing: normalized?.easing || opts.easing || 'sine.out',
+    },
+    'floatWaveByWord'
+  );
 };
 
 //custom presets in
@@ -2065,6 +2375,258 @@ export const ultraCinematicOut: AnimationFactory = (opts, params) => {
   );
 };
 
+// animations for captions
+
+export const popCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('popCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(normalized, { ...opts, easing }, 'popCaption');
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'popCaption'
+  );
+};
+
+export const bounceCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('bounceCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'bounceCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'bounceCaption'
+  );
+};
+
+export const scaleCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('scaleCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'scaleCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'scaleCaption'
+  );
+};
+
+export const slideLeftCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('slideLeftCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'slideLeftCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'slideLeftCaption'
+  );
+};
+
+export const slideRightCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('slideRightCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'slideRightCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'slideRightCaption'
+  );
+};
+
+export const slideUpCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('slideUpCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'slideUpCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'slideUpCaption'
+  );
+};
+
+export const slideDownCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('slideDownCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'slideDownCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'slideDownCaption'
+  );
+};
+
+export const fadeCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('fadeCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'fadeCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'fadeCaption'
+  );
+};
+
+export const scaleMidCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('scaleMidCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'scaleMidCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'scaleMidCaption'
+  );
+};
+
+export const scaleDownCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('scaleDownCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'scaleDownCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'scaleDownCaption'
+  );
+};
+
+export const upDownCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('upDownCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing, iterCount: Infinity },
+      'upDownCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+      iterCount: Infinity,
+    },
+    'upDownCaption'
+  );
+};
+
+export const upLeftCaption: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('upLeftCaption', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing, iterCount: Infinity },
+      'upLeftCaption'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+      iterCount: Infinity,
+    },
+    'upLeftCaption'
+  );
+};
+
 // Register them
 animationRegistry.register('fadeIn', fadeIn);
 animationRegistry.register('fadeOut', fadeOut);
@@ -2072,7 +2634,28 @@ animationRegistry.register('slideIn', slideIn);
 animationRegistry.register('slideOut', slideOut);
 animationRegistry.register('zoomIn', zoomIn);
 animationRegistry.register('zoomOut', zoomOut);
+animationRegistry.register('charFadeIn', charFadeIn);
+animationRegistry.register('charSlideUp', charSlideUp);
 animationRegistry.register('charTypewriter', charTypewriter);
+animationRegistry.register('fadeByWord', fadeByWord);
+animationRegistry.register('slideFadeByWord', slideFadeByWord);
+animationRegistry.register('popByWord', popByWord);
+animationRegistry.register('scaleFadeByWord', scaleFadeByWord);
+animationRegistry.register('bounceByWord', bounceByWord);
+animationRegistry.register('rotateInByWord', rotateInByWord);
+animationRegistry.register('slideRightByWord', slideRightByWord);
+animationRegistry.register('slideLeftByWord', slideLeftByWord);
+animationRegistry.register('fadeRotateByWord', fadeRotateByWord);
+animationRegistry.register('skewByWord', skewByWord);
+animationRegistry.register('waveByWord', waveByWord);
+animationRegistry.register('blurInByWord', blurInByWord);
+animationRegistry.register('dropSoftByWord', dropSoftByWord);
+animationRegistry.register('elasticPopByWord', elasticPopByWord);
+animationRegistry.register('flipUpByWord', flipUpByWord);
+animationRegistry.register('spinInByWord', spinInByWord);
+animationRegistry.register('stretchInByWord', stretchInByWord);
+animationRegistry.register('revealZoomByWord', revealZoomByWord);
+animationRegistry.register('floatWaveByWord', floatWaveByWord);
 animationRegistry.register('pulse', pulse);
 animationRegistry.register('blurIn', blurIn);
 animationRegistry.register('blurOut', blurOut);
@@ -2177,10 +2760,20 @@ animationRegistry.register('collapseRotateZoomIn', collapseRotateZoomIn);
 animationRegistry.register('collapseRotateZoomOut', collapseRotateZoomOut);
 animationRegistry.register('ultraCinematicIn', ultraCinematicIn);
 animationRegistry.register('ultraCinematicOut', ultraCinematicOut);
-animationRegistry.register('charFadeIn', charFadeIn);
-animationRegistry.register('charSlideUp', charSlideUp);
-animationRegistry.register('wordFadeIn', wordFadeIn);
-animationRegistry.register('shake', shake);
+
+//register animations captions
+animationRegistry.register('popCaption', popCaption);
+animationRegistry.register('bounceCaption', bounceCaption);
+animationRegistry.register('scaleCaption', scaleCaption);
+animationRegistry.register('slideLeftCaption', slideLeftCaption);
+animationRegistry.register('slideRightCaption', slideRightCaption);
+animationRegistry.register('slideUpCaption', slideUpCaption);
+animationRegistry.register('slideDownCaption', slideDownCaption);
+animationRegistry.register('fadeCaption', fadeCaption);
+animationRegistry.register('scaleMidCaption', scaleMidCaption);
+animationRegistry.register('scaleDownCaption', scaleDownCaption);
+animationRegistry.register('upDownCaption', upDownCaption);
+animationRegistry.register('upLeftCaption', upLeftCaption);
 
 /**
  * Get the keyframe template for a preset animation
@@ -3821,22 +4414,80 @@ export function getPresetTemplate(type: string, params?: any): any {
           mirror: defaultMirror,
         },
       };
-    case 'custom':
-    case 'shake':
+    case 'popCaption':
       return {
-        '0%': { x: 0, angle: 0 },
-        '10%': { x: -15, angle: -2 },
-        '20%': { x: 15, angle: 2 },
-        '30%': { x: -12, angle: -1.5 },
-        '40%': { x: 12, angle: 1.5 },
-        '50%': { x: -8, angle: -1 },
-        '60%': { x: 8, angle: 1 },
-        '70%': { x: -4, angle: -0.5 },
-        '80%': { x: 4, angle: 0.5 },
-        '90%': { x: -2, angle: 0 },
-        '100%': { x: 0, angle: 0 },
+        '0%': {
+          scale: scaleInit ?? 0.7,
+        },
+        '50%': {
+          scale: 1.1,
+        },
+        '100%': {
+          scale: scaleEnd ?? 1,
+        },
       };
-
+    case 'bounceCaption':
+      return {
+        '0%': { y: 0, scaleY: 1, scaleX: 1 },
+        '20%': { y: 30, scaleY: 0.8, scaleX: 1.2 },
+        '40%': { y: 15, scaleY: 1, scaleX: 1 },
+        '60%': { y: 20, scaleY: 0.9, scaleX: 1.1 },
+        '80%': { y: 10, scaleY: 1, scaleX: 1 },
+        '100%': { y: 0, scaleY: 1, scaleX: 1 },
+      };
+    case 'scaleCaption':
+      return {
+        '0%': { scale: scaleInit ?? 0 },
+        '100%': { scale: scaleEnd ?? 1 },
+      };
+    case 'slideLeftCaption':
+      return {
+        '0%': { x: xPositionInit ?? 50 },
+        '100%': { x: xPositionEnd ?? 0 },
+      };
+    case 'slideRightCaption':
+      return {
+        '0%': { x: xPositionInit ?? -50 },
+        '100%': { x: xPositionEnd ?? 0 },
+      };
+    case 'slideUpCaption':
+      return {
+        '0%': { y: yPositionInit ?? 50 },
+        '100%': { y: yPositionEnd ?? 0 },
+      };
+    case 'slideDownCaption':
+      return {
+        '0%': { y: yPositionInit ?? -50 },
+        '100%': { y: yPositionEnd ?? 0 },
+      };
+    case 'fadeCaption':
+      return {
+        '0%': { opacity: opacityInit ?? 0 },
+        '100%': { opacity: opacityEnd ?? 1 },
+      };
+    case 'scaleMidCaption':
+      return {
+        '0%': { scale: scaleInit ?? 0.8 },
+        '100%': { scale: scaleEnd ?? 1 },
+      };
+    case 'scaleDownCaption':
+      return {
+        '0%': { scale: scaleInit ?? 1.2 },
+        '100%': { scale: scaleEnd ?? 1 },
+      };
+    case 'upDownCaption':
+      return {
+        '0%': { y: 0 },
+        '50%': { y: -300 },
+        '100%': { y: 0 },
+      };
+    case 'upLeftCaption':
+      return {
+        '0%': { x: 0, y: 0 },
+        '50%': { x: -50, y: -50 },
+        '100%': { x: 0, y: 0 },
+      };
+    case 'custom':
     default:
       return {
         '0%': {},

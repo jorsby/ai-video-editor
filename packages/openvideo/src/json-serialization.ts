@@ -126,9 +126,17 @@ export interface TextStyleJSON {
   lineHeight?: number;
   letterSpacing?: number;
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'title';
-  verticalAlign?: 'top' | 'top-quarter' | 'center' | 'bottom-quarter' | 'bottom';
   wordsPerLine?: 'single' | 'multiple';
+  verticalAlign?: 'top' | 'top-quarter' | 'center' | 'bottom-quarter' | 'bottom';
   isRTL?: boolean;
+  wordAnimation?: ICaptionWordAnimation;
+}
+
+export interface ICaptionWordAnimation {
+  type: 'scale' | 'opacity';
+  application: 'active' | 'keyword' | 'none';
+  value: number;
+  mode?: 'static' | 'dynamic';
 }
 
 // Text clip specific
@@ -166,6 +174,7 @@ export interface CaptionDataJSON {
   colors?: CaptionColorsJSON;
   preserveKeywordColor?: boolean;
   positioning?: CaptionPositioningJSON;
+  wordAnimation?: ICaptionWordAnimation;
 }
 
 // Caption clip specific
@@ -266,9 +275,12 @@ export interface ProjectJSON {
     height?: number;
     fps?: number;
     bgColor?: string;
+    format?: string;
     videoCodec?: string;
     bitrate?: number;
     audio?: boolean;
+    audioCodec?: string;
+    audioSampleRate?: number;
     metaDataTags?: Record<string, string>;
   };
 }

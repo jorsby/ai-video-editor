@@ -1,4 +1,4 @@
-//@ts-expect-error
+//@ts-ignore
 import {
   BAD_SIGNAL_FRAGMENT,
   BAD_SIGNAL_UNIFORMS,
@@ -148,13 +148,32 @@ import {
   WAVE_UNIFORMS,
 } from './custom-glsl';
 
-export interface GlTransition {
+export interface GlEffect {
   label: string;
   fragment: string;
   uniforms?: Record<string, { value: any; type: string }>;
+  previewStatic?: string;
+  previewDynamic?: string;
 }
 
-const CUSTOM_EFFECTS = {
+// Registry for runtime custom effects
+const REGISTERED_EFFECTS: Record<string, GlEffect> = {};
+
+/**
+ * Register a custom effect at runtime
+ */
+export function registerCustomEffect(name: string, effect: GlEffect) {
+  REGISTERED_EFFECTS[name] = effect;
+}
+
+/**
+ * Unregister a custom effect at runtime
+ */
+export function unregisterCustomEffect(name: string) {
+  delete REGISTERED_EFFECTS[name];
+}
+
+const STATIC_EFFECTS = {
   rotationMovement: {
     label: 'Rotation Movement',
     fragment: ROTATION_MOVEMENT_FRAGMENT,
@@ -520,22 +539,37 @@ const CUSTOM_EFFECTS = {
     fragment: FAST_ZOOM_FRAGMENT,
     uniforms: FAST_ZOOM_UNIFORMS,
   },
-} as const satisfies Record<string, GlTransition>;
+} as const satisfies Record<string, GlEffect>;
 
-export const GL_EFFECTS = {
-  ...CUSTOM_EFFECTS,
-} as Record<string, GlTransition>;
+/**
+ * Get all available effects, including library and runtime registered ones
+ */
+export function getAllEffects(): Record<string, GlEffect> {
+  return {
+    ...STATIC_EFFECTS,
+    ...REGISTERED_EFFECTS,
+  };
+}
 
-export type EffectKey = keyof typeof GL_EFFECTS;
+// Keep GL_EFFECTS for backward compatibility, but it will only contain initial ones
+export const GL_EFFECTS = getAllEffects();
 
-export const GL_EFFECT_OPTIONS: Array<{
-  key: EffectKey;
-  label: string;
-  previewStatic: string | undefined;
-  previewDynamic: string | undefined;
-}> = Object.entries(GL_EFFECTS).map(([key, value]) => ({
-  key: key as EffectKey,
-  label: value.label,
-  previewStatic: `https://cdn.subgen.co/previews/effects/static/effect_${key}_static.webp`,
-  previewDynamic: `https://cdn.subgen.co/previews/effects/dynamic/effect_${key}_dynamic.webp`,
-}));
+export type EffectKey = string;
+
+export function getEffectOptions() {
+  const registeredKeys = Object.keys(REGISTERED_EFFECTS);
+  return Object.entries(getAllEffects()).map(([key, value]) => ({
+    key: key as EffectKey,
+    label: value.label,
+    isCustom: registeredKeys.includes(key),
+    previewStatic:
+      value.previewStatic ||
+      `https://cdn.subgen.co/previews/effects/static/effect_${key}_static.webp`,
+    previewDynamic:
+      value.previewDynamic ||
+      `https://cdn.subgen.co/previews/effects/dynamic/effect_${key}_dynamic.webp`,
+  }));
+}
+
+// Keep GL_EFFECT_OPTIONS for backward compatibility
+export const GL_EFFECT_OPTIONS = getEffectOptions();

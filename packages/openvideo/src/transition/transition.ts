@@ -12,7 +12,7 @@ import { vertex } from './vertex';
 import { uniforms } from './uniforms';
 import { fragment } from './fragment';
 
-import { GL_TRANSITIONS } from './glsl/gl-transition';
+import { getAllTransitions } from './glsl/gl-transition';
 import type {
   GLTransition,
   TransitionOptions,
@@ -79,11 +79,12 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
   );
 
   if (!transition) {
-    const localKey = Object.keys(GL_TRANSITIONS).find(
+    const allLocal = getAllTransitions();
+    const localKey = Object.keys(allLocal).find(
       (key) => key.toLowerCase() === name.toLowerCase()
-    ) as keyof typeof GL_TRANSITIONS | undefined;
+    );
     if (localKey) {
-      transition = GL_TRANSITIONS[localKey] as unknown as GLTransition;
+      transition = allLocal[localKey] as unknown as GLTransition;
     }
   }
 
@@ -105,6 +106,7 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
       name.replace(/_/g, ''),
     ];
 
+    const allLocal = getAllTransitions();
     for (const variant of variants) {
       transition = transitions.find(
         (t: GLTransition) => t.name.toLowerCase() === variant.toLowerCase()
@@ -112,11 +114,11 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
       if (transition) break;
 
       // Also check local definitions with variants
-      const localKey = Object.keys(GL_TRANSITIONS).find(
+      const localKey = Object.keys(allLocal).find(
         (key) => key.toLowerCase() === variant.toLowerCase()
-      ) as keyof typeof GL_TRANSITIONS | undefined;
+      );
       if (localKey) {
-        transition = GL_TRANSITIONS[localKey] as unknown as GLTransition;
+        transition = allLocal[localKey] as unknown as GLTransition;
         break;
       }
     }
@@ -128,12 +130,14 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
       .slice(0, 5)
       .map((t: GLTransition) => t.name)
       .join(', ');
-    const localNames = Object.keys(GL_TRANSITIONS).slice(0, 3).join(', ');
+    const allLocal = getAllTransitions();
+    const localNames = Object.keys(allLocal).slice(0, 3).join(', ');
     console.error(
       `Transition not found: "${name}". Available in gl-transitions (${availableCount} total):`,
-      `${availableNames}...`
+      availableNames + '...'
     );
-    console.error(`Available locally:`, `${localNames}...`);
+
+    console.error(`Available locally:`, localNames + '...');
     throw new Error(
       `Transition "${name}" not found in gl-transitions library or local definitions`
     );
@@ -311,7 +315,7 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
 
   const transitionGlitchDisplace =
     transition.name === 'GlitchDisplace' ||
-    name.toLowerCase() === 'glitchdisplace' ||
+    name.toLowerCase() === 'glitchDisplace' ||
     transition.label === 'GlitchDisplace';
 
   const transitionCrossZoom =

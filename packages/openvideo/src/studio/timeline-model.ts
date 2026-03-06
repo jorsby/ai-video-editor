@@ -6,11 +6,11 @@ import { PixiSpriteRenderer } from '../sprite/pixi-sprite-renderer';
 import {
   clipToJSON,
   jsonToClip,
-  type ProjectJSON,
-  type ClipJSON,
-  type GlobalTransitionJSON as TransitionJSON,
+  ProjectJSON,
+  ClipJSON,
+  GlobalTransitionJSON as TransitionJSON,
 } from '../json-serialization';
-import { fontManager, type IFont } from '../utils/fonts';
+import { fontManager, IFont } from '../utils/fonts';
 
 export class TimelineModel {
   public tracks: StudioTrack[] = [];
@@ -179,7 +179,7 @@ export class TimelineModel {
           .filter((c): c is IClip => {
             if (!c || c.type !== 'Transition') return false;
             const tc = c as any;
-            return tc.fromClipId === clipA?.id && tc.toClipId === clipB?.id;
+            return tc.fromClipId === clipA!.id && tc.toClipId === clipB!.id;
           });
         // Remove existing transition clips
         for (const existingTransition of existingTransitions) {
@@ -442,7 +442,7 @@ export class TimelineModel {
     options: { permanent: boolean } = { permanent: true }
   ): Promise<void> {
     const { permanent } = options;
-    const index = this.clips.indexOf(clip);
+    const index = this.clips.findIndex((c) => c === clip);
     if (index === -1) return;
 
     // Separate cleanup for Transition to remove 'transition' property from linked clips
@@ -506,7 +506,7 @@ export class TimelineModel {
         this.studio.spriteRenderers.delete(clip);
       } else {
         const root = renderer.getRoot();
-        if (root?.parent) {
+        if (root && root.parent) {
           root.parent.removeChild(root);
         }
       }
@@ -550,7 +550,7 @@ export class TimelineModel {
     if (clips.length === 0) return;
 
     for (const clip of clips) {
-      const index = this.clips.indexOf(clip);
+      const index = this.clips.findIndex((c) => c === clip);
       if (index === -1) continue;
 
       // Transition cleanup
@@ -603,7 +603,7 @@ export class TimelineModel {
           this.studio.spriteRenderers.delete(clip);
         } else {
           const root = renderer.getRoot();
-          if (root?.parent) {
+          if (root && root.parent) {
             root.parent.removeChild(root);
           }
         }
@@ -1421,7 +1421,7 @@ export class TimelineModel {
       if (
         clip.display.to === 0 &&
         clip.duration !== Infinity &&
-        !Number.isNaN(clip.duration) &&
+        !isNaN(clip.duration) &&
         clip.duration > 0
       ) {
         // Fallback if to is 0?
@@ -1476,10 +1476,6 @@ export class TimelineModel {
         `Failed to setup playback for ${clip.constructor.name}`,
         err
       );
-      this.studio.emit('playback:error', {
-        clip,
-        error: err instanceof Error ? err : new Error(String(err)),
-      });
     }
   }
 
@@ -1652,6 +1648,7 @@ export class TimelineModel {
             to: clip.trim.to,
           },
         });
+        continue;
       }
     }
 

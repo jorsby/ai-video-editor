@@ -1,5 +1,5 @@
 import type { MP4Info, MP4Sample } from 'wrapbox';
-import { type file, tmpfile, write } from 'opfs-tools';
+import { file, tmpfile, write } from 'opfs-tools';
 import { Log } from '../utils/log';
 import {
   createVFRotater,
@@ -10,9 +10,8 @@ import {
 import { audioResample, extractPCM4AudioData, sleep } from '../utils';
 import { BaseClip } from './base-clip';
 import { DEFAULT_AUDIO_CONF, type IClip, type IPlaybackCapable } from './iclip';
-import type { VideoJSON } from '../json-serialization';
+import { type VideoJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
-import { AssetManager } from '../utils/asset-manager';
 
 let CLIP_ID = 0;
 
@@ -191,22 +190,9 @@ export class Video extends BaseClip implements IPlaybackCapable {
       height?: number;
     } = {}
   ): Promise<Video> {
-    let stream = await ResourceManager.getReadableStream(url);
-    let clip = new Video(stream, {}, url);
-    try {
-      await clip.ready;
-    } catch (err) {
-      // Parsing failed — possibly a corrupted cache entry. Invalidate and retry.
-      Log.warn(
-        'Video.fromUrl: first attempt failed, clearing cache and retrying',
-        url,
-        err
-      );
-      await AssetManager.remove(url).catch(() => {});
-      stream = await ResourceManager.getReadableStream(url);
-      clip = new Video(stream, {}, url);
-      await clip.ready;
-    }
+    const stream = await ResourceManager.getReadableStream(url);
+    const clip = new Video(stream, {}, url);
+    await clip.ready;
 
     // Set position and size
     if (opts.x !== undefined) clip.left = opts.x;
@@ -427,7 +413,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
 
     return new Promise<Array<{ ts: number; img: Blob }>>(
       async (resolve, reject) => {
-        const pngPromises: Array<{ ts: number; img: Promise<Blob> }> = [];
+        let pngPromises: Array<{ ts: number; img: Promise<Blob> }> = [];
         const vc = this.decoderConf.video;
         if (vc == null || this.videoSamples.length === 0) {
           resolver();
@@ -758,6 +744,10 @@ export class Video extends BaseClip implements IPlaybackCapable {
       clip.volume = json.volume;
     }
 
+    if ((json as any).chromaKey) {
+      clip.chromaKey = { ...clip.chromaKey, ...(json as any).chromaKey };
+    }
+
     return clip;
   }
 
@@ -831,7 +821,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
     if (video.paused) {
       try {
         await video.play();
-      } catch (_err) {
+      } catch (err) {
         // Retry once on failure
         try {
           await video.play();
@@ -882,8 +872,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
   syncPlayback(
     element: HTMLVideoElement | HTMLAudioElement,
     isPlaying: boolean,
-    timeSeconds: number,
-    transportSpeed: number = 1
+    timeSeconds: number
   ): void {
     const video = element as HTMLVideoElement;
     const clipDuration = (this.trim.to - this.trim.from) / 1e6;
@@ -892,8 +881,6 @@ export class Video extends BaseClip implements IPlaybackCapable {
     const trimmedTime = timeSeconds + this.trim.from / 1e6;
     // Sync volume
     video.volume = this.volume;
-    // Sync playback rate: per-clip speed * global transport speed
-    video.playbackRate = this.playbackRate * transportSpeed;
 
     if (isPlaying && isWithinClip) {
       // Should be playing
@@ -1062,9 +1049,9 @@ function genDecoder(
 async function mp4FileToSamples(otFile: OPFSToolFile, opts: IMP4ClipOpts = {}) {
   let mp4Info: MP4Info | null = null;
   const decoderConf: MP4DecoderConf = { video: null, audio: null };
-  const videoSamples: ExtMP4Sample[] = [];
-  const audioSamples: ExtMP4Sample[] = [];
-  const headerBoxPos: Array<{ start: number; size: number }> = [];
+  let videoSamples: ExtMP4Sample[] = [];
+  let audioSamples: ExtMP4Sample[] = [];
+  let headerBoxPos: Array<{ start: number; size: number }> = [];
   const parsedMatrix = {
     perspective: 1,
     rotationRad: 0,
@@ -1089,7 +1076,7 @@ async function mp4FileToSamples(otFile: OPFSToolFile, opts: IMP4ClipOpts = {}) {
 
       Object.assign(parsedMatrix, parseMatrix(mp4Info.videoTracks[0]?.matrix));
 
-      const { videoDecoderConf: vc, audioDecoderConf: ac } = extractFileConfig(
+      let { videoDecoderConf: vc, audioDecoderConf: ac } = extractFileConfig(
         data.mp4boxFile,
         data.info
       );
@@ -1664,7 +1651,7 @@ function createAudioChunksDecoder(
   const resampleQ = createPromiseQueue<Float32Array[]>(outputHandler);
 
   const needResample = opts.resampleRate !== decoderConf.sampleRate;
-  const adec = new AudioDecoder({
+  let adec = new AudioDecoder({
     output: (ad) => {
       const pcm = extractPCM4AudioData(ad);
       if (needResample) {
@@ -1726,7 +1713,7 @@ function createAudioChunksDecoder(
 }
 
 // Parallel execution, but emit results in order
-function createPromiseQueue<T>(onResult: (data: T) => void) {
+function createPromiseQueue<T extends any>(onResult: (data: T) => void) {
   const rsCache: T[] = [];
   let waitingIdx = 0;
 
@@ -1970,7 +1957,7 @@ function fixFirstBlackFrame(samples: ExtMP4Sample[]) {
 
 function memoryUsageInfo() {
   try {
-    // @ts-expect-error
+    // @ts-ignore
     const mem = performance.memory;
     return {
       jsHeapSizeLimit: mem.jsHeapSizeLimit,
@@ -1979,7 +1966,7 @@ function memoryUsageInfo() {
       percentUsed: (mem.usedJSHeapSize / mem.jsHeapSizeLimit).toFixed(3),
       percentTotal: (mem.totalJSHeapSize / mem.jsHeapSizeLimit).toFixed(3),
     };
-  } catch (_err) {
+  } catch (err) {
     return {};
   }
 }

@@ -339,7 +339,7 @@ export class Transformer extends Container {
   };
 
   #calculateSnappedMove(e: FederatedPointerEvent) {
-    const parentScale = Math.abs(this.parent?.worldTransform.a);
+    const parentScale = Math.abs(this.parent!.worldTransform.a);
 
     // Update context
     this.#snappingManager.updateContext(
@@ -357,7 +357,7 @@ export class Transformer extends Container {
     this.#unsnappedPivotWorld.y += dyGlobalMouse;
 
     // Calculate Proposed Parent Position from Virtual Pivot
-    const proposedParentPos = this.parent?.toLocal(this.#unsnappedPivotWorld);
+    const proposedParentPos = this.parent!.toLocal(this.#unsnappedPivotWorld);
 
     // Construct Proposed Bounds (centered at proposed position)
     const proposedBounds = new Rectangle(
@@ -381,12 +381,12 @@ export class Transformer extends Container {
     const finalParentPosY = proposedParentPos.y + snapDy;
 
     // Calculate Delta to apply to Objects
-    const currentParentPos = this.parent?.toLocal(this.#pivotWorld);
+    const currentParentPos = this.parent!.toLocal(this.#pivotWorld);
     const moveDx = finalParentPosX - currentParentPos.x;
     const moveDy = finalParentPosY - currentParentPos.y;
 
     // Calculate New Global Pivot
-    const newPivotWorld = this.parent?.toGlobal(
+    const newPivotWorld = this.parent!.toGlobal(
       new Point(finalParentPosX, finalParentPosY)
     );
 

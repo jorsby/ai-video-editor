@@ -1,9 +1,10 @@
 import EventEmitter from '../event-emitter';
 import {
-  type IAnimation,
-  type AnimationTransform,
+  IAnimation,
+  AnimationTransform,
   animationRegistry,
 } from '../animation';
+import { IChromaKeyOpts } from '../clips/iclip';
 type IRectBaseProps = any;
 interface IAnimationOpts {
   duration: number;
@@ -29,7 +30,6 @@ export interface BaseSpriteEvents {
     zIndex: number;
     opacity: number;
     volume: number;
-    playbackRate: number;
   }>;
   [key: string]: any;
   [key: symbol]: any;
@@ -68,21 +68,13 @@ export abstract class BaseSprite<
    */
   duration = 0;
 
-  protected _playbackRate = 1;
   /**
    * Playback rate of current clip, 1 means normal playback
    * **Note**
    *    1. When setting playbackRate, duration must be actively corrected
    *    2. Audio uses the simplest interpolation algorithm to change rate, so changing rate will cause pitch variation, for custom algorithm please use {@link Video.tickInterceptor} to implement
    */
-  get playbackRate(): number {
-    return this._playbackRate;
-  }
-  set playbackRate(v: number) {
-    const changed = this._playbackRate !== v;
-    this._playbackRate = v;
-    if (changed) this.emit('propsChange', { playbackRate: v });
-  }
+  playbackRate = 1;
   /**
    * Trim range of the source media in microseconds
    * from: start time in microseconds
@@ -92,6 +84,10 @@ export abstract class BaseSprite<
     from: 0,
     to: 0,
   };
+
+  constructor() {
+    super();
+  }
 
   // Spatial properties
   protected _left = 0;
@@ -223,6 +219,16 @@ export abstract class BaseSprite<
   }> = [];
 
   /**
+   * Chroma key settings (green screen removal)
+   */
+  chromaKey: IChromaKeyOpts = {
+    enabled: false,
+    color: '#00FF00',
+    similarity: 0.1,
+    spill: 0.0,
+  };
+
+  /**
    * Styling properties (e.g., stroke, dropShadow, borderRadius)
    * This is a generic object to hold visual styles across different clip types
    */
@@ -255,6 +261,8 @@ export abstract class BaseSprite<
     width: 0,
     height: 0,
     scale: 1,
+    scaleX: 1,
+    scaleY: 1,
     opacity: 1,
     angle: 0,
     blur: 0,
@@ -291,9 +299,11 @@ export abstract class BaseSprite<
     const y = this.renderTransform.y ?? 0;
     const angleOffset = this.renderTransform.angle ?? 0;
     const scale = this.renderTransform.scale ?? 1;
+    const scaleX = this.renderTransform.scaleX ?? 1;
+    const scaleY = this.renderTransform.scaleY ?? 1;
 
     ctx.translate(x, y);
-    ctx.scale(scale, scale);
+    ctx.scale(scale * scaleX, scale * scaleY);
     ctx.rotate(((this.flip == null ? 1 : -1) * (angleOffset * Math.PI)) / 180);
   }
 
@@ -339,6 +349,8 @@ export abstract class BaseSprite<
       width: 0,
       height: 0,
       scale: 1,
+      scaleX: 1,
+      scaleY: 1,
       opacity: 1,
       angle: 0,
       blur: 0,
@@ -361,6 +373,10 @@ export abstract class BaseSprite<
         this.renderTransform.blur! += transform.blur;
       if (transform.scale !== undefined)
         this.renderTransform.scale! *= transform.scale;
+      if (transform.scaleX !== undefined)
+        this.renderTransform.scaleX! *= transform.scaleX;
+      if (transform.scaleY !== undefined)
+        this.renderTransform.scaleY! *= transform.scaleY;
       if (transform.opacity !== undefined)
         this.renderTransform.opacity! *= transform.opacity;
       if (transform.brightness !== undefined)
@@ -479,6 +495,7 @@ export abstract class BaseSprite<
     target.trim = { ...this.trim };
     target.style = JSON.parse(JSON.stringify(this.style || {}));
     target.animations = [...this.animations];
+    target.chromaKey = { ...this.chromaKey };
     // Copy src if target is a BaseClip
     if ('src' in this && 'src' in target) {
       (target as any).src = (this as any).src;

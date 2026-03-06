@@ -2,8 +2,8 @@ import { Texture } from 'pixi.js';
 import { Log } from '../utils/log';
 import { decodeImg } from '../utils';
 import { BaseClip } from './base-clip';
-import type { IClip } from './iclip';
-import type { ClipJSON, ImageJSON } from '../json-serialization';
+import { type IClip } from './iclip';
+import { type ClipJSON, type ImageJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
 
 type AnimateImgType = 'avif' | 'webp' | 'png' | 'gif';
@@ -442,6 +442,10 @@ export class Image extends BaseClip implements IClip {
 
     if (json.transition) {
       clip.transition = json.transition;
+    }
+
+    if ((json as any).chromaKey) {
+      clip.chromaKey = { ...clip.chromaKey, ...(json as any).chromaKey };
     }
 
     return clip;

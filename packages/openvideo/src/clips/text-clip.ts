@@ -772,7 +772,7 @@ export class Text extends BaseClip<ITextEvents> {
         text: wordStr,
         style: this.textStyle,
       });
-      this.pixiTextContainer?.addChild(wordText);
+      this.pixiTextContainer!.addChild(wordText);
       return wordText;
     });
 
@@ -854,30 +854,7 @@ export class Text extends BaseClip<ITextEvents> {
     if (style.wordWrap && style.wordWrapWidth > 0) {
       contentWidth = Math.max(contentWidth, style.wordWrapWidth);
     }
-    // Account for stroke and drop shadow extending beyond text bounds
-    let extraTop = 0;
-    let extraBottom = 0;
-
-    const strokeW =
-      typeof this.originalOpts.stroke === 'object'
-        ? this.originalOpts.stroke.width ?? 0
-        : this.originalOpts.strokeWidth ?? 0;
-    if (strokeW > 0) {
-      extraTop += strokeW;
-      extraBottom += strokeW;
-    }
-
-    if (this.originalOpts.dropShadow) {
-      const ds = this.originalOpts.dropShadow;
-      const blur = ds.blur ?? 0;
-      const distance = ds.distance ?? 0;
-      const angle = ds.angle ?? 0;
-      const dy = Math.abs(Math.sin(angle) * distance);
-      extraTop += blur;
-      extraBottom += blur + dy;
-    }
-
-    const contentHeight = textHeight + extraTop + extraBottom;
+    const contentHeight = textHeight;
 
     const isAutoWidth =
       this.width === 0 || Math.abs(this.width - this._lastContentWidth) < 0.1;
@@ -904,7 +881,7 @@ export class Text extends BaseClip<ITextEvents> {
       startY = containerHeight - textHeight;
     }
 
-    let currentY = startY + extraTop;
+    let currentY = startY;
     const graphics = new Graphics();
     let hasDecoration = false;
 
@@ -1105,7 +1082,7 @@ export class Text extends BaseClip<ITextEvents> {
           this.pixiTextContainer.destroy({ children: true });
         }
       }
-    } catch (_err) {
+    } catch (err) {
       // Ignore errors during destroy
     } finally {
       this.pixiTextContainer = null;
@@ -1120,7 +1097,7 @@ export class Text extends BaseClip<ITextEvents> {
           this.renderTexture.destroy(true);
         }
       }
-    } catch (_err) {
+    } catch (err) {
       // Ignore errors during destroy
       // Swallow error to prevent crashes during cleanup
     } finally {
@@ -1140,7 +1117,7 @@ export class Text extends BaseClip<ITextEvents> {
             texture: true,
           });
         }
-      } catch (_err) {
+      } catch (err) {
         // Ignore errors during destroy
       } finally {
         this.pixiApp = null;
