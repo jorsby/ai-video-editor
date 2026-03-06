@@ -68,30 +68,41 @@ export class R2StorageService {
   async uploadData(
     fileName: string,
     data: Buffer | string,
-    contentType: string = 'application/octet-stream'
+    contentType: string = 'application/octet-stream',
+    maxRetries: number = 3
   ): Promise<string> {
-    try {
-      const type = mime.getType(fileName) || contentType;
+    const type = mime.getType(fileName) || contentType;
 
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.bucketName,
-          Key: fileName,
-          Body: data,
-          ContentType: type,
-        })
-      );
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: fileName,
+            Body: data,
+            ContentType: type,
+          })
+        );
 
-      const url = this.getUrl(fileName);
-      return url;
-    } catch (error) {
-      console.error('[R2] Failed to upload file:', fileName);
-      console.error(
-        '[R2] Error stack:',
-        error instanceof Error ? error.stack : error
-      );
-      throw new Error('Failed to upload to R2');
+        return this.getUrl(fileName);
+      } catch (error) {
+        console.error(
+          `[R2] Upload attempt ${attempt}/${maxRetries} failed:`,
+          fileName
+        );
+        if (attempt === maxRetries) {
+          console.error(
+            '[R2] Error stack:',
+            error instanceof Error ? error.stack : error
+          );
+          throw new Error('Failed to upload to R2');
+        }
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+      }
     }
+
+    throw new Error('Failed to upload to R2');
   }
 
   async uploadJson(fileName: string, data: any): Promise<string> {
