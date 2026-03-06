@@ -140,6 +140,33 @@ async function detectGridLayout(
   const width = metadata.width!;
   const height = metadata.height!;
 
+  // When we already know the grid dimensions (from DB), use uniform division.
+  // Auto-detection is unreliable: characters on white backgrounds create
+  // intensity patterns that look like separators, producing dozens of false
+  // positives (e.g. 27 rows instead of 2).
+  if (expectedRows && expectedCols && expectedRows >= 2 && expectedCols >= 1) {
+    log?.info('Using known grid dimensions (skipping auto-detect)', {
+      rows: expectedRows,
+      cols: expectedCols,
+      image_width: width,
+      image_height: height,
+    });
+
+    const cellW = Math.floor(width / expectedCols);
+    const cellH = Math.floor(height / expectedRows);
+    const xBounds = Array.from({ length: expectedCols + 1 }, (_, i) =>
+      i === expectedCols ? width : i * cellW
+    );
+    const yBounds = Array.from({ length: expectedRows + 1 }, (_, i) =>
+      i === expectedRows ? height : i * cellH
+    );
+
+    return { rows: expectedRows, cols: expectedCols, xBounds, yBounds };
+  }
+
+  // Auto-detect only when dimensions are unknown
+  log?.info('Auto-detecting grid layout');
+
   // Get raw greyscale pixels
   const { data } = await sharp(imageBuffer)
     .greyscale()
