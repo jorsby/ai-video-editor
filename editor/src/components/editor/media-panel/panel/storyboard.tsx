@@ -73,6 +73,7 @@ type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
 const VIDEO_MODES = [
   { value: 'image_to_video' as const, label: 'Image to Video' },
   { value: 'ref_to_video' as const, label: 'Ref to Video' },
+  { value: 'quick_video' as const, label: 'Quick Video' },
 ] as const;
 
 const VIDEO_MODELS = [
@@ -320,7 +321,9 @@ export default function PanelStoryboard() {
           voiceover_list: data.voiceover_list,
           visual_flow: data.visual_flow,
         });
-        setDraftMode('image_to_video');
+        setDraftMode(
+          data.mode === 'quick_video' ? 'quick_video' : 'image_to_video'
+        );
         setDraftVideoModel(null);
       }
       setDraftStoryboardId(data.storyboard_id);
@@ -468,7 +471,11 @@ export default function PanelStoryboard() {
               {storyboards.map((sb) => (
                 <SelectItem key={sb.id} value={sb.id}>
                   {formatDate(sb.created_at)} ({sb.aspect_ratio})
-                  {sb.mode === 'ref_to_video' ? ' [Ref]' : ''}
+                  {sb.mode === 'ref_to_video'
+                    ? ' [Ref]'
+                    : sb.mode === 'quick_video'
+                      ? ' [Quick]'
+                      : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -640,6 +647,11 @@ export default function PanelStoryboard() {
                     {selectedStoryboard.mode === 'ref_to_video' && (
                       <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
                         Ref
+                      </span>
+                    )}
+                    {selectedStoryboard.mode === 'quick_video' && (
+                      <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
+                        Quick
                       </span>
                     )}
                   </div>

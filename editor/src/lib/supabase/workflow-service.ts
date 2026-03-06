@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // Types for workflow data
 
-export type StoryboardMode = 'image_to_video' | 'ref_to_video';
+export type StoryboardMode = 'image_to_video' | 'ref_to_video' | 'quick_video';
 export type VideoModel = 'klingo3' | 'klingo3pro' | 'wan26flash' | 'skyreels';
 
 export type PlanStatus =
