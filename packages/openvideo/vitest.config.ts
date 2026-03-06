@@ -1,8 +1,7 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import { resolve, dirname } from 'node:path';
 import { playwright } from '@vitest/browser-playwright';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

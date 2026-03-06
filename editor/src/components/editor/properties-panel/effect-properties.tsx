@@ -1,6 +1,5 @@
-import * as React from 'react';
-import { IClip } from 'openvideo';
-import { IconVolume, IconGauge, IconMusic } from '@tabler/icons-react';
+import type { IClip } from 'openvideo';
+import { IconVolume } from '@tabler/icons-react';
 import {
   InputGroup,
   InputGroupAddon,
@@ -13,9 +12,9 @@ interface EffectPropertiesProps {
 }
 
 export function EffectProperties({ clip }: EffectPropertiesProps) {
-  const effectClip = clip as any;
+  const _effectClip = clip as any;
 
-  const handleUpdate = (updates: any) => {
+  const handleUpdate = (_updates: any) => {
     // audioClip.update(updates);
   };
 
@@ -23,9 +22,9 @@ export function EffectProperties({ clip }: EffectPropertiesProps) {
     <div className="flex flex-col gap-5">
       {/* Volume Section */}
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Duration
-        </label>
+        </span>
         <div className="flex items-center gap-4">
           <IconVolume className="size-4 text-muted-foreground" />
           <Slider
@@ -40,7 +39,9 @@ export function EffectProperties({ clip }: EffectPropertiesProps) {
               type="number"
               value={50}
               onChange={(e) =>
-                handleUpdate({ volume: (parseInt(e.target.value) || 0) / 100 })
+                handleUpdate({
+                  volume: (parseInt(e.target.value, 10) || 0) / 100,
+                })
               }
               className="text-sm p-0 text-center"
             />

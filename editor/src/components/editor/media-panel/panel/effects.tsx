@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Effect, GL_EFFECT_OPTIONS } from 'openvideo';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useStudioStore } from '@/stores/studio-store';
@@ -42,6 +42,7 @@ const PanelEffect = () => {
                 <div className="relative w-full aspect-video rounded-md bg-input/30 border overflow-hidden">
                   <img
                     src={effect.previewStatic}
+                    alt={effect.label}
                     loading="lazy"
                     className="
                       absolute inset-0 w-full h-full object-cover rounded-sm
@@ -53,6 +54,7 @@ const PanelEffect = () => {
                   {isHovered && (
                     <img
                       src={effect.previewDynamic}
+                      alt={effect.label}
                       className="
                         absolute inset-0 w-full h-full object-cover rounded-sm
                         transition-opacity duration-150

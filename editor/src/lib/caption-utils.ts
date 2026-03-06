@@ -1,7 +1,8 @@
-import { Studio, IClip, jsonToClip } from "openvideo";
-import { generateCaptionClips } from "./caption-generator";
+import { type Studio, type IClip, jsonToClip } from 'openvideo';
+import { generateCaptionClips } from './caption-generator';
+import { DEFAULT_CAPTION_FONT_SIZE } from '@/components/editor/constant/caption';
 
-export type WordsPerLineMode = "single" | "multiple";
+export type WordsPerLineMode = 'single' | 'multiple';
 
 interface RegenerateCaptionClipsOptions {
   studio: Studio;
@@ -31,7 +32,7 @@ export async function regenerateCaptionClips({
   tracks.forEach((track: any) => {
     track.clipIds.forEach((id: string) => {
       const c = studio.getClipById(id);
-      if (c && c.type === "Caption" && (c as any).opts.mediaId === mediaId) {
+      if (c && c.type === 'Caption' && (c as any).opts.mediaId === mediaId) {
         siblingClips.push(c);
       }
     });
@@ -43,10 +44,12 @@ export async function regenerateCaptionClips({
 
   const uniformTop = captionClip.top ?? 0;
 
+  // Use media clip start as timing reference if available, otherwise fall back to 0.
+  // mediaStartUs is only used as a round-trip offset (subtracted for relative word
+  // times, then added back for new clip display times), so 0 is a safe fallback.
   const mediaClip = studio.getClipById(mediaId);
-  if (!mediaClip) return;
+  const mediaStartUs = mediaClip ? mediaClip.display.from : 0;
 
-  const mediaStartUs = mediaClip.display.from;
   const allWords: any[] = [];
 
   siblingClips.forEach((c) => {
@@ -75,8 +78,8 @@ export async function regenerateCaptionClips({
     videoHeight: (studio as any).opts.height,
     words: allWords,
     mode: mode,
-    fontSize: fontSize || currentOpts.fontSize || 80,
-    fontFamily: fontFamily || currentOpts.fontFamily || "Bangers-Regular",
+    fontSize: fontSize || currentOpts.fontSize || DEFAULT_CAPTION_FONT_SIZE,
+    fontFamily: fontFamily || currentOpts.fontFamily || 'Bangers-Regular',
     fontUrl: fontUrl || currentOpts.fontUrl,
     style: combinedStyle,
   });
@@ -90,7 +93,7 @@ export async function regenerateCaptionClips({
       (c as any).wordsPerLine = mode;
       if ((c as any).opts) (c as any).opts.wordsPerLine = mode;
       if ((c as any).originalOpts) (c as any).originalOpts.wordsPerLine = mode;
-      (c as any).emit && (c as any).emit("propsChange", {});
+      (c as any).emit && (c as any).emit('propsChange', {});
     } catch (e) {
       // ignore
     }
@@ -111,6 +114,7 @@ export async function regenerateCaptionClips({
       },
       opts: {
         ...(json.opts || {}),
+        mediaId,
         wordsPerLine: mode,
         ...(styleUpdate?.caption ? { caption: styleUpdate.caption } : {}),
       },
@@ -130,14 +134,14 @@ export async function regenerateCaptionClips({
 
       if (styleUpdate.strokeWidth !== undefined || styleUpdate.stroke) {
         if (
-          typeof enrichedJson.style.stroke !== "object" ||
+          typeof enrichedJson.style.stroke !== 'object' ||
           enrichedJson.style.stroke === null
         ) {
           enrichedJson.style.stroke = {
             color:
-              typeof enrichedJson.style.stroke === "string"
+              typeof enrichedJson.style.stroke === 'string'
                 ? enrichedJson.style.stroke
-                : "#000000",
+                : '#000000',
             width: 0,
           };
         }

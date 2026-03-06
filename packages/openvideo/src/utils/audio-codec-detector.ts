@@ -60,7 +60,7 @@ async function isCodecSupported(config: AudioCodecConfig): Promise<boolean> {
       numberOfChannels: config.channelCount,
     });
     return result.supported ?? false;
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }

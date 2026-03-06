@@ -1,12 +1,12 @@
 import {
   AlertTriangle,
-  LucideIcon,
-  LucideProps,
+  type LucideIcon,
+  type LucideProps,
   User,
   VideoIcon,
   Crop,
   Check,
-} from "lucide-react";
+} from 'lucide-react';
 
 export type Icon = LucideIcon;
 

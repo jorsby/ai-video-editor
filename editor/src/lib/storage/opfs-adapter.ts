@@ -1,4 +1,4 @@
-import { StorageAdapter } from './types';
+import type { StorageAdapter } from './types';
 
 export class OPFSAdapter implements StorageAdapter<File> {
   private directoryName: string;

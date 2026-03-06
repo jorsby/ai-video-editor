@@ -1,6 +1,6 @@
 'use client';
 
-import { RefObject } from 'react';
+import type { RefObject } from 'react';
 
 interface PlayerProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;

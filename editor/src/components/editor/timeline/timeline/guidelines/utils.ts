@@ -1,4 +1,4 @@
-import { Canvas, FabricObject, Line, TBBox } from 'fabric';
+import { type Canvas, type FabricObject, Line, type TBBox } from 'fabric';
 
 const GUIDELINE_OFFSET = 10;
 
@@ -8,7 +8,7 @@ export const clearAuxiliaryObjects = (
   canvas: Canvas,
   allObjects: FabricObject[]
 ) => {
-  //@ts-ignore
+  //@ts-expect-error
   allObjects.forEach((obj) => obj.isAlignmentAuxiliary && canvas.remove(obj));
 };
 
@@ -27,7 +27,7 @@ export const getLineGuideStops = (
 ): { vertical: LineGuide[]; horizontal: LineGuide[] } => {
   // objects can be aligned to canvas start, center and end of the canvas
   const vertical: LineGuides[] = [];
-  const horizontal: LineGuides[] = [];
+  const _horizontal: LineGuides[] = [];
 
   // and objects can be aligned to start, center and end of other objects
   canvas

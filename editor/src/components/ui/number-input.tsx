@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import type React from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { InputGroupInput } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
 
@@ -58,7 +59,7 @@ export const NumberInput = ({
     // Parse and validate
     let parsed = parseFloat(inputValue);
 
-    if (isNaN(parsed)) {
+    if (Number.isNaN(parsed)) {
       // Invalid input - revert to previous value
       setLocalValue(previousValueRef.current.toString());
       return;

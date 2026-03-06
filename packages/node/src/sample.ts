@@ -1,7 +1,7 @@
 import { Renderer } from './index.js';
-import { resolve, dirname } from 'path';
-import { readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
+import { resolve, dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -1,6 +1,6 @@
 {
   "name": "openvideo",
-  "version": "0.1.10",
+  "version": "0.2.2",
   "description": "Video rendering and processing library",
   "type": "module",
   "publishConfig": {
@@ -59,6 +59,8 @@
     "opfs-tools": "^0.7.2",
     "pixi.js": "^8.14.3",
     "wave-resampler": "^1.0.0",
-    "wrapbox": "^0.0.2"
+    "mediabunny": "^1.26.0",
+    "pixi-filters": "^6.1.5",
+    "wrapbox": "^0.1.0"
   }
 }

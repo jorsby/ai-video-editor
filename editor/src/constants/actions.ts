@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
   useCallback,
-  MutableRefObject,
+  type MutableRefObject,
 } from 'react';
 
 // Simple event emitter for action changes

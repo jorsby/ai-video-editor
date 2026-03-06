@@ -46,7 +46,7 @@ export const parseTimeCode = (
         const parts = cleanTimeCode.split(':');
         if (parts.length !== 2) return null;
         const [minutes, seconds] = parts.map((part) => parseInt(part, 10));
-        if (isNaN(minutes) || isNaN(seconds)) return null;
+        if (Number.isNaN(minutes) || Number.isNaN(seconds)) return null;
         if (minutes < 0 || seconds < 0 || seconds >= 60) return null;
         return minutes * 60 + seconds;
       }
@@ -57,7 +57,12 @@ export const parseTimeCode = (
         const [hours, minutes, seconds] = parts.map((part) =>
           parseInt(part, 10)
         );
-        if (isNaN(hours) || isNaN(minutes) || isNaN(seconds)) return null;
+        if (
+          Number.isNaN(hours) ||
+          Number.isNaN(minutes) ||
+          Number.isNaN(seconds)
+        )
+          return null;
         if (
           hours < 0 ||
           minutes < 0 ||
@@ -76,10 +81,10 @@ export const parseTimeCode = (
           parseInt(part, 10)
         );
         if (
-          isNaN(hours) ||
-          isNaN(minutes) ||
-          isNaN(seconds) ||
-          isNaN(centiseconds)
+          Number.isNaN(hours) ||
+          Number.isNaN(minutes) ||
+          Number.isNaN(seconds) ||
+          Number.isNaN(centiseconds)
         )
           return null;
         if (
@@ -101,7 +106,12 @@ export const parseTimeCode = (
         const [hours, minutes, seconds, frames] = parts.map((part) =>
           parseInt(part, 10)
         );
-        if (isNaN(hours) || isNaN(minutes) || isNaN(seconds) || isNaN(frames))
+        if (
+          Number.isNaN(hours) ||
+          Number.isNaN(minutes) ||
+          Number.isNaN(seconds) ||
+          Number.isNaN(frames)
+        )
           return null;
         if (
           hours < 0 ||
@@ -128,7 +138,7 @@ export const guessTimeCodeFormat = (timeCode: string): TimeCode | null => {
 
   const numbers = timeCode.split(':');
 
-  if (!numbers.every((n) => !isNaN(Number(n)))) return null;
+  if (!numbers.every((n) => !Number.isNaN(Number(n)))) return null;
 
   if (numbers.length === 2) return 'MM:SS';
   if (numbers.length === 3) return 'HH:MM:SS';

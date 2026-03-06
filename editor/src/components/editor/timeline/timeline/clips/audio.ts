@@ -1,5 +1,5 @@
-import { BaseTimelineClip, BaseClipProps } from './base';
-import { Control } from 'fabric';
+import { BaseTimelineClip, type BaseClipProps } from './base';
+import type { Control } from 'fabric';
 import { createTrimControls } from '../controls';
 import { editorFont } from '@/components/editor/constants';
 

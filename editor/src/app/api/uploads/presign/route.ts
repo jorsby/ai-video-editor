@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { type NextRequest, NextResponse } from 'next/server';
 import { config } from '@/lib/config';
 import { R2StorageService } from '@/lib/r2';

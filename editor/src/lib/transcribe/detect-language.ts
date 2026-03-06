@@ -27,7 +27,7 @@ export function languageCodeToName(languageCode: string) {
 
   try {
     translatedLanguageName = languageNames.of(languageCode);
-  } catch (e) {}
+  } catch (_e) {}
 
   return translatedLanguageName || 'Unknown';
 }

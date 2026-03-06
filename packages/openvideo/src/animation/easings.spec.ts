@@ -21,7 +21,7 @@ describe('easings', () => {
       // At p=0.15, r = 0.395
       // At p=0.5, r = 0.5 (delta = 0.35, slope = 0.105 / 0.35 = 0.3)
       // Standard linear would be 0.15 -> 0.5 -> 0.85
-      
+
       const v015 = slow(0.15);
       const v05 = slow(0.5);
       const v085 = slow(0.85);

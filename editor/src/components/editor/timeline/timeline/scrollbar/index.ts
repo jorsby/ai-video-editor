@@ -129,9 +129,9 @@ export class Scrollbars {
     const canvas = this.timeline.canvas;
     const p = canvas.getViewportPoint(e);
     const s =
-      this._bar.type == 'x' ? this._barViewport.sx : this._barViewport.sy;
-    const n = this._bar.type == 'x' ? 4 : 5;
-    const end = this._bar.type == 'x' ? p.x : p.y;
+      this._bar.type === 'x' ? this._barViewport.sx : this._barViewport.sy;
+    const n = this._bar.type === 'x' ? 4 : 5;
+    const end = this._bar.type === 'x' ? p.x : p.y;
     const vpt = this._bar.vpt.slice(0) as TMat2D;
     vpt[n] -= (end - this._bar.start) * s;
 
@@ -346,7 +346,7 @@ export class Scrollbars {
       return { left: 0, top: 0, right: 0, bottom: 0 };
     }
     const { left, top, width, height } = util.makeBoundingBoxFromPoints(
-      objects.map((x) => x.getCoords()).flat(1)
+      objects.flatMap((x) => x.getCoords())
     );
     return { left, top, right: left + width, bottom: top + height };
   }

@@ -577,8 +577,8 @@ export class SelectionManager {
           root.scale.set(1, 1);
         }
       } else {
-        let logicalWidth = newWidth;
-        let logicalHeight = newHeight;
+        const logicalWidth = newWidth;
+        const logicalHeight = newHeight;
 
         clip.left = root.x - logicalWidth / 2;
         clip.top = root.y - logicalHeight / 2;
@@ -616,8 +616,8 @@ export class SelectionManager {
         const newHeight =
           Math.abs(root.scale.y * sprite.scale.y) * textureHeight;
 
-        let logicalWidth = newWidth;
-        let logicalHeight = newHeight;
+        const logicalWidth = newWidth;
+        const logicalHeight = newHeight;
 
         const newLeft = root.x - logicalWidth / 2;
         const newTop = root.y - logicalHeight / 2;

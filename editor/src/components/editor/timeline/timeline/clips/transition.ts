@@ -1,5 +1,5 @@
-import { BaseTimelineClip, BaseClipProps } from './base';
-import { Control, Path } from 'fabric';
+import { BaseTimelineClip, type BaseClipProps } from './base';
+import { type Control, Path } from 'fabric';
 
 export class Transition extends BaseTimelineClip {
   isSelected: boolean;

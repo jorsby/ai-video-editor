@@ -1,4 +1,4 @@
-import { type FabricObject } from 'fabric';
+import type { FabricObject } from 'fabric';
 import type Timeline from '../canvas';
 import {
   getLineGuideStops,

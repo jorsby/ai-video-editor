@@ -1,15 +1,15 @@
 import {
   mp4box,
-  AudioTrackOpts,
-  ESDSBoxParser,
-  MP4ArrayBuffer,
-  MP4File,
-  MP4Info,
-  MP4Sample,
-  TrakBoxParser,
-  VideoTrackOpts,
+  type AudioTrackOpts,
+  type ESDSBoxParser,
+  type MP4ArrayBuffer,
+  type MP4File,
+  type MP4Info,
+  type MP4Sample,
+  type TrakBoxParser,
+  type VideoTrackOpts,
 } from 'wrapbox';
-import { file } from 'opfs-tools';
+import type { file } from 'opfs-tools';
 import { DEFAULT_AUDIO_CONF } from '../clips';
 
 interface ExtractedConfig {

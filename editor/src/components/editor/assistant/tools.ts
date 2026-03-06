@@ -4,9 +4,9 @@ import {
   Image,
   Text,
   Audio,
-  Studio,
+  type Studio,
   Effect,
-  IClip,
+  type IClip,
   fontManager,
   jsonToClip,
 } from 'openvideo';
@@ -30,7 +30,7 @@ export const handleAddClip = async (input: any, studio: Studio) => {
   const from = input.from ?? 0;
   const to = input.to ? (input.to - from < 1 ? 1 : input.to) : from + 5;
 
-  let clip;
+  let clip: any;
   const type =
     assetType ||
     (action === 'add_text'
@@ -63,6 +63,7 @@ export const handleAddClip = async (input: any, studio: Studio) => {
     const url =
       'https://cdn.scenify.io/AUTOCROP/VIDEO/e4545b0a-56e8-4982-80af-9b51094909f7/ec042fbe-01d8-4ef2-8389-c166eae76a77.mp4';
     clip = await Audio.fromUrl(url);
+    clip.volume = 0.35;
   }
 
   if (clip) {
@@ -117,7 +118,13 @@ export const handleUpdateClip = async (input: any, studio: Studio) => {
   if (fill !== undefined) updates.fill = fill;
   if (opacity !== undefined) updates.opacity = opacity;
   if (volume !== undefined) updates.volume = volume;
-  if (playbackRate !== undefined) updates.playbackRate = playbackRate;
+  if (playbackRate !== undefined) {
+    updates.playbackRate = playbackRate;
+    const clip = studio.getClipById(id);
+    if (clip && (clip as any).trim) {
+      updates.duration = Math.round(((clip as any).trim.to - (clip as any).trim.from) / playbackRate);
+    }
+  }
 
   await studio.updateClip(id, updates);
 };
@@ -205,7 +212,7 @@ export const handleDuplicateClip = async (input: any, studio: Studio) => {
 
 export const handleSearchAndAddMedia = async (input: any, studio: Studio) => {
   const { query, type, targetId, from: fromTime } = input;
-  const from = fromTime ?? usePlaybackStore.getState().currentTime / 1000;
+  const _from = fromTime ?? usePlaybackStore.getState().currentTime / 1000;
   console.log({ input });
   try {
     const response = await fetch(
@@ -213,7 +220,7 @@ export const handleSearchAndAddMedia = async (input: any, studio: Studio) => {
     );
     const data = await response.json();
 
-    let clip;
+    let clip: any;
     if (type === 'image') {
       const imageUrl = data.photos?.[0]?.src?.large;
       if (imageUrl) {
@@ -271,7 +278,7 @@ export const handleGenerateVoiceover = async (input: any, studio: Studio) => {
   }
 };
 
-export const handleSeekToTime = async (input: any, studio: Studio) => {
+export const handleSeekToTime = async (input: any, _studio: Studio) => {
   const { time } = input;
   usePlaybackStore.getState().seek(time * 1000); // seeks uses ms
 };

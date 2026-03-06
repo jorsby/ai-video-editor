@@ -2,10 +2,12 @@ import {
   Application,
   Container,
   Filter,
+  GlProgram,
   RenderTexture,
   Sprite,
   TilingSprite,
   Texture,
+  UniformGroup,
   Graphics,
   BlurFilter,
   ColorMatrixFilter,
@@ -20,10 +22,11 @@ import {
 } from "./clips";
 import { recodemux } from "wrapbox";
 import { Log } from "./utils/log";
-import { file2stream } from "./utils/stream-utils";
 import EventEmitter from "./event-emitter";
 import { PixiSpriteRenderer } from "./sprite/pixi-sprite-renderer";
-import { parseColor } from "./utils/color";
+import { parseColor, hexToRgb } from "./utils/color";
+import { vertex } from "./effect/vertex";
+import { CHROMA_KEY_FRAGMENT } from "./effect/glsl/custom-glsl";
 import { sleep } from "./utils";
 import {
   clipToJSON,
@@ -42,11 +45,14 @@ export interface ICompositorOpts {
   bitrate?: number;
   fps?: number;
   bgColor?: string;
+  format?: string;
   videoCodec?: string;
   /**
    * If false, exclude audio track from the output video
    */
   audio?: false;
+  audioCodec?: string;
+  audioSampleRate?: number;
   /**
    * Write metadata tags to the output video
    */
@@ -86,6 +92,36 @@ async function waitEncoderQueue(getQSize: () => number) {
  * com.output(); // => ReadableStream
  *
  */
+const VIDEO_CODEC_PROFILES = [
+  "avc1.640028", // High profile, Level 4.0
+  "avc1.4D0028", // Main profile, Level 4.0
+  "avc1.420028", // Baseline profile, Level 4.0
+];
+
+async function getBestVideoCodec(args: {
+  width?: number;
+  height?: number;
+  bitrate?: number;
+}): Promise<string> {
+  if (typeof self === "undefined" || self.VideoEncoder == null) {
+    return VIDEO_CODEC_PROFILES[0];
+  }
+  for (const codec of VIDEO_CODEC_PROFILES) {
+    try {
+      const result = await self.VideoEncoder.isConfigSupported({
+        codec,
+        width: args.width ?? 1920,
+        height: args.height ?? 1080,
+        bitrate: args.bitrate ?? 7e6,
+      });
+      if (result.supported) return codec;
+    } catch {
+      continue;
+    }
+  }
+  return VIDEO_CODEC_PROFILES[0];
+}
+
 export class Compositor extends EventEmitter<{
   OutputProgress: number;
   error: Error;
@@ -115,7 +151,7 @@ export class Compositor extends EventEmitter<{
         self.AudioData != null &&
         ((
           await self.VideoEncoder.isConfigSupported({
-            codec: args.videoCodec ?? "avc1.42E032",
+            codec: args.videoCodec ?? (await getBestVideoCodec(args)),
             width: args.width ?? 1920,
             height: args.height ?? 1080,
             bitrate: args.bitrate ?? 7e6,
@@ -156,6 +192,8 @@ export class Compositor extends EventEmitter<{
    */
   constructor(opts: ICompositorOpts = {}) {
     super();
+
+    console.log("Compositor constructor", opts);
     const { width = 0, height = 0 } = opts;
     this.canvas = new OffscreenCanvas(width, height);
     // this.canvas = document.querySelector('#canvas') as HTMLCanvasElement
@@ -165,8 +203,11 @@ export class Compositor extends EventEmitter<{
         bgColor: "#000",
         width: 0,
         height: 0,
-        videoCodec: "avc1.42E032",
+        format: "mp4",
+        videoCodec: "avc1.640028",
         audio: true,
+        audioCodec: "aac",
+        audioSampleRate: 48000,
         bitrate: 5e6,
         fps: 30,
         metaDataTags: null,
@@ -174,6 +215,7 @@ export class Compositor extends EventEmitter<{
       opts,
     );
 
+    console.log("Compositor opts", this.opts);
     this.hasVideoTrack = width * height > 0;
 
     // Initialize codec detection early
@@ -257,8 +299,18 @@ export class Compositor extends EventEmitter<{
   }
 
   private initMuxer(duration: number) {
-    const { fps, width, height, videoCodec, bitrate, audio, metaDataTags } =
-      this.opts;
+    const {
+      fps,
+      width,
+      height,
+      videoCodec,
+      bitrate,
+      audio,
+      metaDataTags,
+      format,
+      audioCodec,
+      audioSampleRate,
+    } = this.opts;
 
     // Check if any sprites actually have video capabilities (width > 0 && height > 0)
     // This handles cases where width/height are set but all sprites are audio-only
@@ -270,6 +322,7 @@ export class Compositor extends EventEmitter<{
     const shouldCreateVideoTrack = this.hasVideoTrack && hasVideoSprites;
 
     const muxer = recodemux({
+      format: format || "mp4",
       video: shouldCreateVideoTrack
         ? {
             width,
@@ -285,8 +338,8 @@ export class Compositor extends EventEmitter<{
         audio === false
           ? null
           : {
-              codec: DEFAULT_AUDIO_CONF.codecType,
-              sampleRate: DEFAULT_AUDIO_CONF.sampleRate,
+              codec: audioCodec || DEFAULT_AUDIO_CONF.codecType,
+              sampleRate: audioSampleRate || DEFAULT_AUDIO_CONF.sampleRate,
               channelCount: DEFAULT_AUDIO_CONF.channelCount,
             },
       duration,
@@ -300,6 +353,7 @@ export class Compositor extends EventEmitter<{
    * @param opts.maxTime Maximum duration allowed for output video, content exceeding this will be ignored
    */
   output(opts: { maxTime?: number } = {}): ReadableStream<Uint8Array> {
+    console.log("Compositor output", opts);
     if (this.sprites.length === 0) throw Error("No sprite added");
 
     const mainSprite = this.sprites.find((it) => it.main);
@@ -347,7 +401,7 @@ export class Compositor extends EventEmitter<{
       },
       onError: (err) => {
         this.emit("error", err);
-        closeOutStream(err);
+        muxer.close();
         this.destroy();
       },
     });
@@ -355,15 +409,9 @@ export class Compositor extends EventEmitter<{
     this.stopOutput = () => {
       stopMuxer();
       muxer.close();
-      closeOutStream();
     };
-    const { stream, stop: closeOutStream } = file2stream(
-      muxer.mp4file,
-      500,
-      this.destroy,
-    );
 
-    return stream;
+    return muxer.stream;
   }
 
   /**
@@ -564,9 +612,12 @@ export class Compositor extends EventEmitter<{
         height: this.opts.height,
         fps: this.opts.fps,
         bgColor: this.opts.bgColor,
+        format: this.opts.format,
         videoCodec: this.opts.videoCodec,
         bitrate: this.opts.bitrate,
         audio: this.opts.audio,
+        audioCodec: this.opts.audioCodec,
+        audioSampleRate: this.opts.audioSampleRate,
         metaDataTags: this.opts.metaDataTags,
       },
     };
@@ -592,6 +643,8 @@ export class Compositor extends EventEmitter<{
       if (json.settings.fps !== undefined) this.opts.fps = json.settings.fps;
       if (json.settings.bgColor !== undefined)
         this.opts.bgColor = json.settings.bgColor;
+      if (json.settings.format !== undefined)
+        this.opts.format = json.settings.format;
       if (json.settings.videoCodec !== undefined)
         this.opts.videoCodec = json.settings.videoCodec;
       if (json.settings.bitrate !== undefined)
@@ -600,6 +653,10 @@ export class Compositor extends EventEmitter<{
         this.opts.audio =
           json.settings.audio === false ? false : (undefined as any);
       }
+      if (json.settings.audioCodec !== undefined)
+        this.opts.audioCodec = json.settings.audioCodec;
+      if (json.settings.audioSampleRate !== undefined)
+        this.opts.audioSampleRate = json.settings.audioSampleRate;
       if (json.settings.metaDataTags !== undefined)
         this.opts.metaDataTags = json.settings.metaDataTags;
     }
@@ -676,23 +733,17 @@ function createSpritesRender(opts: {
 
   const renderClipToTransitionTexture = (
     clip: IClip,
-    // Example: new Image(imageBitmap), or Texture
     frame: ImageBitmap | Texture,
     target: RenderTexture,
   ) => {
     if (!pixiApp) return;
 
-    // 1. Clear with Background
-    pixiApp.renderer.render({
-      container: transBgGraphics,
-      target: target,
-      clear: true,
-    });
-
-    // 2. Render Clip Frame
+    const style = (clip as any).style || {};
     const { renderTransform } = clip;
-    let tempSprite: Sprite | TilingSprite;
     const isMirrored = (renderTransform?.mirror ?? 0) > 0.5;
+
+    // 1. Create temporary sprite
+    let tempSprite: Sprite | TilingSprite;
 
     if (isMirrored) {
       tempSprite = new TilingSprite({
@@ -714,6 +765,8 @@ function createSpritesRender(opts: {
     const yOffset = renderTransform?.y ?? 0;
     const angleOffset = renderTransform?.angle ?? 0;
     const scaleMultiplier = renderTransform?.scale ?? 1;
+    const scaleXMultiplier = renderTransform?.scaleX ?? 1;
+    const scaleYMultiplier = renderTransform?.scaleY ?? 1;
     const opacityMultiplier = renderTransform?.opacity ?? 1;
     const blurOffset = renderTransform?.blur ?? 0;
     const brightnessMultiplier = renderTransform?.brightness ?? 1;
@@ -737,36 +790,34 @@ function createSpritesRender(opts: {
         : 1;
 
     if (isMirrored && tempSprite instanceof TilingSprite) {
-      // Override width/height to be larger
       tempSprite.width = textureWidth * 5;
       tempSprite.height = textureHeight * 5;
 
-      // Center the texture within the large box
       tempSprite.tilePosition.set(
         (tempSprite.width - textureWidth) / 2,
         (tempSprite.height - textureHeight) / 2,
       );
 
       if (clip.flip === "horizontal") {
-        tempSprite.scale.x = -baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = -baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
       } else if (clip.flip === "vertical") {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = -baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = -baseScaleY * scaleMultiplier * scaleYMultiplier;
       } else {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
       }
     } else {
       if (clip.flip === "horizontal") {
-        tempSprite.scale.x = -baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = -baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
       } else if (clip.flip === "vertical") {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = -baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = -baseScaleY * scaleMultiplier * scaleYMultiplier;
       } else {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier;
+        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
+        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
       }
     }
 
@@ -775,24 +826,54 @@ function createSpritesRender(opts: {
       180;
     tempSprite.alpha = clip.opacity * opacityMultiplier;
 
+    // Apply Filters
+    const filters: any[] = [];
     if (blurOffset > 0) {
       const blurFilter = new BlurFilter();
       blurFilter.strength = blurOffset;
       blurFilter.quality = 4;
       (blurFilter as any).repeatEdgePixels = true;
-      tempSprite.filters = [blurFilter];
+      filters.push(blurFilter);
     }
 
     if (brightnessMultiplier !== 1) {
       const brightnessFilter = new ColorMatrixFilter();
       brightnessFilter.brightness(brightnessMultiplier, false);
-      const currentFilters = tempSprite.filters || [];
-      tempSprite.filters = [...currentFilters, brightnessFilter];
+      filters.push(brightnessFilter);
     }
 
-    const style = (clip as any).style || {};
+    if (clip.chromaKey && clip.chromaKey.enabled) {
+      const chromaUniforms = new UniformGroup({
+        uKeyColor: { value: [0, 1, 0], type: "vec3<f32>" },
+        uSimilarity: { value: 0.1, type: "f32" },
+        uSpill: { value: 0.0, type: "f32" },
+      });
 
-    // 2.5 Apply Mask (Border Radius)
+      const rgb = hexToRgb(clip.chromaKey.color);
+      if (rgb) {
+        chromaUniforms.uniforms.uKeyColor[0] = rgb.r / 255;
+        chromaUniforms.uniforms.uKeyColor[1] = rgb.g / 255;
+        chromaUniforms.uniforms.uKeyColor[2] = rgb.b / 255;
+      }
+      chromaUniforms.uniforms.uSimilarity = clip.chromaKey.similarity;
+      chromaUniforms.uniforms.uSpill = clip.chromaKey.spill;
+
+      const chromaFilter = new Filter({
+        glProgram: new GlProgram({
+          vertex,
+          fragment: CHROMA_KEY_FRAGMENT,
+          name: "ChromaKeyShader",
+        }),
+        resources: {
+          chromaUniforms,
+        },
+      });
+      filters.push(chromaFilter);
+    }
+
+    tempSprite.filters = filters;
+
+    // Apply Styles (Border Radius, Stroke, Shadow)
     const borderRadius = style.borderRadius || 0;
     let maskGraphics: Graphics | null = null;
     if (borderRadius > 0) {
@@ -809,17 +890,13 @@ function createSpritesRender(opts: {
       tempSprite.mask = maskGraphics;
     }
 
-    // 3. Render Stroke if present
     const stroke = style.stroke;
     let strokeGraphics: Graphics | null = null;
-
     if (stroke && stroke.width > 0) {
       strokeGraphics = new Graphics();
       const color = parseColor(stroke.color) ?? 0xffffff;
-      const width = stroke.width;
-
       strokeGraphics.setStrokeStyle({
-        width: width,
+        width: stroke.width,
         color: color,
         alignment: 1,
       });
@@ -845,7 +922,6 @@ function createSpritesRender(opts: {
       tempSprite.addChild(strokeGraphics);
     }
 
-    // 4. Render Shadow if present
     const shadow = style.dropShadow;
     let shadowGraphics: Graphics | null = null;
     if (shadow && (shadow.blur > 0 || shadow.distance > 0)) {
@@ -876,14 +952,13 @@ function createSpritesRender(opts: {
         );
       }
       shadowGraphics.fill({ color, alpha });
-      // Add as first child to be behind
       tempSprite.addChildAt(shadowGraphics, 0);
     }
 
     pixiApp.renderer.render({
       container: tempSprite,
       target: target,
-      clear: false,
+      clear: true,
     });
 
     if (!(frame instanceof Texture)) {
@@ -1129,6 +1204,7 @@ function createSpritesRender(opts: {
         startTime: number;
         duration: number;
         zIndex: number;
+        values?: Record<string, any>;
       }> = [];
 
       for (const sprite of sprites) {
@@ -1143,6 +1219,7 @@ function createSpritesRender(opts: {
               startTime: sprite.display.from,
               duration: sprite.duration,
               zIndex: sprite.zIndex,
+              values: (sprite as Effect).effect.values,
             });
           }
         }
@@ -1232,6 +1309,15 @@ function createSpritesRender(opts: {
                   processedClips.add(sprite.id);
                 }
               }
+
+              // Also check for Transition Sprite
+              const transSprite = transitionSprites.get(sprite.id);
+              if (transSprite) {
+                if (transSprite.parent)
+                  (transSprite.parent as Container).removeChild(transSprite);
+                clipsEffectContainer.addChild(transSprite);
+                processedClips.add(sprite.id);
+              }
             }
           }
 
@@ -1239,9 +1325,10 @@ function createSpritesRender(opts: {
             let effectCached = effectCache.get(id);
             if (!effectCached) {
               try {
-                const res = makeEffect({
+                const res = await makeEffect({
                   name: key as any,
                   renderer: pixiApp.renderer,
+                  values: effect.values,
                 });
                 if (res && res.filter) {
                   effectCached = { filter: res.filter, render: res.render };

@@ -8,6 +8,7 @@ import { BaseClip } from './base-clip';
 import { DEFAULT_AUDIO_CONF, type IClip, type IPlaybackCapable } from './iclip';
 import type { AudioJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
+import { AssetManager } from '../utils/asset-manager';
 
 interface IAudioOpts {
   loop?: boolean;
@@ -126,6 +127,13 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     clip.opacity = json.opacity;
     clip.flip = json.flip;
 
+    // Apply trim if present
+    if (json.trim) {
+      clip.trim.from =
+        json.trim.from < 1e6 ? json.trim.from * 1e6 : json.trim.from;
+      clip.trim.to = json.trim.to < 1e6 ? json.trim.to * 1e6 : json.trim.to;
+    }
+
     // Apply animation if present
     if (json.animation) {
       clip.setAnimation(json.animation.keyFrames, json.animation.opts);
@@ -157,11 +165,21 @@ export class Audio extends BaseClip implements IPlaybackCapable {
 
     // Override the ready promise from BaseClip with our initialization
     this.ready = this.init(dataSource).then((_meta_t) => {
+      // Initialize trim boundaries
+      this.trim.to =
+        this.trim.to === 0
+          ? this._meta.duration
+          : Math.min(this.trim.to, this._meta.duration);
+      this.trim.from = Math.min(this.trim.from, this.trim.to);
+
+      const effectiveDuration =
+        (this.trim.to - this.trim.from) / this.playbackRate;
+
       // audio has no width/height, no need to draw
       const clipMeta = {
         width: 0,
         height: 0,
-        duration: opts.loop ? Infinity : this._meta.duration,
+        duration: opts.loop ? Infinity : effectiveDuration,
       };
       // Update rect and duration from meta (BaseClip pattern)
       this.width = this.width === 0 ? clipMeta.width : this.width;
@@ -180,6 +198,13 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       Audio.ctx = new AudioContext({
         sampleRate: DEFAULT_AUDIO_CONF.sampleRate,
       });
+    }
+    if (Audio.ctx.state === 'suspended') {
+      try {
+        await Audio.ctx.resume();
+      } catch (err) {
+        Log.warn('Audio: Failed to resume AudioContext', err);
+      }
     }
 
     const tStart = performance.now();
@@ -213,8 +238,8 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     tickRet: T
   ) => Promise<T> = async (_, tickRet) => tickRet;
 
-  // microseconds
-  private timestamp = 0;
+  // microseconds, -1 sentinel so the first tick(0) produces a non-zero delta
+  private timestamp = -1;
   private frameOffset = 0;
   /**
    * Return audio PCM data corresponding to the time difference between last and current moments
@@ -229,18 +254,18 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     audio: Float32Array[];
     state: 'success' | 'done';
   }> {
-    if (!this.opts.loop && time >= this._meta.duration) {
-      // TODO: if time span is large, return done, theoretically may lose some audio frames
+    const trimmedTime = time + this.trim.from;
+    if (!this.opts.loop && (trimmedTime >= this.trim.to || trimmedTime >= this._meta.duration)) {
       return await this.tickInterceptor(time, { audio: [], state: 'done' });
     }
 
     const deltaTime = time - this.timestamp;
 
-    // reset
-    if (time < this.timestamp || deltaTime > 3e6) {
+    // reset (includes initial state when timestamp is -1 sentinel)
+    if (this.timestamp === -1 || time < this.timestamp || deltaTime > 3e6) {
       this.timestamp = time;
       this.frameOffset = Math.ceil(
-        (this.timestamp / 1e6) * DEFAULT_AUDIO_CONF.sampleRate
+        (trimmedTime / 1e6) * DEFAULT_AUDIO_CONF.sampleRate
       );
       return await this.tickInterceptor(time, {
         audio: [new Float32Array(0), new Float32Array(0)],
@@ -341,15 +366,34 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       throw new Error('Audio requires a source URL for playback');
     }
 
-    // For AudioClip, src is already a URL (from fromUrl or JSON)
-    const objectUrl = this.src.startsWith('blob:') ? this.src : undefined;
-    const audio = document.createElement('audio');
+    // Try to use OPFS-cached file to avoid a second CORS-sensitive network fetch.
+    // This mirrors Video.createPlaybackElement() which uses localFile.getOriginFile().
+    let audioSrc = this.src;
+    let objectUrl: string | undefined = this.src.startsWith('blob:')
+      ? this.src
+      : undefined;
 
+    if (!this.src.startsWith('blob:') && !this.src.startsWith('data:')) {
+      try {
+        const cachedFile = await AssetManager.get(this.src);
+        if (cachedFile) {
+          const originFile = await cachedFile.getOriginFile();
+          if (originFile) {
+            objectUrl = URL.createObjectURL(originFile);
+            audioSrc = objectUrl;
+          }
+        }
+      } catch (err) {
+        Log.warn('Audio: OPFS cache lookup failed, falling back to URL', err);
+      }
+    }
+
+    const audio = document.createElement('audio');
     audio.crossOrigin = 'anonymous';
     audio.autoplay = false;
     audio.preload = 'auto';
     audio.loop = this.opts.loop || false;
-    audio.src = this.src;
+    audio.src = audioSrc;
 
     // Wait for audio to be ready
     await new Promise<void>((resolve, reject) => {
@@ -378,9 +422,10 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const audio = element as HTMLAudioElement;
+    const trimmedTime = timeSeconds + this.trim.from / 1e6;
     // Set time if needed
-    if (Math.abs(audio.currentTime - timeSeconds) > 0.1) {
-      audio.currentTime = timeSeconds;
+    if (Math.abs(audio.currentTime - trimmedTime) > 0.1) {
+      audio.currentTime = trimmedTime;
     }
 
     if (audio.paused) {
@@ -407,12 +452,13 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const audio = element as HTMLAudioElement;
+    const trimmedTime = timeSeconds + this.trim.from / 1e6;
     audio.pause();
-    audio.currentTime = timeSeconds;
+    audio.currentTime = trimmedTime;
 
     // Wait for seek to complete
     return new Promise<void>((resolve) => {
-      if (Math.abs(audio.currentTime - timeSeconds) < 0.01) {
+      if (Math.abs(audio.currentTime - trimmedTime) < 0.01) {
         resolve();
         return;
       }
@@ -435,14 +481,18 @@ export class Audio extends BaseClip implements IPlaybackCapable {
   syncPlayback(
     element: HTMLVideoElement | HTMLAudioElement,
     isPlaying: boolean,
-    timeSeconds: number
+    timeSeconds: number,
+    transportSpeed: number = 1
   ): void {
     const audio = element as HTMLAudioElement;
-    const clipDuration = this.meta.duration / 1e6; // Convert to seconds
+    const clipDuration = (this.trim.to - this.trim.from) / 1e6;
     const isWithinClip = timeSeconds >= 0 && timeSeconds < clipDuration;
 
+    const trimmedTime = timeSeconds + this.trim.from / 1e6;
     // Sync volume
     audio.volume = this.volume;
+    // Sync playback rate: per-clip speed * global transport speed
+    audio.playbackRate = this.playbackRate * transportSpeed;
 
     if (isPlaying && isWithinClip) {
       // Should be playing
@@ -456,8 +506,8 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       }
 
       // Update time when paused
-      if (isWithinClip && Math.abs(audio.currentTime - timeSeconds) > 0.1) {
-        audio.currentTime = timeSeconds;
+      if (isWithinClip && Math.abs(audio.currentTime - trimmedTime) > 0.1) {
+        audio.currentTime = trimmedTime;
       }
     }
   }
@@ -471,7 +521,7 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     audio.removeAttribute('src');
     audio.load();
 
-    if (objectUrl && objectUrl.startsWith('blob:')) {
+    if (objectUrl?.startsWith('blob:')) {
       URL.revokeObjectURL(objectUrl);
     }
   }

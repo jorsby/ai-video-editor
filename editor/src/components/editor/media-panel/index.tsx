@@ -13,11 +13,15 @@ import PanelCaptions from './panel/captions';
 import PanelMusic from './panel/music';
 import PanelVoiceovers from './panel/voiceovers';
 import PanelSFX from './panel/sfx';
-import PanelElements from './panel/elements';
+import PanelStoryboard from './panel/storyboard';
+import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
+import { Assistant } from '@/components/assistant';
 import type { IClip } from 'openvideo';
 import { useEffect, useState } from 'react';
 import { useStudioStore } from '@/stores/studio-store';
+import { useAssetStore } from '@/stores/asset-store';
+import { useProjectId } from '@/contexts/project-context';
 
 const viewMap: Record<Tab, React.ReactNode> = {
   uploads: <PanelUploads />,
@@ -30,7 +34,9 @@ const viewMap: Record<Tab, React.ReactNode> = {
   captions: <PanelCaptions />,
   transitions: <PanelTransition />,
   effects: <PanelEffect />,
-  elements: <PanelElements />,
+  assistant: <Assistant />,
+  storyboard: <PanelStoryboard />,
+  renders: <PanelRenders />,
 };
 
 export function MediaPanel() {
@@ -38,6 +44,15 @@ export function MediaPanel() {
   const [selectedClips, setSelectedClips] = useState<IClip[]>([]);
   const { studio, setSelectedClips: setStudioSelectedClips } = useStudioStore();
   const [showProperties, setShowProperties] = useState(false);
+  const { fetchAssets } = useAssetStore();
+  const projectId = useProjectId();
+
+  // Fetch all assets from Supabase on mount
+  useEffect(() => {
+    if (projectId) {
+      fetchAssets(projectId);
+    }
+  }, [fetchAssets, projectId]);
 
   useEffect(() => {
     if (!studio) return;
@@ -80,7 +95,7 @@ export function MediaPanel() {
         {selectedClips.length > 0 && showProperties ? (
           <PropertiesPanel selectedClips={selectedClips} />
         ) : (
-          <>{viewMap[activeTab]}</>
+          viewMap[activeTab]
         )}
       </div>
     </div>

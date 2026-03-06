@@ -1,5 +1,5 @@
-import { TProject, Scene } from '@/types/project';
-import { TimelineTrack } from '@/types/timeline';
+import type { TProject, Scene } from '@/types/project';
+import type { TimelineTrack } from '@/types/timeline';
 
 export interface StorageAdapter<T> {
   get(key: string): Promise<T | null>;

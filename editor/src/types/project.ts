@@ -1,6 +1,20 @@
-import { CanvasSize } from './editor';
+import type { CanvasSize } from './editor';
 
 export type BlurIntensity = 4 | 8 | 18;
+
+// Database project type (Supabase)
+export interface DBProject {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface ProjectTagMap {
+  [projectId: string]: string[];
+}
 
 export interface Scene {
   id: string;

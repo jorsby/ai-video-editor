@@ -1,20 +1,19 @@
-import * as React from "react";
-import { useEffect, useState } from "react";
+import * as React from 'react';
+import { useEffect, useState } from 'react';
 import {
   ColorPicker,
-  ColorPickerAlpha,
   ColorPickerEyeDropper,
   ColorPickerFormat,
   ColorPickerHue,
   ColorPickerOutput,
   ColorPickerSelection,
-} from "@/components/ui/color-picker";
+} from '@/components/ui/color-picker';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover";
-import { IClip, AnimationOptions, KeyframeData } from "openvideo";
+} from '@/components/ui/popover';
+import { type IClip, AnimationOptions, KeyframeData } from 'openvideo';
 import {
   IconAlignLeft,
   IconAlignCenter,
@@ -34,19 +33,21 @@ import {
   IconTrash,
   IconSquare,
   IconVolume,
+  IconGauge,
   IconEdit,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+} from '@tabler/icons-react';
+import { cn } from '@/lib/utils';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@/components/ui/input-group";
-import { Slider } from "@/components/ui/slider";
-import color from "color";
-import { NumberInput } from "@/components/ui/number-input";
-import useLayoutStore from "../store/use-layout-store";
+} from '@/components/ui/input-group';
+import { Slider } from '@/components/ui/slider';
+import color from 'color';
+import { NumberInput } from '@/components/ui/number-input';
+import useLayoutStore from '../store/use-layout-store';
+import { useStudioStore } from '@/stores/studio-store';
 
 interface VideoPropertiesProps {
   clip: IClip;
@@ -56,6 +57,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
   const videoClip = clip as any;
   const style = videoClip.style || {};
   const [, setTick] = useState(0);
+  const { studio } = useStudioStore();
 
   // Listen to clip events for canvas sync
   useEffect(() => {
@@ -65,21 +67,27 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
       setTick((t) => t + 1);
     };
 
-    videoClip.on?.("propsChange", onPropsChange);
-    videoClip.on?.("moving", onPropsChange);
-    videoClip.on?.("scaling", onPropsChange);
-    videoClip.on?.("rotating", onPropsChange);
+    videoClip.on?.('propsChange', onPropsChange);
+    videoClip.on?.('moving', onPropsChange);
+    videoClip.on?.('scaling', onPropsChange);
+    videoClip.on?.('rotating', onPropsChange);
 
     return () => {
-      videoClip.off?.("propsChange", onPropsChange);
-      videoClip.off?.("moving", onPropsChange);
-      videoClip.off?.("scaling", onPropsChange);
-      videoClip.off?.("rotating", onPropsChange);
+      videoClip.off?.('propsChange', onPropsChange);
+      videoClip.off?.('moving', onPropsChange);
+      videoClip.off?.('scaling', onPropsChange);
+      videoClip.off?.('rotating', onPropsChange);
     };
   }, [videoClip]);
 
   const handleUpdate = (updates: any) => {
-    videoClip.update(updates);
+    if ('playbackRate' in updates && studio && videoClip.trim) {
+      const newRate = updates.playbackRate || 1;
+      const newDuration = Math.round((videoClip.trim.to - videoClip.trim.from) / newRate);
+      studio.updateClip(videoClip.id, { ...updates, duration: newDuration });
+    } else {
+      videoClip.update(updates);
+    }
   };
 
   const handleStyleUpdate = (styleUpdates: any) => {
@@ -96,7 +104,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
       style: {
         ...style,
         stroke: {
-          ...(style.stroke || { color: "#ffffff", width: 0 }),
+          ...(style.stroke || { color: '#ffffff', width: 0 }),
           ...strokeUpdates,
         },
       },
@@ -105,7 +113,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
 
   const handleShadowUpdate = (shadowUpdates: any) => {
     const currentShadow = style.dropShadow || {
-      color: "#000000",
+      color: '#000000',
       alpha: 1,
       blur: 0,
       distance: 0,
@@ -257,6 +265,34 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
         </div>
       </div>
 
+      {/* Speed Section */}
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Speed
+        </label>
+        <div className="flex items-center gap-4">
+          <IconGauge className="size-4 text-muted-foreground" />
+          <Slider
+            value={[Math.round((videoClip.playbackRate ?? 1) * 100)]}
+            onValueChange={(v) => handleUpdate({ playbackRate: v[0] / 100 })}
+            min={25}
+            max={400}
+            step={5}
+            className="flex-1"
+          />
+          <InputGroup className="w-20">
+            <NumberInput
+              value={Math.round((videoClip.playbackRate ?? 1) * 100)}
+              onChange={(val) => handleUpdate({ playbackRate: val / 100 })}
+              className="p-0 text-center"
+            />
+            <InputGroupAddon align="inline-end" className="p-0 pr-2">
+              <span className="text-[10px] text-muted-foreground">%</span>
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+      </div>
+
       {/* Opacity Section */}
       <div className="flex flex-col gap-2">
         <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -292,9 +328,9 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
           </label>
           <button
             onClick={() => {
-              setFloatingControl("animation-properties-picker", {
+              setFloatingControl('animation-properties-picker', {
                 clipId: videoClip.id,
-                mode: "add",
+                mode: 'add',
               });
             }}
             className="text-muted-foreground hover:text-white transition-colors"
@@ -326,10 +362,10 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => {
-                      setFloatingControl("animation-properties-picker", {
+                      setFloatingControl('animation-properties-picker', {
                         clipId: videoClip.id,
                         animationId: anim.id,
-                        mode: "edit",
+                        mode: 'edit',
                       });
                     }}
                     className="p-1 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-white transition-all"
@@ -401,7 +437,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
                       className="h-4 w-4 rounded-full border border-white/10 shadow-sm"
                       style={{
                         backgroundColor:
-                          (style.stroke?.color as string) || "#000000",
+                          (style.stroke?.color as string) || '#000000',
                       }}
                     />
                   </InputGroupButton>
@@ -430,7 +466,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
               </Popover>
             </InputGroupAddon>
             <InputGroupInput
-              value={style.stroke?.color?.toUpperCase() || "#000000"}
+              value={style.stroke?.color?.toUpperCase() || '#000000'}
               onChange={(e) => handleStrokeUpdate({ color: e.target.value })}
               className="text-sm p-0 text-[10px] font-mono"
             />
@@ -481,7 +517,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
             </InputGroupAddon>
             <NumberInput
               value={Math.round(
-                ((style.dropShadow?.angle || 0) * 180) / Math.PI,
+                ((style.dropShadow?.angle || 0) * 180) / Math.PI
               )}
               onChange={(val) => handleShadowUpdate({ angle: val })}
               className="p-0"
@@ -513,7 +549,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
                     <div
                       className="h-4 w-4 border border-white/10 shadow-sm"
                       style={{
-                        backgroundColor: style.dropShadow?.color || "#000000",
+                        backgroundColor: style.dropShadow?.color || '#000000',
                       }}
                     />
                   </InputGroupButton>
@@ -542,7 +578,7 @@ export function VideoProperties({ clip }: VideoPropertiesProps) {
               </Popover>
             </InputGroupAddon>
             <InputGroupInput
-              value={style.dropShadow?.color?.toUpperCase() || "#000000"}
+              value={style.dropShadow?.color?.toUpperCase() || '#000000'}
               onChange={(e) => handleShadowUpdate({ color: e.target.value })}
               className="text-sm p-0 text-[10px] font-mono"
             />

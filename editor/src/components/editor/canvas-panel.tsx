@@ -1,12 +1,12 @@
-import { useEffect, useRef } from "react";
-import { Studio, fontManager } from "openvideo";
-import { useStudioStore } from "@/stores/studio-store";
-import { useProjectStore } from "@/stores/project-store";
-import { editorFont } from "./constants";
+import { useEffect, useRef } from 'react';
+import { Studio, fontManager } from 'openvideo';
+import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
+import { editorFont } from './constants';
 
 const STUDIO_CONFIG = {
   fps: 30,
-  bgColor: "#181818",
+  bgColor: '#181818',
   interactivity: true,
   spacing: 20,
 } as const;
@@ -65,7 +65,7 @@ export function CanvasPanel({ onReady }: CanvasPanelProps) {
         ]);
         onReadyRef.current?.();
       } catch (error) {
-        console.error("Failed to initialize studio:", error);
+        console.error('Failed to initialize studio:', error);
       }
     };
 
@@ -114,16 +114,16 @@ export function CanvasPanel({ onReady }: CanvasPanelProps) {
       <div
         style={{
           flex: 1,
-          position: "relative", // Ensure relative positioning for absolute children if needed
-          overflow: "hidden", // Hide anything outside (though canvas masks it too)
+          position: 'relative', // Ensure relative positioning for absolute children if needed
+          overflow: 'hidden', // Hide anything outside (though canvas masks it too)
         }}
       >
         <canvas
           ref={canvasRef}
           style={{
-            display: "block",
-            width: "100%",
-            height: "100%",
+            display: 'block',
+            width: '100%',
+            height: '100%',
           }}
         />
       </div>

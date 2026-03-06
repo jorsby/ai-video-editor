@@ -1,5 +1,5 @@
-import { Rect, RectProps } from 'fabric';
-import { TrackType } from '@/types/timeline';
+import { Rect, type RectProps } from 'fabric';
+import type { TrackType } from '@/types/timeline';
 
 export interface TrackProps extends Partial<RectProps> {
   trackType: TrackType;

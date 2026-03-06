@@ -1,18 +1,18 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { useStudioStore } from "@/stores/studio-store";
-import { useProjectStore } from "@/stores/project-store";
-import { Image, Log } from "openvideo";
-import { Search, Image as ImageIcon, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from 'react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
+import { Image, Log } from 'openvideo';
+import { Search, Image as ImageIcon, Loader2 } from 'lucide-react';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from "@/components/ui/input-group";
-import { VisualsChatPanel } from "../visuals-chat-panel";
-import { debounce } from "lodash";
+} from '@/components/ui/input-group';
+import { VisualsChatPanel } from '../visuals-chat-panel';
+import { debounce } from 'lodash';
 
 interface PexelsImage {
   id: number;
@@ -36,7 +36,7 @@ interface PexelsImage {
 export default function PanelImages() {
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
   const [images, setImages] = useState<PexelsImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -54,7 +54,7 @@ export default function PanelImages() {
         setImages([]);
       }
     } catch (error) {
-      console.error("Failed to fetch images:", error);
+      console.error('Failed to fetch images:', error);
     } finally {
       setIsLoading(false);
     }
@@ -63,11 +63,11 @@ export default function PanelImages() {
   // Memoize the debounced fetch function
   const debouncedFetch = useCallback(
     debounce((query: string) => fetchImages(query), 500),
-    [],
+    []
   );
 
   useEffect(() => {
-    fetchImages("");
+    fetchImages('');
   }, []);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {

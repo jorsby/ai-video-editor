@@ -1,5 +1,25 @@
 export type MediaType = 'image' | 'video' | 'audio';
 
+// Asset types for the unified asset system (matches Supabase schema)
+export type AssetType =
+  | 'image'
+  | 'video'
+  | 'voiceover'
+  | 'music'
+  | 'sfx'
+  | 'upload';
+
+// Unified Asset interface - used for all assets (generated and uploaded)
+export interface Asset {
+  id: string;
+  url: string;
+  type: AssetType;
+  name: string; // prompt for generated assets, filename for uploads
+  prompt?: string; // full prompt (only for AI-generated assets)
+  size?: number; // file size in bytes
+  createdAt: number;
+}
+
 // What's stored in media library
 export interface MediaFile {
   id: string;

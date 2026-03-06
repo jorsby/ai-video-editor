@@ -3,11 +3,11 @@
 import { Log } from './log';
 import { workerTimer } from './worker-timer';
 
-if (import.meta.env?.DEV) {
+if (process.env.NODE_ENV === 'development') {
   Log.setLogLevel(Log.debug);
 }
 
-if (import.meta.env?.MODE === 'test') {
+if (process.env.NODE_ENV === 'test') {
   Log.setLogLevel(Log.warn);
 }
 

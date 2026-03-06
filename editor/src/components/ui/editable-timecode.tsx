@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { formatTimeCode, parseTimeCode, TimeCode } from '@/lib/time';
+import { formatTimeCode, parseTimeCode, type TimeCode } from '@/lib/time';
 import { DEFAULT_FPS } from '@/stores/project-store';
 
 interface EditableTimecodeProps {

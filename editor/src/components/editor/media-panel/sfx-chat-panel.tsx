@@ -3,12 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { useGeneratedStore } from '@/stores/generated-store';
+import { useAssetStore } from '@/stores/asset-store';
+import { useProjectId } from '@/contexts/project-context';
 
 export const SfxChatPanel = () => {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
-  const { addAsset } = useGeneratedStore();
+  const { addAsset } = useAssetStore();
+  const projectId = useProjectId();
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
@@ -18,7 +20,7 @@ export const SfxChatPanel = () => {
       const response = await fetch('/api/elevenlabs/sfx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, project_id: projectId }),
       });
 
       if (!response.ok) {
@@ -28,9 +30,10 @@ export const SfxChatPanel = () => {
       const data = await response.json();
 
       addAsset({
-        id: crypto.randomUUID(),
+        id: data.id || crypto.randomUUID(),
         url: data.url,
-        text: text,
+        name: text,
+        prompt: text,
         type: 'sfx',
         createdAt: Date.now(),
       });

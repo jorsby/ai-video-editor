@@ -1,5 +1,4 @@
-import { Upload, Plus, Image } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Upload } from 'lucide-react';
 
 interface MediaDragOverlayProps {
   isVisible: boolean;
@@ -14,7 +13,7 @@ export function MediaDragOverlay({
   isProcessing = false,
   progress = 0,
   onClick,
-  isEmptyState = false,
+  isEmptyState: _isEmptyState = false,
 }: MediaDragOverlayProps) {
   if (!isVisible) return null;
 

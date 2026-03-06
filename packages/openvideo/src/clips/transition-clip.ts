@@ -1,6 +1,6 @@
 import { BaseClip } from './base-clip';
-import { type IClip } from './iclip';
-import { type TransitionKey } from '../transition/glsl/gl-transition';
+import type { IClip } from './iclip';
+import type { TransitionKey } from '../transition/glsl/gl-transition';
 
 export class Transition extends BaseClip {
   readonly type = 'Transition';

@@ -1,6 +1,10 @@
 import { ICaptionsControlProps } from "../interface/captions";
 
+export const CAPTION_SIZE_STEPS = [40, 60, 80, 100, 120];
+export const DEFAULT_CAPTION_FONT_SIZE = 60; // second-smallest step
+
 export const NONE_PRESET: ICaptionsControlProps = {
+  name: "None",
   appearedColor: "#ffffff",
   activeColor: "#ffffff",
   activeFillColor: "transparent",
@@ -13,6 +17,33 @@ export const NONE_PRESET: ICaptionsControlProps = {
 
 export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
   {
+  name: "Classic",
+  appearedColor: "#ffffff",
+  activeColor: "#ffffff",
+  activeFillColor: "transparent",
+  color: "#ffffff",
+  backgroundColor: "transparent",
+  borderColor: "#000000",
+  borderWidth: 6,
+  boxShadow: { color: "#000000", x: 0, y: 0, blur: 14 },
+  fontFamily: "Rubik",
+  fontUrl: "https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf",
+},
+    {
+    name: 'Gold Highlight',
+    fontUrl: 'https://fonts.gstatic.com/s/rubik/v31/iJWZBXyIfDnIV5PNhY1KTN7Z-Yh-B4i1UA.ttf',
+    fontFamily: 'Rubik',
+    appearedColor: '#ffffff',
+    activeColor: '#FFD700',
+    activeFillColor: 'transparent',
+    color: '#ffffff',
+    backgroundColor: 'transparent',
+    borderColor: '#000000',
+    borderWidth: 10,
+    boxShadow: { color: '#000000', x: 0, y: 2, blur: 8 },
+  },
+  {
+    name: "Neon Pop",
     appearedColor: "#FFFFFF",
     activeColor: "#50FF12",
     activeFillColor: "#7E12FF",
@@ -28,6 +59,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset1.webm",
   },
   {
+    name: "Minimal Light",
     appearedColor: "#000000",
     activeColor: "#000000",
     activeFillColor: "transparent",
@@ -39,6 +71,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset2.webm",
   },
   {
+    name: "Outlined",
     appearedColor: "#ffffff",
     activeColor: "#ffffff",
     activeFillColor: "transparent",
@@ -46,19 +79,33 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
     backgroundColor: "transparent",
     borderColor: "#000000",
     borderWidth: 10,
-    boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
+    // boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
+    previewUrl:
+      "https://cdn.designcombo.dev/caption_previews/dynamic-preset3.webm",
+  },
+   {
+    name: "Gold Outlined",
+    appearedColor: "#ffffff",
+    activeColor: "#FFD700",
+    activeFillColor: "transparent",
+    color: "#ffffff",
+    backgroundColor: "transparent",
+    borderColor: "#000000",
+    borderWidth: 10,
+    // boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
     previewUrl:
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset3.webm",
   },
   {
+    name: "Chelsea",
     appearedColor: "#ffffff",
     activeColor: "#ffffff",
     activeFillColor: "transparent",
     color: "transparent",
     backgroundColor: "transparent",
-    borderColor: "#ffffff",
+    borderColor: "#000000",
     borderWidth: 5,
-    boxShadow: { color: "#ffffff", x: 15, y: 15, blur: 60 },
+    // boxShadow: { color: "#ffffff", x: 2, y: 2, blur: 60 },
     fontFamily: "ChelseaMarket-Regular",
     fontUrl:
       "https://fonts.gstatic.com/s/chelseamarket/v8/BCawqZsHqfr89WNP_IApC8tzKBhlLA4uKkWk.ttf",
@@ -66,6 +113,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset5.webm",
   },
   {
+    name: "Orange Fill",
     appearedColor: "#ffffff",
     activeColor: "#ffffff",
     activeFillColor: "#fc5a05",
@@ -77,6 +125,7 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset6.webm",
   },
   {
+    name: "Roboto Block",
     appearedColor: "#ffffff",
     activeColor: "#ffffff",
     activeFillColor: "transparent",
@@ -91,5 +140,67 @@ export const STYLE_CAPTION_PRESETS: ICaptionsControlProps[] = [
       "https://fonts.gstatic.com/s/roboto/v29/KFOlCnqEu92Fr1MmYUtvAx05IsDqlA.ttf",
     previewUrl:
       "https://cdn.designcombo.dev/caption_previews/dynamic-preset18.webm",
+  },
+  {
+    name: "Hormozi",
+    type: "word",
+    appearedColor: "#ffffff",
+    activeColor: "#FFD700",
+    activeFillColor: "transparent",
+    color: "#ffffff",
+    backgroundColor: "transparent",
+    borderColor: "#000000",
+    borderWidth: 12,
+    boxShadow: { color: "#000000", x: 0, y: 4, blur: 10 },
+    fontFamily: "Montserrat-ExtraBold",
+    fontUrl:
+      "https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf",
+    textTransform: "uppercase",
+  },
+  {
+    name: "MrBeast",
+    type: "word",
+    appearedColor: "#ffffff",
+    activeColor: "#ffffff",
+    activeFillColor: "#FF0000",
+    color: "#ffffff",
+    backgroundColor: "transparent",
+    borderColor: "#000000",
+    borderWidth: 8,
+    boxShadow: { color: "#000000", x: 0, y: 3, blur: 8 },
+    fontFamily: "Bangers-Regular",
+    fontUrl:
+      "https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf",
+    textTransform: "uppercase",
+  },
+  {
+    name: "Ali Abdaal",
+    appearedColor: "#1a1a1a",
+    activeColor: "#2563EB",
+    activeFillColor: "transparent",
+    color: "#6b7280",
+    backgroundColor: "#f5f5f4",
+    borderColor: "transparent",
+    borderWidth: 0,
+    fontFamily: "Poppins",
+    fontUrl:
+      "https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf",
+  },
+  {
+    name: "Karaoke",
+    type: "word",
+    appearedColor: "#ffffff",
+    activeColor: "#00FF88",
+    activeFillColor: "#7C3AED",
+    color: "#a3a3a3",
+    isKeywordColor: "#FFD700",
+    backgroundColor: "transparent",
+    borderColor: "#000000",
+    borderWidth: 6,
+    boxShadow: { color: "#000000", x: 0, y: 2, blur: 12 },
+    fontFamily: "Chivo-Black",
+    fontUrl:
+      "https://fonts.gstatic.com/s/chivo/v12/va9F4kzIxd1KFrjrZsZ_uqzGQC_-.ttf",
+    textTransform: "uppercase",
   },
 ];

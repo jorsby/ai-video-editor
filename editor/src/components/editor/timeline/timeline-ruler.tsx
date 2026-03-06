@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useRef } from "react";
-import { TIMELINE_CONSTANTS } from "@/components/editor/timeline/timeline-constants";
+import { useEffect, useRef } from 'react';
+import { TIMELINE_CONSTANTS } from '@/components/editor/timeline/timeline-constants';
 
 interface TimelineRulerProps {
   zoomLevel: number;
@@ -22,7 +22,7 @@ export function TimelineRuler({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     // Handle high DPI screens
@@ -46,7 +46,7 @@ export function TimelineRuler({
     // Background for valid duration (darker)
     const durationX = duration * pixelsPerSecond;
     if (durationX > 0) {
-      ctx.fillStyle = "rgba(33, 33, 33, 1)";
+      ctx.fillStyle = 'rgba(33, 33, 33, 1)';
       // We only fill visible part
       const visibleStart = Math.max(0, scrollLeft);
       const visibleEnd = Math.min(scrollLeft + width, durationX);
@@ -55,18 +55,18 @@ export function TimelineRuler({
           visibleStart - scrollLeft,
           0,
           visibleEnd - visibleStart,
-          24,
+          24
         );
       }
     }
 
     // Drawing settings
-    ctx.fillStyle = "#9ca3af"; // text-gray-400
-    ctx.strokeStyle = "#374151"; // border-gray-700
+    ctx.fillStyle = '#9ca3af'; // text-gray-400
+    ctx.strokeStyle = '#374151'; // border-gray-700
     ctx.lineWidth = 1;
-    ctx.font = "12px Inter, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
 
     // Calculate intervals
     // We want main labels (text) to have enough space (min 50px)
@@ -88,7 +88,7 @@ export function TimelineRuler({
       // If interval is sub-second, show decimal
       if (mainInterval < 1) {
         // Avoid long floating point errors
-        return seconds.toFixed(1) + "s";
+        return seconds.toFixed(1) + 's';
       }
 
       const m = Math.floor(seconds / 60);
@@ -98,11 +98,11 @@ export function TimelineRuler({
         return `${m}m`;
       }
       if (m === 0 && s === 0) {
-        return "0s";
+        return '0s';
       }
       return m > 0
-        ? `${m}:${s.toString().padStart(2, "0")}`
-        : s.toString().padStart(2, "0");
+        ? `${m}:${s.toString().padStart(2, '0')}`
+        : s.toString().padStart(2, '0');
     };
 
     // Sub ticks
@@ -169,7 +169,7 @@ export function TimelineRuler({
     <canvas
       ref={canvasRef}
       className="absolute inset-0 pointer-events-none"
-      style={{ height: "24px" }}
+      style={{ height: '24px' }}
     />
   );
 }

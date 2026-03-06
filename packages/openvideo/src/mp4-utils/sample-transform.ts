@@ -1,4 +1,10 @@
-import { MP4ArrayBuffer, MP4File, MP4Info, MP4Sample, mp4box } from 'wrapbox';
+import {
+  type MP4ArrayBuffer,
+  type MP4File,
+  type MP4Info,
+  type MP4Sample,
+  mp4box,
+} from 'wrapbox';
 
 export type TransformChunk =
   | { chunkType: 'ready'; data: { info: MP4Info; file: MP4File } }

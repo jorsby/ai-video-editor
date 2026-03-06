@@ -1,11 +1,11 @@
-import { Canvas, Control, FabricObject, util } from 'fabric';
+import type { Canvas, Control, FabricObject } from 'fabric';
 
 export function drawVerticalLine(
   this: Control,
   ctx: CanvasRenderingContext2D,
   left: number,
   top: number,
-  styleOverride: any,
+  _styleOverride: any,
   fabricObject: FabricObject
 ) {
   const canvas = fabricObject.canvas as Canvas;

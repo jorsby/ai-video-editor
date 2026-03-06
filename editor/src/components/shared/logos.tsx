@@ -1,7 +1,7 @@
 import {
   AlertTriangle,
-  LucideIcon,
-  LucideProps,
+  type LucideIcon,
+  type LucideProps,
   User,
   VideoIcon,
 } from 'lucide-react';

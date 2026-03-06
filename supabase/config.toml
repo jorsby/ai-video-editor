@@ -1,0 +1,29 @@
+[functions.generate-sfx]
+verify_jwt = false
+
+[functions.edit-image]
+verify_jwt = false
+
+[functions.generate-video]
+verify_jwt = false
+
+[functions.generate-tts]
+verify_jwt = false
+
+[functions.start-workflow]
+verify_jwt = false
+
+[functions.webhook]
+verify_jwt = false
+
+[functions.start-ref-workflow]
+verify_jwt = false
+
+[functions.approve-ref-split]
+verify_jwt = false
+
+[functions.approve-grid-split]
+verify_jwt = false
+
+[functions.poll-skyreels]
+verify_jwt = false

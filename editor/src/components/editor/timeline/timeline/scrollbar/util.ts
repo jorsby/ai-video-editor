@@ -15,7 +15,7 @@ const getObjectsBoundingRect = (timeline: Timeline) => {
   }
 
   const { left, top, width, height } = util.makeBoundingBoxFromPoints(
-    objects.map((x) => x.getCoords()).flat(1)
+    objects.flatMap((x) => x.getCoords())
   );
   return { left, top, right: left + width, bottom: top + height };
 };
@@ -83,18 +83,18 @@ export const makeMouseWheel =
   (timeline: Timeline, options: MouseWheelOptions = {}) =>
   (wheelEvent: TPointerEventInfo<WheelEvent>) => {
     const e = wheelEvent.e;
-    if (e.target == timeline.canvas.upperCanvasEl) e.preventDefault();
+    if (e.target === timeline.canvas.upperCanvasEl) e.preventDefault();
 
-    const isTouchScale = Math.floor(e.deltaY) != Math.ceil(e.deltaY);
+    const isTouchScale = Math.floor(e.deltaY) !== Math.ceil(e.deltaY);
 
     if (e.ctrlKey || e.metaKey) {
       const speed = isTouchScale ? 0.99 : 0.998;
       const oldZoom = timeline.timeScale;
       let newZoom = oldZoom * speed ** e.deltaY;
 
-      if (options.max != undefined && newZoom > options.max)
+      if (options.max !== undefined && newZoom > options.max)
         newZoom = options.max;
-      if (options.min != undefined && newZoom < options.min)
+      if (options.min !== undefined && newZoom < options.min)
         newZoom = options.min;
 
       if (oldZoom !== newZoom) {

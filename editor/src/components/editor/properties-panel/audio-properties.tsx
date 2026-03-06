@@ -1,12 +1,17 @@
-import * as React from 'react';
-import { IClip } from 'openvideo';
-import { IconVolume, IconGauge, IconMusic } from '@tabler/icons-react';
+import { useState, useEffect, useRef } from 'react';
+import type { IClip } from 'openvideo';
+import { useStudioStore } from '@/stores/studio-store';
+import { IconVolume, IconGauge, IconMusic, IconLoader2, IconRefresh } from '@tabler/icons-react';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group';
 import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { getVoiceoverForClip, regenerateVoiceover } from '@/lib/scene-timeline-utils';
+import type { Voiceover } from '@/lib/supabase/workflow-service';
 
 interface AudioPropertiesProps {
   clip: IClip;
@@ -14,18 +19,103 @@ interface AudioPropertiesProps {
 
 export function AudioProperties({ clip }: AudioPropertiesProps) {
   const audioClip = clip as any;
+  const { studio } = useStudioStore();
+
+  const [voiceover, setVoiceover] = useState<Voiceover | null>(null);
+  const [voiceoverLoading, setVoiceoverLoading] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const abortRef = useRef<(() => void) | null>(null);
+
+  // Look up voiceover record when clip changes
+  useEffect(() => {
+    let cancelled = false;
+    setVoiceover(null);
+    setVoiceoverLoading(true);
+
+    getVoiceoverForClip(clip).then((vo) => {
+      if (!cancelled) {
+        setVoiceover(vo);
+        setVoiceoverLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.src, clip.id]);
+
+  // Cleanup abort handle on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.();
+    };
+  }, []);
+
+  const handleRegenerate = async () => {
+    if (!studio || !voiceover || isRegenerating) return;
+
+    setIsRegenerating(true);
+    toast.info('Voiceover regeneration started...');
+
+    const { promise, abort } = regenerateVoiceover(studio, clip, voiceover);
+    abortRef.current = abort;
+
+    const result = await promise;
+    abortRef.current = null;
+    setIsRegenerating(false);
+
+    if (result.success) {
+      toast.success('Voiceover regenerated successfully');
+    } else if (result.error !== 'Aborted') {
+      toast.error(result.error || 'Voiceover regeneration failed');
+    }
+  };
 
   const handleUpdate = (updates: any) => {
-    audioClip.update(updates);
+    if ('playbackRate' in updates && studio && audioClip.trim) {
+      const newRate = updates.playbackRate || 1;
+      const newDuration = Math.round((audioClip.trim.to - audioClip.trim.from) / newRate);
+      studio.updateClip(audioClip.id, { ...updates, duration: newDuration });
+    } else {
+      audioClip.update(updates);
+    }
   };
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Voiceover Regeneration Section */}
+      {voiceover && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Voiceover
+          </span>
+          {voiceover.text && (
+            <p className="text-xs text-muted-foreground line-clamp-3">
+              {voiceover.text}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={handleRegenerate}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <IconLoader2 className="size-3.5 animate-spin mr-1.5" />
+            ) : (
+              <IconRefresh className="size-3.5 mr-1.5" />
+            )}
+            {isRegenerating ? 'Regenerating...' : 'Regenerate Voiceover'}
+          </Button>
+        </div>
+      )}
+
       {/* Volume Section */}
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Volume
-        </label>
+        </span>
         <div className="flex items-center gap-4">
           <IconVolume className="size-4 text-muted-foreground" />
           <Slider
@@ -40,7 +130,9 @@ export function AudioProperties({ clip }: AudioPropertiesProps) {
               type="number"
               value={Math.round((audioClip.volume ?? 1) * 100)}
               onChange={(e) =>
-                handleUpdate({ volume: (parseInt(e.target.value) || 0) / 100 })
+                handleUpdate({
+                  volume: (parseInt(e.target.value, 10) || 0) / 100,
+                })
               }
               className="text-sm p-0 text-center"
             />
@@ -53,9 +145,9 @@ export function AudioProperties({ clip }: AudioPropertiesProps) {
 
       {/* Pitch Section (UI Only) */}
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Pitch
-        </label>
+        </span>
         <div className="flex items-center gap-4">
           <IconMusic className="size-4 text-muted-foreground" />
           <Slider
@@ -81,27 +173,30 @@ export function AudioProperties({ clip }: AudioPropertiesProps) {
         </div>
       </div>
 
-      {/* Speed Section (UI Only) */}
+      {/* Speed Section */}
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Speed
-        </label>
+        </span>
         <div className="flex items-center gap-4">
           <IconGauge className="size-4 text-muted-foreground" />
           <Slider
-            value={[100]}
-            onValueChange={() => {}}
+            value={[Math.round((audioClip.playbackRate ?? 1) * 100)]}
+            onValueChange={(v) => handleUpdate({ playbackRate: v[0] / 100 })}
             min={25}
             max={400}
             step={5}
             className="flex-1"
-            disabled
           />
           <InputGroup className="w-20">
             <InputGroupInput
               type="number"
-              value={100}
-              disabled
+              value={Math.round((audioClip.playbackRate ?? 1) * 100)}
+              onChange={(e) =>
+                handleUpdate({
+                  playbackRate: (parseInt(e.target.value, 10) || 25) / 100,
+                })
+              }
               className="text-sm p-0 text-center"
             />
             <InputGroupAddon align="inline-end" className="p-0 pr-2">

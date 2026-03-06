@@ -3,7 +3,7 @@ import hotkeys from 'hotkeys-js';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
-import { TimelineCanvas } from '@/components/editor/timeline/timeline';
+import type { TimelineCanvas } from '@/components/editor/timeline/timeline';
 
 interface UseEditorHotkeysProps {
   timelineCanvas: TimelineCanvas | null;
@@ -19,13 +19,13 @@ export function useEditorHotkeys({
 
   useEffect(() => {
     // Play/Pause
-    hotkeys('space', (event, handler) => {
+    hotkeys('space', (event, _handler) => {
       event.preventDefault();
       toggle();
     });
 
     // Split
-    hotkeys('command+b, ctrl+b', (event, handler) => {
+    hotkeys('command+b, ctrl+b', (event, _handler) => {
       event.preventDefault();
       if (studio) {
         // Studio expects microseconds
@@ -35,7 +35,7 @@ export function useEditorHotkeys({
     });
 
     // Delete
-    hotkeys('backspace, delete', (event, handler) => {
+    hotkeys('backspace, delete', (_event, _handler) => {
       // Check if active element is input
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
@@ -46,7 +46,7 @@ export function useEditorHotkeys({
     });
 
     // Select All
-    hotkeys('command+a, ctrl+a', (event, handler) => {
+    hotkeys('command+a, ctrl+a', (event, _handler) => {
       event.preventDefault();
       const { clips } = useTimelineStore.getState();
       if (timelineCanvas) {
@@ -56,14 +56,14 @@ export function useEditorHotkeys({
 
     // Copy / Paste / Cut - These are usually handled by OS if not intercepted
     // But for canvas objects we might need custom handling.
-    hotkeys('command+c, ctrl+c', (event) => {
+    hotkeys('command+c, ctrl+c', (_event) => {
       // event.preventDefault();
       if (timelineCanvas) {
         // timelineCanvas.copySelected();
       }
     });
 
-    hotkeys('command+v, ctrl+v', (event) => {
+    hotkeys('command+v, ctrl+v', (_event) => {
       // event.preventDefault();
       if (studio) {
         studio.duplicateSelected(); // Reuse duplicate for now as paste

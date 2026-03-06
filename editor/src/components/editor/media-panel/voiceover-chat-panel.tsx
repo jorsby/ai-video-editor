@@ -1,24 +1,31 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { IconLoader2 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { useGeneratedStore } from '@/stores/generated-store';
+import { useAssetStore } from '@/stores/asset-store';
+import { useProjectId } from '@/contexts/project-context';
 
 export const VoiceoverChatPanel = () => {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
-  const { addAsset } = useGeneratedStore();
+  const abortRef = useRef<AbortController | null>(null);
+  const { addAsset } = useAssetStore();
+  const projectId = useProjectId();
 
   const handleGenerate = async () => {
     if (!text.trim()) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     try {
       const response = await fetch('/api/elevenlabs/voiceover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, project_id: projectId }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -28,9 +35,10 @@ export const VoiceoverChatPanel = () => {
       const data = await response.json();
 
       addAsset({
-        id: crypto.randomUUID(),
+        id: data.id || crypto.randomUUID(),
         url: data.url,
-        text: text,
+        name: text,
+        prompt: text,
         type: 'voiceover',
         createdAt: Date.now(),
       });
@@ -38,11 +46,17 @@ export const VoiceoverChatPanel = () => {
       toast.success('Voiceover generated!');
       setText(''); // Clear input on success
     } catch (error) {
+      if ((error as DOMException)?.name === 'AbortError') return;
       console.error(error);
       toast.error('Failed to generate voiceover');
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
+  };
+
+  const handleCancel = () => {
+    abortRef.current?.abort();
   };
 
   return (
@@ -58,6 +72,16 @@ export const VoiceoverChatPanel = () => {
         </div>
 
         <div className="flex items-center gap-2 pt-2 w-full justify-end">
+          {loading && (
+            <Button
+              variant="ghost"
+              className="h-9 w-20 rounded-full text-sm"
+              size="sm"
+              onClick={handleCancel}
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             className="h-9 w-24 rounded-full text-sm relative"
             size="sm"

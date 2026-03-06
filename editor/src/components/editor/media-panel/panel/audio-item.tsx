@@ -1,31 +1,47 @@
 import { Button } from '@/components/ui/button';
-import { IconPlayerPause, IconPlayerPlay, IconPlus } from '@tabler/icons-react';
+import {
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlus,
+  IconTrash,
+} from '@tabler/icons-react';
 import { useRef, useState, useEffect } from 'react';
+import type { Asset } from '@/types/media';
+
+interface AudioItemProps {
+  item: Asset;
+  onAdd: (url: string, name: string) => void;
+  onDelete?: () => void;
+  playingId: string | null;
+  setPlayingId: (id: string | null) => void;
+}
 
 export const AudioItem = ({
   item,
   onAdd,
+  onDelete,
   playingId,
   setPlayingId,
-}: {
-  item: any;
-  onAdd: (url: string, name: string) => void;
-  playingId: string | null;
-  setPlayingId: (id: string | null) => void;
-}) => {
+}: AudioItemProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [duration, setDuration] = useState<string>('--:--');
   const isPlaying = playingId === item.id;
 
   useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (isPlaying) {
-      audioRef.current?.play();
+      audio.play();
     } else {
-      audioRef.current?.pause();
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-      }
+      audio.pause();
+      audio.currentTime = 0;
     }
+
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+    };
   }, [isPlaying]);
 
   const togglePlay = () => {
@@ -69,13 +85,33 @@ export const AudioItem = ({
       </Button>
 
       <div
-        onClick={() => onAdd(item.url, item.text)}
+        onClick={() => onAdd(item.url, item.name)}
         className="flex flex-col min-w-0 flex-1 cursor-pointer"
       >
         <span className="text-xs font-medium truncate mb-0.5 text-zinc-300">
-          {item.text}
+          {item.name}
         </span>
         <span className="text-[10px] text-muted-foreground">{duration}</span>
+      </div>
+
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {onDelete && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-5.5 cursor-pointer rounded-full hover:bg-red-500/80"
+            onClick={onDelete}
+          >
+            <IconTrash className="size-3.5" />
+          </Button>
+        )}
+        <Button
+          size="icon"
+          className="size-5.5 cursor-pointer rounded-full"
+          onClick={() => onAdd(item.url, item.name)}
+        >
+          <IconPlus className="size-4" />
+        </Button>
       </div>
     </div>
   );

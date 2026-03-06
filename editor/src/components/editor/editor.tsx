@@ -15,6 +15,7 @@ import FloatingControl from '@/components/editor/floating-controls/floating-cont
 import { Compositor } from 'openvideo';
 import { WebCodecsUnsupportedModal } from '@/components/editor/webcodecs-unsupported-modal';
 import Assistant from './assistant/assistant';
+import { useAutoSave } from '@/hooks/use-auto-save';
 
 export default function Editor() {
   const {
@@ -31,6 +32,7 @@ export default function Editor() {
 
   const [isReady, setIsReady] = useState(false);
   const [isWebCodecsSupported, setIsWebCodecsSupported] = useState(true);
+  const { saveNow, saveStatus } = useAutoSave();
 
   useEffect(() => {
     const checkSupport = async () => {
@@ -47,7 +49,7 @@ export default function Editor() {
           <Loading />
         </div>
       )}
-      <Header />
+      <Header saveNow={saveNow} saveStatus={saveStatus} />
       <div className="flex-1 min-h-0 min-w-0 px-2 pb-2">
         <ResizablePanelGroup
           direction="horizontal"

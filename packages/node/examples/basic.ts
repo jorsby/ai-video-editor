@@ -1,5 +1,5 @@
 import { Renderer } from '@designcombo/node';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 
 // Example JSON configuration
 const videoConfig = {

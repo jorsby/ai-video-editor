@@ -3,7 +3,7 @@ import {
   ALL_FORMATS,
   BlobSource,
   CanvasSink,
-  WrappedCanvas,
+  type WrappedCanvas,
 } from 'mediabunny';
 
 interface VideoSinkData {

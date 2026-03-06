@@ -1,7 +1,7 @@
 import { ActiveSelection } from 'fabric';
 import type Timeline from '../canvas';
 
-export function handleSelectionCreate(timeline: Timeline, e: any) {
+export function handleSelectionCreate(timeline: Timeline, _e: any) {
   const activeSelection = timeline.canvas.getActiveObject();
 
   if (activeSelection instanceof ActiveSelection) {
@@ -20,7 +20,7 @@ export function handleSelectionCreate(timeline: Timeline, e: any) {
   } else {
     // Single object selection
     const obj = activeSelection as any;
-    if (obj && obj.setSelected) {
+    if (obj?.setSelected) {
       obj.setSelected(true);
     }
   }

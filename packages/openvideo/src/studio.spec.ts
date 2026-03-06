@@ -20,7 +20,7 @@ describe('studio-core-functionality', () => {
 
   afterEach(() => {
     studio?.destroy();
-    if (canvas && canvas.parentElement) {
+    if (canvas?.parentElement) {
       document.body.removeChild(canvas);
     }
   });

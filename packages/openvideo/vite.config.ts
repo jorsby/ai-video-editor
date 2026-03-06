@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 import dts from 'vite-plugin-dts';
-import path from 'path';
+import path from 'node:path';
 import peerDepsExternal from 'rollup-plugin-peer-deps-external';
 
 // https://vitejs.dev/config/

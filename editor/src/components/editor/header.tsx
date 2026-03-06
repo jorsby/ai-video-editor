@@ -1,15 +1,16 @@
-import { useState } from "react";
-import { IconShare } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { useStudioStore } from "@/stores/studio-store";
-import { usePanelStore } from "@/stores/panel-store";
-import { useProjectStore } from "@/stores/project-store";
-import { DEFAULT_CANVAS_PRESETS } from "@/lib/editor-utils";
-import { Log, type IClip } from "openvideo";
-import { ExportModal } from "./export-modal";
-import { LogoIcons } from "../shared/logos";
-import Link from "next/link";
-import { Icons } from "../shared/icons";
+import { useState, useRef, useEffect } from 'react';
+import { IconShare } from '@tabler/icons-react';
+import { Button } from '@/components/ui/button';
+import { useStudioStore } from '@/stores/studio-store';
+import { usePanelStore } from '@/stores/panel-store';
+import { useProject } from '@/contexts/project-context';
+import { useProjectStore } from '@/stores/project-store';
+import { DEFAULT_CANVAS_PRESETS } from '@/lib/editor-utils';
+import { Log, type IClip } from 'openvideo';
+import { ExportModal } from './export-modal';
+import { LogoIcons } from '../shared/logos';
+import Link from 'next/link';
+import { Icons } from '../shared/icons';
 import {
   Keyboard,
   FileJson,
@@ -19,37 +20,50 @@ import {
   Settings,
   Database,
   FilePlus,
-} from "lucide-react";
-import { toast } from "sonner";
-import { Compositor } from "openvideo";
-import { ShortcutsModal } from "./shortcuts-modal";
-import { useEffect } from "react";
+  Save,
+  Check,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
+import type { SaveStatus } from '@/hooks/use-auto-save';
+import { toast } from 'sonner';
+import { Compositor } from 'openvideo';
+import { ShortcutsModal } from './shortcuts-modal';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from '@/components/ui/dropdown-menu';
 
-export default function Header() {
+interface HeaderProps {
+  saveNow: () => void;
+  saveStatus: SaveStatus;
+}
+
+export default function Header({ saveNow, saveStatus }: HeaderProps) {
   const { studio } = useStudioStore();
   const { toggleCopilot, isCopilotVisible } = usePanelStore();
+  const { projectName, renameProject } = useProject();
   const { aspectRatio, setCanvasSize } = useProjectStore();
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<'download' | 'cloud'>(
+    'download'
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
 
   const handleBatchExport = async () => {
     if (!studio) return;
     setIsBatchExporting(true);
-    const toastId = toast.loading("Initializing batch export...");
+    const toastId = toast.loading('Initializing batch export...');
 
     try {
       // 1. Get animation keys and template
-      const keysRes = await fetch("/api/batch-export");
+      const keysRes = await fetch('/api/batch-export');
       const { keys, template } = await keysRes.json();
 
-      if (!keys || keys.length === 0) throw new Error("No animations found");
+      if (!keys || keys.length === 0) throw new Error('No animations found');
 
       // 2. Select project template: prefer current studio if it has clips, otherwise use API template
       const currentProject = studio.exportToJSON();
@@ -60,7 +74,7 @@ export default function Header() {
 
       if (!baseProject.clips || baseProject.clips.length === 0) {
         throw new Error(
-          "No template content available. Please add a clip to the canvas.",
+          'No template content available. Please add a clip to the canvas.'
         );
       }
 
@@ -79,9 +93,9 @@ export default function Header() {
         const targetClip =
           project.clips.find(
             (c: any) =>
-              c.type !== "Audio" &&
-              c.type !== "Transition" &&
-              c.type !== "Effect",
+              c.type !== 'Audio' &&
+              c.type !== 'Transition' &&
+              c.type !== 'Effect'
           ) || project.clips[0];
 
         if (targetClip) {
@@ -101,8 +115,8 @@ export default function Header() {
           width: settings.width || 1080,
           height: settings.height || 1080,
           fps: settings.fps || 30,
-          bgColor: settings.bgColor || "#000000",
-          videoCodec: "avc1.42E032",
+          bgColor: settings.bgColor || '#000000',
+          videoCodec: 'avc1.640028',
           bitrate: 10e6,
           // audio: true,
         });
@@ -119,11 +133,11 @@ export default function Header() {
 
         // 3. Upload to server
         const formData = new FormData();
-        formData.append("file", blob);
-        formData.append("filename", key);
+        formData.append('file', blob);
+        formData.append('filename', key);
 
-        const uploadRes = await fetch("/api/batch-export", {
-          method: "POST",
+        const uploadRes = await fetch('/api/batch-export', {
+          method: 'POST',
           body: formData,
         });
 
@@ -132,7 +146,7 @@ export default function Header() {
 
       toast.success(
         `Batch export complete! ${keys.length} videos saved to D:\\animations`,
-        { id: toastId },
+        { id: toastId }
       );
     } catch (error: any) {
       toast.error(`Batch export failed: ${error.message}`, { id: toastId });
@@ -143,6 +157,9 @@ export default function Header() {
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!studio) return;
@@ -161,17 +178,17 @@ export default function Header() {
       setCanRedo(canRedo);
     };
 
-    studio.on("history:changed", handleHistoryChange);
+    studio.on('history:changed', handleHistoryChange);
 
     return () => {
-      studio.off("history:changed", handleHistoryChange);
+      studio.off('history:changed', handleHistoryChange);
     };
   }, [studio]);
 
   const handleNew = () => {
     if (!studio) return;
     const confirmed = window.confirm(
-      "Are you sure you want to start a new project? Unsaved changes will be lost.",
+      'Are you sure you want to start a new project? Unsaved changes will be lost.'
     );
     if (confirmed) {
       studio.clear();
@@ -185,18 +202,18 @@ export default function Header() {
       // Get all clips from studio
       const clips = (studio as any).clips as IClip[];
       if (clips.length === 0) {
-        alert("No clips to export");
+        alert('No clips to export');
         return;
       }
 
       // Export to JSON
       const json = studio.exportToJSON();
       const jsonString = JSON.stringify(json, null, 2);
-      const blob = new Blob([jsonString], { type: "application/json" });
+      const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
 
       // Download the JSON file
-      const aEl = document.createElement("a");
+      const aEl = document.createElement('a');
       document.body.appendChild(aEl);
       aEl.href = url;
       aEl.download = `combo-project-${Date.now()}.json`;
@@ -210,16 +227,16 @@ export default function Header() {
         URL.revokeObjectURL(url);
       }, 100);
     } catch (error) {
-      Log.error("Export to JSON error:", error);
-      alert("Failed to export to JSON: " + (error as Error).message);
+      Log.error('Export to JSON error:', error);
+      alert(`Failed to export to JSON: ${(error as Error).message}`);
     }
   };
 
   const handleImportJSON = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json,application/json";
-    input.style.display = "none";
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.style.display = 'none';
 
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
@@ -230,37 +247,37 @@ export default function Header() {
         const json = JSON.parse(text);
 
         if (!json.clips || !Array.isArray(json.clips)) {
-          throw new Error("Invalid JSON format: missing clips array");
+          throw new Error('Invalid JSON format: missing clips array');
         }
 
         if (!studio) {
-          throw new Error("Studio not initialized");
+          throw new Error('Studio not initialized');
         }
 
         // Filter out clips with empty sources (except Text, Caption, and Effect)
         const validClips = json.clips.filter((clipJSON: any) => {
           if (
-            clipJSON.type === "Text" ||
-            clipJSON.type === "Caption" ||
-            clipJSON.type === "Effect" ||
-            clipJSON.type === "Transition"
+            clipJSON.type === 'Text' ||
+            clipJSON.type === 'Caption' ||
+            clipJSON.type === 'Effect' ||
+            clipJSON.type === 'Transition'
           ) {
             return true;
           }
-          return clipJSON.src && clipJSON.src.trim() !== "";
+          return clipJSON.src && clipJSON.src.trim() !== '';
         });
 
         if (validClips.length === 0) {
           throw new Error(
-            "No valid clips found in JSON. All clips have empty source URLs.",
+            'No valid clips found in JSON. All clips have empty source URLs.'
           );
         }
 
         const validJson = { ...json, clips: validClips };
         await studio.loadFromJSON(validJson);
       } catch (error) {
-        Log.error("Load from JSON error:", error);
-        alert("Failed to load from JSON: " + (error as Error).message);
+        Log.error('Load from JSON error:', error);
+        alert('Failed to load from JSON: ' + (error as Error).message);
       } finally {
         document.body.removeChild(input);
       }
@@ -325,11 +342,72 @@ export default function Header() {
             Batch Export Anim
           </Button> */}
         </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={saveNow}
+          disabled={saveStatus === 'saving'}
+        >
+          {saveStatus === 'saving' ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span className="hidden md:block">Saving...</span>
+            </>
+          ) : saveStatus === 'saved' ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-green-500" />
+              <span className="hidden md:block text-green-500">Saved</span>
+            </>
+          ) : saveStatus === 'error' ? (
+            <>
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+              <span className="hidden md:block text-destructive">Error</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-3.5 w-3.5" />
+              <span className="hidden md:block">Save</span>
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Center Section */}
-      <div className="absolute text-sm font-medium left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-        Untitled video
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        {isEditingName ? (
+          <input
+            ref={nameInputRef}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={() => {
+              setIsEditingName(false);
+              if (editName.trim() && editName.trim() !== projectName) {
+                renameProject(editName);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                setIsEditingName(false);
+              }
+            }}
+            className="bg-transparent text-sm font-medium text-center outline-none border-b border-primary w-48"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => {
+              setEditName(projectName);
+              setIsEditingName(true);
+            }}
+            className="text-sm font-medium hover:text-primary cursor-pointer transition-colors"
+          >
+            {projectName}
+          </button>
+        )}
       </div>
 
       {/* Right Section */}
@@ -345,7 +423,7 @@ export default function Header() {
           </Button>
 
           <Button
-            size={"sm"}
+            size={'sm'}
             variant="outline"
             onClick={toggleCopilot}
             className="h-7"
@@ -356,7 +434,7 @@ export default function Header() {
           </Button>
         </div>
         <Link href="https://discord.gg/SCfMrQx8kr" target="_blank">
-          <Button className="h-7 rounded-lg" variant={"outline"}>
+          <Button className="h-7 rounded-lg" variant={'outline'}>
             <LogoIcons.discord className="w-6 h-6" />
             <span className="hidden md:block">Join Us</span>
           </Button>
@@ -382,7 +460,7 @@ export default function Header() {
                     onClick={() =>
                       setCanvasSize(
                         { width: preset.width, height: preset.height },
-                        preset.name,
+                        preset.name
                       )
                     }
                     className="text-xs"
@@ -403,6 +481,7 @@ export default function Header() {
         <ExportModal
           open={isExportModalOpen}
           onOpenChange={setIsExportModalOpen}
+          mode={exportMode}
         />
         <ShortcutsModal
           open={isShortcutsModalOpen}
@@ -412,18 +491,38 @@ export default function Header() {
         <Button
           className="flex h-7 gap-1 border border-border"
           variant="outline"
-          size={"sm"}
+          size={'sm'}
         >
-          <IconShare width={18} />{" "}
+          <IconShare width={18} />{' '}
           <span className="hidden md:block">Share</span>
         </Button>
-        <Button
-          size="sm"
-          className="gap-2 rounded-full"
-          onClick={() => setIsExportModalOpen(true)}
-        >
-          Download
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" className="gap-2 rounded-full">
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setExportMode('download');
+                setIsExportModalOpen(true);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Render & Download
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setExportMode('cloud');
+                setIsExportModalOpen(true);
+              }}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Render to Cloud
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

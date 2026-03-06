@@ -1,4 +1,4 @@
-import { TransformActionHandler, controlsUtils } from 'fabric';
+import { type TransformActionHandler, controlsUtils } from 'fabric';
 import { resolveOrigin, isTransformCentered } from './utils';
 import { CENTER, LEFT, RIGHT } from './constants';
 // import { TIMELINE_CONSTANTS } from '../../utils';

@@ -1,6 +1,6 @@
-import { BaseTimelineClip, BaseClipProps } from './base';
+import { BaseTimelineClip, type BaseClipProps } from './base';
 import { createResizeControls } from '../controls';
-import { Control, util } from 'fabric';
+import { type Control, util } from 'fabric';
 import { editorFont } from '@/components/editor/constants';
 import { unitsToTimeMs } from '../utils/filmstrip';
 

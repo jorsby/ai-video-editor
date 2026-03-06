@@ -1,4 +1,9 @@
-import { Transform, TransformActionHandler, TOriginX, TOriginY } from 'fabric';
+import type {
+  Transform,
+  TransformActionHandler,
+  TOriginX,
+  TOriginY,
+} from 'fabric';
 import { CENTER } from './constants';
 
 const originOffset = {

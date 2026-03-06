@@ -6,6 +6,8 @@ import type { ITimelineTrack, IClip, TrackType } from '@/types/timeline';
 import type { TimelineCanvas } from './timeline';
 import { generateUUID } from '@/utils/id';
 import { clipToJSON, type IClip as StudioClip } from 'openvideo';
+import { toast } from 'sonner';
+import { useMediaPanelStore } from '@/components/editor/media-panel/store';
 
 interface TimelineStudioSyncProps {
   timelineCanvas?: TimelineCanvas | null;
@@ -44,9 +46,9 @@ export const TimelineStudioSync = ({
       // Find or create track
       // Note: setTracks in store might be needed.
       // Complex part: Studio has the authoritative "Clip" object. Store needs it.
-      const newClips = { ...storeState.clips, [clip.id]: clip };
+      const _newClips = { ...storeState.clips, [clip.id]: clip };
       // Update track
-      const newTracks = storeState._tracks.map((t) => {
+      const _newTracks = storeState._tracks.map((t) => {
         if (t.id === trackId) {
           return { ...t, clipIds: [...t.clipIds, clip.id] };
         }
@@ -94,11 +96,13 @@ export const TimelineStudioSync = ({
 
       useTimelineStore.setState((state) => {
         const { [clipId]: removed, ...restClips } = state.clips;
-        // Remove from tracks
-        const updatedTracks = state._tracks.map((t) => ({
-          ...t,
-          clipIds: t.clipIds.filter((id) => id !== clipId),
-        }));
+        // Remove from tracks and filter out empty tracks
+        const updatedTracks = state._tracks
+          .map((t) => ({
+            ...t,
+            clipIds: t.clipIds.filter((id) => id !== clipId),
+          }))
+          .filter((t) => t.clipIds.length > 0);
         return {
           ...state,
           clips: restClips,
@@ -626,18 +630,31 @@ export const TimelineStudioSync = ({
       toClipId: string;
     }) => {
       if (!studio) return;
-      const fromClip = studio.timeline.getClipById(fromClipId);
-      const toClip = studio.timeline.getClipById(toClipId);
 
-      const minDuration = Math.min(
-        fromClip?.duration ?? Infinity,
-        toClip?.duration ?? Infinity
-      );
+      const selectedTransitionKeys =
+        useStudioStore.getState().selectedTransitionKeys;
 
-      const duration =
-        minDuration === Infinity ? 2_000_000 : minDuration * 0.25;
+      if (selectedTransitionKeys.length === 0) {
+        // Store the clip IDs so the transition panel can use them
+        useStudioStore
+          .getState()
+          .setPendingTransitionClipIds({ fromClipId, toClipId });
+        // Open the transitions panel
+        useMediaPanelStore.getState().setActiveTab('transitions');
+        toast.info('Select a transition type');
+        return;
+      }
 
-      await studio.addTransition('GridFlip', duration, fromClipId, toClipId);
+      const randomKey =
+        selectedTransitionKeys[
+          Math.floor(Math.random() * selectedTransitionKeys.length)
+        ];
+      try {
+        await studio.addTransition(randomKey, 2_000_000, fromClipId, toClipId);
+      } catch (error) {
+        console.error('Failed to add transition:', error);
+        toast.error('Failed to add transition');
+      }
     };
 
     const handleSelectionDelete = async () => {

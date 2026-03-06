@@ -1,4 +1,4 @@
-import { StorageAdapter } from './types';
+import type { StorageAdapter } from './types';
 
 export class IndexedDBAdapter<T> implements StorageAdapter<T> {
   private dbName: string;

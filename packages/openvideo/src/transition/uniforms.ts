@@ -1,4 +1,4 @@
-import { GLTransition } from './types';
+import type { GLTransition } from './types';
 
 export const uniforms = {
   custom: (transition: GLTransition) => {

@@ -50,13 +50,14 @@ import useLayoutStore from "../store/use-layout-store";
 import { Button } from "@/components/ui/button";
 import { ChevronDown } from "lucide-react";
 import { useStudioStore } from "@/stores/studio-store";
+import { CAPTION_SIZE_STEPS, DEFAULT_CAPTION_FONT_SIZE } from "../constant/caption";
 
 const GROUPED_FONTS = getGroupedFonts();
 
 interface CaptionPropertiesProps {
   clip: IClip;
 }
-type VerticalAlignMode = "top" | "center" | "bottom";
+type VerticalAlignMode = "top" | "top-quarter" | "center" | "bottom-quarter" | "bottom";
 
 export function CaptionProperties({ clip }: CaptionPropertiesProps) {
   const captionClip = clip as any;
@@ -164,30 +165,20 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
     if (!studio) return;
 
     const videoHeight = (studio as any).opts.height || 1080;
-    const mediaId = captionClip.mediaId;
 
-    // Find siblings if part of a group
-    let clipsToUpdate: any[] = [captionClip];
-
-    if (mediaId) {
-      const tracks = studio.getTracks();
-      const siblingClips: any[] = [];
-      tracks.forEach((track: any) => {
-        track.clipIds.forEach((id: string) => {
-          const c = studio.getClipById(id);
-          if (
-            c &&
-            c.type === "Caption" &&
-            (c as any).opts.mediaId === mediaId
-          ) {
-            siblingClips.push(c);
-          }
-        });
+    // Update all caption clips so they share the same position
+    const tracks = studio.getTracks();
+    const allCaptionClips: any[] = [];
+    tracks.forEach((track: any) => {
+      track.clipIds.forEach((id: string) => {
+        const c = studio.getClipById(id);
+        if (c && c.type === "Caption") {
+          allCaptionClips.push(c);
+        }
       });
-      if (siblingClips.length > 0) {
-        clipsToUpdate = siblingClips;
-      }
-    }
+    });
+    const clipsToUpdate =
+      allCaptionClips.length > 0 ? allCaptionClips : [captionClip];
 
     // Apply updates
     clipsToUpdate.forEach((clip) => {
@@ -196,8 +187,12 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
 
       if (v === "top") {
         newTop = 80;
+      } else if (v === "top-quarter") {
+        newTop = videoHeight * 0.30 - clipHeight / 2;
       } else if (v === "center") {
         newTop = (videoHeight - clipHeight) / 2;
+      } else if (v === "bottom-quarter") {
+        newTop = videoHeight * 0.70 - clipHeight / 2;
       } else if (v === "bottom") {
         newTop = videoHeight - clipHeight - 80;
       }
@@ -326,7 +321,9 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="top">Top</SelectItem>
+            <SelectItem value="top-quarter">Upper Quarter</SelectItem>
             <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="bottom-quarter">Lower Quarter</SelectItem>
             <SelectItem value="bottom">Bottom</SelectItem>
           </SelectContent>
         </Select>
@@ -436,24 +433,27 @@ export function CaptionProperties({ clip }: CaptionPropertiesProps) {
             </SelectContent>
           </Select>
 
-          <InputGroup>
-            <InputGroupInput
-              type="number"
-              value={opts.fontSize || 40}
-              onChange={(e) => {
-                const newSize = parseInt(e.target.value) || 0;
+          <div className="flex items-center gap-2">
+            <IconTextSize className="size-4 text-muted-foreground" />
+            <Slider
+              value={[opts.fontSize || DEFAULT_CAPTION_FONT_SIZE]}
+              onValueChange={(v) => {
+                const newSize = v[0];
                 (captionClip as any).opts.fontSize = newSize;
                 if (captionClip.originalOpts) {
                   captionClip.originalOpts.fontSize = newSize;
                 }
                 captionClip.emit("propsChange", {});
               }}
-              className="text-sm"
+              min={CAPTION_SIZE_STEPS[0]}
+              max={CAPTION_SIZE_STEPS[CAPTION_SIZE_STEPS.length - 1]}
+              step={CAPTION_SIZE_STEPS[1] - CAPTION_SIZE_STEPS[0]}
+              className="flex-1"
             />
-            <InputGroupAddon align="inline-end">
-              <IconTextSize className="size-4" />
-            </InputGroupAddon>
-          </InputGroup>
+            <span className="text-[10px] text-muted-foreground w-6 text-right">
+              {opts.fontSize || DEFAULT_CAPTION_FONT_SIZE}
+            </span>
+          </div>
         </div>
       </div>
 

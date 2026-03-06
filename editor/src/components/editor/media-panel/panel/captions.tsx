@@ -3,19 +3,38 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Play, Trash2 } from 'lucide-react';
+import { Loader2, Play, Trash2, RefreshCw } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
+import { useLanguageStore } from '@/stores/language-store';
+import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { fontManager, jsonToClip, Log, type IClip } from 'openvideo';
 import { generateCaptionClips } from '@/lib/caption-generator';
+import { HOOK_CLIP_NAME } from '@/lib/hook-generator';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useProjectId } from '@/contexts/project-context';
+import {
+  saveTranscription,
+  loadTranscription,
+} from '@/lib/supabase/transcription-service';
 
 export default function PanelCaptions() {
   const { studio } = useStudioStore();
+  const { activeLanguage } = useLanguageStore();
+  const projectId = useProjectId();
   const [mediaItems, setMediaItems] = useState<IClip[]>([]);
   const [captionItems, setCaptionItems] = useState<IClip[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
+  const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
+  const [captionLanguage, setCaptionLanguage] =
+    useState<string>(activeLanguage);
+  const [hookClip, setHookClip] = useState<IClip | null>(null);
+
+  // Sync captionLanguage when the global language store changes
+  useEffect(() => {
+    setCaptionLanguage(activeLanguage);
+  }, [activeLanguage]);
 
   // Use refs to access latest state inside event listeners without re-binding
   const captionItemsRef = useRef<IClip[]>([]);
@@ -41,9 +60,18 @@ export default function PanelCaptions() {
     );
     setMediaItems(mediaClips);
 
-    // Find all captions
-    const captions = allClips.filter((clip: IClip) => clip.type === 'Caption');
-    const sorted = captions.sort(
+    // Find hook regardless of type (supports both legacy Caption hooks and new Text hooks)
+    const hook = allClips.find(
+      (clip: IClip) => (clip as any).name === HOOK_CLIP_NAME
+    );
+    setHookClip(hook || null);
+
+    // Regular captions (exclude hook if it's still a Caption type for backward compat)
+    const regularCaptions = allClips.filter(
+      (clip: IClip) =>
+        clip.type === 'Caption' && (clip as any).name !== HOOK_CLIP_NAME
+    );
+    const sorted = regularCaptions.sort(
       (a: IClip, b: IClip) => a.display.from - b.display.from
     );
     setCaptionItems(sorted);
@@ -85,14 +113,41 @@ export default function PanelCaptions() {
     };
   }, [studio]);
 
-  const handleGenerateCaptions = async () => {
+  // Check if cached transcriptions exist for current media clips
+  useEffect(() => {
+    if (!projectId || mediaItems.length === 0) {
+      setHasCachedTranscription(false);
+      return;
+    }
+    let cancelled = false;
+    async function checkCache() {
+      for (const clip of mediaItems) {
+        const audioUrl = (clip as any).src;
+        if (!audioUrl) continue;
+        const cached = await loadTranscription(projectId, audioUrl);
+        if (cached && !cancelled) {
+          setHasCachedTranscription(true);
+          return;
+        }
+      }
+      if (!cancelled) setHasCachedTranscription(false);
+    }
+    checkCache();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, mediaItems]);
+
+  const handleGenerateCaptions = async (forceRegenerate = false) => {
     if (!studio || mediaItems.length === 0) return;
 
     setIsGenerating(true);
     try {
-      const fontName = 'Bangers-Regular';
-      const fontUrl =
-        'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
+      const isRTL = captionLanguage === 'ar';
+      const fontName = isRTL ? 'Cairo' : 'Bangers-Regular';
+      const fontUrl = isRTL
+        ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
+        : 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf';
 
       await fontManager.addFont({
         name: fontName,
@@ -104,23 +159,57 @@ export default function PanelCaptions() {
 
       for (const mediaClip of mediaItems) {
         try {
-          // 1. Get transcription
+          // 1. Get transcription (check cache first)
           const audioUrl = (mediaClip as any).src;
           if (!audioUrl) continue;
+          if ((mediaClip as any).volume === 0) continue;
 
-          const transcribeResponse = await fetch('/api/transcribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: audioUrl, model: 'nova-3' }),
-          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let transcriptionData: any = null;
 
-          if (!transcribeResponse.ok) {
-            Log.error(`Transcription failed for media ${mediaClip.id}`);
-            continue;
+          // Include language in cache key so Arabic and English don't share a cached result
+          const cacheModel =
+            captionLanguage === 'auto' ? 'nova-3' : `nova-3-${captionLanguage}`;
+
+          if (!forceRegenerate) {
+            transcriptionData = await loadTranscription(
+              projectId,
+              audioUrl,
+              cacheModel
+            );
           }
 
-          const transcriptionData = await transcribeResponse.json();
-          if (!transcriptionData) continue;
+          if (!transcriptionData) {
+            const transcribeResponse = await fetch('/api/transcribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: audioUrl,
+                model: 'nova-3',
+                language: captionLanguage,
+              }),
+            });
+
+            if (!transcribeResponse.ok) {
+              Log.error(`Transcription failed for media ${mediaClip.id}`);
+              continue;
+            }
+
+            transcriptionData = await transcribeResponse.json();
+            if (!transcriptionData) continue;
+
+            // Cache the transcription result
+            try {
+              await saveTranscription(
+                projectId,
+                audioUrl,
+                transcriptionData,
+                cacheModel
+              );
+            } catch (e) {
+              Log.error('Failed to cache transcription:', e);
+            }
+          }
 
           const words =
             transcriptionData.results?.main?.words ||
@@ -132,6 +221,9 @@ export default function PanelCaptions() {
             videoWidth: (studio as any).opts.width,
             videoHeight: (studio as any).opts.height,
             words,
+            isRTL,
+            fontFamily: fontName,
+            fontUrl,
           });
 
           // 3. Prepare clips
@@ -154,6 +246,25 @@ export default function PanelCaptions() {
         } catch (error) {
           Log.error(`Failed to process media ${mediaClip.id}:`, error);
         }
+      }
+
+      // If a hook clip exists, suppress captions that overlap with the hook
+      if (hookClip && clipsToAdd.length > 0) {
+        const hookEnd = hookClip.display.to;
+        const filtered: IClip[] = [];
+        for (const clip of clipsToAdd) {
+          if (clip.display.to <= hookEnd) {
+            // Entirely within hook duration — skip
+            continue;
+          }
+          if (clip.display.from < hookEnd) {
+            // Partially overlaps — start caption after hook ends
+            clip.display.from = hookEnd;
+          }
+          filtered.push(clip);
+        }
+        clipsToAdd.length = 0;
+        clipsToAdd.push(...filtered);
       }
 
       if (clipsToAdd.length > 0) {
@@ -196,13 +307,14 @@ export default function PanelCaptions() {
 
     const wordsInText: { text: string; start: number; end: number }[] = [];
     const regex = /\S+/g;
-    let match;
-    while ((match = regex.exec(fullText)) !== null) {
+    let match: RegExpExecArray | null = regex.exec(fullText);
+    while (match !== null) {
       wordsInText.push({
         text: match[0],
         start: match.index,
         end: match.index + match[0].length,
       });
+      match = regex.exec(fullText);
     }
 
     let splitWordIndex = -1;
@@ -336,7 +448,7 @@ export default function PanelCaptions() {
     const paragraphIndex = oldWords[0]?.paragraphIndex ?? '';
 
     const isNewWordAdded = newWordsText.length > oldWords.length;
-    let updatedWords;
+    let updatedWords: Array<Record<string, unknown>>;
 
     if (isNewWordAdded) {
       const totalDurationMs =
@@ -410,7 +522,23 @@ export default function PanelCaptions() {
             Add video or audio to the timeline to generate captions.
           </div>
         ) : captionItems.length > 0 ? (
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-end px-4 pt-2 pb-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-muted-foreground hover:text-white"
+                onClick={() => handleGenerateCaptions(true)}
+                disabled={isGenerating}
+              >
+                {isGenerating ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3 w-3" />
+                )}
+                Regenerate
+              </Button>
+            </div>
             <ScrollArea className="h-full px-4">
               <div className="flex flex-col gap-2 pb-4">
                 {captionItems.map((item) => (
@@ -437,8 +565,28 @@ export default function PanelCaptions() {
               Recognize speech in the selected media and generate captions
               automatically.
             </div>
+            <div className="w-full flex flex-col gap-1">
+              <select
+                value={captionLanguage}
+                onChange={(e) => setCaptionLanguage(e.target.value)}
+                disabled={isGenerating}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="auto">Auto-detect</option>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+              {captionLanguage === 'auto' && (
+                <p className="text-xs text-muted-foreground text-left">
+                  Auto-detect may not work for all languages (e.g. Arabic).
+                </p>
+              )}
+            </div>
             <Button
-              onClick={handleGenerateCaptions}
+              onClick={() => handleGenerateCaptions()}
               variant="default"
               className="w-full"
               disabled={isGenerating}
@@ -448,6 +596,8 @@ export default function PanelCaptions() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Generating...
                 </>
+              ) : hasCachedTranscription ? (
+                'Generate Captions (cached)'
               ) : (
                 'Generate Captions'
               )}

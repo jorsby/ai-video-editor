@@ -1,4 +1,4 @@
-import { Rect, RectProps } from 'fabric';
+import { Rect, type RectProps } from 'fabric';
 
 export interface BaseClipProps extends Partial<RectProps> {
   elementId: string;

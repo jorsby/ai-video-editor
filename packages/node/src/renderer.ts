@@ -1,10 +1,10 @@
 import { chromium, type Browser, type Page } from 'playwright';
-import { writeFile, readFile } from 'fs/promises';
-import { EventEmitter } from 'events';
+import { writeFile, readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
 import express, { type Express } from 'express';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import type { Server } from 'http';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Server } from 'node:http';
 import type { RenderConfig, RenderEventMap, RenderProgress } from './types.js';
 
 export class Renderer extends EventEmitter {
@@ -240,7 +240,7 @@ export class Renderer extends EventEmitter {
     }
     if (this.server) {
       await new Promise<void>((resolve) => {
-        this.server!.close(() => resolve());
+        this.server?.close(() => resolve());
       });
       this.server = null;
     }

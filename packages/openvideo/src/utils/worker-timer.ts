@@ -1,7 +1,7 @@
 const setup = (): void => {
   let timerId: number;
 
-  let interval: number = 16.6;
+  const interval: number = 16.6;
 
   self.onmessage = (e) => {
     if (e.data.event === 'start') {

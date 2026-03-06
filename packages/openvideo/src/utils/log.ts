@@ -127,8 +127,8 @@ export const Log = {
 };
 
 // Set initial log levels based on environment
-if (import.meta.env?.DEV) {
+if (process.env.NODE_ENV === 'development') {
   Log.setLogLevel(Log.debug);
-} else if (import.meta.env?.MODE === 'test') {
+} else if (process.env.NODE_ENV === 'test') {
   Log.setLogLevel(Log.warn);
 }

@@ -50,7 +50,7 @@ export class TransitionButton extends Group {
       originY: 'center',
     });
 
-    this.on('mousedown', (e) => {
+    this.on('mousedown', (_e) => {
       if (options.onClick) {
         options.onClick();
       }

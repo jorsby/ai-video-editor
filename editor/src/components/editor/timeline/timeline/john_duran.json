@@ -1,0 +1,482 @@
+{
+  "id": "3f078a6f-56c7-44b0-a885-5d170f99105a",
+  "title": "Jhon Duran's an ELITE Bag Chaser! 😂",
+  "text": "John Duran has played in MLS, the Saudi Pro League, and is now destined for Turkey, all before turning 22. This man's career has already been bizarre. Age 15, Duran made his pro debut and by 17 was poached by MLS club Chicago Fire. After just one season in America, Duran was on his way to the Premier League. His potential was clear, and despite being Villa's second choice striker, the Colombian kept scoring important goals off the bench. In the 24-25 season, he was averaging a goal every 88 minutes. And these weren't just tap-ins either. Villa wanted to keep him, but when that Saudi money came in, both Villa and Duran couldn't say no. Yet, just 6 months following his Al-Nassr move, Duran already wants out and has found an interesting new destination in Mourinho's Fenerbahçe on loan. This deal is wild. Fenerbahçe is set to pay a sizable loan fee plus his full 20 mil annual salary, which is crazy considering this loan fee will be more expensive than their previous club record transfer of star striker Yusuf En-Nesyri for 19 mil. Duran's latest chapter is emblematic of his entire career.",
+  "dimensions": {
+    "width": 1080,
+    "height": 1920
+  },
+  "scenes": [
+    {
+      "id": "scene_001",
+      "text": "John Duran has played in MLS, the Saudi Pro League, and is now destined for Turkey, all before turning 22. This man's career has already been bizarre.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "A low-angle, cinematic view of a professional soccer stadium at night, focusing on the detailed green grass. Blurred crowd and bright stadium lights in the background.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "layout": [
+                {
+                  "type": "Row",
+                  "media": [
+                    {
+                      "type": "Image",
+                      "prompt": "John Duran wearing MLS Chicago Fire Jersey. Portrait shot, transparent background.",
+                      "dimensions": { "width": 540, "height": 660 },
+                      "triggerWordIndex": 0,
+                      "endWordIndex": 7,
+                      "zIndex": 1
+                    },
+                    {
+                      "type": "Image",
+                      "prompt": "John Duran wearing Saudi Pro League Al-Nassr Jersey. Portrait shot, transparent background.",
+                      "dimensions": { "width": 540, "height": 660 },
+                      "triggerWordIndex": 8,
+                      "endWordIndex": 14,
+                      "zIndex": 2
+                    }
+                  ]
+                }
+              ],
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "John Duran wearing Fenerbahçe Jersey. Portrait shot, transparent background.",
+                  "dimensions": { "width": 700, "height": 700 },
+                  "triggerWordIndex": 15,
+                  "endWordIndex": 21,
+                  "zIndex": 3
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Fenerbahçe Jersey, full body hero pose, dramatic lighting.",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 22,
+                  "endWordIndex": -1,
+                  "zIndex": 4
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_002",
+      "text": "Age 15, Duran made his pro debut and by 17 was poached by MLS club Chicago Fire.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Colombian youth soccer academy field, sunny day, vibrant green grass.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "Young John Duran as a teenager in Colombian club Envigado jersey, action pose.",
+                  "dimensions": { "width": 600, "height": 800 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 7,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Chicago Fire MLS jersey, celebrating, transparent background.",
+                  "dimensions": { "width": 700, "height": 850 },
+                  "triggerWordIndex": 8,
+                  "endWordIndex": -1,
+                  "zIndex": 2
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_003",
+      "text": "After just one season in America, Duran was on his way to the Premier League. His potential was clear, and despite being Villa's second choice striker, the Colombian kept scoring important goals off the bench.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Villa Park stadium, Aston Villa home ground, packed crowd, Premier League atmosphere.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Aston Villa claret and blue jersey, celebrating a goal, passionate expression.",
+                  "dimensions": { "width": 800, "height": 900 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 14,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran coming off the bench, Aston Villa jersey, determined look, substitution board visible.",
+                  "dimensions": { "width": 850, "height": 900 },
+                  "triggerWordIndex": 15,
+                  "endWordIndex": -1,
+                  "zIndex": 2
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_004",
+      "text": "In the 24-25 season, he was averaging a goal every 88 minutes. And these weren't just tap-ins either.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Video",
+                "prompt": "Compilation of spectacular goals, bicycle kicks, long-range shots, Premier League highlights.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Text",
+                  "prompt": "1 GOAL / 88 MINS",
+                  "dimensions": { "width": 600, "height": 200 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 10,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran scoring a spectacular overhead kick in Aston Villa jersey, dynamic action shot.",
+                  "dimensions": { "width": 900, "height": 800 },
+                  "triggerWordIndex": 11,
+                  "endWordIndex": -1,
+                  "zIndex": 2
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_005",
+      "text": "Villa wanted to keep him, but when that Saudi money came in, both Villa and Duran couldn't say no.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Split image of Aston Villa stadium and Saudi Arabia golden skyline with money symbols.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Aston Villa jersey looking thoughtful, contract papers floating around.",
+                  "dimensions": { "width": 600, "height": 750 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 8,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran holding Al-Nassr jersey, Saudi Pro League, money raining down, golden aesthetic.",
+                  "dimensions": { "width": 800, "height": 850 },
+                  "triggerWordIndex": 9,
+                  "endWordIndex": -1,
+                  "zIndex": 2
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_006",
+      "text": "Yet, just 6 months following his Al-Nassr move, Duran already wants out and has found an interesting new destination in Mourinho's Fenerbahçe on loan.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Fenerbahçe Şükrü Saracoğlu Stadium at night, yellow and navy blue colors, Turkish flags.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Al-Nassr jersey looking unhappy, arms crossed.",
+                  "dimensions": { "width": 550, "height": 700 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 10,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "José Mourinho in Fenerbahçe coaching gear, pointing, tactical pose.",
+                  "dimensions": { "width": 500, "height": 700 },
+                  "triggerWordIndex": 11,
+                  "endWordIndex": 18,
+                  "zIndex": 2
+                },
+                {
+                  "type": "Image",
+                  "prompt": "John Duran wearing Fenerbahçe yellow and navy jersey, confident smile, arms open.",
+                  "dimensions": { "width": 850, "height": 900 },
+                  "triggerWordIndex": 19,
+                  "endWordIndex": -1,
+                  "zIndex": 3
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_007",
+      "text": "This deal is wild. Fenerbahçe is set to pay a sizable loan fee plus his full 20 mil annual salary, which is crazy considering this loan fee will be more expensive than their previous club record transfer of star striker Yusuf En-Nesyri for 19 mil.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Financial graphics, money stacks, contract papers, transfer news aesthetic, dramatic lighting.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Text",
+                  "prompt": "€20M SALARY",
+                  "dimensions": { "width": 500, "height": 150 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": 12,
+                  "zIndex": 1
+                },
+                {
+                  "type": "Image",
+                  "prompt": "Yusuf En-Nesyri in Fenerbahçe jersey, comparison shot style.",
+                  "dimensions": { "width": 500, "height": 650 },
+                  "triggerWordIndex": 13,
+                  "endWordIndex": 35,
+                  "zIndex": 2
+                },
+                {
+                  "type": "Text",
+                  "prompt": "€19M TRANSFER RECORD",
+                  "dimensions": { "width": 500, "height": 150 },
+                  "triggerWordIndex": 36,
+                  "endWordIndex": -1,
+                  "zIndex": 3
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scene_008",
+      "text": "Duran's latest chapter is emblematic of his entire career.",
+      "layout": [
+        {
+          "type": "Column",
+          "dimensions": { "width": 1080, "height": 1920 },
+          "layout": [
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "background": {
+                "type": "Image",
+                "prompt": "Dramatic montage background with multiple faded jerseys: Chicago Fire, Aston Villa, Al-Nassr, Fenerbahçe.",
+                "triggerWordIndex": 0,
+                "endWordIndex": -1,
+                "zIndex": 0
+              },
+              "media": [
+                {
+                  "type": "Image",
+                  "prompt": "John Duran in Fenerbahçe jersey, hero pose, looking toward the future, cinematic lighting, confident stance.",
+                  "dimensions": { "width": 900, "height": 900 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 1
+                }
+              ]
+            },
+            {
+              "type": "Stack",
+              "dimensions": { "width": 1080, "height": 960 },
+              "media": [
+                {
+                  "type": "Avatar",
+                  "prompt": "Sports commentator presenting news",
+                  "dimensions": { "width": 1080, "height": 960 },
+                  "triggerWordIndex": 0,
+                  "endWordIndex": -1,
+                  "zIndex": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

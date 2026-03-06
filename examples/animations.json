@@ -1,0 +1,539 @@
+{
+  "tracks": [
+    {
+      "id": "track_1768181978671_hooormu4w",
+      "name": "Track 10",
+      "type": "Effect",
+      "clipIds": [
+        "clip_1768181978671_bu9tny9lb",
+        "clip_1768181977131_5021ttqki",
+        "clip_1768181973763_t8dll4tta",
+        "clip_1768181956645_rghiu7i7z",
+        "clip_1768181904501_jzjnhdtxu",
+        "clip_1768181898635_l9gysucvl",
+        "clip_1768181895442_x40lhosgj",
+        "clip_1768181890582_c3q9bvdc5",
+        "clip_1768181888654_uvy9v36dy"
+      ]
+    },
+    {
+      "id": "track_1768181464059_epqzc8s0o",
+      "name": "Track 3",
+      "type": "Image",
+      "clipIds": [
+        "clip_1768181463165_zdzitz0m5",
+        "clip_1768181462186_h957bybxo",
+        "clip_1768181464059_mkf87tfuv",
+        "clip_1768181769033_ehsquo207",
+        "clip_1768182000938_953den4km",
+        "clip_1768182001160_t48ak5l5f",
+        "clip_1768182001368_kwm9ipxu1",
+        "clip_1768182001589_e40fdtflz",
+        "clip_1768182001791_4efv0kph7"
+      ]
+    }
+  ],
+  "clips": [
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181461852",
+      "display": {
+        "from": 10000000,
+        "to": 15000000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768181462186_h957bybxo",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181462855",
+      "display": {
+        "from": 5000000,
+        "to": 10000000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768181463165_zdzitz0m5",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181463727",
+      "display": {
+        "from": 0,
+        "to": 5000000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768181464059_mkf87tfuv",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 15000000,
+        "to": 20000000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768181769033_ehsquo207",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 40040000,
+        "to": 45040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181888654",
+        "key": "pixelate",
+        "name": "pixelate"
+      },
+      "id": "clip_1768181888654_uvy9v36dy",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 35040000,
+        "to": 40040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181890582",
+        "key": "spring",
+        "name": "spring"
+      },
+      "id": "clip_1768181890582_c3q9bvdc5",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 30040000,
+        "to": 35040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181895442",
+        "key": "slitScan",
+        "name": "slitScan"
+      },
+      "id": "clip_1768181895442_x40lhosgj",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 25040000,
+        "to": 30040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181898635",
+        "key": "focusTransition",
+        "name": "focusTransition"
+      },
+      "id": "clip_1768181898635_l9gysucvl",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 20040000,
+        "to": 25040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181904501",
+        "key": "grayscale",
+        "name": "grayscale"
+      },
+      "id": "clip_1768181904501_jzjnhdtxu",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 15040000,
+        "to": 20040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181956645",
+        "key": "perspectiveSingle",
+        "name": "perspectiveSingle"
+      },
+      "id": "clip_1768181956645_rghiu7i7z",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 10040000,
+        "to": 15040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181973763",
+        "key": "scaleMoveBlur",
+        "name": "scaleMoveBlur"
+      },
+      "id": "clip_1768181973763_t8dll4tta",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 5040000,
+        "to": 10040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181977131",
+        "key": "retro70s",
+        "name": "retro70s"
+      },
+      "id": "clip_1768181977131_5021ttqki",
+      "effects": []
+    },
+    {
+      "type": "Effect",
+      "src": "",
+      "display": {
+        "from": 0,
+        "to": 0
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "angle": 0,
+      "zIndex": 20,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "effect": {
+        "id": "eff_1768181978671",
+        "key": "fastZoom",
+        "name": "fastZoom"
+      },
+      "id": "clip_1768181978671_bu9tny9lb",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 20040000,
+        "to": 25040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768182000938_953den4km",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 25040000,
+        "to": 30040000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768182001160_t48ak5l5f",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 30080000,
+        "to": 35080000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768182001368_kwm9ipxu1",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 35080000,
+        "to": 40080000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768182001589_e40fdtflz",
+      "effects": []
+    },
+    {
+      "type": "Image",
+      "src": "https://pub-7c224200bed84701ba0e1f8ad0d2d4a4.r2.dev/mockuser/3b87b7f8-1a3b-452c-b299-9ad60262a63c-arda.webp?v=1768181768519",
+      "display": {
+        "from": 40080000,
+        "to": 45080000
+      },
+      "playbackRate": 1,
+      "duration": 5000000,
+      "left": 0,
+      "top": 150,
+      "width": 1080,
+      "height": 1620,
+      "angle": 0,
+      "zIndex": 10,
+      "opacity": 1,
+      "flip": null,
+      "style": {},
+      "trim": {
+        "from": 0,
+        "to": 0
+      },
+      "id": "clip_1768182001791_4efv0kph7",
+      "effects": []
+    }
+  ],
+  "settings": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "bgColor": "#18181b"
+  }
+}

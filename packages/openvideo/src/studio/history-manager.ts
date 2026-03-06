@@ -1,5 +1,9 @@
-import diff, { Difference } from 'microdiff';
-import { ClipJSON, ProjectJSON, StudioTrackJSON } from '../json-serialization';
+import diff, { type Difference } from 'microdiff';
+import type {
+  ClipJSON,
+  ProjectJSON,
+  StudioTrackJSON,
+} from '../json-serialization';
 
 export interface HistoryOptions {
   maxSize?: number;

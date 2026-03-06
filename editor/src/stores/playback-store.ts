@@ -55,17 +55,27 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
     set({ currentTime: clampedTime });
   },
 
-  setVolume: (volume: number) =>
+  setVolume: (volume: number) => {
+    const clamped = Math.max(0, Math.min(1, volume));
+    const { studio } = useStudioStore.getState();
+    if (studio) {
+      studio.transport.setVolume(clamped);
+      studio.transport.setMuted(clamped === 0);
+    }
     set((state) => ({
-      volume: Math.max(0, Math.min(1, volume)),
-      muted: volume === 0,
-      previousVolume: volume > 0 ? volume : state.previousVolume,
-    })),
+      volume: clamped,
+      muted: clamped === 0,
+      previousVolume: clamped > 0 ? clamped : state.previousVolume,
+    }));
+  },
 
   setSpeed: (speed: number) => {
     const newSpeed = Math.max(0.1, Math.min(2.0, speed));
+    const { studio } = useStudioStore.getState();
+    if (studio) {
+      studio.transport.setSpeed(newSpeed);
+    }
     set({ speed: newSpeed });
-    // TODO: Sync speed to Studio if supported
   },
 
   setDuration: (duration: number) => set({ duration }),
