@@ -144,7 +144,7 @@ async function detectGridLayout(
   // Auto-detection is unreliable: characters on white backgrounds create
   // intensity patterns that look like separators, producing dozens of false
   // positives (e.g. 27 rows instead of 2).
-  if (expectedRows && expectedCols && expectedRows >= 2 && expectedCols >= 1) {
+  if (expectedRows && expectedCols && expectedRows >= 1 && expectedCols >= 1) {
     log?.info('Using known grid dimensions (skipping auto-detect)', {
       rows: expectedRows,
       cols: expectedCols,
