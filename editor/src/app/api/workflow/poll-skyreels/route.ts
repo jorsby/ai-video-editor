@@ -11,6 +11,20 @@ export async function POST() {
   try {
     const supabase = createServiceClient();
 
+    // Find storyboards using skyreels model
+    const { data: skyreelsStoryboards } = await supabase
+      .from('storyboards')
+      .select('id')
+      .eq('model', 'skyreels');
+
+    const skyreelsStoryboardIds = (skyreelsStoryboards ?? []).map(
+      (s: { id: string }) => s.id
+    );
+
+    if (skyreelsStoryboardIds.length === 0) {
+      return NextResponse.json({ success: true, processed: 0 });
+    }
+
     // Mark stale tasks as failed (processing > 30 minutes)
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const { data: staleScenes } = await supabase
@@ -20,7 +34,7 @@ export async function POST() {
         video_error_message: 'SkyReels task timed out (30 min)',
       })
       .eq('video_status', 'processing')
-      .eq('video_provider', 'skyreels')
+      .in('storyboard_id', skyreelsStoryboardIds)
       .lt('updated_at', thirtyMinAgo)
       .select('id');
 
@@ -35,7 +49,7 @@ export async function POST() {
       .from('scenes')
       .select('id, video_request_id')
       .eq('video_status', 'processing')
-      .eq('video_provider', 'skyreels')
+      .in('storyboard_id', skyreelsStoryboardIds)
       .not('video_request_id', 'is', null);
 
     if (fetchError) {

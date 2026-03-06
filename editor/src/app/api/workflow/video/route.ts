@@ -797,7 +797,7 @@ export async function POST(req: NextRequest) {
           }
           await supabase
             .from('scenes')
-            .update({ video_request_id: taskId, video_provider: 'skyreels' })
+            .update({ video_request_id: taskId })
             .eq('id', refContext.scene_id);
           results.push({
             scene_id: sceneId,
