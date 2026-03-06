@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
-import { splitGrid } from '@/lib/grid-splitter';
+import { splitGrid, updateFirstFrames } from '@/lib/grid-splitter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -226,6 +226,15 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ error: 'Grid split failed' }, { status: 500 });
     }
+
+    // Step: Update first_frames with tile URLs
+    await updateFirstFrames(
+      adminSupabase,
+      storyboardId,
+      gridImageId,
+      splitResult.tiles,
+      log
+    );
 
     // Update plan_status to 'approved'
     await supabase

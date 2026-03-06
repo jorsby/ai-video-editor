@@ -369,7 +369,7 @@ export async function splitGrid(
 
 // ── DB update helpers ────────────────────────────────────────────────────
 
-async function updateFirstFrames(
+export async function updateFirstFrames(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   storyboardId: string,
@@ -423,7 +423,7 @@ async function updateFirstFrames(
   });
 }
 
-async function updateObjects(
+export async function updateObjects(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   gridImageId: string,
@@ -446,7 +446,7 @@ async function updateObjects(
   });
 }
 
-async function updateBackgrounds(
+export async function updateBackgrounds(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   gridImageId: string,

@@ -2,7 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
-import { splitGrid } from '@/lib/grid-splitter';
+import {
+  splitGrid,
+  updateObjects,
+  updateBackgrounds,
+} from '@/lib/grid-splitter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -391,6 +395,30 @@ export async function POST(req: NextRequest) {
         { error: 'Both grid splits failed' },
         { status: 500 }
       );
+    }
+
+    // Step 5: Update objects and backgrounds with tile URLs
+    if (objectsSplit.success && objectsSplit.tiles.length > 0) {
+      await updateObjects(
+        adminSupabase,
+        objectsGrid.id,
+        objectsSplit.tiles,
+        log
+      );
+    } else {
+      await adminSupabase
+        .from('objects')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', objectsGrid.id);
+    }
+
+    if (bgSplit.success && bgSplit.tiles.length > 0) {
+      await updateBackgrounds(adminSupabase, bgGrid.id, bgSplit.tiles, log);
+    } else {
+      await adminSupabase
+        .from('backgrounds')
+        .update({ status: 'failed' })
+        .eq('grid_image_id', bgGrid.id);
     }
 
     // Mark storyboard as approved even if one split failed — partial success is
