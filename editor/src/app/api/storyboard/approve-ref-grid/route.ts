@@ -34,26 +34,27 @@ export async function POST(req: NextRequest) {
     })) {
       if (
         !Number.isInteger(val) ||
-        (val as number) < 2 ||
+        (val as number) < 1 ||
         (val as number) > 6
       ) {
         return NextResponse.json(
-          { error: `${name} must be an integer between 2 and 6` },
+          { error: `${name} must be an integer between 1 and 6` },
           { status: 400 }
         );
       }
     }
 
-    // Validate grid constraint: rows must equal cols or cols + 1
+    // Validate total cell count (2-36)
     const gridPairs = [
       { name: 'objects', rows: objectsRows, cols: objectsCols },
       { name: 'backgrounds', rows: bgRows, cols: bgCols },
     ];
     for (const { name, rows, cols } of gridPairs) {
-      if (rows !== cols && rows !== cols + 1) {
+      const totalCells = rows * cols;
+      if (totalCells < 2 || totalCells > 36) {
         return NextResponse.json(
           {
-            error: `Invalid ${name} grid: ${rows}x${cols}. rows must equal cols or cols + 1.`,
+            error: `Invalid ${name} grid: ${rows}x${cols} = ${totalCells} cells. Must be between 2 and 36.`,
           },
           { status: 400 }
         );

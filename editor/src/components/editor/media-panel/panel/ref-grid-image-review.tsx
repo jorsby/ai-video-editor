@@ -41,11 +41,12 @@ export function RefGridImageReview({
   const bgCountChanged = newBgCount !== originalBgCount;
 
   const isValidGrid = (rows: number, cols: number) =>
-    rows >= 2 &&
+    rows >= 1 &&
     rows <= 6 &&
-    cols >= 2 &&
+    cols >= 1 &&
     cols <= 6 &&
-    (rows === cols || rows === cols + 1);
+    rows * cols >= 2 &&
+    rows * cols <= 36;
 
   const isValidRange =
     isValidGrid(objectsRows, objectsCols) && isValidGrid(bgRows, bgCols);
@@ -113,7 +114,7 @@ export function RefGridImageReview({
               <label className="text-xs text-muted-foreground">Rows</label>
               <Input
                 type="number"
-                min={2}
+                min={1}
                 max={6}
                 value={objectsRows}
                 onChange={(e) =>
@@ -127,7 +128,7 @@ export function RefGridImageReview({
               <label className="text-xs text-muted-foreground">Cols</label>
               <Input
                 type="number"
-                min={2}
+                min={1}
                 max={6}
                 value={objectsCols}
                 onChange={(e) =>
@@ -143,8 +144,8 @@ export function RefGridImageReview({
           {!isValidGrid(objectsRows, objectsCols) && (
             <div className="flex items-center gap-1 text-xs text-destructive">
               <IconAlertTriangle size={14} />
-              Rows and cols must be between 2 and 6, and rows must equal cols or
-              cols + 1
+              Rows and cols must be between 1 and 6, total cells between 2 and
+              36
             </div>
           )}
           {objectCountChanged && isValidGrid(objectsRows, objectsCols) && (
@@ -191,7 +192,7 @@ export function RefGridImageReview({
               <label className="text-xs text-muted-foreground">Rows</label>
               <Input
                 type="number"
-                min={2}
+                min={1}
                 max={6}
                 value={bgRows}
                 onChange={(e) => setBgRows(parseInt(e.target.value, 10) || 1)}
@@ -203,7 +204,7 @@ export function RefGridImageReview({
               <label className="text-xs text-muted-foreground">Cols</label>
               <Input
                 type="number"
-                min={2}
+                min={1}
                 max={6}
                 value={bgCols}
                 onChange={(e) => setBgCols(parseInt(e.target.value, 10) || 1)}
@@ -217,8 +218,8 @@ export function RefGridImageReview({
           {!isValidGrid(bgRows, bgCols) && (
             <div className="flex items-center gap-1 text-xs text-destructive">
               <IconAlertTriangle size={14} />
-              Rows and cols must be between 2 and 6, and rows must equal cols or
-              cols + 1
+              Rows and cols must be between 1 and 6, total cells between 2 and
+              36
             </div>
           )}
           {bgCountChanged && isValidGrid(bgRows, bgCols) && (
