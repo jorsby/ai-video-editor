@@ -173,8 +173,23 @@ export async function applyTemplate(
 function getSceneImageUrl(scene: Scene): string | null {
   // Prefer final_url > outpainted_url > url from first_frame
   const ff = scene.first_frames?.[0];
-  if (!ff) return null;
-  return ff.final_url || ff.outpainted_url || ff.url || null;
+  if (ff) {
+    const ffUrl = ff.final_url || ff.outpainted_url || ff.url;
+    if (ffUrl) return ffUrl;
+  }
+  // Fallback to background image (ref_to_video mode)
+  const bg = scene.backgrounds?.[0];
+  if (bg) {
+    const bgUrl = bg.final_url || bg.url;
+    if (bgUrl) return bgUrl;
+  }
+  // Fallback to object image
+  const obj = scene.objects?.[0];
+  if (obj) {
+    const objUrl = obj.final_url || obj.url;
+    if (objUrl) return objUrl;
+  }
+  return null;
 }
 
 function getSceneText(scene: Scene, language?: string): string | null {
