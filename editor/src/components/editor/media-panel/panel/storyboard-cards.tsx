@@ -18,7 +18,6 @@ import {
   IconVideoOff,
   IconUsers,
   IconAlertTriangle,
-  IconRefresh,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import {
@@ -392,7 +391,7 @@ export function StoryboardCards({
   const [outpaintModel, setOutpaintModel] =
     useState<keyof typeof OUTPAINT_MODELS>('kling');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
-  const [isPollingSkyReels, setIsPollingSkyReels] = useState(false);
+
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
   const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
@@ -2425,49 +2424,6 @@ export function StoryboardCards({
           </span>
         </div>
       )}
-      {storyboard?.model === 'skyreels' &&
-        sortedScenes.some((s) => s.video_status === 'processing') && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs"
-            disabled={isPollingSkyReels}
-            onClick={async () => {
-              setIsPollingSkyReels(true);
-              try {
-                const res = await fetch('/api/workflow/poll-skyreels', {
-                  method: 'POST',
-                });
-                if (!res.ok) throw new Error('Poll failed');
-                const data = await res.json();
-                if (data.success_count > 0) {
-                  toast.success(
-                    `${data.success_count} SkyReels video(s) completed`
-                  );
-                } else if (data.still_running > 0) {
-                  toast.info(
-                    `${data.still_running} SkyReels video(s) still processing`
-                  );
-                } else {
-                  toast.info('No pending SkyReels videos found');
-                }
-                refresh();
-              } catch {
-                toast.error('Failed to check SkyReels status');
-              } finally {
-                setIsPollingSkyReels(false);
-              }
-            }}
-          >
-            {isPollingSkyReels ? (
-              <IconLoader2 className="size-3.5 animate-spin mr-1" />
-            ) : (
-              <IconRefresh className="size-3.5 mr-1" />
-            )}
-            Check SkyReels Status
-          </Button>
-        )}
-
       {/* Script View - Collapsible voiceover list */}
       <Collapsible open={isScriptViewOpen} onOpenChange={setIsScriptViewOpen}>
         <CollapsibleTrigger asChild>
