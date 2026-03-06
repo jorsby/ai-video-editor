@@ -3,6 +3,17 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger, type Logger } from '@/lib/logger';
 import * as musicMetadata from 'music-metadata';
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, content-type, x-client-info, apikey',
+};
+
+export async function OPTIONS() {
+  return new Response(null, { headers: CORS_HEADERS });
+}
+
 interface FalAudioOutput {
   url: string;
   content_type?: string;
@@ -529,7 +540,7 @@ async function handleSceneSplit(
       step: 'SplitGridImage',
       scenes_updated: scenes.length,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -572,7 +583,7 @@ async function handleObjectsSplit(
 
   return new Response(
     JSON.stringify({ success: true, step: 'SplitGridImage', type: 'objects' }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -619,7 +630,7 @@ async function handleBackgroundsSplit(
       step: 'SplitGridImage',
       type: 'backgrounds',
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -749,7 +760,7 @@ async function handleOutpaintImage(
       first_frame_id,
       final_url: finalUrl,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -851,7 +862,7 @@ async function handleEnhanceImage(
         object_id,
         final_url: finalUrl,
       }),
-      { headers: { 'Content-Type': 'application/json' } }
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   }
 
@@ -896,7 +907,7 @@ async function handleEnhanceImage(
       [entityKey]: entityId,
       final_url: finalUrl,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -988,7 +999,7 @@ async function handleGenerateTTS(
       voiceover_id,
       duration,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -1044,7 +1055,7 @@ async function handleGenerateVideo(
       scene_id,
       video_url: videoUrl,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -1097,7 +1108,7 @@ async function handleGenerateSFX(
       scene_id,
       video_url: videoUrl,
     }),
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
   );
 }
 
@@ -1122,7 +1133,10 @@ export async function POST(req: NextRequest) {
       log.error('Missing step parameter');
       return new Response(
         JSON.stringify({ success: false, error: 'Missing step parameter' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+        }
       );
     }
 
@@ -1163,7 +1177,10 @@ export async function POST(req: NextRequest) {
         log.error('Unknown step', { step });
         return new Response(
           JSON.stringify({ success: false, error: `Unknown step: ${step}` }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+          }
         );
     }
   } catch (error) {
@@ -1173,7 +1190,10 @@ export async function POST(req: NextRequest) {
     });
     return new Response(
       JSON.stringify({ success: false, error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
     );
   }
 }

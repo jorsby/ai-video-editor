@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/publish-scheduled",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/workflow/poll-skyreels",
+      "schedule": "* * * * *"
     }
   ]
 }
