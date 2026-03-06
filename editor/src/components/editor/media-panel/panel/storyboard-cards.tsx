@@ -56,6 +56,9 @@ import {
   addVoiceoverToTimeline,
   findCompatibleTrack,
 } from '@/lib/scene-timeline-utils';
+import { applyTemplate } from '@/lib/templates/apply-template';
+import { getTemplate, TEMPLATE_LIST } from '@/lib/templates';
+import { TemplatePicker } from './template-picker';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invokeWorkflow(
@@ -391,6 +394,10 @@ export function StoryboardCards({
   const [outpaintModel, setOutpaintModel] =
     useState<keyof typeof OUTPAINT_MODELS>('kling');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    'documentary'
+  );
 
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
@@ -478,6 +485,7 @@ export function StoryboardCards({
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
 
   const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
+  const isQuickVideoMode = storyboard?.mode === 'quick_video';
 
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
@@ -1624,6 +1632,52 @@ export function StoryboardCards({
     }
   };
 
+  const handleApplyTemplate = async () => {
+    if (!studio || !selectedTemplateId) return;
+    const template = getTemplate(selectedTemplateId);
+    if (!template) return;
+
+    const scenesToApply = sortedScenes.filter(
+      (s) =>
+        selectedSceneIds.has(s.id) &&
+        s.first_frames?.some(
+          (ff) => ff.url || ff.final_url || ff.outpainted_url
+        )
+    );
+
+    if (scenesToApply.length === 0) {
+      toast.error('No scenes with images to apply template to');
+      return;
+    }
+
+    setIsApplyingTemplate(true);
+    try {
+      const canvasWidth = studio.opts.width;
+      const canvasHeight = studio.opts.height;
+
+      await applyTemplate(
+        template,
+        scenesToApply,
+        studio,
+        {
+          width: canvasWidth,
+          height: canvasHeight,
+        },
+        { language: selectedLanguage }
+      );
+
+      toast.success(
+        `Applied "${template.name}" template to ${scenesToApply.length} scene(s)`
+      );
+      clearSelection();
+    } catch (err) {
+      console.error('Failed to apply template:', err);
+      toast.error('Failed to apply template');
+    } finally {
+      setIsApplyingTemplate(false);
+    }
+  };
+
   const handleAddVideoToTimeline = async (sceneId: string) => {
     if (!studio) return;
     const scene = sortedScenes.find((s) => s.id === sceneId);
@@ -2267,144 +2321,176 @@ export function StoryboardCards({
           </CollapsibleContent>
         </Collapsible>
 
-        {/* Video Section */}
-        <Collapsible open={isVideoOpen} onOpenChange={setIsVideoOpen}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
+        {/* Apply Template Section (Quick Video mode) */}
+        {isQuickVideoMode && selectedSceneIds.size > 0 && (
+          <div className="flex flex-col gap-2 px-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Template
+            </span>
+            <TemplatePicker
+              selectedTemplateId={selectedTemplateId}
+              onSelect={(t) => setSelectedTemplateId(t.id)}
+            />
+            <Button
+              size="sm"
+              disabled={
+                !selectedTemplateId ||
+                isApplyingTemplate ||
+                selectedSceneIds.size === 0
+              }
+              onClick={handleApplyTemplate}
+              className="h-9 text-xs w-full"
             >
-              <span className="flex items-center gap-1.5">
-                <IconVideo className="size-3.5 text-cyan-400" />
-                <span className="text-xs font-medium">Video</span>
-              </span>
-              {isVideoOpen ? (
-                <IconChevronUp className="size-3 text-muted-foreground" />
+              {isApplyingTemplate ? (
+                <IconLoader2 className="size-3.5 animate-spin mr-1" />
               ) : (
-                <IconChevronDown className="size-3 text-muted-foreground" />
+                <IconSparkles className="size-3.5 mr-1" />
               )}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="px-2 py-2 flex flex-col gap-2">
-              {/* Video model + Resolution */}
-              {isRefToVideoMode && storyboard?.model?.startsWith('kling') ? (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Model
-                  </span>
-                  <Select
-                    value={refVideoModel}
-                    onValueChange={(value: string) =>
-                      setRefVideoModel(value as 'klingo3' | 'klingo3pro')
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="klingo3">Kling O3</SelectItem>
-                      <SelectItem value="klingo3pro">Kling O3 Pro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : isRefToVideoMode ? (
-                <div className="text-xs text-muted-foreground px-1">
-                  Model:{' '}
-                  <span className="font-medium text-foreground">
-                    {storyboard?.model === 'wan26flash'
-                      ? 'WAN 2.6 Flash'
-                      : storyboard?.model === 'skyreels'
-                        ? 'SkyReels'
-                        : (storyboard?.model ?? 'N/A')}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-end gap-2">
-                  <div className="flex flex-col gap-1 flex-1">
+              Apply Template
+            </Button>
+          </div>
+        )}
+
+        {/* Video Section (hidden in quick_video mode) */}
+        {!isQuickVideoMode && (
+          <Collapsible open={isVideoOpen} onOpenChange={setIsVideoOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <IconVideo className="size-3.5 text-cyan-400" />
+                  <span className="text-xs font-medium">Video</span>
+                </span>
+                {isVideoOpen ? (
+                  <IconChevronUp className="size-3 text-muted-foreground" />
+                ) : (
+                  <IconChevronDown className="size-3 text-muted-foreground" />
+                )}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="px-2 py-2 flex flex-col gap-2">
+                {/* Video model + Resolution */}
+                {isRefToVideoMode && storyboard?.model?.startsWith('kling') ? (
+                  <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                       Model
                     </span>
                     <Select
-                      value={videoModel}
+                      value={refVideoModel}
                       onValueChange={(value: string) =>
-                        setVideoModel(value as VideoModelKey)
+                        setRefVideoModel(value as 'klingo3' | 'klingo3pro')
                       }
                     >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(Object.keys(VIDEO_MODELS) as VideoModelKey[]).map(
-                          (key) => (
-                            <SelectItem key={key} value={key}>
-                              {VIDEO_MODELS[key].label}
-                            </SelectItem>
-                          )
-                        )}
+                        <SelectItem value="klingo3">Kling O3</SelectItem>
+                        <SelectItem value="klingo3pro">Kling O3 Pro</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex flex-col gap-1 w-[80px]">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      Resolution
+                ) : isRefToVideoMode ? (
+                  <div className="text-xs text-muted-foreground px-1">
+                    Model:{' '}
+                    <span className="font-medium text-foreground">
+                      {storyboard?.model === 'wan26flash'
+                        ? 'WAN 2.6 Flash'
+                        : storyboard?.model === 'skyreels'
+                          ? 'SkyReels'
+                          : (storyboard?.model ?? 'N/A')}
                     </span>
-                    <Select
-                      value={videoResolution}
-                      onValueChange={(value: '480p' | '720p' | '1080p') =>
-                        setVideoResolution(value)
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VIDEO_MODELS[videoModel].resolutions.map((res) => (
-                          <SelectItem key={res} value={res}>
-                            {res}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="flex items-end gap-2">
+                    <div className="flex flex-col gap-1 flex-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Model
+                      </span>
+                      <Select
+                        value={videoModel}
+                        onValueChange={(value: string) =>
+                          setVideoModel(value as VideoModelKey)
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(VIDEO_MODELS) as VideoModelKey[]).map(
+                            (key) => (
+                              <SelectItem key={key} value={key}>
+                                {VIDEO_MODELS[key].label}
+                              </SelectItem>
+                            )
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-1 w-[80px]">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Resolution
+                      </span>
+                      <Select
+                        value={videoResolution}
+                        onValueChange={(value: '480p' | '720p' | '1080p') =>
+                          setVideoResolution(value)
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VIDEO_MODELS[videoModel].resolutions.map((res) => (
+                            <SelectItem key={res} value={res}>
+                              {res}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-1.5 pt-1">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={selectedSceneIds.size === 0 || isGeneratingVideo}
-                  onClick={handleGenerateVideo}
-                  className="h-9 text-xs flex-1"
-                >
-                  {isGeneratingVideo ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconVideo className="size-3.5 mr-1" />
-                  )}
-                  Generate Video
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={selectedScenesWithVideo.length === 0}
-                  onClick={handleRemoveVideos}
-                  className="h-9 text-xs"
-                  title={
-                    selectedScenesWithVideo.length === 0
-                      ? 'Select scenes with generated videos'
-                      : `Remove video from ${selectedScenesWithVideo.length} scene(s)`
-                  }
-                >
-                  <IconVideoOff className="size-3.5 mr-1" />
-                  Remove
-                </Button>
+                {/* Action buttons */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={selectedSceneIds.size === 0 || isGeneratingVideo}
+                    onClick={handleGenerateVideo}
+                    className="h-9 text-xs flex-1"
+                  >
+                    {isGeneratingVideo ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconVideo className="size-3.5 mr-1" />
+                    )}
+                    Generate Video
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedScenesWithVideo.length === 0}
+                    onClick={handleRemoveVideos}
+                    className="h-9 text-xs"
+                    title={
+                      selectedScenesWithVideo.length === 0
+                        ? 'Select scenes with generated videos'
+                        : `Remove video from ${selectedScenesWithVideo.length} scene(s)`
+                    }
+                  >
+                    <IconVideoOff className="size-3.5 mr-1" />
+                    Remove
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
 
       {/* Overall Status */}
