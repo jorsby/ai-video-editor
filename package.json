@@ -20,5 +20,6 @@
   },
   "dependencies": {
     "assistant-stream": "^0.3.0"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }
