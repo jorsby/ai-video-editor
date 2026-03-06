@@ -1,4 +1,20 @@
-type LogLevel = 'info' | 'success' | 'warn' | 'error';
+type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error';
+
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  success: 1,
+  warn: 2,
+  error: 3,
+};
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+const CONFIGURED_LEVEL: LogLevel = (() => {
+  const env = process.env.NEXT_PUBLIC_LOG_LEVEL;
+  if (env && env in LOG_LEVEL_PRIORITY) return env as LogLevel;
+  return IS_PRODUCTION ? 'info' : 'debug';
+})();
 
 interface LogContext {
   requestId: string;
@@ -7,6 +23,7 @@ interface LogContext {
 }
 
 const LEVEL_PREFIXES: Record<LogLevel, string> = {
+  debug: '🔍 DEBUG',
   info: 'ℹ️  INFO ',
   success: '✅ OK   ',
   warn: '⚠️  WARN ',
@@ -55,11 +72,49 @@ export class Logger {
     return Math.round(performance.now() - this.startTime);
   }
 
+  private shouldLog(level: LogLevel): boolean {
+    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[CONFIGURED_LEVEL];
+  }
+
+  private toJSON(
+    level: LogLevel,
+    message: string,
+    data?: Record<string, unknown>
+  ): string {
+    return JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level,
+      requestId: this.context.requestId,
+      step: this.context.step ?? null,
+      message,
+      data: data ?? null,
+      elapsed_ms: this.elapsed(),
+    });
+  }
+
   private log(
     level: LogLevel,
     message: string,
     data?: Record<string, unknown>
   ): void {
+    if (!this.shouldLog(level)) return;
+
+    if (IS_PRODUCTION) {
+      const json = this.toJSON(level, message, data);
+      switch (level) {
+        case 'error':
+          console.error(json);
+          break;
+        case 'warn':
+          console.warn(json);
+          break;
+        default:
+          console.log(json);
+      }
+      return;
+    }
+
+    // Dev: pretty format with emojis
     const prefix = LEVEL_PREFIXES[level];
     const stepEmoji = this.context.step
       ? STEP_EMOJIS[this.context.step] || '📌'
@@ -78,7 +133,6 @@ export class Logger {
           .filter(([, v]) => v !== undefined && v !== null)
           .map(([k, v]) => {
             const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-            // Truncate long values
             const truncated =
               val.length > 100 ? `${val.substring(0, 100)}...` : val;
             return `  ${k}=${truncated}`;
@@ -98,6 +152,10 @@ export class Logger {
       default:
         console.log(fullMessage);
     }
+  }
+
+  debug(message: string, data?: Record<string, unknown>): void {
+    this.log('debug', message, data);
   }
 
   info(message: string, data?: Record<string, unknown>): void {
@@ -136,4 +194,33 @@ export class Logger {
 
 export function createLogger(requestId?: string): Logger {
   return new Logger(requestId);
+}
+
+/**
+ * Log a workflow event to the debug_logs table.
+ * Use this from API routes to track workflow step progress.
+ */
+export async function logWorkflowEvent(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  event: {
+    storyboardId: string;
+    step: string;
+    status: 'start' | 'success' | 'error';
+    data?: Record<string, unknown>;
+  }
+): Promise<void> {
+  try {
+    await supabase.from('debug_logs').insert({
+      step: event.step,
+      payload: {
+        storyboard_id: event.storyboardId,
+        status: event.status,
+        ...event.data,
+        logged_at: new Date().toISOString(),
+      },
+    });
+  } catch {
+    // Logging should never break the main flow
+  }
 }

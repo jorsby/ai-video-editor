@@ -1767,6 +1767,24 @@ export function StoryboardCards({
     );
   }
 
+  // Splitting in progress — show loading state instead of "No scenes yet"
+  if (
+    sortedScenes.length === 0 &&
+    (isSplitting || storyboard?.plan_status === 'splitting')
+  ) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3">
+        <IconLoader2 size={32} className="animate-spin text-blue-400" />
+        <span className="text-sm text-center">
+          Splitting grid images into scenes...
+        </span>
+        <span className="text-xs text-center text-muted-foreground/60">
+          This may take a minute
+        </span>
+      </div>
+    );
+  }
+
   if (sortedScenes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">

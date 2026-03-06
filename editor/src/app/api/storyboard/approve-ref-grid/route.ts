@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { createLogger } from '@/lib/logger';
+import { createLogger, logWorkflowEvent } from '@/lib/logger';
 import {
   splitGrid,
   updateObjects,
@@ -10,13 +10,27 @@ import {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient('studio');
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Allow service-role key auth for testing/scripts
+    const authHeader = req.headers.get('authorization');
+    const isServiceRole =
+      authHeader === `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`;
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const supabase = isServiceRole
+      ? createSupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { db: { schema: 'studio' } }
+        )
+      : await createClient('studio');
+
+    if (!isServiceRole) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
     }
 
     const { storyboardId, objectsRows, objectsCols, bgRows, bgCols } =
@@ -246,6 +260,11 @@ export async function POST(req: NextRequest) {
     const languages = Object.keys(voiceover_list);
 
     // Step 0: Set plan_status to 'splitting'
+    await logWorkflowEvent(adminSupabase, {
+      storyboardId,
+      step: 'ApproveRefSplit',
+      status: 'start',
+    });
     await adminSupabase
       .from('storyboards')
       .update({ plan_status: 'splitting' })
@@ -370,8 +389,10 @@ export async function POST(req: NextRequest) {
     log.info('Split results', {
       objects_success: objectsSplit.success,
       objects_tiles: objectsSplit.tiles.length,
+      objects_error: objectsSplit.error,
       bg_success: bgSplit.success,
       bg_tiles: bgSplit.tiles.length,
+      bg_error: bgSplit.error,
       time_ms: log.endTiming('split_requests'),
     });
 
@@ -391,8 +412,18 @@ export async function POST(req: NextRequest) {
         .eq('id', storyboardId);
 
       log.summary('error', { reason: 'both_splits_failed' });
+      await logWorkflowEvent(adminSupabase, {
+        storyboardId,
+        step: 'ApproveRefSplit',
+        status: 'error',
+        data: { reason: 'both_splits_failed' },
+      });
       return NextResponse.json(
-        { error: 'Both grid splits failed' },
+        {
+          error: 'Both grid splits failed',
+          objects_error: objectsSplit.error,
+          bg_error: bgSplit.error,
+        },
         { status: 500 }
       );
     }
@@ -428,6 +459,12 @@ export async function POST(req: NextRequest) {
       .from('storyboards')
       .update({ plan_status: 'approved' })
       .eq('id', storyboardId);
+
+    await logWorkflowEvent(adminSupabase, {
+      storyboardId,
+      step: 'ApproveRefSplit',
+      status: 'success',
+    });
 
     return NextResponse.json({
       success: true,

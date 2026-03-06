@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { createLogger } from '@/lib/logger';
+import { createLogger, logWorkflowEvent } from '@/lib/logger';
 import { splitGrid, updateFirstFrames } from '@/lib/grid-splitter';
 
 export async function POST(req: NextRequest) {
@@ -146,6 +146,12 @@ export async function POST(req: NextRequest) {
     const expectedScenes = rows * cols;
     const visual_prompt_list = plan.visual_flow as string[];
 
+    await logWorkflowEvent(adminSupabase, {
+      storyboardId,
+      step: 'ApproveGridSplit',
+      status: 'start',
+    });
+
     // Create scenes with first_frames and voiceovers
     log.info('Creating scenes', { count: expectedScenes });
     log.startTiming('create_scenes');
@@ -208,6 +214,12 @@ export async function POST(req: NextRequest) {
 
     if (!splitResult.success) {
       log.error('Grid split failed', { error: splitResult.error });
+      await logWorkflowEvent(adminSupabase, {
+        storyboardId,
+        step: 'ApproveGridSplit',
+        status: 'error',
+        data: { error: splitResult.error },
+      });
 
       // Mark all first_frames as failed
       const { data: scenes } = await adminSupabase
@@ -241,6 +253,12 @@ export async function POST(req: NextRequest) {
       .from('storyboards')
       .update({ plan_status: 'approved' })
       .eq('id', storyboardId);
+
+    await logWorkflowEvent(adminSupabase, {
+      storyboardId,
+      step: 'ApproveGridSplit',
+      status: 'success',
+    });
 
     return NextResponse.json({
       success: true,

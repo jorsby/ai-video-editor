@@ -33,6 +33,7 @@ import {
   I2V_GRID_PROMPT_PREFIX,
 } from '@/lib/schemas/i2v-plan';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
+import { logWorkflowEvent } from '@/lib/logger';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -458,8 +459,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // We need a supabase client that can write to debug_logs (service role not needed, user supabase works)
+    const logSupabase = supabase;
+
     // --- Ref-to-Video mode ---
     if (mode === 'ref_to_video') {
+      await logWorkflowEvent(logSupabase, {
+        storyboardId: projectId,
+        step: 'GeneratePlan',
+        status: 'start',
+        data: { mode, videoModel, model },
+      });
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
         model,
@@ -489,6 +499,13 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      await logWorkflowEvent(logSupabase, {
+        storyboardId: storyboard.id,
+        step: 'GeneratePlan',
+        status: 'success',
+        data: { mode, storyboardId: storyboard.id },
+      });
+
       return NextResponse.json({
         ...finalPlan,
         storyboard_id: storyboard.id,
@@ -498,6 +515,13 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Image-to-Video mode ---
+    await logWorkflowEvent(logSupabase, {
+      storyboardId: projectId,
+      step: 'GeneratePlan',
+      status: 'start',
+      data: { mode: 'image_to_video', model },
+    });
+
     const userPrompt = `Voiceover Script:
 ${voiceoverText}
 
@@ -594,6 +618,13 @@ Generate the storyboard.`;
         { status: 500 }
       );
     }
+
+    await logWorkflowEvent(logSupabase, {
+      storyboardId: storyboard.id,
+      step: 'GeneratePlan',
+      status: 'success',
+      data: { mode: 'image_to_video', storyboardId: storyboard.id },
+    });
 
     return NextResponse.json({
       ...finalPlan,
