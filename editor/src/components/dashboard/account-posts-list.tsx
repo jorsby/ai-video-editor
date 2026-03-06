@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertCircle, ArrowLeft, FileVideo, Loader2, RefreshCw } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { PostItemCard } from './post-item-card';
 import { ProviderIcon } from './provider-icon';
@@ -80,6 +80,9 @@ export function AccountPostsList({
       {/* Account header */}
       <div className="flex items-center gap-3">
         <Avatar>
+          {account.profile_image_url && (
+            <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+          )}
           <AvatarFallback>{getInitials(account.account_name)}</AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">

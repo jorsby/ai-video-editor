@@ -1,0 +1,14 @@
+Done. Plan written to `CALENDAR_PLAN_A.md` and event sent.
+
+**Summary of my plan (Agent A — Frontend-First):**
+
+The calendar is already a solid read-only dashboard with 3 views, filters, and SWR caching. The key gap is that it's **passive** — you can't create, reschedule, or bulk-manage posts from it.
+
+**6 phases, prioritized by user impact:**
+
+1. **Calendar-native post creation** — Click-to-create popover + inline editor dialog (no more "open in new tab")
+2. **Drag-and-drop rescheduling** — `@dnd-kit` for dragging posts between days/timeslots with undo toasts
+3. **Visual polish for 26 accounts** — Platform color bands, compact density toggle, account avatars
+4. **Bulk operations** — Selection mode + floating action bar for reschedule/delete/duplicate
+5. **Schedule templates** — Recurring weekly slot definitions with visual placeholders on the calendar
+6. **Calendar sidebar & polish** — Collapsible sidebar for filters + templates + quick stats

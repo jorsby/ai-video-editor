@@ -341,6 +341,7 @@ export function SocialAccountsList({
               tokenInvalidAccountIds={tokenInvalidAccountIds}
               onFetchPlatformMedia={onFetchPlatformMedia}
               platformMediaLoading={platformMediaLoading}
+              platformMediaSyncedAt={platformMediaSyncedAt}
             />
           ))}
         </div>
@@ -357,6 +358,7 @@ export function SocialAccountsList({
           <div className="grid gap-2">
             {ungroupedAccounts.map((account) => {
               const postCount = postsByAccount.get(account.account_id)?.length || 0;
+              const hasSynced = platformMediaSyncedAt?.has(account.account_id) ?? false;
               const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
               return (
                 <div
@@ -414,10 +416,10 @@ export function SocialAccountsList({
                     {!postsLoading && (
                       <div className="text-right">
                         <p className="text-lg font-semibold text-foreground">
-                          {postCount}
+                          {postCount === 0 && !hasSynced ? '—' : postCount}
                         </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {postCount === 1 ? 'post' : 'posts'}
+                          {postCount === 0 && !hasSynced ? 'not synced' : postCount === 1 ? 'post' : 'posts'}
                         </p>
                       </div>
                     )}

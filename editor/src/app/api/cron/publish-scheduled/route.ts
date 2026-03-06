@@ -14,13 +14,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = await createAdminClient();
+    const supabase = await createAdminClient('social_auth');
 
     const { data: posts, error } = await supabase
       .from('posts')
       .select('*, post_accounts(*)')
       .eq('status', 'scheduled')
-      .lte('scheduled_at', new Date().toISOString());
+      .lte('scheduled_at', new Date().toISOString())
+      .is('processing_started_at', null);
 
     if (error) {
       console.error('[cron/publish-scheduled] query error:', error.message);
@@ -38,9 +39,14 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // Claim this post for processing
       await supabase
         .from('posts')
-        .update({ status: 'publishing' as PostStatus, updated_at: new Date().toISOString() })
+        .update({
+          processing_started_at: new Date().toISOString(),
+          status: 'publishing' as PostStatus,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', post.id);
 
       const results = await Promise.allSettled(
@@ -100,9 +106,14 @@ export async function GET(req: NextRequest) {
         failed++;
       }
 
+      // Clear processing_started_at and set final status
       await supabase
         .from('posts')
-        .update({ status: postStatus, updated_at: new Date().toISOString() })
+        .update({
+          status: postStatus,
+          processing_started_at: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', post.id);
     }
 

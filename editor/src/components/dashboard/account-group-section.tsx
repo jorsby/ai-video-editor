@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddAccountsDialog } from './add-accounts-dialog';
 import { TagInput } from './tag-input';
 import { ProviderIcon } from './provider-icon';
@@ -60,6 +60,7 @@ interface AccountGroupSectionProps {
   tokenInvalidAccountIds?: Set<string>;
   onFetchPlatformMedia?: (accountId: string, force?: boolean) => void;
   platformMediaLoading?: Set<string>;
+  platformMediaSyncedAt?: Map<string, Date>;
 }
 
 function getInitials(name: string): string {
@@ -90,6 +91,7 @@ export function AccountGroupSection({
   tokenInvalidAccountIds,
   onFetchPlatformMedia,
   platformMediaLoading,
+  platformMediaSyncedAt,
 }: AccountGroupSectionProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(group.name);
@@ -266,15 +268,19 @@ export function AccountGroupSection({
               <div className="grid gap-2">
                 {memberAccounts.map((account) => {
                   const postCount = postsByAccount.get(account.account_id)?.length || 0;
+                  const hasSynced = platformMediaSyncedAt?.has(account.account_id) ?? false;
                   const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
                   return (
                     <div
                       key={account.account_id}
-                      className={`flex items-center gap-3 rounded-lg border bg-card p-3 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
+                      className={`flex items-center gap-3 rounded-lg border bg-card p-4 group cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${needsReAuth ? 'border-amber-300' : ''}`}
                       onClick={() => onAccountClick(account.account_id)}
                     >
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs">
+                      <Avatar>
+                        {account.profile_image_url && (
+                          <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+                        )}
+                        <AvatarFallback>
                           {getInitials(account.account_name)}
                         </AvatarFallback>
                       </Avatar>
@@ -305,11 +311,11 @@ export function AccountGroupSection({
                       <div className="flex items-center gap-3">
                         {!postsLoading && (
                           <div className="text-right">
-                            <p className="text-sm font-semibold text-foreground">
-                              {postCount}
+                            <p className="text-lg font-semibold text-foreground">
+                              {postCount === 0 && !hasSynced ? '—' : postCount}
                             </p>
                             <p className="text-[10px] text-muted-foreground">
-                              {postCount === 1 ? 'post' : 'posts'}
+                              {postCount === 0 && !hasSynced ? 'not synced' : postCount === 1 ? 'post' : 'posts'}
                             </p>
                           </div>
                         )}

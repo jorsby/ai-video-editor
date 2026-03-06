@@ -1,0 +1,22 @@
+All done. Here's a summary of what was completed:
+
+### Report
+- Wrote `SOCIAL_PAGE_REPORT.md` with all bugs, inconsistencies, and prioritized improvement suggestions
+
+### Fixes Implemented
+
+**Bug #1 — Post counts showing "0 posts":**
+- `social-accounts-list.tsx`: Ungrouped accounts now show "—" / "not synced" instead of "0 posts" when platform media hasn't been fetched yet
+- `account-group-section.tsx`: Added `platformMediaSyncedAt` prop and same "—" / "not synced" display for grouped accounts
+- Once synced (via "Sync All" or clicking into an account), real counts display correctly
+
+**Bug #2 — Profile images not showing in groups:**
+- `account-group-section.tsx:37`: Added `AvatarImage` import and rendered it with `account.profile_image_url`
+- `account-posts-list.tsx:4`: Same fix for the account detail header view
+
+**P2 — Styling inconsistency (grouped vs ungrouped):**
+- Normalized grouped card padding from `p-3` to `p-4`
+- Removed constrained avatar size (`h-8 w-8`) to match ungrouped default
+- Changed post count font from `text-sm` to `text-lg` to match ungrouped
+
+All changes type-check cleanly with no new errors.

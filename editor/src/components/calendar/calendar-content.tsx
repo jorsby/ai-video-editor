@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CalendarGrid } from './calendar-grid';
 import { CalendarWeekView } from './calendar-week-view';
@@ -513,6 +514,23 @@ export function CalendarContent() {
         hasActiveFilters={hasActiveFilters}
         onClearAll={clearAllFilters}
       />
+
+      {/* Failed posts banner */}
+      {counts.failed > 0 && statusFilter !== 'failed' && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="font-medium">
+            {counts.failed} post{counts.failed !== 1 ? 's' : ''} failed to publish
+          </span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('failed')}
+            className="ml-auto text-xs font-medium underline underline-offset-2 hover:text-red-300"
+          >
+            Show failed
+          </button>
+        </div>
+      )}
 
       {/* Calendar view */}
       {isLoading && !calendarData ? (

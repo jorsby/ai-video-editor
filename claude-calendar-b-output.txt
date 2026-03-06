@@ -1,0 +1,17 @@
+Plan written to `CALENDAR_PLAN_B.md`. Here's what I found and proposed:
+
+**Critical findings:**
+1. **The cron endpoint has no trigger** — no `vercel.json`, no pg_cron, nothing. Scheduled posts never fire.
+2. **No concurrency protection** — overlapping cron invocations could double-publish.
+3. **Admin client may have a schema bug** — doesn't specify `social_auth` schema.
+4. **Zero retry logic** — failed posts stay failed forever.
+5. **Sequential processing** — 10 due posts block each other.
+
+**Architecture decisions:**
+- **Vercel Cron** (1-minute interval) with Postgres `FOR UPDATE SKIP LOCKED` for concurrency safety
+- **Per-account retry** with exponential backoff (2min → 8min → 32min, max 3 retries)
+- **Materialized recurring posts** linked to a parent via `recurrence_parent_id`
+- **Publish log table** for audit trail and debugging
+- **Atomic claim function** (`claim_scheduled_posts` RPC) that batches 5 posts per tick
+
+**4 phases:** Make it work → Add retries → Recurring schedules → Monitoring
