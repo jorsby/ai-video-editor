@@ -9,10 +9,7 @@ function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function uploadMedia(
-  token: string,
-  mediaUrl: string
-): Promise<string> {
+async function uploadMedia(token: string, mediaUrl: string): Promise<string> {
   // Download media
   const downloadRes = await fetch(mediaUrl, {
     signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
@@ -112,7 +109,9 @@ async function waitForProcessing(
 
     if (!info || info.state === 'succeeded') return;
     if (info.state === 'failed') {
-      throw new Error(`Media processing failed: ${JSON.stringify(info.error || info)}`);
+      throw new Error(
+        `Media processing failed: ${JSON.stringify(info.error || info)}`
+      );
     }
 
     delay = Math.min((info.check_after_secs || 5) * 1_000, 30_000);
@@ -164,18 +163,24 @@ export async function deleteTweet(
   tweetId: string
 ): Promise<PublishResult> {
   try {
-    const res = await fetch(`${TWITTER_API}/tweets/${encodeURIComponent(tweetId)}`, {
-      method: 'DELETE',
-      headers: authHeaders(token),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const res = await fetch(
+      `${TWITTER_API}/tweets/${encodeURIComponent(tweetId)}`,
+      {
+        method: 'DELETE',
+        headers: authHeaders(token),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }
+    );
 
     if (res.ok) {
       return { success: true, platformPostId: tweetId };
     }
 
     const data = await res.json().catch(() => null);
-    return { success: false, error: `Delete tweet failed: ${JSON.stringify(data || res.status)}` };
+    return {
+      success: false,
+      error: `Delete tweet failed: ${JSON.stringify(data || res.status)}`,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[twitter.deleteTweet]', msg);

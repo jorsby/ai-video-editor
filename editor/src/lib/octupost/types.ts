@@ -22,11 +22,27 @@ export interface OctupostToken {
 
 // --- DB types ---
 
-export type Platform = 'instagram' | 'facebook' | 'tiktok' | 'twitter' | 'youtube';
+export type Platform =
+  | 'instagram'
+  | 'facebook'
+  | 'tiktok'
+  | 'twitter'
+  | 'youtube';
 export type MediaType = 'video' | 'image' | 'carousel';
 export type ScheduleType = 'now' | 'scheduled';
-export type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'partial' | 'failed';
-export type PostAccountStatus = 'pending' | 'uploading' | 'publishing' | 'published' | 'failed';
+export type PostStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'publishing'
+  | 'published'
+  | 'partial'
+  | 'failed';
+export type PostAccountStatus =
+  | 'pending'
+  | 'uploading'
+  | 'publishing'
+  | 'published'
+  | 'failed';
 
 export interface SocialAccount {
   id: string;

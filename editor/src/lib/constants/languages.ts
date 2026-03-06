@@ -31,7 +31,9 @@ export type LanguageCode = string;
 
 // Helper for display
 export function getLanguageName(code: string): string {
-  return SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name ?? code.toUpperCase();
+  return (
+    SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name ?? code.toUpperCase()
+  );
 }
 
 // Known default voices — fallback for codes not listed

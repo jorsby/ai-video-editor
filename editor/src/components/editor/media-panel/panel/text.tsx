@@ -99,8 +99,15 @@ const HOOK_PRESETS = [
       fill: '#ffffff',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 8, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.7, blur: 6, angle: Math.PI / 4, distance: 3 },
-      fontUrl: 'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf',
+      dropShadow: {
+        color: '#000000',
+        alpha: 0.7,
+        blur: 6,
+        angle: Math.PI / 4,
+        distance: 3,
+      },
+      fontUrl:
+        'https://fonts.gstatic.com/s/bangers/v13/FeVQS0BTqb0h60ACL5la2bxii28.ttf',
     },
   },
   // 1 — Hormozi: Business/authority (Montserrat, gold, heavy outline)
@@ -113,8 +120,15 @@ const HOOK_PRESETS = [
       fill: '#FFD700',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 8, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.6, blur: 6, angle: Math.PI / 4, distance: 3 },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      dropShadow: {
+        color: '#000000',
+        alpha: 0.6,
+        blur: 6,
+        angle: Math.PI / 4,
+        distance: 3,
+      },
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
   // 2 — Clean White: CapCut default, most versatile
@@ -127,7 +141,8 @@ const HOOK_PRESETS = [
       fill: '#ffffff',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 7, join: 'round' },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
   // 3 — Heavy Outline: Gym/motivation, ultra-legible condensed
@@ -152,8 +167,15 @@ const HOOK_PRESETS = [
       fill: '#ffffff',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 5, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.5, blur: 10, angle: Math.PI / 2, distance: 3 },
-      fontUrl: 'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf',
+      dropShadow: {
+        color: '#000000',
+        alpha: 0.5,
+        blur: 10,
+        angle: Math.PI / 2,
+        distance: 3,
+      },
+      fontUrl:
+        'https://fonts.gstatic.com/s/poppins/v15/pxiByp8kv8JHgFVrLCz7V1tvFP-KUEg.ttf',
     },
   },
   // 5 — Breaking: News/drama urgency (white text, red stroke)
@@ -166,7 +188,8 @@ const HOOK_PRESETS = [
       fill: '#ffffff',
       textCase: 'uppercase' as const,
       stroke: { color: '#CC0000', width: 8, join: 'round' },
-      fontUrl: 'https://fonts.gstatic.com/s/roboto/v29/KFOlCnqEu92Fr1MmYUtvAx05IsDqlA.ttf',
+      fontUrl:
+        'https://fonts.gstatic.com/s/roboto/v29/KFOlCnqEu92Fr1MmYUtvAx05IsDqlA.ttf',
     },
   },
   // 6 — Neon Green: Gaming/tech/hacker
@@ -179,7 +202,13 @@ const HOOK_PRESETS = [
       fill: '#39FF14',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 6, join: 'round' },
-      dropShadow: { color: '#39FF14', alpha: 0.7, blur: 12, angle: 0, distance: 0 },
+      dropShadow: {
+        color: '#39FF14',
+        alpha: 0.7,
+        blur: 12,
+        angle: 0,
+        distance: 0,
+      },
     },
   },
   // 7 — Fire: Warm/motivation (orange, heavy outline)
@@ -192,7 +221,8 @@ const HOOK_PRESETS = [
       fill: '#FF4D00',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 8, join: 'round' },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
   // 8 — Cinematic: Documentary/luxury (warm serif, soft shadow)
@@ -205,7 +235,13 @@ const HOOK_PRESETS = [
       fill: '#F5E6CC',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 6, join: 'round' },
-      dropShadow: { color: '#000000', alpha: 0.7, blur: 10, angle: Math.PI / 4, distance: 4 },
+      dropShadow: {
+        color: '#000000',
+        alpha: 0.7,
+        blur: 10,
+        angle: Math.PI / 4,
+        distance: 4,
+      },
     },
   },
   // 9 — Electric Pop: Tech/finance/gaming (green, heavy outline)
@@ -218,7 +254,8 @@ const HOOK_PRESETS = [
       fill: '#00FF88',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 8, join: 'round' },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
   // 10 — Sky Blue: Educational/trust
@@ -231,7 +268,8 @@ const HOOK_PRESETS = [
       fill: '#00BFFF',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 7, join: 'round' },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
   // 11 — Sunset: Travel/food/warm energy
@@ -244,8 +282,15 @@ const HOOK_PRESETS = [
       fill: '#FF6B35',
       textCase: 'uppercase' as const,
       stroke: { color: '#000000', width: 6, join: 'round' },
-      dropShadow: { color: '#FF6B35', alpha: 0.5, blur: 8, angle: 0, distance: 0 },
-      fontUrl: 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
+      dropShadow: {
+        color: '#FF6B35',
+        alpha: 0.5,
+        blur: 8,
+        angle: 0,
+        distance: 0,
+      },
+      fontUrl:
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf',
     },
   },
 ];
@@ -261,18 +306,58 @@ interface HookPresetAnimation {
   params?: any;
 }
 
-const HOOK_ANIMATIONS: { name: string; animation: HookPresetAnimation | null }[] = [
+const HOOK_ANIMATIONS: {
+  name: string;
+  animation: HookPresetAnimation | null;
+}[] = [
   { name: 'None', animation: null },
-  { name: 'Pop In', animation: { name: 'wobbleZoomIn', opts: { duration: 400_000 } } },
-  { name: 'Slam Down', animation: { name: 'dropBlurIn', opts: { duration: 350_000 } } },
-  { name: 'Typewriter', animation: { name: 'charTypewriter', opts: { duration: 500_000 } } },
-  { name: 'Slide Up', animation: { name: 'slideIn', opts: { duration: 400_000 }, params: { direction: 'bottom' } } },
-  { name: 'Word Reveal', animation: { name: 'wordFadeIn', opts: { duration: 600_000 } } },
-  { name: 'Glitch In', animation: { name: 'glitchSlideIn', opts: { duration: 500_000 } } },
-  { name: 'Cinematic Zoom', animation: { name: 'zoomBlurIn', opts: { duration: 450_000 } } },
-  { name: 'Flash Zoom', animation: { name: 'flashZoomIn', opts: { duration: 350_000 } } },
-  { name: 'Snap In', animation: { name: 'zoomIn', opts: { duration: 300_000, easing: 'easeOutCubic' } } },
-  { name: 'Char Fade', animation: { name: 'charFadeIn', opts: { duration: 600_000 } } },
+  {
+    name: 'Pop In',
+    animation: { name: 'wobbleZoomIn', opts: { duration: 400_000 } },
+  },
+  {
+    name: 'Slam Down',
+    animation: { name: 'dropBlurIn', opts: { duration: 350_000 } },
+  },
+  {
+    name: 'Typewriter',
+    animation: { name: 'charTypewriter', opts: { duration: 500_000 } },
+  },
+  {
+    name: 'Slide Up',
+    animation: {
+      name: 'slideIn',
+      opts: { duration: 400_000 },
+      params: { direction: 'bottom' },
+    },
+  },
+  {
+    name: 'Word Reveal',
+    animation: { name: 'wordFadeIn', opts: { duration: 600_000 } },
+  },
+  {
+    name: 'Glitch In',
+    animation: { name: 'glitchSlideIn', opts: { duration: 500_000 } },
+  },
+  {
+    name: 'Cinematic Zoom',
+    animation: { name: 'zoomBlurIn', opts: { duration: 450_000 } },
+  },
+  {
+    name: 'Flash Zoom',
+    animation: { name: 'flashZoomIn', opts: { duration: 350_000 } },
+  },
+  {
+    name: 'Snap In',
+    animation: {
+      name: 'zoomIn',
+      opts: { duration: 300_000, easing: 'easeOutCubic' },
+    },
+  },
+  {
+    name: 'Char Fade',
+    animation: { name: 'charFadeIn', opts: { duration: 600_000 } },
+  },
 ];
 
 function formatTime(seconds: number) {
@@ -341,7 +426,7 @@ export default function PanelText() {
 
   const handleGenerateHook = async (
     presetStyle?: (typeof HOOK_PRESETS)[0]['style'],
-    presetAnimation?: HookPresetAnimation,
+    presetAnimation?: HookPresetAnimation
   ) => {
     if (!studio || mediaItems.length === 0) return;
 
@@ -357,8 +442,15 @@ export default function PanelText() {
 
       // Also load preset font if different from default
       const presetFontUrl = (presetStyle as any)?.fontUrl;
-      if (presetFontUrl && presetStyle?.fontFamily && presetStyle.fontFamily !== fontName) {
-        await fontManager.addFont({ name: presetStyle.fontFamily, url: presetFontUrl });
+      if (
+        presetFontUrl &&
+        presetStyle?.fontFamily &&
+        presetStyle.fontFamily !== fontName
+      ) {
+        await fontManager.addFont({
+          name: presetStyle.fontFamily,
+          url: presetFontUrl,
+        });
       }
 
       const res = await fetch('/api/generate-hook', {
@@ -436,7 +528,10 @@ export default function PanelText() {
     const preset = HOOK_PRESETS[styleIdx];
     const fontUrl = (preset.style as any).fontUrl;
     if (fontUrl && preset.style.fontFamily) {
-      await fontManager.addFont({ name: preset.style.fontFamily, url: fontUrl });
+      await fontManager.addFont({
+        name: preset.style.fontFamily,
+        url: fontUrl,
+      });
     }
 
     setSelectedStyleIdx(styleIdx);
@@ -450,8 +545,10 @@ export default function PanelText() {
     (hookClip as any).update({ style: { ...preset.style } });
     (hookClip as any).clearAnimations();
     if (anim) {
-      const resolvedOpts = anim.opts.iterCount === Infinity
-        ? { ...anim.opts, duration: hookClip.duration } : anim.opts;
+      const resolvedOpts =
+        anim.opts.iterCount === Infinity
+          ? { ...anim.opts, duration: hookClip.duration }
+          : anim.opts;
       (hookClip as any).addAnimation(anim.name, resolvedOpts, anim.params);
     }
   };
@@ -463,8 +560,10 @@ export default function PanelText() {
     (hookClip as any).clearAnimations();
     const anim = HOOK_ANIMATIONS[animIdx].animation;
     if (anim) {
-      const resolvedOpts = anim.opts.iterCount === Infinity
-        ? { ...anim.opts, duration: hookClip.duration } : anim.opts;
+      const resolvedOpts =
+        anim.opts.iterCount === Infinity
+          ? { ...anim.opts, duration: hookClip.duration }
+          : anim.opts;
       (hookClip as any).addAnimation(anim.name, resolvedOpts, anim.params);
     }
   };
@@ -574,10 +673,12 @@ export default function PanelText() {
                 variant="ghost"
                 size="sm"
                 className="h-6 text-[10px] text-muted-foreground hover:text-white"
-                onClick={() => handleGenerateHook(
-                  HOOK_PRESETS[selectedStyleIdx].style,
-                  HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined,
-                )}
+                onClick={() =>
+                  handleGenerateHook(
+                    HOOK_PRESETS[selectedStyleIdx].style,
+                    HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined
+                  )
+                }
                 disabled={isGeneratingHook || mediaItems.length === 0}
               >
                 {isGeneratingHook ? (
@@ -649,10 +750,12 @@ export default function PanelText() {
           </>
         ) : (
           <Button
-            onClick={() => handleGenerateHook(
-              HOOK_PRESETS[selectedStyleIdx].style,
-              HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined,
-            )}
+            onClick={() =>
+              handleGenerateHook(
+                HOOK_PRESETS[selectedStyleIdx].style,
+                HOOK_ANIMATIONS[selectedAnimIdx].animation ?? undefined
+              )
+            }
             variant="outline"
             size="sm"
             className="w-full"

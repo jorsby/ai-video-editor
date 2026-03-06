@@ -1,5 +1,9 @@
 import type { PlatformMediaItem } from '../types';
-import { TokenExpiredError, RateLimitError, PlatformApiError } from './instagram';
+import {
+  TokenExpiredError,
+  RateLimitError,
+  PlatformApiError,
+} from './instagram';
 
 export async function fetchYouTubeMedia(
   accessToken: string,
@@ -12,13 +16,19 @@ export async function fetchYouTubeMedia(
   );
 
   if (channelRes.status === 401 || channelRes.status === 403) {
-    throw new TokenExpiredError('YouTube token expired. Please re-authorize this account.');
+    throw new TokenExpiredError(
+      'YouTube token expired. Please re-authorize this account.'
+    );
   }
   if (channelRes.status === 429) {
-    throw new RateLimitError('YouTube API rate limit reached. Please try again later.');
+    throw new RateLimitError(
+      'YouTube API rate limit reached. Please try again later.'
+    );
   }
   if (!channelRes.ok) {
-    throw new PlatformApiError(`Failed to fetch YouTube channel. Status: ${channelRes.status}`);
+    throw new PlatformApiError(
+      `Failed to fetch YouTube channel. Status: ${channelRes.status}`
+    );
   }
 
   const channelData = await channelRes.json();
@@ -47,13 +57,19 @@ export async function fetchYouTubeMedia(
     );
 
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('YouTube token expired. Please re-authorize this account.');
+      throw new TokenExpiredError(
+        'YouTube token expired. Please re-authorize this account.'
+      );
     }
     if (res.status === 429) {
-      throw new RateLimitError('YouTube API rate limit reached. Please try again later.');
+      throw new RateLimitError(
+        'YouTube API rate limit reached. Please try again later.'
+      );
     }
     if (!res.ok) {
-      throw new PlatformApiError(`Failed to fetch YouTube videos. Status: ${res.status}`);
+      throw new PlatformApiError(
+        `Failed to fetch YouTube videos. Status: ${res.status}`
+      );
     }
 
     const data = await res.json();
@@ -62,7 +78,9 @@ export async function fetchYouTubeMedia(
     for (const raw of playlistItems) {
       const item = raw as Record<string, unknown>;
       const snippet = item.snippet as Record<string, unknown>;
-      const thumbnails = snippet.thumbnails as Record<string, Record<string, unknown>> | undefined;
+      const thumbnails = snippet.thumbnails as
+        | Record<string, Record<string, unknown>>
+        | undefined;
       const resourceId = snippet.resourceId as Record<string, unknown>;
       const videoId = String(resourceId?.videoId || '');
 

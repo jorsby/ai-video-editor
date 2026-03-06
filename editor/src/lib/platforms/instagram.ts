@@ -5,10 +5,7 @@ const POLL_INTERVAL_MS = 3_000;
 const POLL_MAX_MS = 5 * 60 * 1_000; // 5 minutes for video
 const FETCH_TIMEOUT_MS = 30_000;
 
-async function graphFetch(
-  url: string,
-  init?: RequestInit
-): Promise<Response> {
+async function graphFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
     ...init,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -65,7 +62,10 @@ export async function publishPhoto(
     });
     const createData = await createRes.json();
     if (!createRes.ok) {
-      return { success: false, error: `Create container failed: ${JSON.stringify(createData.error || createData)}` };
+      return {
+        success: false,
+        error: `Create container failed: ${JSON.stringify(createData.error || createData)}`,
+      };
     }
     const containerId = createData.id as string;
 
@@ -86,7 +86,10 @@ export async function publishPhoto(
     );
     const publishData = await publishRes.json();
     if (!publishRes.ok) {
-      return { success: false, error: `Publish failed: ${JSON.stringify(publishData.error || publishData)}` };
+      return {
+        success: false,
+        error: `Publish failed: ${JSON.stringify(publishData.error || publishData)}`,
+      };
     }
 
     return { success: true, platformPostId: publishData.id as string };
@@ -118,7 +121,10 @@ export async function publishCarousel(
       });
       const data = await res.json();
       if (!res.ok) {
-        return { success: false, error: `Child container failed: ${JSON.stringify(data.error || data)}` };
+        return {
+          success: false,
+          error: `Child container failed: ${JSON.stringify(data.error || data)}`,
+        };
       }
       childIds.push(data.id as string);
     }
@@ -139,7 +145,10 @@ export async function publishCarousel(
     });
     const carouselData = await carouselRes.json();
     if (!carouselRes.ok) {
-      return { success: false, error: `Carousel container failed: ${JSON.stringify(carouselData.error || carouselData)}` };
+      return {
+        success: false,
+        error: `Carousel container failed: ${JSON.stringify(carouselData.error || carouselData)}`,
+      };
     }
     const carouselId = carouselData.id as string;
 
@@ -160,7 +169,10 @@ export async function publishCarousel(
     );
     const publishData = await publishRes.json();
     if (!publishRes.ok) {
-      return { success: false, error: `Publish failed: ${JSON.stringify(publishData.error || publishData)}` };
+      return {
+        success: false,
+        error: `Publish failed: ${JSON.stringify(publishData.error || publishData)}`,
+      };
     }
 
     return { success: true, platformPostId: publishData.id as string };
@@ -191,7 +203,10 @@ export async function publishReel(
     });
     const createData = await createRes.json();
     if (!createRes.ok) {
-      return { success: false, error: `Create reel container failed: ${JSON.stringify(createData.error || createData)}` };
+      return {
+        success: false,
+        error: `Create reel container failed: ${JSON.stringify(createData.error || createData)}`,
+      };
     }
     const containerId = createData.id as string;
 
@@ -212,7 +227,10 @@ export async function publishReel(
     );
     const publishData = await publishRes.json();
     if (!publishRes.ok) {
-      return { success: false, error: `Publish reel failed: ${JSON.stringify(publishData.error || publishData)}` };
+      return {
+        success: false,
+        error: `Publish reel failed: ${JSON.stringify(publishData.error || publishData)}`,
+      };
     }
 
     return { success: true, platformPostId: publishData.id as string };

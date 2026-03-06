@@ -22,7 +22,10 @@ export async function uploadVideo(
       signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
     });
     if (!downloadRes.ok) {
-      return { success: false, error: `Failed to download video: ${downloadRes.status}` };
+      return {
+        success: false,
+        error: `Failed to download video: ${downloadRes.status}`,
+      };
     }
     const videoBuffer = await downloadRes.arrayBuffer();
     const contentType = downloadRes.headers.get('content-type') || 'video/mp4';
@@ -66,7 +69,10 @@ export async function uploadVideo(
     });
     const uploadData = await uploadRes.json();
     if (!uploadRes.ok) {
-      return { success: false, error: `Upload failed: ${JSON.stringify(uploadData.error || uploadData)}` };
+      return {
+        success: false,
+        error: `Upload failed: ${JSON.stringify(uploadData.error || uploadData)}`,
+      };
     }
 
     return { success: true, platformPostId: uploadData.id as string };
@@ -82,18 +88,24 @@ export async function deleteVideo(
   videoId: string
 ): Promise<PublishResult> {
   try {
-    const res = await fetch(`${YT_API}/videos?id=${encodeURIComponent(videoId)}`, {
-      method: 'DELETE',
-      headers: authHeaders(token),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const res = await fetch(
+      `${YT_API}/videos?id=${encodeURIComponent(videoId)}`,
+      {
+        method: 'DELETE',
+        headers: authHeaders(token),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }
+    );
 
     if (res.status === 204 || res.ok) {
       return { success: true, platformPostId: videoId };
     }
 
     const data = await res.json().catch(() => null);
-    return { success: false, error: `Delete failed: ${JSON.stringify(data?.error || res.status)}` };
+    return {
+      success: false,
+      error: `Delete failed: ${JSON.stringify(data?.error || res.status)}`,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[youtube.deleteVideo]', msg);
@@ -117,14 +129,18 @@ export async function updateVideo(
     );
     const getData = await getRes.json();
     if (!getRes.ok || !getData.items?.length) {
-      return { success: false, error: `Failed to get video: ${JSON.stringify(getData.error || getData)}` };
+      return {
+        success: false,
+        error: `Failed to get video: ${JSON.stringify(getData.error || getData)}`,
+      };
     }
 
     const snippet = getData.items[0].snippet;
 
     // 2. Merge fields
     if (fields.title !== undefined) snippet.title = fields.title;
-    if (fields.description !== undefined) snippet.description = fields.description;
+    if (fields.description !== undefined)
+      snippet.description = fields.description;
 
     // 3. Update
     const updateRes = await fetch(`${YT_API}/videos?part=snippet`, {
@@ -138,7 +154,10 @@ export async function updateVideo(
     });
     const updateData = await updateRes.json();
     if (!updateRes.ok) {
-      return { success: false, error: `Update failed: ${JSON.stringify(updateData.error || updateData)}` };
+      return {
+        success: false,
+        error: `Update failed: ${JSON.stringify(updateData.error || updateData)}`,
+      };
     }
 
     return { success: true, platformPostId: videoId };

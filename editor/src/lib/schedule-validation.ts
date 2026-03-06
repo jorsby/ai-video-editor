@@ -45,7 +45,7 @@ export function validateScheduleNotInPast(
   scheduledDate: string,
   scheduledTime: string,
   timezone: string,
-  bufferMinutes = 0,
+  bufferMinutes = 0
 ): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
     return 'Invalid date format.';
@@ -60,7 +60,10 @@ export function validateScheduleNotInPast(
   // Add buffer to current time
   const [nowH, nowM] = now.time.split(':').map(Number);
   const nowTotalMinutes = nowH * 60 + nowM + bufferMinutes;
-  const bufferedH = String(Math.floor(nowTotalMinutes / 60) % 24).padStart(2, '0');
+  const bufferedH = String(Math.floor(nowTotalMinutes / 60) % 24).padStart(
+    2,
+    '0'
+  );
   const bufferedM = String(nowTotalMinutes % 60).padStart(2, '0');
 
   // Handle day overflow from buffer

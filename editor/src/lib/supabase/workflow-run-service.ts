@@ -9,7 +9,9 @@ export async function createWorkflowRun(data: {
   timezone?: string;
 }): Promise<string> {
   const supabase = createClient('social_auth');
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const { data: row, error } = await supabase
@@ -67,7 +69,9 @@ export async function updateWorkflowRunLane(
   if (error) throw error;
 }
 
-export async function getWorkflowRunsByMonth(monthDate: Date): Promise<WorkflowRun[]> {
+export async function getWorkflowRunsByMonth(
+  monthDate: Date
+): Promise<WorkflowRun[]> {
   const supabase = createClient('social_auth');
 
   const year = monthDate.getFullYear();
@@ -87,7 +91,7 @@ export async function getWorkflowRunsByMonth(monthDate: Date): Promise<WorkflowR
     `)
     .or(
       `and(schedule_type.eq.scheduled,base_date.gte.${monthStart},base_date.lt.${monthEnd}),` +
-      `and(schedule_type.eq.now,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
+        `and(schedule_type.eq.now,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
     )
     .order('created_at', { ascending: false });
 

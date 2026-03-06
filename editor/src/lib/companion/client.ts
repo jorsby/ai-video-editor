@@ -4,7 +4,9 @@ export async function pingCompanion(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1000);
-    const res = await fetch(`${COMPANION_URL}/ping`, { signal: controller.signal });
+    const res = await fetch(`${COMPANION_URL}/ping`, {
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
     return res.ok;
   } catch {
@@ -24,7 +26,8 @@ export async function openAccountInBrowser(
       body: JSON.stringify({ platform, accountUuid, url }),
     });
     const data = await res.json();
-    if (!res.ok) return { ok: false, error: data.error || 'Failed to open browser' };
+    if (!res.ok)
+      return { ok: false, error: data.error || 'Failed to open browser' };
     return { ok: true };
   } catch {
     return { ok: false, notRunning: true };

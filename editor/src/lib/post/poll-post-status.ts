@@ -32,7 +32,9 @@ interface PollOptions {
 
 export class PollAuthError extends Error {
   constructor() {
-    super('Authentication expired while verifying post status. Please re-publish.');
+    super(
+      'Authentication expired while verifying post status. Please re-publish.'
+    );
     this.name = 'PollAuthError';
   }
 }
@@ -66,21 +68,26 @@ export async function pollPostStatus({
       try {
         const errBody = await res.text();
         const parsed = JSON.parse(errBody);
-        lastErrorDetail = parsed.message ?? parsed.error ?? (errBody || lastErrorDetail);
-      } catch { /* keep HTTP status as fallback */ }
+        lastErrorDetail =
+          parsed.message ?? parsed.error ?? (errBody || lastErrorDetail);
+      } catch {
+        /* keep HTTP status as fallback */
+      }
 
       // 4xx = permanent client/auth error, don't retry
       if (res.status >= 400 && res.status < 500) {
         return {
           status: 'failed',
-          accounts: [{
-            accountId: '0',
-            accountName: 'System',
-            platform: 'unknown' as PostAccountResult['platform'],
-            status: 'failed',
-            errorMessage: `Post status check failed: ${lastErrorDetail}`,
-            platformPostId: null,
-          }],
+          accounts: [
+            {
+              accountId: '0',
+              accountName: 'System',
+              platform: 'unknown' as PostAccountResult['platform'],
+              status: 'failed',
+              errorMessage: `Post status check failed: ${lastErrorDetail}`,
+              platformPostId: null,
+            },
+          ],
         };
       }
 
@@ -88,14 +95,16 @@ export async function pollPostStatus({
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         return {
           status: 'failed',
-          accounts: [{
-            accountId: '0',
-            accountName: 'System',
-            platform: 'unknown' as PostAccountResult['platform'],
-            status: 'failed',
-            errorMessage: `Unable to verify post status after ${MAX_CONSECUTIVE_ERRORS} attempts: ${lastErrorDetail}`,
-            platformPostId: null,
-          }],
+          accounts: [
+            {
+              accountId: '0',
+              accountName: 'System',
+              platform: 'unknown' as PostAccountResult['platform'],
+              status: 'failed',
+              errorMessage: `Unable to verify post status after ${MAX_CONSECUTIVE_ERRORS} attempts: ${lastErrorDetail}`,
+              platformPostId: null,
+            },
+          ],
         };
       }
       await sleep(getNextInterval(Date.now() - startTime), signal);
@@ -117,20 +126,29 @@ export async function pollPostStatus({
   }
 
   // Timeout — return unconfirmed
-  return { status: 'publishing' as PostVerificationResult['status'], accounts: [] };
+  return {
+    status: 'publishing' as PostVerificationResult['status'],
+    accounts: [],
+  };
 }
 
 function extractAccountResults(
   post: Record<string, unknown>
 ): PostAccountResult[] {
-  const postAccounts = post.post_accounts as Array<Record<string, unknown>> | undefined;
+  const postAccounts = post.post_accounts as
+    | Array<Record<string, unknown>>
+    | undefined;
   if (!Array.isArray(postAccounts)) return [];
 
   return postAccounts.map((pa) => ({
     accountId: (pa.octupost_account_id as string) || '',
-    accountName: (pa.account_name as string) || (pa.platform as string) || 'Unknown',
+    accountName:
+      (pa.account_name as string) || (pa.platform as string) || 'Unknown',
     platform: ((pa.platform as string) || 'unknown') as Platform,
-    status: (pa.status as string) === 'published' ? 'published' as const : 'failed' as const,
+    status:
+      (pa.status as string) === 'published'
+        ? ('published' as const)
+        : ('failed' as const),
     errorMessage: (pa.error_message as string) || null,
     platformPostId: (pa.platform_post_id as string) || null,
   }));
@@ -139,9 +157,13 @@ function extractAccountResults(
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timeout);
-      resolve();
-    }, { once: true });
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true }
+    );
   });
 }

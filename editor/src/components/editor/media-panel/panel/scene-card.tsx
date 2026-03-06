@@ -83,7 +83,10 @@ interface SceneCardProps {
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
   onTranslateScene?: (sceneId: string, sourceText: string) => Promise<void>;
-  onReadSceneAllLanguages?: (sceneId: string, currentText: string) => Promise<void>;
+  onReadSceneAllLanguages?: (
+    sceneId: string,
+    currentText: string
+  ) => Promise<void>;
   onGenerateSceneVideo?: (
     sceneId: string,
     newVisualPrompt: string
@@ -362,7 +365,10 @@ interface ExpandedContentProps {
   sceneId: string;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
   onTranslateScene?: (sceneId: string, sourceText: string) => Promise<void>;
-  onReadSceneAllLanguages?: (sceneId: string, currentText: string) => Promise<void>;
+  onReadSceneAllLanguages?: (
+    sceneId: string,
+    currentText: string
+  ) => Promise<void>;
   onGenerateSceneVideo?: (
     sceneId: string,
     newVisualPrompt: string
@@ -496,7 +502,8 @@ function ExpandedContent({
               onBlur={() => {
                 // Delay to allow button clicks to register before blur saves
                 setTimeout(() => {
-                  if (!isReadingTts && !isTranslating && !isReadingAllTts) handleSaveVoiceover();
+                  if (!isReadingTts && !isTranslating && !isReadingAllTts)
+                    handleSaveVoiceover();
                 }, 150);
               }}
               onKeyDown={(e) => {
@@ -563,10 +570,12 @@ function ExpandedContent({
                     onMouseDown={(e) => {
                       e.preventDefault();
                       setIsReadingAllTts(true);
-                      onReadSceneAllLanguages(sceneId, editedVoiceover).finally(() => {
-                        setIsReadingAllTts(false);
-                        setIsEditingVoiceover(false);
-                      });
+                      onReadSceneAllLanguages(sceneId, editedVoiceover).finally(
+                        () => {
+                          setIsReadingAllTts(false);
+                          setIsEditingVoiceover(false);
+                        }
+                      );
                     }}
                   >
                     {isReadingAllTts ? (

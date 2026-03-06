@@ -180,8 +180,7 @@ export async function uploadFileMultipart(
     throw new Error('Failed to initiate multipart upload');
   }
 
-  const { uploadId, key, presignedUrls, url, partCount } =
-    await initRes.json();
+  const { uploadId, key, presignedUrls, url, partCount } = await initRes.json();
 
   // 2. Slice file into chunks
   const chunks = Array.from({ length: partCount }, (_, i) => {

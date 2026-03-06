@@ -1,5 +1,9 @@
 import type { PlatformMediaItem } from '../types';
-import { TokenExpiredError, RateLimitError, PlatformApiError } from './instagram';
+import {
+  TokenExpiredError,
+  RateLimitError,
+  PlatformApiError,
+} from './instagram';
 
 /**
  * Exchanges a user access token for a Facebook Page access token.
@@ -30,9 +34,13 @@ export async function getFacebookPageToken(
       providerId,
     });
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError(`Facebook token expired (${res.status}). API error: ${JSON.stringify(err?.error || err)}. Please re-authorize this account.`);
+      throw new TokenExpiredError(
+        `Facebook token expired (${res.status}). API error: ${JSON.stringify(err?.error || err)}. Please re-authorize this account.`
+      );
     }
-    throw new PlatformApiError(`Failed to get Facebook page token. Status: ${res.status}, Error: ${JSON.stringify(err?.error || err)}`);
+    throw new PlatformApiError(
+      `Failed to get Facebook page token. Status: ${res.status}, Error: ${JSON.stringify(err?.error || err)}`
+    );
   }
   const data: any = await res.json();
   console.log('[getFacebookPageToken] Success', {
@@ -41,7 +49,9 @@ export async function getFacebookPageToken(
     responseKeys: Object.keys(data),
   });
   if (!data.access_token) {
-    throw new PlatformApiError('No page access token returned. Ensure the account has manage_pages or pages_read_engagement permission.');
+    throw new PlatformApiError(
+      'No page access token returned. Ensure the account has manage_pages or pages_read_engagement permission.'
+    );
   }
   return data.access_token;
 }
@@ -69,12 +79,18 @@ export async function fetchFacebookMedia(
       });
 
       if (res.status === 401 || res.status === 403) {
-        throw new TokenExpiredError(`Facebook token expired. Please re-authorize this account. (API: ${JSON.stringify(errorBody?.error || errorBody)})`);
+        throw new TokenExpiredError(
+          `Facebook token expired. Please re-authorize this account. (API: ${JSON.stringify(errorBody?.error || errorBody)})`
+        );
       }
       if (res.status === 429) {
-        throw new RateLimitError('Facebook API rate limit reached. Please try again later.');
+        throw new RateLimitError(
+          'Facebook API rate limit reached. Please try again later.'
+        );
       }
-      throw new PlatformApiError(`Failed to fetch media from Facebook. Status: ${res.status} — ${JSON.stringify(errorBody?.error || errorBody)}`);
+      throw new PlatformApiError(
+        `Failed to fetch media from Facebook. Status: ${res.status} — ${JSON.stringify(errorBody?.error || errorBody)}`
+      );
     }
 
     const data: any = await res.json();

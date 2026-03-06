@@ -3,10 +3,7 @@ import type { PublishResult } from './types';
 const GRAPH_API = 'https://graph.facebook.com/v24.0';
 const FETCH_TIMEOUT_MS = 30_000;
 
-async function graphFetch(
-  url: string,
-  init?: RequestInit
-): Promise<Response> {
+async function graphFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
     ...init,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -50,7 +47,10 @@ export async function publishPhoto(
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: `Photo upload failed: ${JSON.stringify(data.error || data)}` };
+      return {
+        success: false,
+        error: `Photo upload failed: ${JSON.stringify(data.error || data)}`,
+      };
     }
 
     return { success: true, platformPostId: data.post_id || data.id };
@@ -84,7 +84,10 @@ export async function publishMultiPhoto(
       });
       const data = await res.json();
       if (!res.ok) {
-        return { success: false, error: `Unpublished photo failed: ${JSON.stringify(data.error || data)}` };
+        return {
+          success: false,
+          error: `Unpublished photo failed: ${JSON.stringify(data.error || data)}`,
+        };
       }
       photoIds.push(data.id as string);
     }
@@ -92,7 +95,9 @@ export async function publishMultiPhoto(
     // 2. Create feed post with attached media
     const attachedMedia: Record<string, string> = {};
     photoIds.forEach((id, i) => {
-      attachedMedia[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id });
+      attachedMedia[`attached_media[${i}]`] = JSON.stringify({
+        media_fbid: id,
+      });
     });
 
     const params = new URLSearchParams({
@@ -108,7 +113,10 @@ export async function publishMultiPhoto(
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: `Multi-photo post failed: ${JSON.stringify(data.error || data)}` };
+      return {
+        success: false,
+        error: `Multi-photo post failed: ${JSON.stringify(data.error || data)}`,
+      };
     }
 
     return { success: true, platformPostId: data.id as string };
@@ -139,7 +147,10 @@ export async function publishVideo(
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: `Video upload failed: ${JSON.stringify(data.error || data)}` };
+      return {
+        success: false,
+        error: `Video upload failed: ${JSON.stringify(data.error || data)}`,
+      };
     }
 
     return { success: true, platformPostId: data.id as string };
@@ -164,7 +175,10 @@ export async function deletePost(
     );
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: `Delete failed: ${JSON.stringify(data.error || data)}` };
+      return {
+        success: false,
+        error: `Delete failed: ${JSON.stringify(data.error || data)}`,
+      };
     }
 
     return { success: true, platformPostId: postId };
@@ -194,7 +208,10 @@ export async function updatePost(
     });
     const data = await res.json();
     if (!res.ok) {
-      return { success: false, error: `Update failed: ${JSON.stringify(data.error || data)}` };
+      return {
+        success: false,
+        error: `Update failed: ${JSON.stringify(data.error || data)}`,
+      };
     }
 
     return { success: true, platformPostId: postId };

@@ -27,7 +27,10 @@ function write(posts: PendingPost[]): void {
   }
 }
 
-export function savePendingPost(postUuid: string, accountNames: string[]): void {
+export function savePendingPost(
+  postUuid: string,
+  accountNames: string[]
+): void {
   const posts = read().filter((p) => p.postUuid !== postUuid); // deduplicate
   posts.push({ postUuid, accountNames, savedAt: Date.now() });
   write(posts);

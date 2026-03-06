@@ -1,5 +1,9 @@
 import type { PlatformMediaItem } from '../types';
-import { TokenExpiredError, RateLimitError, PlatformApiError } from './instagram';
+import {
+  TokenExpiredError,
+  RateLimitError,
+  PlatformApiError,
+} from './instagram';
 
 export async function fetchTikTokMedia(
   accessToken: string,
@@ -22,7 +26,7 @@ export async function fetchTikTokMedia(
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
@@ -30,13 +34,19 @@ export async function fetchTikTokMedia(
     );
 
     if (res.status === 401 || res.status === 403) {
-      throw new TokenExpiredError('TikTok token expired. Please re-authorize this account.');
+      throw new TokenExpiredError(
+        'TikTok token expired. Please re-authorize this account.'
+      );
     }
     if (res.status === 429) {
-      throw new RateLimitError('TikTok API rate limit reached. Please try again later.');
+      throw new RateLimitError(
+        'TikTok API rate limit reached. Please try again later.'
+      );
     }
     if (!res.ok) {
-      throw new PlatformApiError(`Failed to fetch media from TikTok. Status: ${res.status}`);
+      throw new PlatformApiError(
+        `Failed to fetch media from TikTok. Status: ${res.status}`
+      );
     }
 
     const data = await res.json();

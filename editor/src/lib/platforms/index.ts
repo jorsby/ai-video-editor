@@ -17,8 +17,18 @@ export interface PublishOptions {
   platformOptions?: Record<string, unknown>;
 }
 
-export async function publishToAccount(opts: PublishOptions): Promise<PublishResult> {
-  const { platform, accountId, token, mediaUrl, mediaType, caption, platformOptions } = opts;
+export async function publishToAccount(
+  opts: PublishOptions
+): Promise<PublishResult> {
+  const {
+    platform,
+    accountId,
+    token,
+    mediaUrl,
+    mediaType,
+    caption,
+    platformOptions,
+  } = opts;
 
   switch (platform) {
     case 'instagram': {

@@ -141,10 +141,7 @@ export async function clearTimeline(
   const supabase = createClient('studio');
 
   // Fetch track IDs for this project (optionally filtered by language)
-  let query = supabase
-    .from('tracks')
-    .select('id')
-    .eq('project_id', projectId);
+  let query = supabase.from('tracks').select('id').eq('project_id', projectId);
   if (language) {
     query = query.eq('language', language);
   }
@@ -256,8 +253,7 @@ export async function getProjectLanguagesFromStoryboard(
   const allLangs = new Set<string>();
   for (const sb of allStoryboards ?? []) {
     if (sb.plan) {
-      const voiceoverList = (sb.plan as Record<string, unknown>)
-        .voiceover_list;
+      const voiceoverList = (sb.plan as Record<string, unknown>).voiceover_list;
       if (voiceoverList && typeof voiceoverList === 'object') {
         for (const lang of Object.keys(
           voiceoverList as Record<string, unknown>

@@ -77,7 +77,10 @@ function getLanguageBadgeColor(language: string | null): string {
   }
 }
 
-function getGridStyle(resolution: string | null, cardSize: number): React.CSSProperties {
+function getGridStyle(
+  resolution: string | null,
+  cardSize: number
+): React.CSSProperties {
   const parsed = parseResolution(resolution);
   if (!parsed || parsed.orientation === 'landscape') return {};
   const baseMin = parsed.orientation === 'portrait' ? 120 : 150;
@@ -229,7 +232,10 @@ function RenderCard({
       className="group rounded-xl border border-white/[0.08] bg-zinc-900/60 overflow-hidden transition-all duration-200 hover:border-white/20 hover:bg-zinc-900/80 hover:shadow-lg hover:shadow-black/20"
     >
       {/* Video thumbnail / player */}
-      <div className="relative rounded-t-xl bg-black/40 overflow-hidden" style={{ aspectRatio: getAspectRatio(render.resolution) }}>
+      <div
+        className="relative rounded-t-xl bg-black/40 overflow-hidden"
+        style={{ aspectRatio: getAspectRatio(render.resolution) }}
+      >
         {isVisible ? (
           <>
             <video
@@ -287,7 +293,9 @@ function RenderCard({
         )}
 
         {/* Language badge — always visible */}
-        <div className={`absolute top-2 left-2 rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm ${getLanguageBadgeColor(render.language)}`}>
+        <div
+          className={`absolute top-2 left-2 rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm ${getLanguageBadgeColor(render.language)}`}
+        >
           {render.language}
         </div>
       </div>
@@ -607,7 +615,10 @@ export default function PanelRenders() {
                     </button>
                   )}
                 </div>
-                <div className="grid gap-3" style={getGridStyle(batch.resolution, cardSize)}>
+                <div
+                  className="grid gap-3"
+                  style={getGridStyle(batch.resolution, cardSize)}
+                >
                   {batch.renders.map((render) => (
                     <RenderCard
                       key={render.id}
