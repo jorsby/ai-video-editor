@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:smoke": "tsx scripts/smoke-test.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.52",
