@@ -14,13 +14,21 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const tavilyClient = tavily({ apiKey: process.env.TAVILY_API_KEY });
+function getTavilyClient() {
+  return tavily({ apiKey: process.env.TAVILY_API_KEY });
+}
 
 export async function POST(req: Request) {
   const { createClient } = await import('@/lib/supabase/server');
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 
@@ -102,7 +110,7 @@ For video editing tasks, use the appropriate timeline tools to help users edit t
             .describe('Specific domain to search within'),
         }),
         execute: async ({ query, maxResults, domain }) => {
-          const response = await tavilyClient.search(query, {
+          const response = await getTavilyClient().search(query, {
             maxResults: maxResults ?? 5,
             includeDomains: domain ? [domain] : undefined,
           });

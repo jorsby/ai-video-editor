@@ -9,8 +9,13 @@ const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
   '1:1': { width: 1080, height: 1080 },
 };
 
-const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+function getRequiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────
 
@@ -32,7 +37,7 @@ async function sendFalRequest(
   const falResponse = await fetch(falUrl.toString(), {
     method: 'POST',
     headers: {
-      Authorization: `Key ${FAL_API_KEY}`,
+      Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ prompt }),
@@ -142,8 +147,8 @@ async function executeStartWorkflow(
   }
 
   const supabase = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    getRequiredEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
     { db: { schema: 'studio' } }
   );
 
@@ -181,7 +186,7 @@ async function executeStartWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(
     'https://queue.fal.run/workflows/octupost/generategridimage'
   );
@@ -343,7 +348,7 @@ async function sendFalGridRequest(
   const falResponse = await fetch(falUrl.toString(), {
     method: 'POST',
     headers: {
-      Authorization: `Key ${FAL_API_KEY}`,
+      Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ prompt }),
@@ -400,8 +405,8 @@ async function executeStartRefWorkflow(
   }
 
   const supabase = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    getRequiredEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
     { db: { schema: 'studio' } }
   );
 
@@ -475,7 +480,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const objectsWebhookUrl = `${APP_URL}/api/webhook/fal?${objectsWebhookParams.toString()}`;
+  const objectsWebhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${objectsWebhookParams.toString()}`;
 
   const bgWebhookParams = new URLSearchParams({
     step: 'GenGridImage',
@@ -486,7 +491,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const bgWebhookUrl = `${APP_URL}/api/webhook/fal?${bgWebhookParams.toString()}`;
+  const bgWebhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${bgWebhookParams.toString()}`;
 
   const [objectsResult, bgResult] = await Promise.all([
     sendFalGridRequest(objects_grid_prompt, objectsWebhookUrl, log),
@@ -698,9 +703,14 @@ export async function POST(req: NextRequest) {
         : { grid_image_id: r.grid_image_id }),
     });
   } catch (error) {
-    console.error('Approve storyboard error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Approve storyboard error:', message, error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      {
+        error: message.startsWith('Missing required environment variable')
+          ? message
+          : 'Internal server error',
+      },
       { status: 500 }
     );
   }

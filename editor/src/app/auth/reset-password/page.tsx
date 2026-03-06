@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useId, Suspense } from 'react';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,20 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen w-full flex items-center justify-center bg-background">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
+  );
+}
+
+function ResetPasswordContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [expired, setExpired] = useState(false);
@@ -91,7 +105,8 @@ export default function ResetPasswordPage() {
       return (
         <div className="text-center py-8 space-y-4">
           <p className="text-sm text-destructive">
-            {errorDescription?.replace(/\+/g, ' ') || 'This reset link is invalid or has expired.'}
+            {errorDescription?.replace(/\+/g, ' ') ||
+              'This reset link is invalid or has expired.'}
           </p>
           <Link
             href="/login"
@@ -170,11 +185,7 @@ export default function ResetPasswordPage() {
           />
         </div>
 
-        <Button
-          type="submit"
-          className="w-full h-10 mt-2"
-          disabled={isLoading}
-        >
+        <Button type="submit" className="w-full h-10 mt-2" disabled={isLoading}>
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
