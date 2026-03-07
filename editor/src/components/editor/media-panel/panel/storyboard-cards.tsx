@@ -1125,9 +1125,7 @@ export function StoryboardCards({
         scene_ids: Array.from(selectedSceneIds),
         resolution: videoResolution,
         model:
-          storyboard?.mode === 'ref_to_video'
-            ? storyboard?.model || refVideoModel
-            : videoModel,
+          storyboard?.mode === 'ref_to_video' ? storyboard?.model : videoModel,
         aspect_ratio:
           storyboard && 'aspect_ratio' in storyboard
             ? storyboard.aspect_ratio
@@ -1523,7 +1521,7 @@ export function StoryboardCards({
     const { error: videoError } = await invokeWorkflow('/api/workflow/video', {
       scene_ids: [sceneId],
       resolution: videoResolution,
-      model: isRef ? storyboard?.model || refVideoModel : videoModel,
+      model: isRef ? storyboard?.model : videoModel,
       aspect_ratio:
         storyboard && 'aspect_ratio' in storyboard
           ? storyboard.aspect_ratio
