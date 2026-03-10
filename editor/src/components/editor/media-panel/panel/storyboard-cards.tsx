@@ -43,6 +43,7 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { useWorkflow } from '@/hooks/use-workflow';
+import { useFalPolling } from '@/hooks/use-fal-polling';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
 import {
@@ -370,6 +371,24 @@ export function StoryboardCards({
     includeScenes: true,
     storyboardId,
   });
+
+  // Compute broader processing state that includes video/image-edit processing
+  const hasAnyProcessing = useMemo(() => {
+    if (isProcessing) return true;
+    if (!storyboard || !('scenes' in storyboard)) return false;
+    return storyboard.scenes.some(
+      (scene) =>
+        scene.video_status === 'processing' ||
+        scene.first_frames?.some(
+          (ff) =>
+            ff.image_edit_status === 'enhancing' ||
+            ff.image_edit_status === 'editing'
+        )
+    );
+  }, [isProcessing, storyboard]);
+
+  // Polling fallback — picks up fal.ai results when webhooks can't reach us
+  useFalPolling(hasAnyProcessing, storyboard?.id, refresh);
 
   const { confirm } = useDeleteConfirmation();
   const [selectedSceneIds, setSelectedSceneIds] = useState<Set<string>>(
