@@ -134,7 +134,7 @@ async function queueGridGeneration(
       Authorization: `Key ${FAL_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, web_search: true }),
   });
 
   if (!response.ok) {

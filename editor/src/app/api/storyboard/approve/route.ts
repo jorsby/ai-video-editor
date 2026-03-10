@@ -44,7 +44,7 @@ async function sendFalRequest(
       Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, web_search: true }),
   });
 
   if (!falResponse.ok) {
@@ -355,7 +355,7 @@ async function sendFalGridRequest(
       Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, web_search: true }),
   });
 
   if (!falResponse.ok) {

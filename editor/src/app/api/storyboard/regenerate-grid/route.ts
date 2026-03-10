@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt: grid_image_prompt }),
+      body: JSON.stringify({ prompt: grid_image_prompt, web_search: true }),
     });
 
     if (!falResponse.ok) {

@@ -561,7 +561,7 @@ async function sendRefVideoRequest(
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, web_search: true }),
     });
     if (!falResponse.ok) {
       const errorText = await falResponse.text();
@@ -627,7 +627,7 @@ async function sendVideoRequest(
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, web_search: true }),
     });
     if (!falResponse.ok) {
       const errorText = await falResponse.text();
