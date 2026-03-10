@@ -506,6 +506,65 @@ export function StoryboardCards({
   const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
   const isQuickVideoMode = storyboard?.mode === 'quick_video';
 
+  const splitProgress = useMemo(() => {
+    if (!isRefToVideoMode) return null;
+
+    const allObjects = sortedScenes.flatMap((scene) => scene.objects ?? []);
+    const allBackgrounds = sortedScenes.flatMap(
+      (scene) => scene.backgrounds ?? []
+    );
+
+    const countByStatus = (
+      items: Array<{ status: 'pending' | 'processing' | 'success' | 'failed' }>
+    ) => ({
+      total: items.length,
+      pending: items.filter((item) => item.status === 'pending').length,
+      processing: items.filter((item) => item.status === 'processing').length,
+      success: items.filter((item) => item.status === 'success').length,
+      failed: items.filter((item) => item.status === 'failed').length,
+    });
+
+    const objects = countByStatus(allObjects);
+    const backgrounds = countByStatus(allBackgrounds);
+
+    const total = objects.total + backgrounds.total;
+    const completed =
+      objects.success +
+      objects.failed +
+      backgrounds.success +
+      backgrounds.failed;
+    const processing = objects.processing + backgrounds.processing;
+    const pending = objects.pending + backgrounds.pending;
+
+    const isActive =
+      storyboard?.plan_status === 'splitting' ||
+      processing > 0 ||
+      (total > 0 && completed < total);
+
+    if (!isActive) return null;
+
+    const progressPercent =
+      total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+
+    let stageLabel = 'Preparing split...';
+    if (sortedScenes.length === 0) {
+      stageLabel = 'Creating scenes and linking voiceovers...';
+    } else if (processing > 0) {
+      stageLabel = 'Splitting grid tiles and assigning scene assets...';
+    } else if (pending > 0) {
+      stageLabel = 'Queuing split asset updates...';
+    } else {
+      stageLabel = 'Finalizing split results...';
+    }
+
+    return {
+      progressPercent,
+      stageLabel,
+      objects,
+      backgrounds,
+    };
+  }, [isRefToVideoMode, sortedScenes, storyboard?.plan_status]);
+
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
       const next = new Set(prev);
@@ -1837,7 +1896,9 @@ export function StoryboardCards({
       <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3">
         <IconLoader2 size={32} className="animate-spin text-blue-400" />
         <span className="text-sm text-center">
-          Splitting grid images into scenes...
+          {isRefToVideoMode
+            ? 'Preparing split (creating scenes + linking assets)...'
+            : 'Splitting grid image into scenes...'}
         </span>
         <span className="text-xs text-center text-muted-foreground/60">
           This may take a minute
@@ -1859,6 +1920,45 @@ export function StoryboardCards({
 
   return (
     <div className="flex flex-col gap-3">
+      {splitProgress && (
+        <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs text-blue-300">
+              <IconLoader2 size={14} className="animate-spin" />
+              <span>Splitting references into scene assets</span>
+            </div>
+            <span className="text-xs text-blue-200">
+              {splitProgress.progressPercent}%
+            </span>
+          </div>
+
+          <div className="h-1.5 rounded-full bg-blue-950/40 overflow-hidden">
+            <div
+              className="h-full bg-blue-400 transition-all"
+              style={{ width: `${splitProgress.progressPercent}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-blue-200/90">
+            <div>
+              Objects:{' '}
+              {splitProgress.objects.success + splitProgress.objects.failed}/
+              {splitProgress.objects.total}
+            </div>
+            <div>
+              Backgrounds:{' '}
+              {splitProgress.backgrounds.success +
+                splitProgress.backgrounds.failed}
+              /{splitProgress.backgrounds.total}
+            </div>
+          </div>
+
+          <div className="text-[11px] text-blue-200/80">
+            {splitProgress.stageLabel}
+          </div>
+        </div>
+      )}
+
       {/* Selection Action Bar */}
       <div className="flex flex-col gap-1.5">
         {/* Row 1: Selection */}
