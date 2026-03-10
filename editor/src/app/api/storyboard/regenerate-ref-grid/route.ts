@@ -99,7 +99,6 @@ async function queueGridGeneration(
     .update({
       status: 'pending',
       prompt,
-      url: null,
       error_message: null,
       request_id: null,
       detected_rows: rows,

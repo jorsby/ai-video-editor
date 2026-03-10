@@ -66,10 +66,24 @@ export function RefGridImageReview({
   const isValidRange =
     isValidGrid(objectsRows, objectsCols) && isValidGrid(bgRows, bgCols);
 
-  const canApprove = isValidRange && !isApproving && !isRegeneratingTarget;
+  const objectsIsProcessing =
+    objectsGrid.status === 'processing' || objectsGrid.status === 'pending';
+  const backgroundsIsProcessing =
+    bgGrid.status === 'processing' || bgGrid.status === 'pending';
+  const isAnyGridProcessing = objectsIsProcessing || backgroundsIsProcessing;
+  const bothGenerated =
+    objectsGrid.status === 'generated' && bgGrid.status === 'generated';
+
+  const canApprove =
+    isValidRange &&
+    bothGenerated &&
+    !isAnyGridProcessing &&
+    !isApproving &&
+    !isRegeneratingTarget;
   const canRegenerate =
     !isApproving &&
     !isRegeneratingTarget &&
+    !isAnyGridProcessing &&
     objectsPrompt.trim().length > 0 &&
     backgroundsPrompt.trim().length > 0;
 
@@ -148,9 +162,21 @@ export function RefGridImageReview({
     <div className="flex flex-col gap-3">
       {/* Objects Grid */}
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">
-          Objects Grid
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">
+            Objects Grid
+          </span>
+          {objectsIsProcessing ? (
+            <span className="text-xs text-blue-400 inline-flex items-center gap-1">
+              <IconLoader2 size={12} className="animate-spin" />
+              Regenerating...
+            </span>
+          ) : objectsGrid.status === 'failed' ? (
+            <span className="text-xs text-destructive">Failed</span>
+          ) : (
+            <span className="text-xs text-emerald-400">Ready</span>
+          )}
+        </div>
         <div className="relative rounded-md overflow-hidden bg-background/50 border border-border/50">
           {objectsGrid.url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -239,9 +265,21 @@ export function RefGridImageReview({
 
       {/* Backgrounds Grid */}
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">
-          Backgrounds Grid
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">
+            Backgrounds Grid
+          </span>
+          {backgroundsIsProcessing ? (
+            <span className="text-xs text-blue-400 inline-flex items-center gap-1">
+              <IconLoader2 size={12} className="animate-spin" />
+              Regenerating...
+            </span>
+          ) : bgGrid.status === 'failed' ? (
+            <span className="text-xs text-destructive">Failed</span>
+          ) : (
+            <span className="text-xs text-emerald-400">Ready</span>
+          )}
+        </div>
         <div className="relative rounded-md overflow-hidden bg-background/50 border border-border/50">
           {bgGrid.url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -325,6 +363,11 @@ export function RefGridImageReview({
 
       {/* Actions */}
       <div className="flex flex-col gap-2">
+        {isAnyGridProcessing && (
+          <div className="text-xs text-muted-foreground bg-secondary/20 rounded-md px-2 py-1.5">
+            Generation in progress. You can still review prompts while waiting.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"

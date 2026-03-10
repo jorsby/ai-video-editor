@@ -1774,15 +1774,11 @@ export function StoryboardCards({
     );
   }
 
-  // Ref grid image review: show when both grids are generated (plan_status = grid_ready)
-  if (
-    isRefToVideoMode &&
-    storyboard?.plan_status === 'grid_ready' &&
-    sortedScenes.length === 0 &&
-    storyboard?.plan
-  ) {
+  // Ref grid image review: show while grids are being generated/regenerated and when ready
+  if (isRefToVideoMode && sortedScenes.length === 0 && storyboard?.plan) {
     const objectsGrid = gridImages.find((g) => g.type === 'objects');
     const bgGrid = gridImages.find((g) => g.type === 'backgrounds');
+
     if (objectsGrid && bgGrid) {
       return (
         <RefGridImageReview
