@@ -1790,6 +1790,7 @@ export function StoryboardCards({
           bgGrid={bgGrid}
           storyboard={storyboard as Storyboard}
           onApproveComplete={() => refresh()}
+          onRegenerateComplete={() => refresh()}
         />
       );
     }
