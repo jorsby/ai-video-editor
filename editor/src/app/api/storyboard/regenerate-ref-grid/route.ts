@@ -2,16 +2,20 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import {
+  DEFAULT_GRID_ASPECT_RATIO,
+  DEFAULT_GRID_RESOLUTION,
+  applyGridGenerationSettingsToPrompt,
+  getGridOutputDimensions,
+  isGridAspectRatio,
+  isGridResolution,
+  type GridAspectRatio,
+  type GridResolution,
+} from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
 const WEBHOOK_BASE_URL =
   process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
-
-const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
-  '16:9': { width: 1920, height: 1080 },
-  '9:16': { width: 1080, height: 1920 },
-  '1:1': { width: 1080, height: 1080 },
-};
 
 type RegenerateTarget = 'objects' | 'backgrounds' | 'both';
 
@@ -22,6 +26,8 @@ type RefPlanShape = {
   bg_rows: number;
   bg_cols: number;
   backgrounds_grid_prompt: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
   [key: string]: unknown;
 };
 
@@ -80,6 +86,8 @@ async function queueGridGeneration(
     cols: number;
     width: number;
     height: number;
+    gridAspectRatio: GridAspectRatio;
+    gridResolution: GridResolution;
   },
   log: ReturnType<typeof createLogger>
 ): Promise<QueueResult> {
@@ -92,7 +100,15 @@ async function queueGridGeneration(
     cols,
     width,
     height,
+    gridAspectRatio,
+    gridResolution,
   } = params;
+
+  const falPrompt = applyGridGenerationSettingsToPrompt(
+    prompt,
+    gridAspectRatio,
+    gridResolution
+  );
 
   await supabase
     .from('grid_images')
@@ -125,7 +141,9 @@ async function queueGridGeneration(
 
   log.api('fal.ai', `octupost/generategridimage:${target}`, {
     grid_image_id: gridImageId,
-    prompt_length: prompt.length,
+    prompt_length: falPrompt.length,
+    grid_aspect_ratio: gridAspectRatio,
+    grid_resolution: gridResolution,
   });
 
   const response = await fetch(falUrl.toString(), {
@@ -134,7 +152,7 @@ async function queueGridGeneration(
       Authorization: `Key ${FAL_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt, web_search: true }),
+    body: JSON.stringify({ prompt: falPrompt, web_search: true }),
   });
 
   if (!response.ok) {
@@ -317,10 +335,24 @@ export async function POST(req: NextRequest) {
       normalizePrompt(body.backgroundsPrompt) ??
       existingPlan.backgrounds_grid_prompt;
 
+    const selectedGridAspectRatio = isGridAspectRatio(body.gridAspectRatio)
+      ? body.gridAspectRatio
+      : isGridAspectRatio(existingPlan.grid_generation_aspect_ratio)
+        ? existingPlan.grid_generation_aspect_ratio
+        : DEFAULT_GRID_ASPECT_RATIO;
+
+    const selectedGridResolution = isGridResolution(body.gridResolution)
+      ? body.gridResolution
+      : isGridResolution(existingPlan.grid_generation_resolution)
+        ? existingPlan.grid_generation_resolution
+        : DEFAULT_GRID_RESOLUTION;
+
     const updatedPlan: RefPlanShape = {
       ...existingPlan,
       objects_grid_prompt: newObjectsPrompt,
       backgrounds_grid_prompt: newBackgroundsPrompt,
+      grid_generation_aspect_ratio: selectedGridAspectRatio,
+      grid_generation_resolution: selectedGridResolution,
     };
 
     await supabase
@@ -329,8 +361,10 @@ export async function POST(req: NextRequest) {
       .eq('id', storyboardId)
       .eq('plan_status', 'grid_ready');
 
-    const dims =
-      ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
+    const dims = getGridOutputDimensions(
+      selectedGridAspectRatio,
+      selectedGridResolution
+    );
 
     const queueResults: QueueResult[] = [];
 
@@ -348,6 +382,8 @@ export async function POST(req: NextRequest) {
               cols: updatedPlan.objects_cols,
               width: dims.width,
               height: dims.height,
+              gridAspectRatio: selectedGridAspectRatio,
+              gridResolution: selectedGridResolution,
             },
             log
           )
@@ -365,6 +401,8 @@ export async function POST(req: NextRequest) {
               cols: updatedPlan.bg_cols,
               width: dims.width,
               height: dims.height,
+              gridAspectRatio: selectedGridAspectRatio,
+              gridResolution: selectedGridResolution,
             },
             log
           )
@@ -409,6 +447,8 @@ export async function POST(req: NextRequest) {
       target,
       queued: successCount,
       results: queueResults,
+      grid_aspect_ratio: selectedGridAspectRatio,
+      grid_resolution: selectedGridResolution,
     });
   } catch (error) {
     log.error('Regenerate ref grid error', {

@@ -5,12 +5,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   IconAlertTriangle,
   IconCheck,
   IconLoader2,
   IconRefresh,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
+import {
+  DEFAULT_GRID_ASPECT_RATIO,
+  DEFAULT_GRID_RESOLUTION,
+  GRID_ASPECT_RATIO_OPTIONS,
+  GRID_RESOLUTION_OPTIONS,
+  type GridAspectRatio,
+  type GridResolution,
+} from '@/lib/grid-generation-settings';
 import type {
   GridImage,
   Storyboard,
@@ -35,6 +50,12 @@ export function GridImageReview({
   const [rows, setRows] = useState(plan.rows);
   const [cols, setCols] = useState(plan.cols);
   const [gridPrompt, setGridPrompt] = useState(plan.grid_image_prompt);
+  const [gridAspectRatio, setGridAspectRatio] = useState<GridAspectRatio>(
+    plan.grid_generation_aspect_ratio ?? DEFAULT_GRID_ASPECT_RATIO
+  );
+  const [gridResolution, setGridResolution] = useState<GridResolution>(
+    plan.grid_generation_resolution ?? DEFAULT_GRID_RESOLUTION
+  );
   const [isApproving, setIsApproving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
 
@@ -87,6 +108,8 @@ export function GridImageReview({
         body: JSON.stringify({
           storyboardId: storyboard.id,
           gridImagePrompt: gridPrompt.trim(),
+          gridAspectRatio,
+          gridResolution,
         }),
       });
       if (!response.ok) {
@@ -187,6 +210,54 @@ export function GridImageReview({
           className="text-xs"
           placeholder="Prompt for grid generation"
         />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 p-3 bg-secondary/20 rounded-md">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">
+            Grid Aspect Ratio
+          </label>
+          <Select
+            value={gridAspectRatio}
+            onValueChange={(value) =>
+              setGridAspectRatio(value as GridAspectRatio)
+            }
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRID_ASPECT_RATIO_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">
+            Grid Quality
+          </label>
+          <Select
+            value={gridResolution}
+            onValueChange={(value) =>
+              setGridResolution(value as GridResolution)
+            }
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRID_RESOLUTION_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Action Buttons */}

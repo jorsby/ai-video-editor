@@ -1,5 +1,9 @@
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import type {
+  GridAspectRatio,
+  GridResolution,
+} from '@/lib/grid-generation-settings';
 
 // Types for workflow data
 
@@ -20,6 +24,8 @@ export interface StoryboardPlan {
   rows: number;
   cols: number;
   grid_image_prompt: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
   voiceover_list: Record<string, string[]>;
   visual_flow: string[];
 }
@@ -37,6 +43,8 @@ export interface RefPlanBase {
   bg_rows: number;
   bg_cols: number;
   backgrounds_grid_prompt: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
   background_names: string[];
   scene_prompts: (string | string[])[];
   scene_bg_indices: number[];

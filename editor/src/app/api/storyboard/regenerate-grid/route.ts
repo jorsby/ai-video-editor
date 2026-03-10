@@ -2,12 +2,14 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
-
-const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
-  '16:9': { width: 1920, height: 1080 },
-  '9:16': { width: 1080, height: 1920 },
-  '1:1': { width: 1080, height: 1080 },
-};
+import {
+  DEFAULT_GRID_ASPECT_RATIO,
+  DEFAULT_GRID_RESOLUTION,
+  applyGridGenerationSettingsToPrompt,
+  getGridOutputDimensions,
+  isGridAspectRatio,
+  isGridResolution,
+} from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
 const WEBHOOK_BASE_URL =
@@ -24,7 +26,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { storyboardId, gridImagePrompt } = await req.json();
+    const { storyboardId, gridImagePrompt, gridAspectRatio, gridResolution } =
+      await req.json();
 
     if (!storyboardId) {
       return NextResponse.json(
@@ -89,10 +92,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get dimensions from aspect ratio
-    const dimensions =
-      ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
-
     // ── Inline start-workflow logic ───────────────────────────────
 
     const log = createLogger();
@@ -108,7 +107,27 @@ export async function POST(req: NextRequest) {
       rows,
       cols,
       grid_image_prompt: existingGridPrompt,
+      grid_generation_aspect_ratio: existingGridAspectRatio,
+      grid_generation_resolution: existingGridResolution,
     } = storyboard.plan;
+
+    const finalGridAspectRatio = isGridAspectRatio(gridAspectRatio)
+      ? gridAspectRatio
+      : isGridAspectRatio(existingGridAspectRatio)
+        ? existingGridAspectRatio
+        : DEFAULT_GRID_ASPECT_RATIO;
+
+    const finalGridResolution = isGridResolution(gridResolution)
+      ? gridResolution
+      : isGridResolution(existingGridResolution)
+        ? existingGridResolution
+        : DEFAULT_GRID_RESOLUTION;
+
+    // Keep webhook metadata dimensions in sync with selected grid settings
+    const dimensions = getGridOutputDimensions(
+      finalGridAspectRatio,
+      finalGridResolution
+    );
 
     const finalGridPrompt =
       typeof gridImagePrompt === 'string' && gridImagePrompt.trim().length > 0
@@ -122,10 +141,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (finalGridPrompt !== existingGridPrompt) {
+    const planNeedsUpdate =
+      finalGridPrompt !== existingGridPrompt ||
+      finalGridAspectRatio !== existingGridAspectRatio ||
+      finalGridResolution !== existingGridResolution;
+
+    if (planNeedsUpdate) {
       const updatedPlan = {
         ...storyboard.plan,
         grid_image_prompt: finalGridPrompt,
+        grid_generation_aspect_ratio: finalGridAspectRatio,
+        grid_generation_resolution: finalGridResolution,
       };
 
       const { error: planUpdateError } = await supabase
@@ -135,11 +161,17 @@ export async function POST(req: NextRequest) {
 
       if (planUpdateError) {
         return NextResponse.json(
-          { error: 'Failed to update storyboard plan prompt' },
+          { error: 'Failed to update storyboard plan settings' },
           { status: 500 }
         );
       }
     }
+
+    const falPrompt = applyGridGenerationSettingsToPrompt(
+      finalGridPrompt,
+      finalGridAspectRatio,
+      finalGridResolution
+    );
 
     const { data: gridImage, error: gridInsertError } = await adminSupabase
       .from('grid_images')
@@ -187,7 +219,9 @@ export async function POST(req: NextRequest) {
     falUrl.searchParams.set('fal_webhook', webhookUrl);
 
     log.api('fal.ai', 'octupost/generategridimage', {
-      prompt_length: finalGridPrompt.length,
+      prompt_length: falPrompt.length,
+      grid_aspect_ratio: finalGridAspectRatio,
+      grid_resolution: finalGridResolution,
     });
     log.startTiming('fal_request');
 
@@ -197,7 +231,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt: finalGridPrompt, web_search: true }),
+      body: JSON.stringify({ prompt: falPrompt, web_search: true }),
     });
 
     if (!falResponse.ok) {
@@ -239,6 +273,8 @@ export async function POST(req: NextRequest) {
       success: true,
       storyboard_id: storyboardId,
       grid_image_id,
+      grid_aspect_ratio: finalGridAspectRatio,
+      grid_resolution: finalGridResolution,
     });
   } catch (error) {
     console.error('Regenerate grid error:', error);
