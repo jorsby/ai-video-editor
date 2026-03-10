@@ -631,6 +631,46 @@ export function StoryboardCards({
     };
   }, [isRefToVideoMode, sortedScenes, storyboard?.plan_status]);
 
+  const hasSkyreelsProcessing =
+    isRefToVideoMode &&
+    storyboard?.model === 'skyreels' &&
+    sortedScenes.some((scene) => scene.video_status === 'processing');
+
+  useEffect(() => {
+    if (!hasSkyreelsProcessing) return;
+
+    let isPolling = false;
+
+    const pollSkyreels = async () => {
+      if (isPolling) return;
+      isPolling = true;
+
+      try {
+        const res = await fetch('/api/workflow/poll-skyreels', {
+          method: 'POST',
+        });
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if ((data.success_count ?? 0) > 0 || (data.failed_count ?? 0) > 0) {
+          refresh();
+        }
+      } catch {
+        // Best-effort polling. Ignore temporary network failures.
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    pollSkyreels();
+    const intervalId = setInterval(pollSkyreels, 10_000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [hasSkyreelsProcessing, refresh]);
+
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
       const next = new Set(prev);

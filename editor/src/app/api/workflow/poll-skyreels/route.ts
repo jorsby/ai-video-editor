@@ -1,14 +1,32 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/logger';
 
 const SKYREELS_API_URL = 'https://apis.skyreels.ai/api/v1/video/multiobject';
 
-function isAuthorized(req: NextRequest): boolean {
+async function isAuthorized(req: NextRequest): Promise<boolean> {
   const cronSecret = process.env.CRON_SECRET;
-  // Allow local/dev runs when CRON_SECRET is not configured.
-  if (!cronSecret) return true;
-  return req.headers.get('authorization') === `Bearer ${cronSecret}`;
+  const authHeader = req.headers.get('authorization');
+
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return true;
+  }
+
+  // Allow signed-in users to trigger polling manually from the app.
+  try {
+    const authClient = await createClient('studio');
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
+
+    if (user) return true;
+  } catch {
+    // Ignore auth check errors and fall through to cronSecret rule below.
+  }
+
+  // If no cron secret is configured, allow local/dev polling.
+  return !cronSecret;
 }
 
 async function runPoll(trigger: 'GET' | 'POST') {
@@ -165,14 +183,14 @@ async function runPoll(trigger: 'GET' | 'POST') {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
+  if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   return runPoll('GET');
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
+  if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   return runPoll('POST');
