@@ -62,7 +62,7 @@ export const SKYREELS_SYSTEM_PROMPT = `You are a storyboard planner for AI video
 
 RULES:
 1. Voiceover Splitting and Grid Planning
-- Target 3-5 seconds of speech per voiceover segment (video max 5 seconds).
+- Target 2-4 seconds of speech per voiceover segment (video max 5 seconds). Favor concise beats for faster pacing and fewer duration clamps.
 - Adjust your splitting strategy so the total segment count matches one of the valid grid sizes below for scene count.
 
 2. Elements (Characters/Objects)

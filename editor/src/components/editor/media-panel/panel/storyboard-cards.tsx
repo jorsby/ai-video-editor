@@ -426,6 +426,12 @@ export function StoryboardCards({
   const [videoResolution, setVideoResolution] = useState<
     '480p' | '720p' | '1080p'
   >('720p');
+  const [skyreelsDurationMode, setSkyreelsDurationMode] = useState<
+    'auto' | 'fixed'
+  >('auto');
+  const [skyreelsFixedDuration, setSkyreelsFixedDuration] = useState<
+    '1' | '2' | '3' | '4' | '5'
+  >('4');
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
@@ -1201,28 +1207,33 @@ export function StoryboardCards({
       }
     }
 
-    // Check for scenes without voiceover audio
-    const scenesWithoutVoiceover = selectedScenes.filter((s) => {
-      const maxDuration = Math.max(
-        ...(s.voiceovers || []).map((v) => v.duration ?? 0),
-        0
-      );
-      return maxDuration === 0;
-    });
-
     let fallbackDuration: number | undefined;
 
-    if (scenesWithoutVoiceover.length > 0) {
-      const sceneLabels = scenesWithoutVoiceover
-        .map((s) => `Scene ${s.order + 1}`)
-        .join(', ');
-      const confirmed = await confirm({
-        title: 'Missing Voiceover Audio',
-        description: `${sceneLabels} ${scenesWithoutVoiceover.length === 1 ? 'has' : 'have'} no voiceover audio. Video duration will default to 3 seconds for ${scenesWithoutVoiceover.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
-        confirmLabel: 'Continue',
+    const shouldSkipMissingVoiceoverCheck =
+      selectedModel === 'skyreels' && skyreelsDurationMode === 'fixed';
+
+    if (!shouldSkipMissingVoiceoverCheck) {
+      // Check for scenes without voiceover audio
+      const scenesWithoutVoiceover = selectedScenes.filter((s) => {
+        const maxDuration = Math.max(
+          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
+          0
+        );
+        return maxDuration === 0;
       });
-      if (!confirmed) return;
-      fallbackDuration = 3;
+
+      if (scenesWithoutVoiceover.length > 0) {
+        const sceneLabels = scenesWithoutVoiceover
+          .map((s) => `Scene ${s.order + 1}`)
+          .join(', ');
+        const confirmed = await confirm({
+          title: 'Missing Voiceover Audio',
+          description: `${sceneLabels} ${scenesWithoutVoiceover.length === 1 ? 'has' : 'have'} no voiceover audio. Video duration will default to 3 seconds for ${scenesWithoutVoiceover.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
+          confirmLabel: 'Continue',
+        });
+        if (!confirmed) return;
+        fallbackDuration = 3;
+      }
     }
 
     setIsGeneratingVideo(true);
@@ -1237,6 +1248,12 @@ export function StoryboardCards({
             ? storyboard.aspect_ratio
             : '16:9',
         ...(fallbackDuration && { fallback_duration: fallbackDuration }),
+        ...(selectedModel === 'skyreels' && {
+          skyreels_duration_mode: skyreelsDurationMode,
+          ...(skyreelsDurationMode === 'fixed' && {
+            skyreels_duration_seconds: Number(skyreelsFixedDuration),
+          }),
+        }),
         ...(storyboard?.mode === 'ref_to_video' && {
           storyboard_id: storyboard.id,
         }),
@@ -2530,15 +2547,67 @@ export function StoryboardCards({
                     </Select>
                   </div>
                 ) : isRefToVideoMode ? (
-                  <div className="text-xs text-muted-foreground px-1">
-                    Model:{' '}
-                    <span className="font-medium text-foreground">
-                      {storyboard?.model === 'wan26flash'
-                        ? 'WAN 2.6 Flash'
-                        : storyboard?.model === 'skyreels'
-                          ? 'SkyReels'
-                          : (storyboard?.model ?? 'N/A')}
-                    </span>
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xs text-muted-foreground px-1">
+                      Model:{' '}
+                      <span className="font-medium text-foreground">
+                        {storyboard?.model === 'wan26flash'
+                          ? 'WAN 2.6 Flash'
+                          : storyboard?.model === 'skyreels'
+                            ? 'SkyReels'
+                            : (storyboard?.model ?? 'N/A')}
+                      </span>
+                    </div>
+
+                    {storyboard?.model === 'skyreels' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                            Duration Mode
+                          </span>
+                          <Select
+                            value={skyreelsDurationMode}
+                            onValueChange={(value: 'auto' | 'fixed') =>
+                              setSkyreelsDurationMode(value)
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="auto">
+                                Auto (from VO)
+                              </SelectItem>
+                              <SelectItem value="fixed">Fixed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                            Fixed Seconds
+                          </span>
+                          <Select
+                            value={skyreelsFixedDuration}
+                            onValueChange={(
+                              value: '1' | '2' | '3' | '4' | '5'
+                            ) => setSkyreelsFixedDuration(value)}
+                            disabled={skyreelsDurationMode !== 'fixed'}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">1s</SelectItem>
+                              <SelectItem value="2">2s</SelectItem>
+                              <SelectItem value="3">3s</SelectItem>
+                              <SelectItem value="4">4s</SelectItem>
+                              <SelectItem value="5">5s</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-end gap-2">

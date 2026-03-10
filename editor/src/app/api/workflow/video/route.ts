@@ -207,6 +207,8 @@ interface GenerateVideoInput {
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
+  skyreels_duration_mode?: 'auto' | 'fixed';
+  skyreels_duration_seconds?: number;
 }
 
 interface VideoContext {
@@ -306,7 +308,8 @@ async function getRefVideoContext(
   model: string,
   bucketDuration: (raw: number) => number,
   log: ReturnType<typeof createLogger>,
-  fallbackDuration?: number
+  fallbackDuration?: number,
+  durationOverride?: number
 ): Promise<RefVideoContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
@@ -372,12 +375,24 @@ async function getRefVideoContext(
       (v) => v.duration ?? 0
     )
   );
-  if (maxDuration === 0 && (!fallbackDuration || fallbackDuration <= 0)) {
+
+  const hasDurationOverride =
+    typeof durationOverride === 'number' && durationOverride > 0;
+
+  if (
+    maxDuration === 0 &&
+    !hasDurationOverride &&
+    (!fallbackDuration || fallbackDuration <= 0)
+  ) {
     log.warn('No voiceover duration found', { scene_id: sceneId });
     return null;
   }
 
-  const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
+  const raw = hasDurationOverride
+    ? durationOverride
+    : maxDuration > 0
+      ? Math.ceil(maxDuration)
+      : fallbackDuration!;
   const durationInt = bucketDuration(raw);
 
   if (model === 'skyreels') {
@@ -684,6 +699,8 @@ export async function POST(req: NextRequest) {
       aspect_ratio,
       fallback_duration,
       storyboard_id,
+      skyreels_duration_mode = 'auto',
+      skyreels_duration_seconds,
     } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
@@ -699,6 +716,31 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error: `model must be one of: ${Object.keys(MODEL_CONFIG).join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!['auto', 'fixed'].includes(skyreels_duration_mode)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'skyreels_duration_mode must be auto or fixed',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      skyreels_duration_mode === 'fixed' &&
+      (typeof skyreels_duration_seconds !== 'number' ||
+        skyreels_duration_seconds < 1 ||
+        skyreels_duration_seconds > 5)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'skyreels_duration_seconds must be between 1 and 5',
         },
         { status: 400 }
       );
@@ -732,6 +774,15 @@ export async function POST(req: NextRequest) {
       resolution,
       model,
       mode: isRefMode ? 'ref_to_video' : 'image_to_video',
+      ...(model === 'skyreels'
+        ? {
+            skyreels_duration_mode,
+            skyreels_duration_seconds:
+              skyreels_duration_mode === 'fixed'
+                ? skyreels_duration_seconds
+                : undefined,
+          }
+        : {}),
     });
 
     const results: Array<{
@@ -755,7 +806,10 @@ export async function POST(req: NextRequest) {
           model,
           modelConfig.bucketDuration,
           log,
-          fallback_duration
+          fallback_duration,
+          model === 'skyreels' && skyreels_duration_mode === 'fixed'
+            ? skyreels_duration_seconds
+            : undefined
         );
         if (!refContext) {
           results.push({
