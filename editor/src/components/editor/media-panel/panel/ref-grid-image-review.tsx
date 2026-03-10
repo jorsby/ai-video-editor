@@ -101,11 +101,16 @@ export function RefGridImageReview({
     !isAnyGridProcessing &&
     !isApproving &&
     !isRegeneratingTarget;
-  const canRegenerate =
+  const canRegenerateObjects =
     !isApproving &&
     !isRegeneratingTarget &&
-    !isAnyGridProcessing &&
-    objectsPrompt.trim().length > 0 &&
+    !objectsIsProcessing &&
+    objectsPrompt.trim().length > 0;
+
+  const canRegenerateBackgrounds =
+    !isApproving &&
+    !isRegeneratingTarget &&
+    !backgroundsIsProcessing &&
     backgroundsPrompt.trim().length > 0;
 
   const handleApprove = async () => {
@@ -138,10 +143,11 @@ export function RefGridImageReview({
     }
   };
 
-  const handleRegenerate = async (
-    target: 'objects' | 'backgrounds' | 'both'
-  ) => {
-    if (!canRegenerate) return;
+  const handleRegenerate = async (target: 'objects' | 'backgrounds') => {
+    const canRun =
+      target === 'objects' ? canRegenerateObjects : canRegenerateBackgrounds;
+    if (!canRun) return;
+
     setIsRegeneratingTarget(target);
 
     try {
@@ -164,11 +170,9 @@ export function RefGridImageReview({
       }
 
       const message =
-        target === 'both'
-          ? 'Regenerating objects and backgrounds...'
-          : target === 'objects'
-            ? 'Regenerating objects grid...'
-            : 'Regenerating backgrounds grid...';
+        target === 'objects'
+          ? 'Regenerating objects grid...'
+          : 'Regenerating backgrounds grid...';
 
       toast.success(message);
       onRegenerateComplete();
@@ -388,7 +392,8 @@ export function RefGridImageReview({
       <div className="flex flex-col gap-2">
         {isAnyGridProcessing && (
           <div className="text-xs text-muted-foreground bg-secondary/20 rounded-md px-2 py-1.5">
-            Generation in progress. You can still review prompts while waiting.
+            Generation in progress. You can still regenerate the other grid
+            while waiting.
           </div>
         )}
 
@@ -445,7 +450,7 @@ export function RefGridImageReview({
             variant="outline"
             size="sm"
             onClick={() => handleRegenerate('objects')}
-            disabled={!canRegenerate}
+            disabled={!canRegenerateObjects}
             className="h-8"
           >
             {isRegeneratingTarget === 'objects' ? (
@@ -459,7 +464,7 @@ export function RefGridImageReview({
             variant="outline"
             size="sm"
             onClick={() => handleRegenerate('backgrounds')}
-            disabled={!canRegenerate}
+            disabled={!canRegenerateBackgrounds}
             className="h-8"
           >
             {isRegeneratingTarget === 'backgrounds' ? (
@@ -470,21 +475,6 @@ export function RefGridImageReview({
             Backgrounds
           </Button>
         </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleRegenerate('both')}
-          disabled={!canRegenerate}
-          className="h-8"
-        >
-          {isRegeneratingTarget === 'both' ? (
-            <IconLoader2 className="size-3.5 animate-spin mr-1" />
-          ) : (
-            <IconRefresh className="size-3.5 mr-1" />
-          )}
-          Regenerate Both
-        </Button>
 
         <Button
           size="sm"
