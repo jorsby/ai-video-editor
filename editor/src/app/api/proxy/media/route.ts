@@ -11,6 +11,7 @@ const ALLOWED_DOMAINS = [
   'cloud-45c.workers.dev',
   'elevenlabs.io',
   'scenify.io',
+  'oss-accelerate.aliyuncs.com',
 ];
 
 function isDomainAllowed(url: string): boolean {
@@ -26,8 +27,11 @@ function isDomainAllowed(url: string): boolean {
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = request.nextUrl.searchParams.get('url');
 
@@ -69,9 +73,6 @@ export async function GET(request: NextRequest) {
     }
     return new Response(upstream.body, { status: 200, headers });
   } catch (error) {
-    return NextResponse.json(
-      { error: 'Operation failed' },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: 'Operation failed' }, { status: 502 });
   }
 }
