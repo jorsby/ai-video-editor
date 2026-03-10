@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   IconAlertTriangle,
   IconCheck,
@@ -33,6 +34,7 @@ export function GridImageReview({
   const plan = storyboard.plan as StoryboardPlan;
   const [rows, setRows] = useState(plan.rows);
   const [cols, setCols] = useState(plan.cols);
+  const [gridPrompt, setGridPrompt] = useState(plan.grid_image_prompt);
   const [isApproving, setIsApproving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
 
@@ -42,6 +44,8 @@ export function GridImageReview({
 
   const isValidRange = rows >= 2 && rows <= 8 && cols >= 2 && cols <= 8;
   const canApprove = isValidRange && !isApproving && !isRegenerating;
+  const canRegenerate =
+    !isApproving && !isRegenerating && gridPrompt.trim().length > 0;
 
   const handleApprove = async () => {
     if (!canApprove) return;
@@ -73,12 +77,17 @@ export function GridImageReview({
   };
 
   const handleRegenerate = async () => {
+    if (!canRegenerate) return;
+
     setIsRegenerating(true);
     try {
       const response = await fetch('/api/storyboard/regenerate-grid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboardId: storyboard.id }),
+        body: JSON.stringify({
+          storyboardId: storyboard.id,
+          gridImagePrompt: gridPrompt.trim(),
+        }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -167,13 +176,26 @@ export function GridImageReview({
         )}
       </div>
 
+      <div className="flex flex-col gap-1 p-3 bg-secondary/20 rounded-md">
+        <label className="text-xs font-medium text-muted-foreground">
+          Grid Prompt
+        </label>
+        <Textarea
+          value={gridPrompt}
+          onChange={(e) => setGridPrompt(e.target.value)}
+          rows={4}
+          className="text-xs"
+          placeholder="Prompt for grid generation"
+        />
+      </div>
+
       {/* Action Buttons */}
       <div className="flex items-center gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={handleRegenerate}
-          disabled={isApproving || isRegenerating}
+          disabled={!canRegenerate}
           className="h-8"
         >
           {isRegenerating ? (

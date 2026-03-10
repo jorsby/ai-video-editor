@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { storyboardId } = await req.json();
+    const { storyboardId, gridImagePrompt } = await req.json();
 
     if (!storyboardId) {
       return NextResponse.json(
@@ -104,13 +104,48 @@ export async function POST(req: NextRequest) {
       { db: { schema: 'studio' } }
     );
 
-    const { rows, cols, grid_image_prompt } = storyboard.plan;
+    const {
+      rows,
+      cols,
+      grid_image_prompt: existingGridPrompt,
+    } = storyboard.plan;
+
+    const finalGridPrompt =
+      typeof gridImagePrompt === 'string' && gridImagePrompt.trim().length > 0
+        ? gridImagePrompt.trim()
+        : existingGridPrompt;
+
+    if (!finalGridPrompt || typeof finalGridPrompt !== 'string') {
+      return NextResponse.json(
+        { error: 'gridImagePrompt must be a non-empty string' },
+        { status: 400 }
+      );
+    }
+
+    if (finalGridPrompt !== existingGridPrompt) {
+      const updatedPlan = {
+        ...storyboard.plan,
+        grid_image_prompt: finalGridPrompt,
+      };
+
+      const { error: planUpdateError } = await supabase
+        .from('storyboards')
+        .update({ plan: updatedPlan })
+        .eq('id', storyboardId);
+
+      if (planUpdateError) {
+        return NextResponse.json(
+          { error: 'Failed to update storyboard plan prompt' },
+          { status: 500 }
+        );
+      }
+    }
 
     const { data: gridImage, error: gridInsertError } = await adminSupabase
       .from('grid_images')
       .insert({
         storyboard_id: storyboardId,
-        prompt: grid_image_prompt,
+        prompt: finalGridPrompt,
         status: 'pending',
         detected_rows: rows,
         detected_cols: cols,
@@ -152,7 +187,7 @@ export async function POST(req: NextRequest) {
     falUrl.searchParams.set('fal_webhook', webhookUrl);
 
     log.api('fal.ai', 'octupost/generategridimage', {
-      prompt_length: grid_image_prompt.length,
+      prompt_length: finalGridPrompt.length,
     });
     log.startTiming('fal_request');
 
@@ -162,7 +197,7 @@ export async function POST(req: NextRequest) {
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt: grid_image_prompt, web_search: true }),
+      body: JSON.stringify({ prompt: finalGridPrompt, web_search: true }),
     });
 
     if (!falResponse.ok) {
