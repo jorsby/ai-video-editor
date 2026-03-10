@@ -17,6 +17,10 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
+function getWebhookBaseUrl(): string {
+  return process.env.WEBHOOK_BASE_URL || getRequiredEnv('NEXT_PUBLIC_APP_URL');
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────
 
 interface FalRequestResult {
@@ -186,7 +190,7 @@ async function executeStartWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const webhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(
     'https://queue.fal.run/workflows/octupost/generategridimage'
   );
@@ -480,7 +484,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const objectsWebhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${objectsWebhookParams.toString()}`;
+  const objectsWebhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${objectsWebhookParams.toString()}`;
 
   const bgWebhookParams = new URLSearchParams({
     step: 'GenGridImage',
@@ -491,7 +495,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const bgWebhookUrl = `${getRequiredEnv('NEXT_PUBLIC_APP_URL')}/api/webhook/fal?${bgWebhookParams.toString()}`;
+  const bgWebhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${bgWebhookParams.toString()}`;
 
   const [objectsResult, bgResult] = await Promise.all([
     sendFalGridRequest(objects_grid_prompt, objectsWebhookUrl, log),

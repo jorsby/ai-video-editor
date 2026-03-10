@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 interface GenerateSfxInput {
   scene_ids: string[];
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
         step: 'GenerateSFX',
         scene_id: context.scene_id,
       });
-      const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+      const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
       const falUrl = new URL(
         'https://queue.fal.run/mirelo-ai/sfx-v1.5/video-to-video'

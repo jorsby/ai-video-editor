@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 // ── Model configuration ───────────────────────────────────────────────
 
@@ -512,7 +513,7 @@ async function sendRefVideoRequest(
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -600,7 +601,7 @@ async function sendVideoRequest(
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);

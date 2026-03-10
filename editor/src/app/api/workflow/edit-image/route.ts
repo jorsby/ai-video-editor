@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 interface EditImageInput {
   scene_ids: string[];
@@ -204,7 +205,7 @@ async function sendEditRequest(
     step: webhookStep,
     [entityKey]: entityId,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);

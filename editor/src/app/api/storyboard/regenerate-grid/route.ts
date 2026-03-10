@@ -10,7 +10,8 @@ const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
 };
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 export async function POST(req: NextRequest) {
   try {
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
       width: dimensions.width.toString(),
       height: dimensions.height.toString(),
     });
-    const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+    const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
     const falUrl = new URL(
       'https://queue.fal.run/workflows/octupost/generategridimage'
     );
