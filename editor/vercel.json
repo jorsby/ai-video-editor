@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/workflow/poll-skyreels",
-      "schedule": "0 0 * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

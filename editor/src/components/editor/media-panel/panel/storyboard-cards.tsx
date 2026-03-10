@@ -1171,16 +1171,44 @@ export function StoryboardCards({
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
-    // Check for scenes without voiceover audio
-    const scenesWithoutVoiceover = sortedScenes
-      .filter((s) => selectedSceneIds.has(s.id))
-      .filter((s) => {
+    const selectedScenes = sortedScenes.filter((s) =>
+      selectedSceneIds.has(s.id)
+    );
+
+    const selectedModel =
+      storyboard?.mode === 'ref_to_video' ? storyboard?.model : videoModel;
+
+    // SkyReels only supports up to 5s duration per scene. Warn before clamping.
+    if (selectedModel === 'skyreels') {
+      const scenesOverLimit = selectedScenes.filter((s) => {
         const maxDuration = Math.max(
           ...(s.voiceovers || []).map((v) => v.duration ?? 0),
           0
         );
-        return maxDuration === 0;
+        return maxDuration > 5;
       });
+
+      if (scenesOverLimit.length > 0) {
+        const sceneLabels = scenesOverLimit
+          .map((s) => `Scene ${s.order + 1}`)
+          .join(', ');
+        const confirmed = await confirm({
+          title: 'SkyReels Duration Limit',
+          description: `${sceneLabels} ${scenesOverLimit.length === 1 ? 'has' : 'have'} voiceover longer than 5 seconds. SkyReels will clamp video duration to 5 seconds for ${scenesOverLimit.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
+          confirmLabel: 'Continue',
+        });
+        if (!confirmed) return;
+      }
+    }
+
+    // Check for scenes without voiceover audio
+    const scenesWithoutVoiceover = selectedScenes.filter((s) => {
+      const maxDuration = Math.max(
+        ...(s.voiceovers || []).map((v) => v.duration ?? 0),
+        0
+      );
+      return maxDuration === 0;
+    });
 
     let fallbackDuration: number | undefined;
 

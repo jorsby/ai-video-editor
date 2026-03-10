@@ -1,12 +1,19 @@
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 
 const SKYREELS_API_URL = 'https://apis.skyreels.ai/api/v1/video/multiobject';
 
-export async function POST() {
+function isAuthorized(req: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  // Allow local/dev runs when CRON_SECRET is not configured.
+  if (!cronSecret) return true;
+  return req.headers.get('authorization') === `Bearer ${cronSecret}`;
+}
+
+async function runPoll(trigger: 'GET' | 'POST') {
   const log = createLogger();
-  log.setContext({ step: 'PollSkyReels' });
+  log.setContext({ step: 'PollSkyReels', trigger });
 
   try {
     const supabase = createServiceClient();
@@ -155,4 +162,18 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  return runPoll('GET');
+}
+
+export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  return runPoll('POST');
 }
