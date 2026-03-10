@@ -103,6 +103,14 @@ const formatDate = (dateStr: string) => {
   });
 };
 
+function detectLikelyTurkish(text: string): boolean {
+  const lower = text.toLowerCase();
+  const turkishChars = (lower.match(/[çğıöşü]/g) || []).length;
+  const commonWords = ['bir', 've', 'için', 'ile', 'ama', 'çok', 'gibi'];
+  const wordHits = commonWords.filter((w) => lower.includes(` ${w} `)).length;
+  return turkishChars >= 2 || wordHits >= 2;
+}
+
 export default function PanelStoryboard() {
   const projectId = useProjectId();
   const { confirm } = useDeleteConfirmation();
@@ -252,6 +260,22 @@ export default function PanelStoryboard() {
       return;
     }
 
+    let sourceLanguage = formSourceLanguage;
+
+    if (sourceLanguage === 'en' && detectLikelyTurkish(formVoiceover.trim())) {
+      const shouldSwitch = await confirm({
+        title: 'Source language looks Turkish',
+        description:
+          'Your script appears to be Turkish, but Source Language is English. Switch to Turkish to keep timeline language and voiceover labels correct?',
+        confirmLabel: 'Switch to Turkish',
+      });
+
+      if (shouldSwitch) {
+        sourceLanguage = 'tr';
+        setFormSourceLanguage('tr');
+      }
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -276,7 +300,7 @@ export default function PanelStoryboard() {
           projectId,
           aspectRatio: formAspectRatio,
           mode: formVideoMode,
-          sourceLanguage: formSourceLanguage,
+          sourceLanguage,
           ...(formVideoMode === 'ref_to_video' && {
             videoModel: formVideoModel,
           }),
