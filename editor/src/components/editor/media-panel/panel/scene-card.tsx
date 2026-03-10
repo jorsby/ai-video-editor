@@ -79,6 +79,13 @@ interface SceneCardProps {
   compact?: boolean;
   isSelected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
+  skyreelsTiming?: {
+    voiceoverSeconds: number | null;
+    generatedSeconds: number;
+    playbackRate: number | null;
+    warnSlowdown: boolean;
+    mode: 'auto' | 'fixed';
+  };
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
@@ -912,6 +919,7 @@ export function SceneCard({
   scene,
   isSelected,
   onSelectionChange,
+  skyreelsTiming,
   playingVoiceoverId,
   setPlayingVoiceoverId,
   onReadScene,
@@ -1250,6 +1258,25 @@ export function SceneCard({
 
       {/* Objects row (ref_to_video characters/items) */}
       {scene.objects?.length > 0 && <ObjectsRow objects={scene.objects} />}
+
+      {skyreelsTiming && (
+        <div
+          className={`mt-1.5 px-1.5 py-1 rounded text-[9px] ${skyreelsTiming.warnSlowdown ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'}`}
+        >
+          <div>
+            SkyReels ({skyreelsTiming.mode === 'fixed' ? 'fixed' : 'auto'}):{' '}
+            {skyreelsTiming.voiceoverSeconds
+              ? `VO ${skyreelsTiming.voiceoverSeconds.toFixed(1)}s → Gen ${skyreelsTiming.generatedSeconds}s`
+              : `No VO → Gen ${skyreelsTiming.generatedSeconds}s`}
+            {skyreelsTiming.playbackRate
+              ? ` → ${skyreelsTiming.playbackRate.toFixed(2)}x`
+              : ''}
+          </div>
+          {skyreelsTiming.warnSlowdown && (
+            <div className="mt-0.5">Heavy slowdown may feel unnatural.</div>
+          )}
+        </div>
+      )}
 
       {!expanded && (
         <div className="mt-2 flex items-center gap-1.5">

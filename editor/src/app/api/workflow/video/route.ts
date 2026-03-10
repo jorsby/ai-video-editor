@@ -309,7 +309,8 @@ async function getRefVideoContext(
   bucketDuration: (raw: number) => number,
   log: ReturnType<typeof createLogger>,
   fallbackDuration?: number,
-  durationOverride?: number
+  durationOverride?: number,
+  skyreelsDurationMode: 'auto' | 'fixed' = 'auto'
 ): Promise<RefVideoContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
@@ -388,11 +389,22 @@ async function getRefVideoContext(
     return null;
   }
 
-  const raw = hasDurationOverride
-    ? durationOverride
-    : maxDuration > 0
-      ? Math.ceil(maxDuration)
-      : fallbackDuration!;
+  let raw: number;
+
+  if (hasDurationOverride) {
+    raw = durationOverride;
+  } else if (model === 'skyreels' && skyreelsDurationMode === 'auto') {
+    // Policy: <=4s keep natural bucket, >4s force 5s then timeline can stretch.
+    raw =
+      maxDuration > 0
+        ? maxDuration > 4
+          ? 5
+          : Math.max(1, Math.ceil(maxDuration))
+        : fallbackDuration!;
+  } else {
+    raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
+  }
+
   const durationInt = bucketDuration(raw);
 
   if (model === 'skyreels') {
@@ -809,7 +821,8 @@ export async function POST(req: NextRequest) {
           fallback_duration,
           model === 'skyreels' && skyreels_duration_mode === 'fixed'
             ? skyreels_duration_seconds
-            : undefined
+            : undefined,
+          skyreels_duration_mode
         );
         if (!refContext) {
           results.push({

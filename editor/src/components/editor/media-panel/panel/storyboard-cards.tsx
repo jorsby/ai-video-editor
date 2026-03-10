@@ -512,6 +512,66 @@ export function StoryboardCards({
   const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
   const isQuickVideoMode = storyboard?.mode === 'quick_video';
 
+  const skyreelsTimingBySceneId = useMemo(() => {
+    const isSkyReelsStoryboard =
+      isRefToVideoMode && storyboard?.model === 'skyreels';
+
+    if (!isSkyReelsStoryboard) {
+      return new Map<
+        string,
+        {
+          voiceoverSeconds: number | null;
+          generatedSeconds: number;
+          playbackRate: number | null;
+          warnSlowdown: boolean;
+          mode: 'auto' | 'fixed';
+        }
+      >();
+    }
+
+    const fixedSeconds = Number(skyreelsFixedDuration);
+
+    return new Map(
+      sortedScenes.map((scene) => {
+        const maxVoiceoverSeconds = Math.max(
+          ...(scene.voiceovers || []).map((v) => v.duration ?? 0),
+          0
+        );
+
+        const hasVoiceover = maxVoiceoverSeconds > 0;
+        const generatedSeconds =
+          skyreelsDurationMode === 'fixed'
+            ? fixedSeconds
+            : hasVoiceover
+              ? maxVoiceoverSeconds > 4
+                ? 5
+                : Math.max(1, Math.ceil(maxVoiceoverSeconds))
+              : 3;
+
+        const playbackRate =
+          hasVoiceover && maxVoiceoverSeconds > 0
+            ? generatedSeconds / maxVoiceoverSeconds
+            : null;
+
+        const timing = {
+          voiceoverSeconds: hasVoiceover ? maxVoiceoverSeconds : null,
+          generatedSeconds,
+          playbackRate,
+          warnSlowdown: playbackRate !== null && playbackRate < 0.6,
+          mode: skyreelsDurationMode,
+        };
+
+        return [scene.id, timing] as const;
+      })
+    );
+  }, [
+    isRefToVideoMode,
+    storyboard?.model,
+    sortedScenes,
+    skyreelsDurationMode,
+    skyreelsFixedDuration,
+  ]);
+
   const splitProgress = useMemo(() => {
     if (!isRefToVideoMode) return null;
 
@@ -1201,6 +1261,37 @@ export function StoryboardCards({
         const confirmed = await confirm({
           title: 'SkyReels Duration Limit',
           description: `${sceneLabels} ${scenesOverLimit.length === 1 ? 'has' : 'have'} voiceover longer than 5 seconds. SkyReels will clamp video duration to 5 seconds for ${scenesOverLimit.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
+          confirmLabel: 'Continue',
+        });
+        if (!confirmed) return;
+      }
+
+      const fixedSeconds = Number(skyreelsFixedDuration);
+      const scenesWithHeavySlowdown = selectedScenes.filter((s) => {
+        const maxDuration = Math.max(
+          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
+          0
+        );
+
+        if (maxDuration <= 0) return false;
+
+        const generatedSeconds =
+          skyreelsDurationMode === 'fixed'
+            ? fixedSeconds
+            : maxDuration > 4
+              ? 5
+              : Math.max(1, Math.ceil(maxDuration));
+
+        return generatedSeconds / maxDuration < 0.6;
+      });
+
+      if (scenesWithHeavySlowdown.length > 0) {
+        const sceneLabels = scenesWithHeavySlowdown
+          .map((s) => `Scene ${s.order + 1}`)
+          .join(', ');
+        const confirmed = await confirm({
+          title: 'Heavy Slowdown Warning',
+          description: `${sceneLabels} ${scenesWithHeavySlowdown.length === 1 ? 'will be' : 'will be'} slowed below 0.60x to match voiceover length. Motion may feel unnatural. Continue anyway?`,
           confirmLabel: 'Continue',
         });
         if (!confirmed) return;
@@ -2963,6 +3054,7 @@ export function StoryboardCards({
             key={scene.id}
             scene={scene}
             compact
+            skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
             isSelected={selectedSceneIds.has(scene.id)}
             onSelectionChange={(selected) => toggleScene(scene.id, selected)}
             playingVoiceoverId={playingVoiceoverId}
