@@ -421,9 +421,9 @@ export function StoryboardCards({
 
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
-  const [refRenderPath, setRefRenderPath] = useState<'direct' | 'hybrid'>(
-    'direct'
-  );
+  const [refRenderPath, setRefRenderPath] = useState<
+    'direct' | 'hybrid' | 'i2v'
+  >('direct');
   const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
     'klingo3'
   );
@@ -528,7 +528,11 @@ export function StoryboardCards({
 
     const storedPath = (storyboard?.plan as { generation_path?: string } | null)
       ?.generation_path;
-    if (storedPath === 'hybrid' || storedPath === 'direct') {
+    if (
+      storedPath === 'hybrid' ||
+      storedPath === 'direct' ||
+      storedPath === 'i2v'
+    ) {
       setRefRenderPath(storedPath);
     } else {
       setRefRenderPath('direct');
@@ -1317,7 +1321,7 @@ export function StoryboardCards({
       : storyboard?.model;
 
   const selectedVideoModel =
-    isRefToVideoMode && refRenderPath === 'hybrid'
+    isRefToVideoMode && refRenderPath !== 'direct'
       ? videoModel
       : (directRefVideoModel ?? videoModel);
 
@@ -2741,7 +2745,7 @@ export function StoryboardCards({
                       </span>
                       <Select
                         value={refRenderPath}
-                        onValueChange={(value: 'direct' | 'hybrid') =>
+                        onValueChange={(value: 'direct' | 'hybrid' | 'i2v') =>
                           setRefRenderPath(value)
                         }
                       >
@@ -2752,15 +2756,18 @@ export function StoryboardCards({
                           <SelectItem value="direct">
                             Direct (Ref → Video)
                           </SelectItem>
+                          <SelectItem value="i2v">
+                            i2v (First Frame → Video)
+                          </SelectItem>
                           <SelectItem value="hybrid">
-                            Hybrid (Ref → Frame → i2v)
+                            Ref → Frame → i2v
                           </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
-                    {/* Hybrid: i2v model picker */}
-                    {refRenderPath === 'hybrid' ? (
+                    {/* i2v/hybrid: i2v model picker */}
+                    {refRenderPath !== 'direct' ? (
                       <div className="flex items-end gap-2">
                         <div className="flex flex-col gap-1 flex-1">
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">

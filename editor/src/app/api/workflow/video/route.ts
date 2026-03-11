@@ -210,7 +210,7 @@ interface GenerateVideoInput {
   scene_ids: string[];
   resolution: '480p' | '720p' | '1080p';
   model?: string;
-  generation_path?: 'direct' | 'hybrid';
+  generation_path?: 'direct' | 'hybrid' | 'i2v';
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
@@ -851,11 +851,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!['direct', 'hybrid'].includes(generation_path)) {
+    if (!['direct', 'hybrid', 'i2v'].includes(generation_path)) {
       return NextResponse.json(
         {
           success: false,
-          error: 'generation_path must be direct or hybrid',
+          error: 'generation_path must be direct, hybrid, or i2v',
         },
         { status: 400 }
       );
@@ -925,40 +925,39 @@ export async function POST(req: NextRequest) {
     }
 
     const isStoryboardRefMode = storyboardMode === 'ref_to_video';
-    const useHybridPath = isStoryboardRefMode && generation_path === 'hybrid';
+    const useI2vPath =
+      isStoryboardRefMode &&
+      (generation_path === 'hybrid' || generation_path === 'i2v');
 
-    if (useHybridPath && modelConfig.mode !== 'image_to_video') {
+    if (useI2vPath && modelConfig.mode !== 'image_to_video') {
       return NextResponse.json(
         {
           success: false,
-          error: 'Hybrid path requires an image_to_video model',
+          error: 'i2v and hybrid paths require an image_to_video model',
         },
         { status: 400 }
       );
     }
 
-    let fallbackRefModel: ModelKey | null = null;
-    if (
-      isStoryboardRefMode &&
+    const directStoryboardRefModel: ModelKey | null =
       storyboardModel &&
       isModelKey(storyboardModel) &&
       MODEL_CONFIG[storyboardModel].mode === 'ref_to_video'
-    ) {
-      fallbackRefModel = storyboardModel;
-    }
-
-    const isRefMode = isStoryboardRefMode
-      ? !useHybridPath
-      : modelConfig.mode === 'ref_to_video';
+        ? storyboardModel
+        : null;
 
     const requestedRefModel: ModelKey | null =
       isModelKey(model) && MODEL_CONFIG[model].mode === 'ref_to_video'
         ? model
         : null;
 
-    const effectiveDirectRefModel = isRefMode
+    const isRefMode = isStoryboardRefMode
+      ? generation_path === 'direct'
+      : modelConfig.mode === 'ref_to_video';
+
+    const effectiveDirectRefModel: ModelKey | null = isRefMode
       ? isStoryboardRefMode
-        ? fallbackRefModel
+        ? directStoryboardRefModel
         : requestedRefModel
       : null;
 
@@ -978,12 +977,13 @@ export async function POST(req: NextRequest) {
       resolution,
       model,
       generation_path,
-      mode: useHybridPath
-        ? 'hybrid_ref_to_i2v'
-        : isRefMode
-          ? 'ref_to_video'
+      mode: isRefMode
+        ? 'ref_to_video'
+        : useI2vPath
+          ? generation_path === 'hybrid'
+            ? 'ref_to_i2v'
+            : 'i2v'
           : 'image_to_video',
-      fallback_model: fallbackRefModel,
       ...(model === 'skyreels'
         ? {
             skyreels_duration_mode,
@@ -1009,7 +1009,7 @@ export async function POST(req: NextRequest) {
         await delay(1000);
       }
 
-      if (useHybridPath) {
+      if (useI2vPath) {
         const i2vContext = await getVideoContext(
           supabase,
           sceneId,
@@ -1019,35 +1019,12 @@ export async function POST(req: NextRequest) {
         );
 
         if (!i2vContext) {
-          if (!fallbackRefModel) {
-            results.push({
-              scene_id: sceneId,
-              request_id: null,
-              status: 'failed',
-              error:
-                'Hybrid prerequisites missing and no direct fallback model',
-            });
-            continue;
-          }
-
-          log.warn('Hybrid prerequisites missing, falling back to direct', {
+          results.push({
             scene_id: sceneId,
-            fallback_model: fallbackRefModel,
+            request_id: null,
+            status: 'skipped',
+            error: 'Prerequisites not met (missing first frame)',
           });
-
-          const fallbackResult = await queueDirectRefVideo(
-            supabase,
-            sceneId,
-            resolution,
-            fallbackRefModel,
-            MODEL_CONFIG[fallbackRefModel],
-            aspect_ratio,
-            log,
-            fallback_duration,
-            skyreels_duration_mode,
-            skyreels_duration_seconds
-          );
-          results.push(fallbackResult);
           continue;
         }
 
@@ -1075,29 +1052,6 @@ export async function POST(req: NextRequest) {
               video_error_message: 'request_error',
             })
             .eq('id', i2vContext.scene_id);
-
-          if (fallbackRefModel) {
-            log.warn('Hybrid i2v request failed, falling back to direct', {
-              scene_id: sceneId,
-              fallback_model: fallbackRefModel,
-              error: error || 'Unknown error',
-            });
-
-            const fallbackResult = await queueDirectRefVideo(
-              supabase,
-              sceneId,
-              resolution,
-              fallbackRefModel,
-              MODEL_CONFIG[fallbackRefModel],
-              aspect_ratio,
-              log,
-              fallback_duration,
-              skyreels_duration_mode,
-              skyreels_duration_seconds
-            );
-            results.push(fallbackResult);
-            continue;
-          }
 
           results.push({
             scene_id: sceneId,
