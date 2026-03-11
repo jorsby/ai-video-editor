@@ -18,6 +18,7 @@ import {
   IconVideoOff,
   IconUsers,
   IconAlertTriangle,
+  IconPhoto,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import {
@@ -420,12 +421,17 @@ export function StoryboardCards({
 
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
+  const [refRenderPath, setRefRenderPath] = useState<'direct' | 'hybrid'>(
+    'direct'
+  );
   const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
     'klingo3'
   );
   const [videoResolution, setVideoResolution] = useState<
     '480p' | '720p' | '1080p'
   >('720p');
+  const [isGeneratingRefFirstFrames, setIsGeneratingRefFirstFrames] =
+    useState(false);
   const [skyreelsDurationMode, setSkyreelsDurationMode] = useState<
     'auto' | 'fixed'
   >('auto');
@@ -511,6 +517,37 @@ export function StoryboardCards({
 
   const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
   const isQuickVideoMode = storyboard?.mode === 'quick_video';
+
+  useEffect(() => {
+    if (!isRefToVideoMode) return;
+
+    const sbModel = storyboard?.model;
+    if (sbModel === 'klingo3' || sbModel === 'klingo3pro') {
+      setRefVideoModel(sbModel);
+    }
+
+    const storedPath = (storyboard?.plan as { generation_path?: string } | null)
+      ?.generation_path;
+    if (storedPath === 'hybrid' || storedPath === 'direct') {
+      setRefRenderPath(storedPath);
+    } else {
+      setRefRenderPath('direct');
+    }
+
+    const storedHybridModel = (
+      storyboard?.plan as { hybrid_i2v_model?: string } | null
+    )?.hybrid_i2v_model;
+
+    if (storedHybridModel && Object.hasOwn(VIDEO_MODELS, storedHybridModel)) {
+      setVideoModel(storedHybridModel as VideoModelKey);
+    }
+  }, [
+    isRefToVideoMode,
+    storyboard?.id,
+    storyboard?.model,
+    storyboard?.plan,
+    setVideoModel,
+  ]);
 
   const skyreelsTimingBySceneId = useMemo(() => {
     const isSkyReelsStoryboard =
@@ -1274,6 +1311,44 @@ export function StoryboardCards({
     }
   };
 
+  const directRefVideoModel =
+    isRefToVideoMode && storyboard?.model?.startsWith('kling')
+      ? refVideoModel
+      : storyboard?.model;
+
+  const selectedVideoModel =
+    isRefToVideoMode && refRenderPath === 'hybrid'
+      ? videoModel
+      : (directRefVideoModel ?? videoModel);
+
+  const handleGenerateRefFirstFrames = async () => {
+    if (!isRefToVideoMode || selectedSceneIds.size === 0) return;
+
+    setIsGeneratingRefFirstFrames(true);
+    try {
+      const { data, error } = await invokeWorkflow(
+        '/api/workflow/ref-first-frame',
+        {
+          scene_ids: Array.from(selectedSceneIds),
+          model: 'grok',
+        }
+      );
+
+      if (error) throw error;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      toast.success(
+        `First-frame generation started for ${(data as any).summary.queued} scene(s)`
+      );
+      refresh();
+    } catch (err) {
+      console.error('Failed to generate first frames from refs:', err);
+      toast.error('Failed to generate first frames');
+    } finally {
+      setIsGeneratingRefFirstFrames(false);
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
@@ -1281,8 +1356,7 @@ export function StoryboardCards({
       selectedSceneIds.has(s.id)
     );
 
-    const selectedModel =
-      storyboard?.mode === 'ref_to_video' ? storyboard?.model : videoModel;
+    const selectedModel = selectedVideoModel;
 
     // SkyReels only supports up to 5s duration per scene. Warn before clamping.
     if (selectedModel === 'skyreels') {
@@ -1372,8 +1446,8 @@ export function StoryboardCards({
       const { data, error } = await invokeWorkflow('/api/workflow/video', {
         scene_ids: Array.from(selectedSceneIds),
         resolution: videoResolution,
-        model:
-          storyboard?.mode === 'ref_to_video' ? storyboard?.model : videoModel,
+        model: selectedModel,
+        ...(isRefToVideoMode && { generation_path: refRenderPath }),
         aspect_ratio:
           storyboard && 'aspect_ratio' in storyboard
             ? storyboard.aspect_ratio
@@ -1775,7 +1849,8 @@ export function StoryboardCards({
     const { error: videoError } = await invokeWorkflow('/api/workflow/video', {
       scene_ids: [sceneId],
       resolution: videoResolution,
-      model: isRef ? storyboard?.model : videoModel,
+      model: isRef ? selectedVideoModel : videoModel,
+      ...(isRef && { generation_path: refRenderPath }),
       aspect_ratio:
         storyboard && 'aspect_ratio' in storyboard
           ? storyboard.aspect_ratio
@@ -2657,87 +2732,192 @@ export function StoryboardCards({
             <CollapsibleContent>
               <div className="px-2 py-2 flex flex-col gap-2">
                 {/* Video model + Resolution */}
-                {isRefToVideoMode && storyboard?.model?.startsWith('kling') ? (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      Model
-                    </span>
-                    <Select
-                      value={refVideoModel}
-                      onValueChange={(value: string) =>
-                        setRefVideoModel(value as 'klingo3' | 'klingo3pro')
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="klingo3">Kling O3</SelectItem>
-                        <SelectItem value="klingo3pro">Kling O3 Pro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : isRefToVideoMode ? (
+                {isRefToVideoMode ? (
                   <div className="flex flex-col gap-2">
-                    <div className="text-xs text-muted-foreground px-1">
-                      Model:{' '}
-                      <span className="font-medium text-foreground">
-                        {storyboard?.model === 'wan26flash'
-                          ? 'WAN 2.6 Flash'
-                          : storyboard?.model === 'skyreels'
-                            ? 'SkyReels'
-                            : (storyboard?.model ?? 'N/A')}
+                    {/* Render Strategy */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Render Strategy
                       </span>
+                      <Select
+                        value={refRenderPath}
+                        onValueChange={(value: 'direct' | 'hybrid') =>
+                          setRefRenderPath(value)
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="direct">
+                            Direct (Ref → Video)
+                          </SelectItem>
+                          <SelectItem value="hybrid">
+                            Hybrid (Ref → Frame → i2v)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
-                    {storyboard?.model === 'skyreels' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="flex flex-col gap-1">
+                    {/* Hybrid: i2v model picker */}
+                    {refRenderPath === 'hybrid' ? (
+                      <div className="flex items-end gap-2">
+                        <div className="flex flex-col gap-1 flex-1">
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                            Duration Mode
+                            i2v Model
                           </span>
                           <Select
-                            value={skyreelsDurationMode}
-                            onValueChange={(value: 'auto' | 'fixed') =>
-                              setSkyreelsDurationMode(value)
+                            value={videoModel}
+                            onValueChange={(value: string) =>
+                              setVideoModel(value as VideoModelKey)
                             }
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="auto">
-                                Auto (from VO)
-                              </SelectItem>
-                              <SelectItem value="fixed">Fixed</SelectItem>
+                              {(
+                                Object.keys(VIDEO_MODELS) as VideoModelKey[]
+                              ).map((key) => (
+                                <SelectItem key={key} value={key}>
+                                  {VIDEO_MODELS[key].label}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
-
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-1 w-[80px]">
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                            Fixed Seconds
+                            Resolution
                           </span>
                           <Select
-                            value={skyreelsFixedDuration}
-                            onValueChange={(
-                              value: '1' | '2' | '3' | '4' | '5'
-                            ) => setSkyreelsFixedDuration(value)}
-                            disabled={skyreelsDurationMode !== 'fixed'}
+                            value={videoResolution}
+                            onValueChange={(value: '480p' | '720p' | '1080p') =>
+                              setVideoResolution(value)
+                            }
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="1">1s</SelectItem>
-                              <SelectItem value="2">2s</SelectItem>
-                              <SelectItem value="3">3s</SelectItem>
-                              <SelectItem value="4">4s</SelectItem>
-                              <SelectItem value="5">5s</SelectItem>
+                              {VIDEO_MODELS[videoModel].resolutions.map(
+                                (res) => (
+                                  <SelectItem key={res} value={res}>
+                                    {res}
+                                  </SelectItem>
+                                )
+                              )}
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
+                    ) : /* Direct: show ref model label or Kling picker */
+                    storyboard?.model?.startsWith('kling') ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                          Model
+                        </span>
+                        <Select
+                          value={refVideoModel}
+                          onValueChange={(value: string) =>
+                            setRefVideoModel(value as 'klingo3' | 'klingo3pro')
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="klingo3">Kling O3</SelectItem>
+                            <SelectItem value="klingo3pro">
+                              Kling O3 Pro
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground px-1">
+                        Model:{' '}
+                        <span className="font-medium text-foreground">
+                          {storyboard?.model === 'wan26flash'
+                            ? 'WAN 2.6 Flash'
+                            : storyboard?.model === 'skyreels'
+                              ? 'SkyReels'
+                              : (storyboard?.model ?? 'N/A')}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* SkyReels duration controls (direct only) */}
+                    {refRenderPath === 'direct' &&
+                      storyboard?.model === 'skyreels' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                              Duration Mode
+                            </span>
+                            <Select
+                              value={skyreelsDurationMode}
+                              onValueChange={(value: 'auto' | 'fixed') =>
+                                setSkyreelsDurationMode(value)
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="auto">
+                                  Auto (from VO)
+                                </SelectItem>
+                                <SelectItem value="fixed">Fixed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                              Fixed Seconds
+                            </span>
+                            <Select
+                              value={skyreelsFixedDuration}
+                              onValueChange={(
+                                value: '1' | '2' | '3' | '4' | '5'
+                              ) => setSkyreelsFixedDuration(value)}
+                              disabled={skyreelsDurationMode !== 'fixed'}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1">1s</SelectItem>
+                                <SelectItem value="2">2s</SelectItem>
+                                <SelectItem value="3">3s</SelectItem>
+                                <SelectItem value="4">4s</SelectItem>
+                                <SelectItem value="5">5s</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Hybrid: Generate Preview Frames button */}
+                    {refRenderPath === 'hybrid' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          selectedSceneIds.size === 0 ||
+                          isGeneratingRefFirstFrames
+                        }
+                        onClick={handleGenerateRefFirstFrames}
+                        className="h-9 text-xs w-full"
+                      >
+                        {isGeneratingRefFirstFrames ? (
+                          <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                        ) : (
+                          <IconPhoto className="size-3.5 mr-1" />
+                        )}
+                        Generate Preview Frames
+                      </Button>
                     )}
                   </div>
                 ) : (

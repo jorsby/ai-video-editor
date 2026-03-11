@@ -173,6 +173,12 @@ const SKYREELS_API_URL = 'https://apis.skyreels.ai/api/v1/video/multiobject';
 
 const DEFAULT_MODEL = 'bytedance1.5pro';
 
+type ModelKey = keyof typeof MODEL_CONFIG;
+
+function isModelKey(value: string): value is ModelKey {
+  return value in MODEL_CONFIG;
+}
+
 // ── Prompt resolution ─────────────────────────────────────────────────
 
 function resolvePrompt(
@@ -204,6 +210,7 @@ interface GenerateVideoInput {
   scene_ids: string[];
   resolution: '480p' | '720p' | '1080p';
   model?: string;
+  generation_path?: 'direct' | 'hybrid';
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
@@ -683,6 +690,127 @@ async function sendVideoRequest(
   }
 }
 
+async function queueDirectRefVideo(
+  supabase: ReturnType<typeof createServiceClient>,
+  sceneId: string,
+  resolution: string,
+  model: ModelKey,
+  modelConfig: ModelConfig,
+  aspect_ratio: string | undefined,
+  log: ReturnType<typeof createLogger>,
+  fallback_duration: number | undefined,
+  skyreelsDurationMode: 'auto' | 'fixed',
+  skyreelsDurationSeconds: number | undefined
+): Promise<{
+  scene_id: string;
+  request_id: string | null;
+  status: 'queued' | 'skipped' | 'failed';
+  error?: string;
+}> {
+  const refContext = await getRefVideoContext(
+    supabase,
+    sceneId,
+    model,
+    modelConfig.bucketDuration,
+    log,
+    fallback_duration,
+    model === 'skyreels' && skyreelsDurationMode === 'fixed'
+      ? skyreelsDurationSeconds
+      : undefined,
+    skyreelsDurationMode
+  );
+
+  if (!refContext) {
+    return {
+      scene_id: sceneId,
+      request_id: null,
+      status: 'skipped',
+      error: 'Prerequisites not met',
+    };
+  }
+
+  await supabase
+    .from('scenes')
+    .update({
+      video_status: 'processing',
+      video_resolution: resolution,
+    })
+    .eq('id', refContext.scene_id);
+
+  if (model === 'skyreels') {
+    const { taskId, error } = await sendSkyReelsRequest(
+      refContext,
+      aspect_ratio,
+      log
+    );
+
+    if (error || !taskId) {
+      await supabase
+        .from('scenes')
+        .update({
+          video_status: 'failed',
+          video_error_message: error || 'request_error',
+        })
+        .eq('id', refContext.scene_id);
+
+      return {
+        scene_id: sceneId,
+        request_id: null,
+        status: 'failed',
+        error: error || 'Unknown error',
+      };
+    }
+
+    await supabase
+      .from('scenes')
+      .update({ video_request_id: taskId })
+      .eq('id', refContext.scene_id);
+
+    return {
+      scene_id: sceneId,
+      request_id: taskId,
+      status: 'queued',
+    };
+  }
+
+  const { requestId, error } = await sendRefVideoRequest(
+    refContext,
+    resolution,
+    model,
+    modelConfig,
+    aspect_ratio,
+    log
+  );
+
+  if (error || !requestId) {
+    await supabase
+      .from('scenes')
+      .update({
+        video_status: 'failed',
+        video_error_message: 'request_error',
+      })
+      .eq('id', refContext.scene_id);
+
+    return {
+      scene_id: sceneId,
+      request_id: null,
+      status: 'failed',
+      error: error || 'Unknown error',
+    };
+  }
+
+  await supabase
+    .from('scenes')
+    .update({ video_request_id: requestId })
+    .eq('id', refContext.scene_id);
+
+  return {
+    scene_id: sceneId,
+    request_id: requestId,
+    status: 'queued',
+  };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -708,6 +836,7 @@ export async function POST(req: NextRequest) {
       scene_ids,
       resolution = '720p',
       model = DEFAULT_MODEL,
+      generation_path = 'direct',
       aspect_ratio,
       fallback_duration,
       storyboard_id,
@@ -718,6 +847,16 @@ export async function POST(req: NextRequest) {
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scene_ids must be a non-empty array' },
+        { status: 400 }
+      );
+    }
+
+    if (!['direct', 'hybrid'].includes(generation_path)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'generation_path must be direct or hybrid',
+        },
         { status: 400 }
       );
     }
@@ -771,21 +910,80 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    let isRefMode = modelConfig.mode === 'ref_to_video';
-    if (storyboard_id && !isRefMode) {
+    let storyboardMode: string | null = null;
+    let storyboardModel: string | null = null;
+
+    if (storyboard_id) {
       const { data: sb } = await supabase
         .from('storyboards')
-        .select('mode')
+        .select('mode, model')
         .eq('id', storyboard_id)
         .single();
-      if (sb?.mode === 'ref_to_video') isRefMode = true;
+
+      storyboardMode = sb?.mode ?? null;
+      storyboardModel = sb?.model ?? null;
+    }
+
+    const isStoryboardRefMode = storyboardMode === 'ref_to_video';
+    const useHybridPath = isStoryboardRefMode && generation_path === 'hybrid';
+
+    if (useHybridPath && modelConfig.mode !== 'image_to_video') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Hybrid path requires an image_to_video model',
+        },
+        { status: 400 }
+      );
+    }
+
+    let fallbackRefModel: ModelKey | null = null;
+    if (
+      isStoryboardRefMode &&
+      storyboardModel &&
+      isModelKey(storyboardModel) &&
+      MODEL_CONFIG[storyboardModel].mode === 'ref_to_video'
+    ) {
+      fallbackRefModel = storyboardModel;
+    }
+
+    const isRefMode = isStoryboardRefMode
+      ? !useHybridPath
+      : modelConfig.mode === 'ref_to_video';
+
+    const requestedRefModel: ModelKey | null =
+      isModelKey(model) && MODEL_CONFIG[model].mode === 'ref_to_video'
+        ? model
+        : null;
+
+    const effectiveDirectRefModel = isRefMode
+      ? isStoryboardRefMode
+        ? fallbackRefModel
+        : requestedRefModel
+      : null;
+
+    if (isRefMode && !effectiveDirectRefModel) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Direct ref_to_video path requires a valid ref model (klingo3, klingo3pro, wan26flash, skyreels)',
+        },
+        { status: 400 }
+      );
     }
 
     log.info('Processing video requests', {
       scene_count: scene_ids.length,
       resolution,
       model,
-      mode: isRefMode ? 'ref_to_video' : 'image_to_video',
+      generation_path,
+      mode: useHybridPath
+        ? 'hybrid_ref_to_i2v'
+        : isRefMode
+          ? 'ref_to_video'
+          : 'image_to_video',
+      fallback_model: fallbackRefModel,
       ...(model === 'skyreels'
         ? {
             skyreels_duration_mode,
@@ -811,138 +1009,64 @@ export async function POST(req: NextRequest) {
         await delay(1000);
       }
 
-      if (isRefMode) {
-        const refContext = await getRefVideoContext(
-          supabase,
-          sceneId,
-          model,
-          modelConfig.bucketDuration,
-          log,
-          fallback_duration,
-          model === 'skyreels' && skyreels_duration_mode === 'fixed'
-            ? skyreels_duration_seconds
-            : undefined,
-          skyreels_duration_mode
-        );
-        if (!refContext) {
-          results.push({
-            scene_id: sceneId,
-            request_id: null,
-            status: 'skipped',
-            error: 'Prerequisites not met',
-          });
-          continue;
-        }
-
-        if (model === 'skyreels') {
-          await supabase
-            .from('scenes')
-            .update({
-              video_status: 'processing',
-              video_resolution: resolution,
-            })
-            .eq('id', refContext.scene_id);
-          const { taskId, error } = await sendSkyReelsRequest(
-            refContext,
-            aspect_ratio,
-            log
-          );
-          if (error || !taskId) {
-            await supabase
-              .from('scenes')
-              .update({
-                video_status: 'failed',
-                video_error_message: error || 'request_error',
-              })
-              .eq('id', refContext.scene_id);
-            results.push({
-              scene_id: sceneId,
-              request_id: null,
-              status: 'failed',
-              error: error || 'Unknown error',
-            });
-            continue;
-          }
-          await supabase
-            .from('scenes')
-            .update({ video_request_id: taskId })
-            .eq('id', refContext.scene_id);
-          results.push({
-            scene_id: sceneId,
-            request_id: taskId,
-            status: 'queued',
-          });
-        } else {
-          await supabase
-            .from('scenes')
-            .update({
-              video_status: 'processing',
-              video_resolution: resolution,
-            })
-            .eq('id', refContext.scene_id);
-          const { requestId, error } = await sendRefVideoRequest(
-            refContext,
-            resolution,
-            model,
-            modelConfig,
-            aspect_ratio,
-            log
-          );
-          if (error || !requestId) {
-            await supabase
-              .from('scenes')
-              .update({
-                video_status: 'failed',
-                video_error_message: 'request_error',
-              })
-              .eq('id', refContext.scene_id);
-            results.push({
-              scene_id: sceneId,
-              request_id: null,
-              status: 'failed',
-              error: error || 'Unknown error',
-            });
-            continue;
-          }
-          await supabase
-            .from('scenes')
-            .update({ video_request_id: requestId })
-            .eq('id', refContext.scene_id);
-          results.push({
-            scene_id: sceneId,
-            request_id: requestId,
-            status: 'queued',
-          });
-        }
-      } else {
-        const context = await getVideoContext(
+      if (useHybridPath) {
+        const i2vContext = await getVideoContext(
           supabase,
           sceneId,
           modelConfig.bucketDuration,
           log,
           fallback_duration
         );
-        if (!context) {
-          results.push({
+
+        if (!i2vContext) {
+          if (!fallbackRefModel) {
+            results.push({
+              scene_id: sceneId,
+              request_id: null,
+              status: 'failed',
+              error:
+                'Hybrid prerequisites missing and no direct fallback model',
+            });
+            continue;
+          }
+
+          log.warn('Hybrid prerequisites missing, falling back to direct', {
             scene_id: sceneId,
-            request_id: null,
-            status: 'skipped',
-            error: 'Prerequisites not met',
+            fallback_model: fallbackRefModel,
           });
+
+          const fallbackResult = await queueDirectRefVideo(
+            supabase,
+            sceneId,
+            resolution,
+            fallbackRefModel,
+            MODEL_CONFIG[fallbackRefModel],
+            aspect_ratio,
+            log,
+            fallback_duration,
+            skyreels_duration_mode,
+            skyreels_duration_seconds
+          );
+          results.push(fallbackResult);
           continue;
         }
 
         await supabase
           .from('scenes')
-          .update({ video_status: 'processing', video_resolution: resolution })
-          .eq('id', context.scene_id);
+          .update({
+            video_status: 'processing',
+            video_resolution: resolution,
+          })
+          .eq('id', i2vContext.scene_id);
+
         const { requestId, error } = await sendVideoRequest(
-          context,
+          i2vContext,
           resolution,
           modelConfig,
           aspect_ratio,
           log
         );
+
         if (error || !requestId) {
           await supabase
             .from('scenes')
@@ -950,7 +1074,31 @@ export async function POST(req: NextRequest) {
               video_status: 'failed',
               video_error_message: 'request_error',
             })
-            .eq('id', context.scene_id);
+            .eq('id', i2vContext.scene_id);
+
+          if (fallbackRefModel) {
+            log.warn('Hybrid i2v request failed, falling back to direct', {
+              scene_id: sceneId,
+              fallback_model: fallbackRefModel,
+              error: error || 'Unknown error',
+            });
+
+            const fallbackResult = await queueDirectRefVideo(
+              supabase,
+              sceneId,
+              resolution,
+              fallbackRefModel,
+              MODEL_CONFIG[fallbackRefModel],
+              aspect_ratio,
+              log,
+              fallback_duration,
+              skyreels_duration_mode,
+              skyreels_duration_seconds
+            );
+            results.push(fallbackResult);
+            continue;
+          }
+
           results.push({
             scene_id: sceneId,
             request_id: null,
@@ -959,16 +1107,91 @@ export async function POST(req: NextRequest) {
           });
           continue;
         }
+
         await supabase
           .from('scenes')
           .update({ video_request_id: requestId })
-          .eq('id', context.scene_id);
+          .eq('id', i2vContext.scene_id);
+
         results.push({
           scene_id: sceneId,
           request_id: requestId,
           status: 'queued',
         });
+
+        continue;
       }
+
+      if (isRefMode && effectiveDirectRefModel) {
+        const directResult = await queueDirectRefVideo(
+          supabase,
+          sceneId,
+          resolution,
+          effectiveDirectRefModel,
+          MODEL_CONFIG[effectiveDirectRefModel],
+          aspect_ratio,
+          log,
+          fallback_duration,
+          skyreels_duration_mode,
+          skyreels_duration_seconds
+        );
+        results.push(directResult);
+        continue;
+      }
+
+      const context = await getVideoContext(
+        supabase,
+        sceneId,
+        modelConfig.bucketDuration,
+        log,
+        fallback_duration
+      );
+      if (!context) {
+        results.push({
+          scene_id: sceneId,
+          request_id: null,
+          status: 'skipped',
+          error: 'Prerequisites not met',
+        });
+        continue;
+      }
+
+      await supabase
+        .from('scenes')
+        .update({ video_status: 'processing', video_resolution: resolution })
+        .eq('id', context.scene_id);
+      const { requestId, error } = await sendVideoRequest(
+        context,
+        resolution,
+        modelConfig,
+        aspect_ratio,
+        log
+      );
+      if (error || !requestId) {
+        await supabase
+          .from('scenes')
+          .update({
+            video_status: 'failed',
+            video_error_message: 'request_error',
+          })
+          .eq('id', context.scene_id);
+        results.push({
+          scene_id: sceneId,
+          request_id: null,
+          status: 'failed',
+          error: error || 'Unknown error',
+        });
+        continue;
+      }
+      await supabase
+        .from('scenes')
+        .update({ video_request_id: requestId })
+        .eq('id', context.scene_id);
+      results.push({
+        scene_id: sceneId,
+        request_id: requestId,
+        status: 'queued',
+      });
     }
 
     const queuedCount = results.filter((r) => r.status === 'queued').length;

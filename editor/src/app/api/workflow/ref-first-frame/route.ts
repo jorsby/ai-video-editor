@@ -1,0 +1,354 @@
+import { type NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createLogger } from '@/lib/logger';
+
+const FAL_API_KEY = process.env.FAL_KEY!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
+
+interface RefFirstFrameInput {
+  scene_ids: string[];
+  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+}
+
+const ENDPOINTS: Record<NonNullable<RefFirstFrameInput['model']>, string> = {
+  kling: 'fal-ai/kling-image/o3/image-to-image',
+  banana: 'fal-ai/nano-banana-2/edit',
+  fibo: 'bria/fibo-edit/edit',
+  grok: 'xai/grok-imagine-image/edit',
+  'flux-pro': 'fal-ai/flux-2-pro/edit',
+};
+
+interface SceneRefContext {
+  sceneId: string;
+  prompt: string;
+  imageUrls: string[];
+}
+
+async function getSceneRefContext(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  sceneId: string,
+  log: ReturnType<typeof createLogger>
+): Promise<SceneRefContext | null> {
+  const { data: scene, error: sceneError } = await supabase
+    .from('scenes')
+    .select('id, prompt, multi_prompt')
+    .eq('id', sceneId)
+    .single();
+
+  if (sceneError || !scene) {
+    log.error('Failed to fetch scene', {
+      scene_id: sceneId,
+      error: sceneError?.message,
+    });
+    return null;
+  }
+
+  const promptFromScene =
+    (typeof scene.prompt === 'string' ? scene.prompt : '') ||
+    (Array.isArray(scene.multi_prompt) ? scene.multi_prompt.join('. ') : '');
+
+  const prompt = promptFromScene.trim();
+  if (!prompt) {
+    log.warn('Scene has no prompt for first-frame generation', {
+      scene_id: sceneId,
+    });
+    return null;
+  }
+
+  const { data: objects } = await supabase
+    .from('objects')
+    .select('final_url')
+    .eq('scene_id', sceneId)
+    .order('scene_order', { ascending: true });
+
+  const objectUrls = (objects || [])
+    .map((obj: { final_url: string | null }) => obj.final_url)
+    .filter((url: string | null): url is string => !!url);
+
+  const { data: background } = await supabase
+    .from('backgrounds')
+    .select('final_url')
+    .eq('scene_id', sceneId)
+    .limit(1)
+    .single();
+
+  if (!background?.final_url) {
+    log.warn('Scene has no background for first-frame generation', {
+      scene_id: sceneId,
+    });
+    return null;
+  }
+
+  return {
+    sceneId,
+    prompt,
+    imageUrls: [background.final_url, ...objectUrls],
+  };
+}
+
+async function getOrCreateFirstFrame(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  sceneId: string,
+  visualPrompt: string
+): Promise<{ id: string } | null> {
+  const { data: existing } = await supabase
+    .from('first_frames')
+    .select('id')
+    .eq('scene_id', sceneId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing?.id) return existing;
+
+  const { data: created, error: createError } = await supabase
+    .from('first_frames')
+    .insert({
+      scene_id: sceneId,
+      visual_prompt: visualPrompt,
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (createError || !created) {
+    return null;
+  }
+
+  return created;
+}
+
+async function queueFirstFrameRequest(
+  firstFrameId: string,
+  refs: SceneRefContext,
+  endpoint: string,
+  model: NonNullable<RefFirstFrameInput['model']>,
+  log: ReturnType<typeof createLogger>
+): Promise<{ requestId: string | null; error: string | null }> {
+  const webhookParams = new URLSearchParams({
+    step: 'EnhanceImage',
+    first_frame_id: firstFrameId,
+  });
+
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
+  falUrl.searchParams.set('fal_webhook', webhookUrl);
+
+  const requestBody: Record<string, unknown> =
+    model === 'fibo'
+      ? {
+          image_url: refs.imageUrls[0],
+          instruction: refs.prompt,
+        }
+      : {
+          image_urls: refs.imageUrls,
+          prompt: refs.prompt,
+        };
+
+  if (model === 'flux-pro') {
+    requestBody.enable_safety_checker = false;
+    requestBody.safety_tolerance = '5';
+  } else if (model === 'banana') {
+    requestBody.safety_tolerance = '6';
+  }
+
+  log.api('fal.ai', endpoint, {
+    scene_id: refs.sceneId,
+    first_frame_id: firstFrameId,
+    refs_count: refs.imageUrls.length,
+  });
+
+  log.startTiming('fal_ref_first_frame_request');
+
+  try {
+    const response = await fetch(falUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${FAL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log.error('fal.ai ref-first-frame request failed', {
+        status: response.status,
+        error: errorText,
+        time_ms: log.endTiming('fal_ref_first_frame_request'),
+      });
+      return {
+        requestId: null,
+        error: `fal.ai request failed: ${response.status}`,
+      };
+    }
+
+    const result = await response.json();
+    log.success('fal.ai ref-first-frame request accepted', {
+      request_id: result.request_id,
+      time_ms: log.endTiming('fal_ref_first_frame_request'),
+    });
+
+    return { requestId: result.request_id, error: null };
+  } catch (error) {
+    log.error('fal.ai ref-first-frame request exception', {
+      error: error instanceof Error ? error.message : String(error),
+      time_ms: log.endTiming('fal_ref_first_frame_request'),
+    });
+    return { requestId: null, error: 'Request exception' };
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const log = createLogger();
+  log.setContext({ step: 'GenerateRefFirstFrame' });
+
+  try {
+    const authClient = await createClient();
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const input: RefFirstFrameInput = await req.json();
+    const { scene_ids, model = 'grok' } = input;
+
+    if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'scene_ids must be a non-empty array' },
+        { status: 400 }
+      );
+    }
+
+    const endpoint = ENDPOINTS[model];
+    if (!endpoint) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `model must be one of: ${Object.keys(ENDPOINTS).join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createServiceClient();
+
+    const results: Array<{
+      scene_id: string;
+      first_frame_id: string | null;
+      request_id: string | null;
+      status: 'queued' | 'skipped' | 'failed';
+      error?: string;
+    }> = [];
+
+    for (const sceneId of scene_ids) {
+      const context = await getSceneRefContext(supabase, sceneId, log);
+
+      if (!context) {
+        results.push({
+          scene_id: sceneId,
+          first_frame_id: null,
+          request_id: null,
+          status: 'skipped',
+          error: 'Prerequisites not met',
+        });
+        continue;
+      }
+
+      const firstFrame = await getOrCreateFirstFrame(
+        supabase,
+        sceneId,
+        context.prompt
+      );
+
+      if (!firstFrame?.id) {
+        results.push({
+          scene_id: sceneId,
+          first_frame_id: null,
+          request_id: null,
+          status: 'failed',
+          error: 'Failed to create first frame record',
+        });
+        continue;
+      }
+
+      await supabase
+        .from('first_frames')
+        .update({
+          visual_prompt: context.prompt,
+          image_edit_status: 'editing',
+          image_edit_error_message: null,
+        })
+        .eq('id', firstFrame.id);
+
+      const { requestId, error } = await queueFirstFrameRequest(
+        firstFrame.id,
+        context,
+        endpoint,
+        model,
+        log
+      );
+
+      if (error || !requestId) {
+        await supabase
+          .from('first_frames')
+          .update({
+            image_edit_status: 'failed',
+            image_edit_error_message: 'request_error',
+          })
+          .eq('id', firstFrame.id);
+
+        results.push({
+          scene_id: sceneId,
+          first_frame_id: firstFrame.id,
+          request_id: null,
+          status: 'failed',
+          error: error || 'Unknown error',
+        });
+        continue;
+      }
+
+      await supabase
+        .from('first_frames')
+        .update({ image_edit_request_id: requestId })
+        .eq('id', firstFrame.id);
+
+      results.push({
+        scene_id: sceneId,
+        first_frame_id: firstFrame.id,
+        request_id: requestId,
+        status: 'queued',
+      });
+    }
+
+    const queuedCount = results.filter((r) => r.status === 'queued').length;
+    const skippedCount = results.filter((r) => r.status === 'skipped').length;
+    const failedCount = results.filter((r) => r.status === 'failed').length;
+
+    return NextResponse.json({
+      success: true,
+      results,
+      summary: {
+        total: scene_ids.length,
+        queued: queuedCount,
+        skipped: skippedCount,
+        failed: failedCount,
+      },
+    });
+  } catch (error) {
+    log.error('Unexpected error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
