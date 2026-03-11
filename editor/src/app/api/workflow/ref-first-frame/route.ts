@@ -324,6 +324,7 @@ export async function POST(req: NextRequest) {
           visual_prompt: context.prompt,
           image_edit_status: 'editing',
           image_edit_error_message: null,
+          image_edit_model: model,
         })
         .eq('id', firstFrame.id);
 

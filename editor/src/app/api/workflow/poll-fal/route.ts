@@ -8,6 +8,49 @@ const STALE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // fal.ai model endpoint for grid image generation
 const FAL_GRID_IMAGE_ENDPOINT = 'workflows/octupost/generategridimage';
+const DEFAULT_VIDEO_ENDPOINT =
+  'fal-ai/bytedance/seedance/v1.5/pro/image-to-video';
+const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/kling-image/o3/image-to-image';
+
+const VIDEO_MODEL_ENDPOINTS: Record<string, string> = {
+  'wan2.6': 'fal-ai/wan/v2.6/image-to-video',
+  'bytedance1.5pro': 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
+  grok: 'xai/grok-imagine-video/image-to-video',
+  wan26flash: 'wan/v2.6/image-to-video/flash',
+  klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
+  klingo3pro: 'fal-ai/kling-video/o3/pro/reference-to-video',
+};
+
+const IMAGE_EDIT_MODEL_ENDPOINTS: Record<string, string> = {
+  kling: 'fal-ai/kling-image/o3/image-to-image',
+  banana: 'fal-ai/nano-banana-2/edit',
+  fibo: 'bria/fibo-edit/edit',
+  grok: 'xai/grok-imagine-image/edit',
+  'flux-pro': 'fal-ai/flux-2-pro/edit',
+};
+
+function resolveVideoEndpoint(videoModel: string | null): string | null {
+  if (!videoModel) return DEFAULT_VIDEO_ENDPOINT;
+  if (videoModel === 'skyreels') return null;
+
+  if (videoModel.includes('/')) {
+    return videoModel;
+  }
+
+  return VIDEO_MODEL_ENDPOINTS[videoModel] ?? DEFAULT_VIDEO_ENDPOINT;
+}
+
+function resolveImageEditEndpoint(imageEditModel: string | null): string {
+  if (!imageEditModel) return DEFAULT_IMAGE_EDIT_ENDPOINT;
+
+  if (imageEditModel.includes('/')) {
+    return imageEditModel;
+  }
+
+  return (
+    IMAGE_EDIT_MODEL_ENDPOINTS[imageEditModel] ?? DEFAULT_IMAGE_EDIT_ENDPOINT
+  );
+}
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -277,8 +320,10 @@ async function pollSceneVideos(
   summary.processed = items.length;
 
   for (const scene of items) {
-    // Skip SkyReels — has its own poll endpoint
-    if (scene.video_model === 'skyreels') {
+    const endpoint = resolveVideoEndpoint(scene.video_model);
+
+    // SkyReels has its own poll endpoint
+    if (!endpoint) {
       summary.still_running++;
       continue;
     }
@@ -296,8 +341,6 @@ async function pollSceneVideos(
       continue;
     }
 
-    const endpoint =
-      scene.video_model || 'fal-ai/kling-video/v1.6/pro/image-to-video';
     const job = await checkFalJob(
       endpoint,
       scene.video_request_id,
@@ -388,8 +431,7 @@ async function pollFirstFrames(
       continue;
     }
 
-    const endpoint =
-      frame.image_edit_model || 'fal-ai/kling-video/v1.6/pro/image-to-video';
+    const endpoint = resolveImageEditEndpoint(frame.image_edit_model);
     const job = await checkFalJob(
       endpoint,
       frame.image_edit_request_id,

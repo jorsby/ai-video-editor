@@ -734,6 +734,7 @@ async function queueDirectRefVideo(
     .update({
       video_status: 'processing',
       video_resolution: resolution,
+      video_model: model,
     })
     .eq('id', refContext.scene_id);
 
@@ -1028,6 +1029,7 @@ export async function POST(req: NextRequest) {
           .update({
             video_status: 'processing',
             video_resolution: resolution,
+            video_model: model,
           })
           .eq('id', i2vContext.scene_id);
 
@@ -1107,7 +1109,11 @@ export async function POST(req: NextRequest) {
 
       await supabase
         .from('scenes')
-        .update({ video_status: 'processing', video_resolution: resolution })
+        .update({
+          video_status: 'processing',
+          video_resolution: resolution,
+          video_model: model,
+        })
         .eq('id', context.scene_id);
       const { requestId, error } = await sendVideoRequest(
         context,
