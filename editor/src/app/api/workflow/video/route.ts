@@ -210,7 +210,7 @@ interface GenerateVideoInput {
   scene_ids: string[];
   resolution: '480p' | '720p' | '1080p';
   model?: string;
-  generation_path?: 'direct' | 'hybrid' | 'i2v';
+  generation_path?: 'i2v';
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
@@ -836,7 +836,7 @@ export async function POST(req: NextRequest) {
       scene_ids,
       resolution = '720p',
       model = DEFAULT_MODEL,
-      generation_path = 'direct',
+      generation_path,
       aspect_ratio,
       fallback_duration,
       storyboard_id,
@@ -851,11 +851,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!['direct', 'hybrid', 'i2v'].includes(generation_path)) {
+    if (generation_path && generation_path !== 'i2v') {
       return NextResponse.json(
         {
           success: false,
-          error: 'generation_path must be direct, hybrid, or i2v',
+          error: 'generation_path only supports i2v override',
         },
         { status: 400 }
       );
@@ -925,15 +925,13 @@ export async function POST(req: NextRequest) {
     }
 
     const isStoryboardRefMode = storyboardMode === 'ref_to_video';
-    const useI2vPath =
-      isStoryboardRefMode &&
-      (generation_path === 'hybrid' || generation_path === 'i2v');
+    const forceI2v = generation_path === 'i2v';
 
-    if (useI2vPath && modelConfig.mode !== 'image_to_video') {
+    if (forceI2v && modelConfig.mode !== 'image_to_video') {
       return NextResponse.json(
         {
           success: false,
-          error: 'i2v and hybrid paths require an image_to_video model',
+          error: 'i2v override requires an image_to_video model',
         },
         { status: 400 }
       );
@@ -952,7 +950,7 @@ export async function POST(req: NextRequest) {
         : null;
 
     const isRefMode = isStoryboardRefMode
-      ? generation_path === 'direct'
+      ? !forceI2v
       : modelConfig.mode === 'ref_to_video';
 
     const effectiveDirectRefModel: ModelKey | null = isRefMode
@@ -976,13 +974,10 @@ export async function POST(req: NextRequest) {
       scene_count: scene_ids.length,
       resolution,
       model,
-      generation_path,
       mode: isRefMode
         ? 'ref_to_video'
-        : useI2vPath
-          ? generation_path === 'hybrid'
-            ? 'ref_to_i2v'
-            : 'i2v'
+        : forceI2v
+          ? 'i2v_override'
           : 'image_to_video',
       ...(model === 'skyreels'
         ? {
@@ -1009,7 +1004,7 @@ export async function POST(req: NextRequest) {
         await delay(1000);
       }
 
-      if (useI2vPath) {
+      if (forceI2v) {
         const i2vContext = await getVideoContext(
           supabase,
           sceneId,
