@@ -26,15 +26,20 @@ interface SceneRefContext {
   imageUrls: string[];
 }
 
+type RefStoryboardPlan = {
+  scene_first_frame_prompts?: string[];
+};
+
 async function getSceneRefContext(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   sceneId: string,
-  log: ReturnType<typeof createLogger>
+  log: ReturnType<typeof createLogger>,
+  storyboardPlanCache: Map<string, RefStoryboardPlan | null>
 ): Promise<SceneRefContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
-    .select('id, prompt, multi_prompt')
+    .select('id, prompt, multi_prompt, order, storyboard_id')
     .eq('id', sceneId)
     .single();
 
@@ -50,7 +55,35 @@ async function getSceneRefContext(
     (typeof scene.prompt === 'string' ? scene.prompt : '') ||
     (Array.isArray(scene.multi_prompt) ? scene.multi_prompt.join('. ') : '');
 
-  const prompt = promptFromScene.trim();
+  let promptFromPlan = '';
+
+  const storyboardId = scene.storyboard_id as string | null;
+  const sceneOrder = typeof scene.order === 'number' ? scene.order : null;
+
+  if (storyboardId && sceneOrder !== null) {
+    if (!storyboardPlanCache.has(storyboardId)) {
+      const { data: storyboard } = await supabase
+        .from('storyboards')
+        .select('plan')
+        .eq('id', storyboardId)
+        .single();
+
+      const plan =
+        storyboard?.plan && typeof storyboard.plan === 'object'
+          ? (storyboard.plan as RefStoryboardPlan)
+          : null;
+
+      storyboardPlanCache.set(storyboardId, plan);
+    }
+
+    const cachedPlan = storyboardPlanCache.get(storyboardId);
+    const prompts = cachedPlan?.scene_first_frame_prompts;
+    if (Array.isArray(prompts) && typeof prompts[sceneOrder] === 'string') {
+      promptFromPlan = prompts[sceneOrder].trim();
+    }
+  }
+
+  const prompt = (promptFromPlan || promptFromScene).trim();
   if (!prompt) {
     log.warn('Scene has no prompt for first-frame generation', {
       scene_id: sceneId,
@@ -247,8 +280,15 @@ export async function POST(req: NextRequest) {
       error?: string;
     }> = [];
 
+    const storyboardPlanCache = new Map<string, RefStoryboardPlan | null>();
+
     for (const sceneId of scene_ids) {
-      const context = await getSceneRefContext(supabase, sceneId, log);
+      const context = await getSceneRefContext(
+        supabase,
+        sceneId,
+        log,
+        storyboardPlanCache
+      );
 
       if (!context) {
         results.push({

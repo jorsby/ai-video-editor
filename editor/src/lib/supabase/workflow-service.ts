@@ -49,6 +49,7 @@ export interface RefPlanBase {
   grid_generation_resolution?: GridResolution;
   background_names: string[];
   scene_prompts: (string | string[])[];
+  scene_first_frame_prompts?: string[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   voiceover_list: Record<string, string[]>;

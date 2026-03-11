@@ -203,6 +203,9 @@ MUTABLE (fix and improve):
 - scene_bg_indices: ${JSON.stringify(content.scene_bg_indices)}
 - scene_object_indices: ${JSON.stringify(content.scene_object_indices)}${mutableMultiShots}
 
+FROZEN (keep as generated):
+- scene_first_frame_prompts: ${JSON.stringify(content.scene_first_frame_prompts)}
+
 Return the corrected fields.`;
 
     console.log('[Storyboard][ref_to_video] Reviewer LLM request');
@@ -240,11 +243,12 @@ Return the corrected fields.`;
   // Validate scene counts match (safety net after reviewer)
   if (
     content.scene_prompts.length !== sceneCount ||
+    content.scene_first_frame_prompts.length !== sceneCount ||
     content.scene_bg_indices.length !== sceneCount ||
     content.scene_object_indices.length !== sceneCount
   ) {
     throw new Error(
-      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
+      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
     );
   }
 
@@ -355,6 +359,7 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${skyContent.backgrounds_grid_prompt}`,
       background_names: skyContent.background_names,
       scene_prompts: skyContent.scene_prompts,
+      scene_first_frame_prompts: skyContent.scene_first_frame_prompts,
       scene_bg_indices: skyContent.scene_bg_indices,
       scene_object_indices: skyContent.scene_object_indices,
       voiceover_list,
@@ -371,6 +376,7 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${klingContent.backgrounds_grid_prompt}`,
       background_names: klingContent.background_names,
       scene_prompts: klingContent.scene_prompts,
+      scene_first_frame_prompts: klingContent.scene_first_frame_prompts,
       scene_bg_indices: klingContent.scene_bg_indices,
       scene_object_indices: klingContent.scene_object_indices,
       voiceover_list,
@@ -387,6 +393,7 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${wanContent.backgrounds_grid_prompt}`,
       background_names: wanContent.background_names,
       scene_prompts: wanContent.scene_prompts,
+      scene_first_frame_prompts: wanContent.scene_first_frame_prompts,
       scene_bg_indices: wanContent.scene_bg_indices,
       scene_object_indices: wanContent.scene_object_indices,
       scene_multi_shots: wanContent.scene_multi_shots,

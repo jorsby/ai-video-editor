@@ -24,6 +24,7 @@ export const skyreelsPlanSchema = z.object({
 
   // Scene mapping
   scene_prompts: z.array(z.string()),
+  scene_first_frame_prompts: z.array(z.string()).optional(),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(3)),
 
@@ -46,6 +47,7 @@ export const skyreelsContentSchema = z.object({
   background_names: z.array(z.string()).min(1).max(36),
 
   scene_prompts: z.array(z.string()),
+  scene_first_frame_prompts: z.array(z.string()),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(3)),
 
@@ -92,7 +94,14 @@ RULES:
 - CRITICAL: Do NOT use @ElementN, @ImageN, or any reference syntax. Use the actual character/object names.
 - CHARACTER ATTRIBUTION: When multiple characters appear in a scene, explicitly state which character performs which action. BAD: "They argue." GOOD: "Ahmed slams his fist on the table while Fatma flinches and steps back."
 
-5. Visual & Content Rules
+5. First-Frame Prompts (NEW)
+- Generate "scene_first_frame_prompts" with EXACTLY one prompt per scene.
+- These are static composition prompts for first-frame generation (no motion).
+- Must describe composition, character placement, pose/expression, framing, lighting, and environment details.
+- Do NOT include motion language like "walks", "camera pans", "then", "suddenly".
+- Use the same assigned references for that scene.
+
+6. Visual & Content Rules
 DO:
 - The prompts will be English but the texts and style on the image will depend on the language of the voiceover.
 - Use modern islamic clothing styles if people are shown. For girls use modest clothing with NO Hijab. Modern muslim fashion styles like Turkey without religious symbols.
@@ -122,6 +131,11 @@ Return valid JSON matching this structure:
     "Ahmed walks through the city street at dusk while Cat trots behind him, warm amber streetlights casting long shadows on the cobblestones",
     "Ahmed kneels down in the school courtyard to pet Cat, golden hour sunlight filtering through the trees, warm rim light on both",
     "Ahmed sits alone in the living room, leaning back with a tired expression, soft ambient light from a nearby lamp"
+  ],
+  "scene_first_frame_prompts": [
+    "Static medium-wide composition on the city street: Ahmed left foreground, Cat right foreground looking up, warm streetlight key, shallow depth of field, no motion.",
+    "Static eye-level composition in the courtyard: Ahmed kneeling center frame and Cat close to hands, soft golden-hour light, clear faces, no motion.",
+    "Static interior portrait: Ahmed seated center-right with thoughtful expression, lamp-lit practical mood, subtle background falloff, no motion."
   ],
   "scene_bg_indices": [0, 1, 2],
   "scene_object_indices": [[0, 1], [0, 1], [0]],

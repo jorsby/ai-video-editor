@@ -248,6 +248,14 @@ const OUTPAINT_MODELS = {
   'flux-pro': { label: 'Flux Pro' },
 } as const;
 
+const FIRST_FRAME_MODELS = {
+  grok: { label: 'Grok' },
+  kling: { label: 'Kling' },
+  banana: { label: 'Banana' },
+  fibo: { label: 'Fibo' },
+  'flux-pro': { label: 'Flux Pro' },
+} as const;
+
 const VIDEO_MODELS = {
   'wan2.6': { label: 'Wan 2.6', resolutions: ['720p', '1080p'] as const },
   'bytedance1.5pro': {
@@ -261,6 +269,7 @@ const VIDEO_MODELS = {
 } as const;
 
 type VideoModelKey = keyof typeof VIDEO_MODELS;
+type FirstFrameModelKey = keyof typeof FIRST_FRAME_MODELS;
 
 function ScriptViewRow({
   scene,
@@ -421,6 +430,8 @@ export function StoryboardCards({
 
   const [videoModel, setVideoModel] =
     useState<VideoModelKey>('bytedance1.5pro');
+  const [firstFrameModel, setFirstFrameModel] =
+    useState<FirstFrameModelKey>('grok');
   const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
     'klingo3'
   );
@@ -1316,7 +1327,7 @@ export function StoryboardCards({
         '/api/workflow/ref-first-frame',
         {
           scene_ids: Array.from(selectedSceneIds),
-          model: 'grok',
+          model: firstFrameModel,
         }
       );
 
@@ -2860,6 +2871,33 @@ export function StoryboardCards({
 
                         <div className="text-[10px] text-muted-foreground uppercase tracking-wider px-1">
                           First Frame to Video
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                            First Frame Model
+                          </span>
+                          <Select
+                            value={firstFrameModel}
+                            onValueChange={(value: string) =>
+                              setFirstFrameModel(value as FirstFrameModelKey)
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(
+                                Object.keys(
+                                  FIRST_FRAME_MODELS
+                                ) as FirstFrameModelKey[]
+                              ).map((key) => (
+                                <SelectItem key={key} value={key}>
+                                  {FIRST_FRAME_MODELS[key].label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         <div className="flex items-end gap-2">

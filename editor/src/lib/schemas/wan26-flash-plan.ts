@@ -20,6 +20,7 @@ export const wan26FlashPlanSchema = z.object({
 
   // Scene mapping
   scene_prompts: z.array(z.string()),
+  scene_first_frame_prompts: z.array(z.string()).optional(),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
   scene_multi_shots: z.array(z.boolean()).optional(),
@@ -43,6 +44,7 @@ export const wan26FlashContentSchema = z.object({
   background_names: z.array(z.string()).min(1).max(36),
 
   scene_prompts: z.array(z.string()),
+  scene_first_frame_prompts: z.array(z.string()),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
   scene_multi_shots: z.array(z.boolean()),
@@ -90,7 +92,14 @@ RULES:
 - Include lighting details: golden hour, rim light, silhouette, chiaroscuro, neon glow, natural window light, dramatic shadows.
 - Include character emotions, body language, specific actions, and movements.
 
-5. Multi-Shot Assignment
+5. First-Frame Prompts (NEW)
+- Generate "scene_first_frame_prompts" with EXACTLY one prompt per scene.
+- These are static composition prompts for first-frame generation (no motion).
+- Must describe composition, subject placement, pose/expression, camera framing, lighting, and environment.
+- Do NOT include motion language like "walks", "camera pans", "then", "suddenly".
+- Use the same assigned scene references.
+
+6. Multi-Shot Assignment
 - When the voiceover describes multiple distinct actions, transitions, or camera changes, use an ARRAY of 2-3 shot prompts instead of a single string.
 - When the voiceover describes a single continuous action or moment, use a single prompt string.
 - Each shot uses @Element1 (background), @Element2, @Element3, etc.
@@ -98,7 +107,7 @@ RULES:
 - Use cinematic techniques: dolly zooms, tracking shots, rack focus, aerial reveals, close-ups, handheld feel.
 - Max 3 shots per scene.
 
-6. Visual & Content Rules
+7. Visual & Content Rules
 DO:
 - The prompts will be English but the texts and style on the image will depend on the language of the voiceover.
 - Use modern islamic clothing styles if people are shown. For girls use modest clothing with NO Hijab. Modern muslim fashion styles like Turkey without religious symbols.
@@ -123,6 +132,10 @@ Return valid JSON matching this structure:
   "scene_prompts": [
     "@Element2 and @Element3 are having a dinner at @Element1, @Element2 says 'Naber bro nasılsın?'",
     ...
+  ],
+  "scene_first_frame_prompts": [
+    "Static medium-wide composition: @Element1 as dinner background, @Element2 seated left foreground and @Element3 seated right foreground, warm practical lighting, eye-level framing, no motion.",
+    "Static close composition: @Element2 near center with attentive expression, @Element1 softly blurred background depth, cinematic key light, no motion."
   ],
   "scene_bg_indices": [0, 1, 2, 0],
   "scene_object_indices": [[0, 1], [0], [1], [0, 1]],
