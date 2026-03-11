@@ -784,7 +784,7 @@ export async function PATCH(req: NextRequest) {
     // Fetch storyboard to check status and mode
     const { data: storyboard, error: fetchError } = await supabase
       .from('storyboards')
-      .select('plan_status, mode, model')
+      .select('plan_status, mode, model, plan')
       .eq('id', storyboardId)
       .single();
 
@@ -803,6 +803,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Validate plan structure based on mode
+    let normalizedPlan = plan;
+
     if (storyboard.mode === 'ref_to_video') {
       const schema =
         storyboard.model === 'skyreels'
@@ -820,6 +822,34 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         );
       }
+
+      const validatedPlan = planValidation.data;
+      const existingPlan =
+        storyboard.plan && typeof storyboard.plan === 'object'
+          ? (storyboard.plan as {
+              scene_first_frame_prompts?: string[];
+            })
+          : null;
+
+      if (!Array.isArray(validatedPlan.scene_first_frame_prompts)) {
+        const existingPrompts = existingPlan?.scene_first_frame_prompts;
+        const fallbackPrompts = validatedPlan.scene_prompts.map((prompt) =>
+          Array.isArray(prompt)
+            ? String(prompt[0] ?? '').trim()
+            : String(prompt).trim()
+        );
+
+        normalizedPlan = {
+          ...validatedPlan,
+          scene_first_frame_prompts:
+            Array.isArray(existingPrompts) &&
+            existingPrompts.length === validatedPlan.scene_prompts.length
+              ? existingPrompts
+              : fallbackPrompts,
+        };
+      } else {
+        normalizedPlan = validatedPlan;
+      }
     } else {
       const planValidation = i2vPlanSchema.safeParse(plan);
       if (!planValidation.success) {
@@ -832,19 +862,24 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
+      const validatedPlan = planValidation.data;
+
       // Validate grid constraint: rows must equal cols or cols + 1
-      if (plan.rows !== plan.cols && plan.rows !== plan.cols + 1) {
+      if (
+        validatedPlan.rows !== validatedPlan.cols &&
+        validatedPlan.rows !== validatedPlan.cols + 1
+      ) {
         return NextResponse.json(
           {
-            error: `Invalid grid: ${plan.rows}x${plan.cols}. rows must equal cols or cols + 1.`,
+            error: `Invalid grid: ${validatedPlan.rows}x${validatedPlan.cols}. rows must equal cols or cols + 1.`,
           },
           { status: 400 }
         );
       }
 
       // Validate array lengths match grid dimensions
-      const expectedScenes = plan.rows * plan.cols;
-      const { voiceover_list, visual_flow } = plan;
+      const expectedScenes = validatedPlan.rows * validatedPlan.cols;
+      const { voiceover_list, visual_flow } = validatedPlan;
       const langArrays = Object.values(voiceover_list) as string[][];
       if (
         langArrays.length === 0 ||
@@ -853,16 +888,18 @@ export async function PATCH(req: NextRequest) {
       ) {
         return NextResponse.json(
           {
-            error: `Scene count mismatch: grid is ${plan.rows}x${plan.cols}=${expectedScenes} but voiceover arrays don't match`,
+            error: `Scene count mismatch: grid is ${validatedPlan.rows}x${validatedPlan.cols}=${expectedScenes} but voiceover arrays don't match`,
           },
           { status: 400 }
         );
       }
+
+      normalizedPlan = validatedPlan;
     }
 
     const { error: updateError } = await supabase
       .from('storyboards')
-      .update({ plan })
+      .update({ plan: normalizedPlan })
       .eq('id', storyboardId);
 
     if (updateError) {
