@@ -71,10 +71,22 @@ const STORYBOARD_MODELS = [
 
 type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
 
+type CreateVideoMode =
+  | 'image_to_video'
+  | 'image_to_video_legacy'
+  | 'ref_to_video'
+  | 'quick_video';
+
 const VIDEO_MODES = [
-  { value: 'image_to_video' as const, label: 'Image to Video' },
+  {
+    value: 'image_to_video' as const,
+    label: 'Image to Video',
+  },
+  {
+    value: 'image_to_video_legacy' as const,
+    label: 'Image to Video (Legacy)',
+  },
   { value: 'ref_to_video' as const, label: 'Ref to Video' },
-  { value: 'quick_video' as const, label: 'Quick Video' },
 ] as const;
 
 const VIDEO_MODELS = [
@@ -82,6 +94,38 @@ const VIDEO_MODELS = [
   { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
   { value: 'skyreels' as const, label: 'SkyReels' },
 ] as const;
+
+type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
+
+function getRefWorkflowVariant(plan: unknown): RefWorkflowVariant | null {
+  const workflowVariant =
+    plan && typeof plan === 'object' && 'workflow_variant' in plan
+      ? (plan as { workflow_variant?: unknown }).workflow_variant
+      : undefined;
+
+  if (
+    workflowVariant === 'i2v_from_refs' ||
+    workflowVariant === 'direct_ref_to_video'
+  ) {
+    return workflowVariant;
+  }
+
+  return null;
+}
+
+function getStoryboardModeLabel(storyboard: Storyboard): string {
+  if (storyboard.mode === 'quick_video') return '[Quick]';
+
+  if (storyboard.mode === 'image_to_video') return '[I2V Legacy]';
+
+  if (storyboard.mode !== 'ref_to_video') return '';
+
+  const variant = getRefWorkflowVariant(storyboard.plan);
+
+  if (variant === 'i2v_from_refs') return '[I2V]';
+
+  return '[Ref]';
+}
 
 interface StoryboardResponse {
   rows: number;
@@ -129,7 +173,7 @@ export default function PanelStoryboard() {
     'google/gemini-3.1-pro-preview'
   );
   const [formVideoMode, setFormVideoMode] =
-    useState<StoryboardMode>('image_to_video');
+    useState<CreateVideoMode>('image_to_video');
   const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
   const [formSourceLanguage, setFormSourceLanguage] = useState('en');
   const [formTemplateId, setFormTemplateId] = useState<string | null>(
@@ -162,6 +206,9 @@ export default function PanelStoryboard() {
   const selectedStoryboard = storyboards.find(
     (sb) => sb.id === selectedStoryboardId
   );
+  const selectedStoryboardRefVariant = selectedStoryboard
+    ? getRefWorkflowVariant(selectedStoryboard.plan)
+    : null;
 
   // Fetch storyboards on mount and when projectId changes
   useEffect(() => {
@@ -290,6 +337,23 @@ export default function PanelStoryboard() {
         voiceoverLength: formVoiceover.length,
       });
 
+      const resolvedMode: StoryboardMode =
+        formVideoMode === 'image_to_video'
+          ? 'ref_to_video'
+          : formVideoMode === 'image_to_video_legacy'
+            ? 'image_to_video'
+            : formVideoMode;
+
+      const workflowVariant: RefWorkflowVariant | undefined =
+        formVideoMode === 'image_to_video'
+          ? 'i2v_from_refs'
+          : formVideoMode === 'ref_to_video'
+            ? 'direct_ref_to_video'
+            : undefined;
+
+      const resolvedVideoModel =
+        formVideoMode === 'image_to_video' ? 'wan26flash' : formVideoModel;
+
       // Generate storyboard with AI and create draft record
       const response = await fetch('/api/storyboard', {
         method: 'POST',
@@ -299,10 +363,11 @@ export default function PanelStoryboard() {
           model: formModel,
           projectId,
           aspectRatio: formAspectRatio,
-          mode: formVideoMode,
+          mode: resolvedMode,
           sourceLanguage,
-          ...(formVideoMode === 'ref_to_video' && {
-            videoModel: formVideoModel,
+          ...(resolvedMode === 'ref_to_video' && {
+            videoModel: resolvedVideoModel,
+            workflowVariant,
           }),
         }),
       });
@@ -340,7 +405,11 @@ export default function PanelStoryboard() {
         const { storyboard_id, mode, model, ...planData } = data;
         setDraftPlan(planData as RefPlan);
         setDraftMode('ref_to_video');
-        setDraftVideoModel(model || formVideoModel);
+
+        const variant = getRefWorkflowVariant(planData);
+        setDraftVideoModel(
+          variant === 'direct_ref_to_video' ? model || formVideoModel : null
+        );
       } else {
         setDraftPlan({
           rows: data.rows,
@@ -498,12 +567,8 @@ export default function PanelStoryboard() {
             <SelectContent>
               {storyboards.map((sb) => (
                 <SelectItem key={sb.id} value={sb.id}>
-                  {formatDate(sb.created_at)} ({sb.aspect_ratio})
-                  {sb.mode === 'ref_to_video'
-                    ? ' [Ref]'
-                    : sb.mode === 'quick_video'
-                      ? ' [Quick]'
-                      : ''}
+                  {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
+                  {getStoryboardModeLabel(sb)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -672,9 +737,21 @@ export default function PanelStoryboard() {
                     <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
                       {selectedStoryboard.aspect_ratio}
                     </span>
-                    {selectedStoryboard.mode === 'ref_to_video' && (
-                      <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
-                        Ref
+                    {selectedStoryboard.mode === 'ref_to_video' &&
+                      selectedStoryboardRefVariant === 'i2v_from_refs' && (
+                        <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
+                          I2V
+                        </span>
+                      )}
+                    {selectedStoryboard.mode === 'ref_to_video' &&
+                      selectedStoryboardRefVariant !== 'i2v_from_refs' && (
+                        <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
+                          Ref
+                        </span>
+                      )}
+                    {selectedStoryboard.mode === 'image_to_video' && (
+                      <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
+                        I2V Legacy
                       </span>
                     )}
                     {selectedStoryboard.mode === 'quick_video' && (
@@ -778,7 +855,9 @@ export default function PanelStoryboard() {
 
                   <Select
                     value={formVideoMode}
-                    onValueChange={(v) => setFormVideoMode(v as StoryboardMode)}
+                    onValueChange={(v) =>
+                      setFormVideoMode(v as CreateVideoMode)
+                    }
                   >
                     <SelectTrigger className="h-8 flex-1 text-xs">
                       <SelectValue />

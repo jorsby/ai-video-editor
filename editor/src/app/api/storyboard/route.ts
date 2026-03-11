@@ -88,6 +88,11 @@ const VALID_VIDEO_MODELS = [
   'skyreels',
 ] as const;
 
+const VALID_REF_WORKFLOW_VARIANTS = [
+  'i2v_from_refs',
+  'direct_ref_to_video',
+] as const;
+
 const isOpus = (model: string) => model.includes('claude-opus');
 
 // --- Ref-to-Video plan generation ---
@@ -399,6 +404,7 @@ export async function POST(req: NextRequest) {
       aspectRatio,
       mode = 'image_to_video',
       videoModel,
+      workflowVariant,
       sourceLanguage = 'en',
     } = await req.json();
 
@@ -450,6 +456,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (
+      mode === 'ref_to_video' &&
+      workflowVariant &&
+      !(VALID_REF_WORKFLOW_VARIANTS as readonly string[]).includes(
+        workflowVariant
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `workflowVariant must be one of: ${VALID_REF_WORKFLOW_VARIANTS.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
     const supabase = await createClient('studio');
     const {
       data: { user },
@@ -464,11 +485,21 @@ export async function POST(req: NextRequest) {
 
     // --- Ref-to-Video mode ---
     if (mode === 'ref_to_video') {
+      const resolvedWorkflowVariant =
+        workflowVariant === 'i2v_from_refs'
+          ? 'i2v_from_refs'
+          : 'direct_ref_to_video';
+
       await logWorkflowEvent(logSupabase, {
         storyboardId: projectId,
         step: 'GeneratePlan',
         status: 'start',
-        data: { mode, videoModel, model },
+        data: {
+          mode,
+          videoModel,
+          model,
+          workflowVariant: resolvedWorkflowVariant,
+        },
       });
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
@@ -476,6 +507,10 @@ export async function POST(req: NextRequest) {
         videoModel,
         sourceLanguage
       );
+      const finalPlanWithVariant = {
+        ...finalPlan,
+        workflow_variant: resolvedWorkflowVariant,
+      };
 
       const { data: storyboard, error: dbError } = await supabase
         .from('storyboards')
@@ -483,7 +518,7 @@ export async function POST(req: NextRequest) {
           project_id: projectId,
           voiceover: voiceoverText,
           aspect_ratio: aspectRatio,
-          plan: finalPlan,
+          plan: finalPlanWithVariant,
           plan_status: 'draft',
           mode: 'ref_to_video',
           model: videoModel,
@@ -507,10 +542,11 @@ export async function POST(req: NextRequest) {
       });
 
       return NextResponse.json({
-        ...finalPlan,
+        ...finalPlanWithVariant,
         storyboard_id: storyboard.id,
         mode: 'ref_to_video',
         model: videoModel,
+        workflow_variant: resolvedWorkflowVariant,
       });
     }
 

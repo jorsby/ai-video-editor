@@ -36,6 +36,8 @@ export interface KlingElement {
   description: string;
 }
 
+export type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
+
 export interface RefPlanBase {
   objects_rows: number;
   objects_cols: number;
@@ -50,6 +52,7 @@ export interface RefPlanBase {
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   voiceover_list: Record<string, string[]>;
+  workflow_variant?: RefWorkflowVariant;
 }
 
 export interface KlingO3RefPlan extends RefPlanBase {
