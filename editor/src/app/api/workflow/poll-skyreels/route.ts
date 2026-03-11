@@ -29,18 +29,31 @@ async function isAuthorized(req: NextRequest): Promise<boolean> {
   return !cronSecret;
 }
 
-async function runPoll(trigger: 'GET' | 'POST') {
+async function runPoll(
+  trigger: 'GET' | 'POST',
+  scopedStoryboardId: string | null = null
+) {
   const log = createLogger();
-  log.setContext({ step: 'PollSkyReels', trigger });
+  log.setContext({
+    step: 'PollSkyReels',
+    trigger,
+    ...(scopedStoryboardId ? { storyboard_id: scopedStoryboardId } : {}),
+  });
 
   try {
     const supabase = createServiceClient();
 
-    // Find storyboards using skyreels model
-    const { data: skyreelsStoryboards } = await supabase
+    // Find storyboards using SkyReels model (optionally scoped)
+    let storyboardQuery = supabase
       .from('storyboards')
       .select('id')
       .eq('model', 'skyreels');
+
+    if (scopedStoryboardId) {
+      storyboardQuery = storyboardQuery.eq('id', scopedStoryboardId);
+    }
+
+    const { data: skyreelsStoryboards } = await storyboardQuery;
 
     const skyreelsStoryboardIds = (skyreelsStoryboards ?? []).map(
       (s: { id: string }) => s.id
@@ -182,16 +195,40 @@ async function runPoll(trigger: 'GET' | 'POST') {
   }
 }
 
+function parseStoryboardScopeFromGet(req: NextRequest): string | null {
+  const value = req.nextUrl.searchParams.get('storyboard_id');
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function parseStoryboardScopeFromPost(
+  req: NextRequest
+): Promise<string | null> {
+  try {
+    const body = (await req.json()) as { storyboard_id?: unknown };
+    const value =
+      typeof body.storyboard_id === 'string' ? body.storyboard_id.trim() : null;
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  return runPoll('GET');
+
+  const storyboardId = parseStoryboardScopeFromGet(req);
+  return runPoll('GET', storyboardId);
 }
 
 export async function POST(req: NextRequest) {
   if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  return runPoll('POST');
+
+  const storyboardId = await parseStoryboardScopeFromPost(req);
+  return runPoll('POST', storyboardId);
 }

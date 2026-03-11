@@ -685,6 +685,8 @@ export function StoryboardCards({
       try {
         const res = await fetch('/api/workflow/poll-skyreels', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storyboard_id: storyboard?.id }),
         });
 
         if (!res.ok) return;
@@ -706,7 +708,7 @@ export function StoryboardCards({
     return () => {
       clearInterval(intervalId);
     };
-  }, [hasSkyreelsProcessing, refresh]);
+  }, [hasSkyreelsProcessing, refresh, storyboard?.id]);
 
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
