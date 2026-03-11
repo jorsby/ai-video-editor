@@ -248,6 +248,7 @@ async function pollGridImages(
         .from('grid_images')
         .update({ status: 'failed', error_message: 'Timed out (30 min)' })
         .eq('id', grid.id)
+        .eq('request_id', grid.request_id)
         .eq('status', 'processing');
       summary.stale++;
       continue;
@@ -264,6 +265,7 @@ async function pollGridImages(
         .from('grid_images')
         .update({ status: 'generated', url: job.url })
         .eq('id', grid.id)
+        .eq('request_id', grid.request_id)
         .eq('status', 'processing');
 
       const { data: sb } = await supabase
@@ -280,6 +282,7 @@ async function pollGridImages(
         .from('grid_images')
         .update({ status: 'failed', error_message: 'fal.ai job failed' })
         .eq('id', grid.id)
+        .eq('request_id', grid.request_id)
         .eq('status', 'processing');
       summary.failed++;
     } else if (job.status === 'completed' && !job.url) {
@@ -287,6 +290,7 @@ async function pollGridImages(
         .from('grid_images')
         .update({ status: 'failed', error_message: 'No image in fal result' })
         .eq('id', grid.id)
+        .eq('request_id', grid.request_id)
         .eq('status', 'processing');
       summary.failed++;
     } else {
@@ -336,6 +340,7 @@ async function pollSceneVideos(
           video_error_message: 'Timed out (30 min)',
         })
         .eq('id', scene.id)
+        .eq('video_request_id', scene.video_request_id)
         .eq('video_status', 'processing');
       summary.stale++;
       continue;
@@ -352,6 +357,7 @@ async function pollSceneVideos(
         .from('scenes')
         .update({ video_status: 'success', video_url: job.url })
         .eq('id', scene.id)
+        .eq('video_request_id', scene.video_request_id)
         .eq('video_status', 'processing');
       summary.completed++;
       log.success('Scene video completed via poll', { scene_id: scene.id });
@@ -363,6 +369,7 @@ async function pollSceneVideos(
           video_error_message: 'fal.ai job failed',
         })
         .eq('id', scene.id)
+        .eq('video_request_id', scene.video_request_id)
         .eq('video_status', 'processing');
       summary.failed++;
     } else if (job.status === 'completed' && !job.url) {
@@ -373,6 +380,7 @@ async function pollSceneVideos(
           video_error_message: 'No video in fal result',
         })
         .eq('id', scene.id)
+        .eq('video_request_id', scene.video_request_id)
         .eq('video_status', 'processing');
       summary.failed++;
     } else {
@@ -426,6 +434,7 @@ async function pollFirstFrames(
           image_edit_error_message: 'Timed out (30 min)',
         })
         .eq('id', frame.id)
+        .eq('image_edit_request_id', frame.image_edit_request_id)
         .in('image_edit_status', EDIT_STATUSES);
       summary.stale++;
       continue;
@@ -447,6 +456,7 @@ async function pollFirstFrames(
           final_url: job.url,
         })
         .eq('id', frame.id)
+        .eq('image_edit_request_id', frame.image_edit_request_id)
         .in('image_edit_status', EDIT_STATUSES);
       summary.completed++;
       log.success('First frame edit completed via poll', {
@@ -460,6 +470,7 @@ async function pollFirstFrames(
           image_edit_error_message: 'fal.ai job failed',
         })
         .eq('id', frame.id)
+        .eq('image_edit_request_id', frame.image_edit_request_id)
         .in('image_edit_status', EDIT_STATUSES);
       summary.failed++;
     } else if (job.status === 'completed' && !job.url) {
@@ -470,6 +481,7 @@ async function pollFirstFrames(
           image_edit_error_message: 'No image in fal result',
         })
         .eq('id', frame.id)
+        .eq('image_edit_request_id', frame.image_edit_request_id)
         .in('image_edit_status', EDIT_STATUSES);
       summary.failed++;
     } else {

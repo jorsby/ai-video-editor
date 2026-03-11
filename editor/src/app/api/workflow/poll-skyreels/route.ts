@@ -135,7 +135,9 @@ async function runPoll(
               video_status: 'success',
               video_url: result.data?.video_url,
             })
-            .eq('id', scene.id);
+            .eq('id', scene.id)
+            .eq('video_request_id', scene.video_request_id)
+            .eq('video_status', 'processing');
 
           successCount++;
           log.success('SkyReels task completed', {
@@ -149,7 +151,9 @@ async function runPoll(
               video_status: 'failed',
               video_error_message: result.msg || 'SkyReels task failed',
             })
-            .eq('id', scene.id);
+            .eq('id', scene.id)
+            .eq('video_request_id', scene.video_request_id)
+            .eq('video_status', 'processing');
 
           failedCount++;
           log.error('SkyReels task failed', {
