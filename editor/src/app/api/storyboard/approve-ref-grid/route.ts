@@ -299,6 +299,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { data: existingScenes, error: existingScenesError } =
+      await adminSupabase
+        .from('scenes')
+        .select('id')
+        .eq('storyboard_id', storyboardId)
+        .limit(1);
+
+    if (existingScenesError) {
+      console.error(
+        'Failed to check existing ref scenes:',
+        existingScenesError
+      );
+      await adminSupabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
+
+      return NextResponse.json(
+        { error: 'Failed to validate existing scenes before split' },
+        { status: 500 }
+      );
+    }
+
+    if ((existingScenes?.length ?? 0) > 0) {
+      await adminSupabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
+
+      return NextResponse.json(
+        {
+          error:
+            'Scenes already exist for this storyboard. Split appears to have already started.',
+        },
+        { status: 409 }
+      );
+    }
+
     // Step 0: Set plan_status to 'splitting'
     await logWorkflowEvent(adminSupabase, {
       storyboardId,
