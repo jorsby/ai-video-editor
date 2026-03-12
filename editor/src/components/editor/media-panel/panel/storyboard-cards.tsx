@@ -256,6 +256,20 @@ const FIRST_FRAME_MODELS = {
   'flux-pro': { label: 'Flux Pro' },
 } as const;
 
+const FIRST_FRAME_ASPECT_RATIOS = {
+  '1:1': { label: '1:1' },
+  '9:16': { label: '9:16' },
+  '16:9': { label: '16:9' },
+} as const;
+
+const FIRST_FRAME_RESOLUTIONS = {
+  '1k': { label: '1K' },
+  '1_5k': { label: '1.5K' },
+  '2k': { label: '2K' },
+  '3k': { label: '3K' },
+  '4k': { label: '4K' },
+} as const;
+
 const VIDEO_MODELS = {
   'wan2.6': { label: 'Wan 2.6', resolutions: ['720p', '1080p'] as const },
   'bytedance1.5pro': {
@@ -270,6 +284,8 @@ const VIDEO_MODELS = {
 
 type VideoModelKey = keyof typeof VIDEO_MODELS;
 type FirstFrameModelKey = keyof typeof FIRST_FRAME_MODELS;
+type FirstFrameAspectRatioKey = keyof typeof FIRST_FRAME_ASPECT_RATIOS;
+type FirstFrameResolutionKey = keyof typeof FIRST_FRAME_RESOLUTIONS;
 
 function ScriptViewRow({
   scene,
@@ -433,6 +449,10 @@ export function StoryboardCards({
     useState<VideoModelKey>('bytedance1.5pro');
   const [firstFrameModel, setFirstFrameModel] =
     useState<FirstFrameModelKey>('grok');
+  const [firstFrameAspectRatio, setFirstFrameAspectRatio] =
+    useState<FirstFrameAspectRatioKey>('1:1');
+  const [firstFrameResolution, setFirstFrameResolution] =
+    useState<FirstFrameResolutionKey>('2k');
   const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
     'klingo3'
   );
@@ -549,6 +569,16 @@ export function StoryboardCards({
       setRefVideoModel(sbModel);
     }
   }, [isRefToVideoMode, storyboard?.model]);
+
+  useEffect(() => {
+    const aspect = storyboard?.aspect_ratio;
+    if (
+      aspect &&
+      (aspect === '1:1' || aspect === '9:16' || aspect === '16:9')
+    ) {
+      setFirstFrameAspectRatio(aspect);
+    }
+  }, [storyboard?.aspect_ratio]);
 
   const skyreelsTimingBySceneId = useMemo(() => {
     const isSkyReelsStoryboard =
@@ -1331,6 +1361,8 @@ export function StoryboardCards({
         {
           scene_ids: Array.from(selectedSceneIds),
           model: firstFrameModel,
+          aspect_ratio: firstFrameAspectRatio,
+          resolution: firstFrameResolution,
         }
       );
 
@@ -2901,6 +2933,65 @@ export function StoryboardCards({
                               ))}
                             </SelectContent>
                           </Select>
+                        </div>
+
+                        <div className="flex items-end gap-2">
+                          <div className="flex flex-col gap-1 flex-1">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                              Frame Aspect
+                            </span>
+                            <Select
+                              value={firstFrameAspectRatio}
+                              onValueChange={(value: string) =>
+                                setFirstFrameAspectRatio(
+                                  value as FirstFrameAspectRatioKey
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(
+                                  Object.keys(
+                                    FIRST_FRAME_ASPECT_RATIOS
+                                  ) as FirstFrameAspectRatioKey[]
+                                ).map((key) => (
+                                  <SelectItem key={key} value={key}>
+                                    {FIRST_FRAME_ASPECT_RATIOS[key].label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex flex-col gap-1 w-[90px]">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                              Frame K
+                            </span>
+                            <Select
+                              value={firstFrameResolution}
+                              onValueChange={(value: string) =>
+                                setFirstFrameResolution(
+                                  value as FirstFrameResolutionKey
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(
+                                  Object.keys(
+                                    FIRST_FRAME_RESOLUTIONS
+                                  ) as FirstFrameResolutionKey[]
+                                ).map((key) => (
+                                  <SelectItem key={key} value={key}>
+                                    {FIRST_FRAME_RESOLUTIONS[key].label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
 
                         <div className="flex items-end gap-2">

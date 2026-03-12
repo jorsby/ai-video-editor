@@ -2,6 +2,15 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import {
+  DEFAULT_GRID_ASPECT_RATIO,
+  DEFAULT_GRID_RESOLUTION,
+  getGridOutputDimensions,
+  isGridAspectRatio,
+  isGridResolution,
+  type GridAspectRatio,
+  type GridResolution,
+} from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
 const WEBHOOK_BASE_URL =
@@ -10,6 +19,8 @@ const WEBHOOK_BASE_URL =
 interface RefFirstFrameInput {
   scene_ids: string[];
   model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  aspect_ratio?: GridAspectRatio;
+  resolution?: GridResolution;
 }
 
 const ENDPOINTS: Record<NonNullable<RefFirstFrameInput['model']>, string> = {
@@ -29,6 +40,16 @@ interface SceneRefContext {
 type RefStoryboardPlan = {
   scene_first_frame_prompts?: string[];
 };
+
+function applyFirstFrameGenerationSettings(
+  prompt: string,
+  aspectRatio: GridAspectRatio,
+  resolution: GridResolution
+): string {
+  const dimensions = getGridOutputDimensions(aspectRatio, resolution);
+
+  return `${prompt}\n\nOutput requirements:\n- Final image aspect ratio must be ${aspectRatio}.\n- Target output resolution around ${dimensions.width}x${dimensions.height} (${resolution.replace('_', '.').toUpperCase()}).\n- Keep composition natural and avoid cropped heads/limbs unless explicitly requested.`;
+}
 
 async function getSceneRefContext(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -250,7 +271,7 @@ export async function POST(req: NextRequest) {
     }
 
     const input: RefFirstFrameInput = await req.json();
-    const { scene_ids, model = 'grok' } = input;
+    const { scene_ids, model = 'grok', aspect_ratio, resolution } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
@@ -269,6 +290,35 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    if (aspect_ratio && !isGridAspectRatio(aspect_ratio)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'aspect_ratio must be one of: 1:1, 9:16, 16:9',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (resolution && !isGridResolution(resolution)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'resolution must be one of: 1k, 1_5k, 2k, 3k, 4k',
+        },
+        { status: 400 }
+      );
+    }
+
+    const selectedAspectRatio =
+      aspect_ratio && isGridAspectRatio(aspect_ratio)
+        ? aspect_ratio
+        : DEFAULT_GRID_ASPECT_RATIO;
+    const selectedResolution =
+      resolution && isGridResolution(resolution)
+        ? resolution
+        : DEFAULT_GRID_RESOLUTION;
 
     const supabase = createServiceClient();
 
@@ -328,9 +378,18 @@ export async function POST(req: NextRequest) {
         })
         .eq('id', firstFrame.id);
 
+      const queueContext: SceneRefContext = {
+        ...context,
+        prompt: applyFirstFrameGenerationSettings(
+          context.prompt,
+          selectedAspectRatio,
+          selectedResolution
+        ),
+      };
+
       const { requestId, error } = await queueFirstFrameRequest(
         firstFrame.id,
-        context,
+        queueContext,
         endpoint,
         model,
         log
@@ -380,6 +439,10 @@ export async function POST(req: NextRequest) {
         queued: queuedCount,
         skipped: skippedCount,
         failed: failedCount,
+      },
+      settings: {
+        aspect_ratio: selectedAspectRatio,
+        resolution: selectedResolution,
       },
     });
   } catch (error) {
