@@ -515,6 +515,14 @@ async function sendSkyReelsRequest(
         error: errorText,
         time_ms: log.endTiming('skyreels_submit'),
       });
+
+      if (response.status === 481) {
+        return {
+          taskId: null,
+          error: 'skyreels_parallel_limit',
+        };
+      }
+
       return {
         taskId: null,
         error: `SkyReels submit failed: ${response.status}`,
@@ -746,6 +754,23 @@ async function queueDirectRefVideo(
     );
 
     if (error || !taskId) {
+      if (error === 'skyreels_parallel_limit') {
+        await supabase
+          .from('scenes')
+          .update({
+            video_status: 'pending',
+            video_error_message: 'skyreels_parallel_limit',
+          })
+          .eq('id', refContext.scene_id);
+
+        return {
+          scene_id: sceneId,
+          request_id: null,
+          status: 'skipped',
+          error: 'SkyReels parallel limit exceeded',
+        };
+      }
+
       await supabase
         .from('scenes')
         .update({
@@ -1087,6 +1112,37 @@ export async function POST(req: NextRequest) {
           skyreels_duration_seconds
         );
         results.push(directResult);
+
+        if (
+          effectiveDirectRefModel === 'skyreels' &&
+          directResult.error === 'SkyReels parallel limit exceeded'
+        ) {
+          const remainingSceneIds = scene_ids.slice(i + 1);
+
+          if (remainingSceneIds.length > 0) {
+            await supabase
+              .from('scenes')
+              .update({
+                video_status: 'pending',
+                video_error_message: 'skyreels_parallel_limit',
+              })
+              .in('id', remainingSceneIds)
+              .eq('video_status', 'failed');
+
+            results.push(
+              ...remainingSceneIds.map((remainingSceneId) => ({
+                scene_id: remainingSceneId,
+                request_id: null,
+                status: 'skipped' as const,
+                error:
+                  'Deferred due to SkyReels parallel limit (will need retry)',
+              }))
+            );
+          }
+
+          break;
+        }
+
         continue;
       }
 
