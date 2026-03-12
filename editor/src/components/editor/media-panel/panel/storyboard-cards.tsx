@@ -561,6 +561,27 @@ export function StoryboardCards({
     isRefToVideoMode && refWorkflowVariant === 'i2v_from_refs';
   const isRefDirectMode = isRefToVideoMode && !isRefI2VMode;
 
+  const firstFramePromptBySceneId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!isRefI2VMode || !storyboard?.plan) return map;
+
+    const prompts =
+      'scene_first_frame_prompts' in storyboard.plan
+        ? storyboard.plan.scene_first_frame_prompts
+        : undefined;
+
+    if (!Array.isArray(prompts)) return map;
+
+    for (const scene of sortedScenes) {
+      const prompt = prompts[scene.order];
+      if (typeof prompt === 'string' && prompt.trim().length > 0) {
+        map.set(scene.id, prompt.trim());
+      }
+    }
+
+    return map;
+  }, [isRefI2VMode, storyboard?.plan, sortedScenes]);
+
   useEffect(() => {
     if (!isRefToVideoMode) return;
 
@@ -3438,6 +3459,14 @@ export function StoryboardCards({
             onGenerateSceneVideo={handleGenerateSceneVideo}
             onSaveVisualPrompt={handleSaveVisualPrompt}
             onSaveVoiceoverText={handleSaveVoiceoverText}
+            promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
+            promptOverride={
+              isRefI2VMode
+                ? (scene.first_frames?.[0]?.visual_prompt ??
+                  firstFramePromptBySceneId.get(scene.id) ??
+                  null)
+                : undefined
+            }
             selectedLanguage={selectedLanguage}
             isRefMode={isRefMode}
             isTarget={targetSceneId === scene.id}

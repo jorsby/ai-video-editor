@@ -100,6 +100,8 @@ interface SceneCardProps {
   ) => Promise<void>;
   onSaveVisualPrompt?: (sceneId: string, newPrompt: string) => Promise<void>;
   onSaveVoiceoverText?: (sceneId: string, newText: string) => Promise<void>;
+  promptLabel?: string;
+  promptOverride?: string | null;
   selectedLanguage?: import('@/lib/constants/languages').LanguageCode;
   isRefMode?: boolean;
   isTarget?: boolean;
@@ -401,6 +403,7 @@ interface ExpandedContentProps {
   ) => Promise<void>;
   onSaveVisualPrompt?: (sceneId: string, newPrompt: string) => Promise<void>;
   onSaveVoiceoverText?: (sceneId: string, newText: string) => Promise<void>;
+  promptLabel?: string;
   hasVideo?: boolean;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
@@ -419,6 +422,7 @@ function ExpandedContent({
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
+  promptLabel,
   hasVideo,
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
@@ -636,7 +640,7 @@ function ExpandedContent({
         <div className="flex items-center gap-1.5">
           <IconEye size={12} className="text-purple-400" />
           <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            Visual
+            {promptLabel ?? 'Visual'}
           </span>
           {isSaving && (
             <IconLoader2 size={10} className="animate-spin text-purple-400" />
@@ -947,6 +951,8 @@ export function SceneCard({
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
+  promptLabel,
+  promptOverride,
   selectedLanguage = 'en',
   isRefMode,
   isTarget,
@@ -971,11 +977,12 @@ export function SceneCard({
       null)
     : (background?.final_url ?? background?.url ?? null);
   const displayVoiceover = voiceover?.text;
-  // For ref_to_video scenes, prefer multi_prompt (as JSON string for display), then scene.prompt
+  // For ref_to_video scenes, prefer explicit override (first-frame prompt), then multi_prompt, then scene/first-frame prompt.
   const displayVisualPrompt =
-    scene.multi_prompt && scene.multi_prompt.length > 0
+    promptOverride ??
+    (scene.multi_prompt && scene.multi_prompt.length > 0
       ? JSON.stringify(scene.multi_prompt)
-      : (firstFrame?.visual_prompt ?? scene.prompt);
+      : (firstFrame?.visual_prompt ?? scene.prompt));
 
   const handleAddToCanvas = async () => {
     if (!studio || !scene.video_url) return;
@@ -1327,6 +1334,7 @@ export function SceneCard({
           onGenerateSceneVideo={onGenerateSceneVideo}
           onSaveVisualPrompt={onSaveVisualPrompt}
           onSaveVoiceoverText={onSaveVoiceoverText}
+          promptLabel={promptLabel}
           hasVideo={!!hasVideo}
           onAddVideoToTimeline={onAddVideoToTimeline}
           onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
