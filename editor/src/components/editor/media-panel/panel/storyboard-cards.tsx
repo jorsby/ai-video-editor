@@ -392,7 +392,8 @@ export function StoryboardCards({
         scene.first_frames?.some(
           (ff) =>
             ff.image_edit_status === 'enhancing' ||
-            ff.image_edit_status === 'editing'
+            ff.image_edit_status === 'editing' ||
+            ff.image_edit_status === 'processing'
         )
     );
   }, [isProcessing, storyboard]);

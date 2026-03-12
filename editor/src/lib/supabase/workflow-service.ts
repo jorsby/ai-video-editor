@@ -118,6 +118,7 @@ export interface FirstFrame {
     | 'outpainting'
     | 'enhancing'
     | 'editing'
+    | 'processing'
     | 'success'
     | 'failed'
     | null;

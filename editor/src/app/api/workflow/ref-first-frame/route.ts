@@ -322,7 +322,7 @@ export async function POST(req: NextRequest) {
         .from('first_frames')
         .update({
           visual_prompt: context.prompt,
-          image_edit_status: 'editing',
+          image_edit_status: 'processing',
           image_edit_error_message: null,
           image_edit_model: model,
         })

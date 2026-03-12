@@ -160,8 +160,17 @@ function SceneThumbnail({
   const isOutpainting = editStatus === 'outpainting';
   const isEnhancing = editStatus === 'enhancing';
   const isCustomEditing = editStatus === 'editing';
+  const isProcessingEdit = editStatus === 'processing';
   const isEditFailed = editStatus === 'failed';
   const isGeneratingVideo = videoStatus === 'processing';
+
+  const firstFrameBadgeStatus = firstFrame
+    ? isEditFailed
+      ? 'failed'
+      : isOutpainting || isEnhancing || isCustomEditing || isProcessingEdit
+        ? 'processing'
+        : firstFrame.status
+    : null;
 
   const thumbRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -258,6 +267,14 @@ function SceneThumbnail({
           </span>
         </div>
       )}
+      {isProcessingEdit && (
+        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+          <IconLoader2 size={20} className="text-cyan-400 animate-spin" />
+          <span className="text-[10px] text-cyan-300 font-medium">
+            Generating Frame...
+          </span>
+        </div>
+      )}
       {isEditFailed && (
         <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
           <IconAlertTriangle size={20} className="text-red-400" />
@@ -301,7 +318,9 @@ function SceneThumbnail({
               <IconVideo size={10} />
             </div>
           )}
-          {firstFrame && <StatusBadge status={firstFrame.status} size="sm" />}
+          {firstFrame && firstFrameBadgeStatus && (
+            <StatusBadge status={firstFrameBadgeStatus} size="sm" />
+          )}
         </div>
       )}
     </div>
