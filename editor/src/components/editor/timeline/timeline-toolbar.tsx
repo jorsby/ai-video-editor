@@ -138,10 +138,12 @@ export function TimelineToolbar({
       const {
         translated,
         failed,
+        tts_retry_languages,
         scene_ids,
       }: {
         translated: string[];
         failed: { code: string; reason: string }[];
+        tts_retry_languages?: string[];
         scene_ids?: string[];
       } = result;
 
@@ -152,37 +154,36 @@ export function TimelineToolbar({
         await copyToMultiple(translated, {
           stripAudioAndCaptionTracks: true,
         });
+      }
 
-        let ttsFailed = 0;
+      const ttsLanguages = Array.from(
+        new Set([...(translated ?? []), ...(tts_retry_languages ?? [])])
+      );
 
-        if (scene_ids && scene_ids.length > 0) {
-          setTranslateProgress(
-            `Generating translated voiceovers for ${translated.length} language(s)...`
-          );
+      let ttsFailed = 0;
+      if (scene_ids && scene_ids.length > 0 && ttsLanguages.length > 0) {
+        setTranslateProgress(
+          `Generating translated voiceovers for ${ttsLanguages.length} language(s)...`
+        );
 
-          for (const lang of translated) {
-            const ttsRes = await fetch('/api/workflow/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                scene_ids,
-                language: lang,
-              }),
-            });
+        for (const lang of ttsLanguages) {
+          const ttsRes = await fetch('/api/workflow/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              scene_ids,
+              language: lang,
+            }),
+          });
 
-            if (!ttsRes.ok) {
-              ttsFailed++;
-            }
+          if (!ttsRes.ok) {
+            ttsFailed++;
           }
         }
+      }
 
+      if (translated.length > 0) {
         await switchLanguage(translated[0]);
-
-        if (ttsFailed > 0) {
-          toast.warning(
-            `Translated timelines created, but TTS failed for ${ttsFailed} language(s).`
-          );
-        }
       }
 
       if (failed.length === 0) {
@@ -191,10 +192,22 @@ export function TimelineToolbar({
         );
       } else if (translated.length > 0) {
         toast.warning(
-          `${translated.length} translated, ${failed.length} failed: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
+          `${translated.length} translated, ${failed.length} skipped/failed: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
         );
+      } else if ((tts_retry_languages?.length ?? 0) > 0) {
+        toast.success(
+          `Re-ran translated TTS for ${tts_retry_languages?.length ?? 0} language(s).`
+        );
+      } else if (failed.every((f) => f.reason === 'idempotent skip')) {
+        toast.info('Selected language(s) are already translated.');
       } else {
         toast.error('All translations failed');
+      }
+
+      if (ttsFailed > 0) {
+        toast.warning(
+          `TTS failed for ${ttsFailed} language(s). You can retry Translate.`
+        );
       }
     } catch (err) {
       console.error('Batch translate error:', err);

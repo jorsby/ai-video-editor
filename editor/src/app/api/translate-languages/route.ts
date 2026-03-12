@@ -218,6 +218,7 @@ export async function POST(req: NextRequest) {
             ? 'same as source language'
             : 'duplicate',
       })),
+      tts_retry_languages: [],
       scene_count: 0,
       scene_ids: [],
     });
@@ -270,16 +271,29 @@ export async function POST(req: NextRequest) {
 
   const translated: string[] = [];
   const failed: { code: string; reason: string }[] = [];
+  const ttsRetryLanguages: string[] = [];
 
   // Idempotency pre-check: if translated text already exists for every scene,
-  // skip re-translation so duplicate requests don't rewrite rows or retrigger TTS.
+  // skip re-translation so duplicate requests don't rewrite rows.
+  // If those rows have missing/failed audio, signal toolbar to rerun TTS.
   const targetsToProcess = uniqueTargets.filter((lang) => {
-    const hasCompleteTranslatedText = typedScenes.every((scene) => {
-      const row = (scene.voiceovers ?? []).find((v) => v.language === lang);
-      return Boolean(row?.text?.trim());
-    });
+    const languageRows = typedScenes.map((scene) =>
+      (scene.voiceovers ?? []).find((v) => v.language === lang)
+    );
+
+    const hasCompleteTranslatedText = languageRows.every((row) =>
+      Boolean(row?.text?.trim())
+    );
 
     if (hasCompleteTranslatedText) {
+      const hasCompleteAudio = languageRows.every(
+        (row) => Boolean(row?.audio_url) && row?.status === 'success'
+      );
+
+      if (!hasCompleteAudio) {
+        ttsRetryLanguages.push(lang);
+      }
+
       failed.push({ code: lang, reason: 'idempotent skip' });
       return false;
     }
@@ -437,6 +451,7 @@ export async function POST(req: NextRequest) {
         {
           error: 'All translation chunks failed',
           failed,
+          tts_retry_languages: ttsRetryLanguages,
           scene_count: typedScenes.length,
           scene_ids: sceneIds,
         },
@@ -448,6 +463,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     translated,
     failed,
+    tts_retry_languages: ttsRetryLanguages,
     scene_count: typedScenes.length,
     scene_ids: sceneIds,
   });
