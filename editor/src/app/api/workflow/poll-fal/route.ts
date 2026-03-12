@@ -21,7 +21,7 @@ const VIDEO_MODEL_ENDPOINTS: Record<string, string> = {
   'wan2.6': 'fal-ai/wan/v2.6/image-to-video',
   'bytedance1.5pro': 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
   grok: 'xai/grok-imagine-video/image-to-video',
-  wan26flash: 'wan/v2.6/image-to-video/flash',
+  wan26flash: 'wan/v2.6/reference-to-video/flash',
   klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
   klingo3pro: 'fal-ai/kling-video/o3/pro/reference-to-video',
 };

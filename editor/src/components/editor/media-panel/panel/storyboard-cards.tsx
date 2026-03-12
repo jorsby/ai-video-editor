@@ -479,6 +479,7 @@ export function StoryboardCards({
   const [skyreelsFixedDuration, setSkyreelsFixedDuration] = useState<
     '1' | '2' | '3' | '4' | '5'
   >('4');
+  const [wanEnableAudio, setWanEnableAudio] = useState(true);
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
@@ -615,6 +616,22 @@ export function StoryboardCards({
       setRefVideoModel(sbModel);
     }
   }, [isRefToVideoMode, storyboard?.model]);
+
+  useEffect(() => {
+    if (!isRefToVideoMode || storyboard?.model !== 'wan26flash') return;
+
+    if (refVideoMode === 'narrative') {
+      setWanEnableAudio(false);
+      return;
+    }
+
+    if (refVideoMode === 'dialogue_scene') {
+      setWanEnableAudio(true);
+      return;
+    }
+
+    setWanEnableAudio(true);
+  }, [isRefToVideoMode, storyboard?.model, refVideoMode, storyboard?.id]);
 
   useEffect(() => {
     const aspect = storyboard?.aspect_ratio;
@@ -1585,6 +1602,10 @@ export function StoryboardCards({
             skyreels_duration_seconds: Number(skyreelsFixedDuration),
           }),
         }),
+        ...(isRefToVideoMode &&
+          selectedModel === 'wan26flash' && {
+            enable_audio: wanEnableAudio,
+          }),
         ...(storyboard?.mode === 'ref_to_video' && {
           storyboard_id: storyboard.id,
         }),
@@ -2075,6 +2096,9 @@ export function StoryboardCards({
         storyboard && 'aspect_ratio' in storyboard
           ? storyboard.aspect_ratio
           : '16:9',
+      ...(isRef && selectedVideoModel === 'wan26flash'
+        ? { enable_audio: wanEnableAudio }
+        : {}),
       ...(isRef && { storyboard_id: storyboard?.id }),
     });
 
@@ -2993,6 +3017,34 @@ export function StoryboardCards({
                                   ? 'SkyReels'
                                   : (storyboard?.model ?? 'N/A')}
                             </span>
+                          </div>
+                        )}
+
+                        {/* WAN ref audio controls */}
+                        {storyboard?.model === 'wan26flash' && (
+                          <div className="flex items-end gap-2">
+                            <div className="flex flex-col gap-1 w-[150px]">
+                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                                Audio
+                              </span>
+                              <Select
+                                value={wanEnableAudio ? 'on' : 'off'}
+                                onValueChange={(value: 'on' | 'off') =>
+                                  setWanEnableAudio(value === 'on')
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="on">With Audio</SelectItem>
+                                  <SelectItem value="off">No Audio</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground leading-tight pb-0.5">
+                              No Audio is cheaper for WAN ref flash.
+                            </p>
                           </div>
                         )}
 

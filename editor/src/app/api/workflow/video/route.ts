@@ -28,6 +28,8 @@ interface ModelConfig {
         }>;
         multi_prompt?: string[];
         multi_shots?: boolean;
+        video_urls?: string[];
+        enable_audio?: boolean;
       }) => Record<string, unknown>)
     | null;
 }
@@ -95,21 +97,27 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     }),
   },
   wan26flash: {
-    endpoint: 'wan/v2.6/image-to-video/flash',
+    endpoint: 'wan/v2.6/reference-to-video/flash',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
     buildPayload: ({
       prompt,
       image_urls,
+      video_urls,
       resolution,
       duration,
+      aspect_ratio,
       multi_shots,
+      enable_audio,
     }) => ({
       prompt,
-      image_url: image_urls?.[0] || '',
+      video_urls: video_urls ?? [],
+      image_urls: image_urls ?? [],
+      aspect_ratio: aspect_ratio ?? '16:9',
       resolution,
       duration: String(duration),
+      enable_audio: enable_audio ?? true,
       enable_safety_checker: false,
       multi_shots: multi_shots ?? false,
     }),
@@ -188,9 +196,9 @@ function resolvePrompt(
 ): string {
   let resolved = scenePrompt;
   if (model === 'wan26flash') {
-    resolved = resolved.replaceAll(`{bg}`, `@Character1`);
+    resolved = resolved.replaceAll(`{bg}`, `Character1`);
     for (let i = 1; i <= objectCount; i++) {
-      resolved = resolved.replaceAll(`{object_${i}}`, `@Character${i + 1}`);
+      resolved = resolved.replaceAll(`{object_${i}}`, `Character${i + 1}`);
     }
   }
   return resolved;
@@ -214,6 +222,7 @@ interface GenerateVideoInput {
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
+  enable_audio?: boolean;
   skyreels_duration_mode?: 'auto' | 'fixed';
   skyreels_duration_seconds?: number;
 }
@@ -549,6 +558,7 @@ async function sendRefVideoRequest(
   model: string,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
+  enableAudio: boolean,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
@@ -565,6 +575,8 @@ async function sendRefVideoRequest(
     model,
     resolution,
     duration: context.duration,
+    aspect_ratio,
+    ...(model === 'wan26flash' ? { enable_audio: enableAudio } : {}),
   });
   log.startTiming('fal_video_request');
 
@@ -575,9 +587,12 @@ async function sendRefVideoRequest(
         prompt: context.prompt,
         image_url: '',
         image_urls: [context.background_url, ...context.object_urls],
+        video_urls: [],
         resolution,
         duration: context.duration,
+        aspect_ratio,
         multi_shots: context.multi_shots,
+        enable_audio: enableAudio,
       });
     } else {
       const elements = context.object_urls.map((url) => ({
@@ -705,6 +720,7 @@ async function queueDirectRefVideo(
   model: ModelKey,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
+  wanEnableAudio: boolean,
   log: ReturnType<typeof createLogger>,
   fallback_duration: number | undefined,
   skyreelsDurationMode: 'auto' | 'fixed',
@@ -805,6 +821,7 @@ async function queueDirectRefVideo(
     model,
     modelConfig,
     aspect_ratio,
+    wanEnableAudio,
     log
   );
 
@@ -866,6 +883,7 @@ export async function POST(req: NextRequest) {
       aspect_ratio,
       fallback_duration,
       storyboard_id,
+      enable_audio = true,
       skyreels_duration_mode = 'auto',
       skyreels_duration_seconds,
     } = input;
@@ -903,6 +921,16 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error: 'skyreels_duration_mode must be auto or fixed',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (typeof enable_audio !== 'boolean') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'enable_audio must be a boolean',
         },
         { status: 400 }
       );
@@ -1014,6 +1042,7 @@ export async function POST(req: NextRequest) {
                 : undefined,
           }
         : {}),
+      ...(model === 'wan26flash' ? { enable_audio } : {}),
     });
 
     const results: Array<{
@@ -1106,6 +1135,7 @@ export async function POST(req: NextRequest) {
           effectiveDirectRefModel,
           MODEL_CONFIG[effectiveDirectRefModel],
           aspect_ratio,
+          enable_audio,
           log,
           fallback_duration,
           skyreels_duration_mode,
