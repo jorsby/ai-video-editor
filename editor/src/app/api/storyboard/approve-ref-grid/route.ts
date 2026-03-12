@@ -259,16 +259,52 @@ export async function POST(req: NextRequest) {
     const sceneCount = scene_prompts.length;
     const languages = Object.keys(voiceover_list);
 
+    const { data: claimedStoryboard, error: claimError } = await adminSupabase
+      .from('storyboards')
+      .update({ plan_status: 'splitting' })
+      .eq('id', storyboardId)
+      .eq('plan_status', 'grid_ready')
+      .select('id')
+      .maybeSingle();
+
+    if (claimError) {
+      console.error('Failed to claim storyboard for ref split:', claimError);
+      return NextResponse.json(
+        { error: 'Failed to lock storyboard for split' },
+        { status: 500 }
+      );
+    }
+
+    if (!claimedStoryboard) {
+      const { data: currentStoryboard } = await adminSupabase
+        .from('storyboards')
+        .select('plan_status')
+        .eq('id', storyboardId)
+        .maybeSingle();
+
+      if (
+        currentStoryboard?.plan_status === 'splitting' ||
+        currentStoryboard?.plan_status === 'approved'
+      ) {
+        return NextResponse.json({
+          success: true,
+          storyboard_id: storyboardId,
+          already_processing: true,
+        });
+      }
+
+      return NextResponse.json(
+        { error: 'Storyboard is not in grid_ready status' },
+        { status: 409 }
+      );
+    }
+
     // Step 0: Set plan_status to 'splitting'
     await logWorkflowEvent(adminSupabase, {
       storyboardId,
       step: 'ApproveRefSplit',
       status: 'start',
     });
-    await adminSupabase
-      .from('storyboards')
-      .update({ plan_status: 'splitting' })
-      .eq('id', storyboardId);
 
     // Step 1: Create scenes with prompts and voiceovers
     log.info('Creating scenes', { count: sceneCount });
@@ -409,7 +445,8 @@ export async function POST(req: NextRequest) {
       await adminSupabase
         .from('storyboards')
         .update({ plan_status: 'failed' })
-        .eq('id', storyboardId);
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
 
       log.summary('error', { reason: 'both_splits_failed' });
       await logWorkflowEvent(adminSupabase, {
@@ -458,7 +495,8 @@ export async function POST(req: NextRequest) {
     await adminSupabase
       .from('storyboards')
       .update({ plan_status: 'approved' })
-      .eq('id', storyboardId);
+      .eq('id', storyboardId)
+      .eq('plan_status', 'splitting');
 
     await logWorkflowEvent(adminSupabase, {
       storyboardId,

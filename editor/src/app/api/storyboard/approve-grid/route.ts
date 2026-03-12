@@ -132,6 +132,46 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const { data: claimedStoryboard, error: claimError } = await supabase
+      .from('storyboards')
+      .update({ plan_status: 'splitting' })
+      .eq('id', storyboardId)
+      .eq('plan_status', 'grid_ready')
+      .select('id')
+      .maybeSingle();
+
+    if (claimError) {
+      console.error('Failed to claim storyboard for split:', claimError);
+      return NextResponse.json(
+        { error: 'Failed to lock storyboard for split' },
+        { status: 500 }
+      );
+    }
+
+    if (!claimedStoryboard) {
+      const { data: currentStoryboard } = await supabase
+        .from('storyboards')
+        .select('plan_status')
+        .eq('id', storyboardId)
+        .maybeSingle();
+
+      if (
+        currentStoryboard?.plan_status === 'splitting' ||
+        currentStoryboard?.plan_status === 'approved'
+      ) {
+        return NextResponse.json({
+          success: true,
+          storyboard_id: storyboardId,
+          already_processing: true,
+        });
+      }
+
+      return NextResponse.json(
+        { error: 'Storyboard is not in grid_ready status' },
+        { status: 409 }
+      );
+    }
+
     // ── Inline approve-grid-split logic ──────────────────────────────
 
     const log = createLogger();
@@ -142,6 +182,43 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { db: { schema: 'studio' } }
     );
+
+    const { data: existingScenes, error: existingScenesError } =
+      await adminSupabase
+        .from('scenes')
+        .select('id')
+        .eq('storyboard_id', storyboardId)
+        .limit(1);
+
+    if (existingScenesError) {
+      console.error('Failed to check existing scenes:', existingScenesError);
+      await supabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
+
+      return NextResponse.json(
+        { error: 'Failed to validate existing scenes before split' },
+        { status: 500 }
+      );
+    }
+
+    if ((existingScenes?.length ?? 0) > 0) {
+      await supabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
+
+      return NextResponse.json(
+        {
+          error:
+            'Scenes already exist for this storyboard. Split appears to have already started.',
+        },
+        { status: 409 }
+      );
+    }
 
     const expectedScenes = rows * cols;
     const visual_prompt_list = plan.visual_flow as string[];
@@ -236,6 +313,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      await supabase
+        .from('storyboards')
+        .update({ plan_status: 'failed' })
+        .eq('id', storyboardId)
+        .eq('plan_status', 'splitting');
+
       return NextResponse.json({ error: 'Grid split failed' }, { status: 500 });
     }
 
@@ -252,7 +335,8 @@ export async function POST(req: NextRequest) {
     await supabase
       .from('storyboards')
       .update({ plan_status: 'approved' })
-      .eq('id', storyboardId);
+      .eq('id', storyboardId)
+      .eq('plan_status', 'splitting');
 
     await logWorkflowEvent(adminSupabase, {
       storyboardId,

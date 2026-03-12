@@ -178,6 +178,30 @@ async function executeStartWorkflow(
 
   log.info('Using existing storyboard', { id: storyboard_id });
 
+  const { data: existingGrid } = await supabase
+    .from('grid_images')
+    .select('id, request_id')
+    .eq('storyboard_id', storyboard_id)
+    .in('status', ['pending', 'processing'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingGrid?.id) {
+    log.info('Reusing in-flight grid generation', {
+      storyboard_id,
+      grid_image_id: existingGrid.id,
+      request_id: existingGrid.request_id,
+    });
+
+    return {
+      success: true,
+      storyboard_id,
+      grid_image_id: existingGrid.id,
+      request_id: existingGrid.request_id,
+    };
+  }
+
   const { data: gridImage, error: gridInsertError } = await supabase
     .from('grid_images')
     .insert({
@@ -465,6 +489,39 @@ async function executeStartRefWorkflow(
 
   log.info('Using existing storyboard', { id: storyboard_id });
 
+  const { data: existingGrids } = await supabase
+    .from('grid_images')
+    .select('id, type, request_id')
+    .eq('storyboard_id', storyboard_id)
+    .in('type', ['objects', 'backgrounds'])
+    .in('status', ['pending', 'processing']);
+
+  const existingObjectsGrid = existingGrids?.find(
+    (grid: { type: string }) => grid.type === 'objects'
+  );
+  const existingBackgroundsGrid = existingGrids?.find(
+    (grid: { type: string }) => grid.type === 'backgrounds'
+  );
+
+  if (existingObjectsGrid?.id && existingBackgroundsGrid?.id) {
+    log.info('Reusing in-flight ref grid generations', {
+      storyboard_id,
+      objects_grid_id: existingObjectsGrid.id,
+      objects_request_id: existingObjectsGrid.request_id,
+      bg_grid_id: existingBackgroundsGrid.id,
+      bg_request_id: existingBackgroundsGrid.request_id,
+    });
+
+    return {
+      success: true,
+      storyboard_id,
+      objects_grid_id: existingObjectsGrid.id,
+      objects_request_id: existingObjectsGrid.request_id,
+      bg_grid_id: existingBackgroundsGrid.id,
+      bg_request_id: existingBackgroundsGrid.request_id,
+    };
+  }
+
   // Create objects grid_images record
   const { data: objectsGrid, error: objGridError } = await supabase
     .from('grid_images')
@@ -681,25 +738,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update status to 'generating'
-    const { error: updateError } = await supabase
+    if (storyboard.plan_status === 'generating') {
+      return NextResponse.json({
+        success: true,
+        already_generating: true,
+        storyboard_id: storyboardId,
+      });
+    }
+
+    const { data: claimedStoryboard, error: claimError } = await supabase
       .from('storyboards')
       .update({ plan_status: 'generating' })
-      .eq('id', storyboardId);
+      .eq('id', storyboardId)
+      .eq('plan_status', storyboard.plan_status)
+      .select('*')
+      .single();
 
-    if (updateError) {
-      console.error('Failed to update storyboard status:', updateError);
+    if (claimError || !claimedStoryboard) {
+      const { data: currentStoryboard } = await supabase
+        .from('storyboards')
+        .select('plan_status')
+        .eq('id', storyboardId)
+        .maybeSingle();
+
+      if (currentStoryboard?.plan_status === 'generating') {
+        return NextResponse.json({
+          success: true,
+          already_generating: true,
+          storyboard_id: storyboardId,
+        });
+      }
+
+      console.error('Failed to claim storyboard for generation:', claimError);
       return NextResponse.json(
-        { error: 'Failed to update storyboard status' },
-        { status: 500 }
+        { error: 'Storyboard is being updated, please retry' },
+        { status: 409 }
       );
     }
 
+    const workflowStoryboard = claimedStoryboard;
+
     // Get dimensions from aspect ratio
     const dimensions =
-      ASPECT_RATIOS[storyboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
+      ASPECT_RATIOS[workflowStoryboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
 
-    const isRefMode = storyboard.mode === 'ref_to_video';
+    const isRefMode = workflowStoryboard.mode === 'ref_to_video';
     const log = createLogger();
     log.setContext({ step: isRefMode ? 'StartRefWorkflow' : 'StartWorkflow' });
 
@@ -713,29 +796,31 @@ export async function POST(req: NextRequest) {
       result = await executeStartRefWorkflow(
         {
           storyboard_id: storyboardId,
-          project_id: storyboard.project_id,
-          objects_rows: storyboard.plan.objects_rows,
-          objects_cols: storyboard.plan.objects_cols,
-          objects_grid_prompt: storyboard.plan.objects_grid_prompt,
+          project_id: workflowStoryboard.project_id,
+          objects_rows: workflowStoryboard.plan.objects_rows,
+          objects_cols: workflowStoryboard.plan.objects_cols,
+          objects_grid_prompt: workflowStoryboard.plan.objects_grid_prompt,
           object_names:
-            storyboard.plan.objects?.map((o: { name: string }) => o.name) ??
-            storyboard.plan.object_names,
-          bg_rows: storyboard.plan.bg_rows,
-          bg_cols: storyboard.plan.bg_cols,
-          backgrounds_grid_prompt: storyboard.plan.backgrounds_grid_prompt,
-          background_names: storyboard.plan.background_names,
-          scene_prompts: storyboard.plan.scene_prompts,
-          scene_bg_indices: storyboard.plan.scene_bg_indices,
-          scene_object_indices: storyboard.plan.scene_object_indices,
-          voiceover_list: storyboard.plan.voiceover_list,
+            workflowStoryboard.plan.objects?.map(
+              (o: { name: string }) => o.name
+            ) ?? workflowStoryboard.plan.object_names,
+          bg_rows: workflowStoryboard.plan.bg_rows,
+          bg_cols: workflowStoryboard.plan.bg_cols,
+          backgrounds_grid_prompt:
+            workflowStoryboard.plan.backgrounds_grid_prompt,
+          background_names: workflowStoryboard.plan.background_names,
+          scene_prompts: workflowStoryboard.plan.scene_prompts,
+          scene_bg_indices: workflowStoryboard.plan.scene_bg_indices,
+          scene_object_indices: workflowStoryboard.plan.scene_object_indices,
+          voiceover_list: workflowStoryboard.plan.voiceover_list,
           width: dimensions.width,
           height: dimensions.height,
-          voiceover: storyboard.voiceover,
-          aspect_ratio: storyboard.aspect_ratio,
+          voiceover: workflowStoryboard.voiceover,
+          aspect_ratio: workflowStoryboard.aspect_ratio,
           grid_generation_aspect_ratio:
-            storyboard.plan.grid_generation_aspect_ratio,
+            workflowStoryboard.plan.grid_generation_aspect_ratio,
           grid_generation_resolution:
-            storyboard.plan.grid_generation_resolution,
+            workflowStoryboard.plan.grid_generation_resolution,
         },
         log
       );
@@ -743,20 +828,20 @@ export async function POST(req: NextRequest) {
       result = await executeStartWorkflow(
         {
           storyboard_id: storyboardId,
-          project_id: storyboard.project_id,
-          rows: storyboard.plan.rows,
-          cols: storyboard.plan.cols,
-          grid_image_prompt: storyboard.plan.grid_image_prompt,
-          voiceover_list: storyboard.plan.voiceover_list,
-          visual_prompt_list: storyboard.plan.visual_flow,
+          project_id: workflowStoryboard.project_id,
+          rows: workflowStoryboard.plan.rows,
+          cols: workflowStoryboard.plan.cols,
+          grid_image_prompt: workflowStoryboard.plan.grid_image_prompt,
+          voiceover_list: workflowStoryboard.plan.voiceover_list,
+          visual_prompt_list: workflowStoryboard.plan.visual_flow,
           width: dimensions.width,
           height: dimensions.height,
-          voiceover: storyboard.voiceover,
-          aspect_ratio: storyboard.aspect_ratio,
+          voiceover: workflowStoryboard.voiceover,
+          aspect_ratio: workflowStoryboard.aspect_ratio,
           grid_generation_aspect_ratio:
-            storyboard.plan.grid_generation_aspect_ratio,
+            workflowStoryboard.plan.grid_generation_aspect_ratio,
           grid_generation_resolution:
-            storyboard.plan.grid_generation_resolution,
+            workflowStoryboard.plan.grid_generation_resolution,
         },
         log
       );
