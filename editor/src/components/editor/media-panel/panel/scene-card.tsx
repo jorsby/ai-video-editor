@@ -73,6 +73,20 @@ function formatPromptPreview(
   return prompt;
 }
 
+function formatVoiceoverDuration(
+  seconds: number | null | undefined
+): string | null {
+  if (
+    typeof seconds !== 'number' ||
+    !Number.isFinite(seconds) ||
+    seconds <= 0
+  ) {
+    return null;
+  }
+
+  return `${seconds.toFixed(1)}s`;
+}
+
 interface SceneCardProps {
   scene: Scene;
   onClick?: () => void;
@@ -507,6 +521,8 @@ function ExpandedContent({
     return null;
   };
 
+  const voiceoverDurationLabel = formatVoiceoverDuration(voiceover?.duration);
+
   return (
     <div className="mt-2 flex flex-col gap-2">
       <div className="flex flex-col gap-1">
@@ -516,6 +532,11 @@ function ExpandedContent({
             Voiceover
           </span>
           {renderVoiceoverStatus()}
+          {voiceoverDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
+              {voiceoverDurationLabel}
+            </span>
+          )}
           {isSavingVoiceover && (
             <IconLoader2 size={10} className="animate-spin text-blue-400" />
           )}
@@ -1052,6 +1073,10 @@ export function SceneCard({
       (displayVoiceover.length > 35 ? '...' : '')
     : null;
 
+  const collapsedVoiceoverDurationLabel = formatVoiceoverDuration(
+    voiceover?.duration
+  );
+
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
 
@@ -1351,6 +1376,11 @@ export function SceneCard({
             )}
           </p>
           {renderCollapsedVoiceoverStatus()}
+          {collapsedVoiceoverDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
+              {collapsedVoiceoverDurationLabel}
+            </span>
+          )}
           <IconChevronDown
             size={12}
             className="text-muted-foreground flex-shrink-0"
