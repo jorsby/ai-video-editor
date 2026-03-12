@@ -52,7 +52,11 @@ import {
 } from '@/lib/supabase/workflow-service';
 import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
-import { TemplatePicker } from './template-picker';
+import {
+  DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
+  STORYBOARD_CONTENT_TEMPLATE_OPTIONS,
+  type StoryboardContentTemplate,
+} from '@/lib/storyboard-content-template';
 
 const ASPECT_RATIOS = [
   { value: '16:9', label: '16:9', width: 1920, height: 1080 },
@@ -176,9 +180,8 @@ export default function PanelStoryboard() {
     useState<CreateVideoMode>('image_to_video');
   const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
   const [formSourceLanguage, setFormSourceLanguage] = useState('en');
-  const [formTemplateId, setFormTemplateId] = useState<string | null>(
-    'documentary'
-  );
+  const [formContentTemplate, setFormContentTemplate] =
+    useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
 
   // Generation state
   const [loading, setLoading] = useState(false);
@@ -365,6 +368,7 @@ export default function PanelStoryboard() {
           aspectRatio: formAspectRatio,
           mode: resolvedMode,
           sourceLanguage,
+          contentTemplate: formContentTemplate,
           ...(resolvedMode === 'ref_to_video' && {
             videoModel: resolvedVideoModel,
             workflowVariant,
@@ -909,18 +913,29 @@ export default function PanelStoryboard() {
                 </div>
               </div>
 
-              {/* Template Picker (Quick Video mode only) */}
-              {formVideoMode === 'quick_video' && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Template
-                  </span>
-                  <TemplatePicker
-                    selectedTemplateId={formTemplateId}
-                    onSelect={(t) => setFormTemplateId(t.id)}
-                  />
-                </div>
-              )}
+              {/* Content template */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Content Template
+                </span>
+                <Select
+                  value={formContentTemplate}
+                  onValueChange={(value) =>
+                    setFormContentTemplate(value as StoryboardContentTemplate)
+                  }
+                >
+                  <SelectTrigger className="h-8 flex-1 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STORYBOARD_CONTENT_TEMPLATE_OPTIONS.map((template) => (
+                      <SelectItem key={template.value} value={template.value}>
+                        {template.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Generate Button */}
               <Button

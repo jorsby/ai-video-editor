@@ -33,6 +33,7 @@ export const skyreelsPlanSchema = z.object({
 
   // Workflow metadata
   workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
+  content_template: z.enum(['ahlak', 'dizi_hikaye']).optional(),
 });
 
 export type SkyReelsPlan = z.infer<typeof skyreelsPlanSchema>;

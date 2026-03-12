@@ -4,6 +4,7 @@ import type {
   GridAspectRatio,
   GridResolution,
 } from '@/lib/grid-generation-settings';
+import type { StoryboardContentTemplate } from '@/lib/storyboard-content-template';
 
 // Types for workflow data
 
@@ -28,6 +29,7 @@ export interface StoryboardPlan {
   grid_generation_resolution?: GridResolution;
   voiceover_list: Record<string, string[]>;
   visual_flow: string[];
+  content_template?: StoryboardContentTemplate;
 }
 
 // Ref-to-video plan shapes
@@ -54,6 +56,7 @@ export interface RefPlanBase {
   scene_object_indices: number[][];
   voiceover_list: Record<string, string[]>;
   workflow_variant?: RefWorkflowVariant;
+  content_template?: StoryboardContentTemplate;
 }
 
 export interface KlingO3RefPlan extends RefPlanBase {

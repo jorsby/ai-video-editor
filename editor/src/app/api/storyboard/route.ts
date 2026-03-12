@@ -34,6 +34,12 @@ import {
 } from '@/lib/schemas/i2v-plan';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { logWorkflowEvent } from '@/lib/logger';
+import {
+  applyStoryboardTemplateToSystemPrompt,
+  DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
+  isStoryboardContentTemplate,
+  type StoryboardContentTemplate,
+} from '@/lib/storyboard-content-template';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -100,22 +106,27 @@ async function generateRefToVideoPlan(
   voiceoverText: string,
   llmModel: string,
   videoModel: string,
-  sourceLanguage: string
+  sourceLanguage: string,
+  contentTemplate: StoryboardContentTemplate
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
   const isSkyReels = videoModel === 'skyreels';
-  const systemPrompt = isSkyReels
+  const baseSystemPrompt = isSkyReels
     ? SKYREELS_SYSTEM_PROMPT
     : isKling
       ? KLING_O3_SYSTEM_PROMPT
       : WAN26_FLASH_SYSTEM_PROMPT;
+  const systemPrompt = applyStoryboardTemplateToSystemPrompt(
+    baseSystemPrompt,
+    contentTemplate
+  );
   const contentSchemaForModel = isSkyReels
     ? skyreelsContentSchema
     : isKling
       ? klingO3ContentSchema
       : wan26FlashContentSchema;
 
-  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nGenerate the storyboard.`;
+  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\n\nGenerate the storyboard.`;
 
   // --- Call 1: Content generation ---
   console.log('[Storyboard][ref_to_video] Content LLM request:', {
@@ -192,6 +203,9 @@ async function generateRefToVideoPlan(
         ? 'Kling O3'
         : 'WAN 2.6 Flash';
     const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
+
+Selected content template: ${contentTemplate}
+Keep style and tone aligned with the selected template while applying technical fixes.
 
 FROZEN (do not change):
 ${frozenContext}
@@ -363,6 +377,7 @@ Return the corrected fields.`;
       scene_bg_indices: skyContent.scene_bg_indices,
       scene_object_indices: skyContent.scene_object_indices,
       voiceover_list,
+      content_template: contentTemplate,
     };
   } else if (isKling) {
     const klingContent = content as z.infer<typeof klingO3ContentSchema>;
@@ -380,6 +395,7 @@ Return the corrected fields.`;
       scene_bg_indices: klingContent.scene_bg_indices,
       scene_object_indices: klingContent.scene_object_indices,
       voiceover_list,
+      content_template: contentTemplate,
     };
   } else {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
@@ -398,6 +414,7 @@ Return the corrected fields.`;
       scene_object_indices: wanContent.scene_object_indices,
       scene_multi_shots: wanContent.scene_multi_shots,
       voiceover_list,
+      content_template: contentTemplate,
     };
   }
 }
@@ -413,6 +430,7 @@ export async function POST(req: NextRequest) {
       videoModel,
       workflowVariant,
       sourceLanguage = 'en',
+      contentTemplate,
     } = await req.json();
 
     if (!voiceoverText) {
@@ -449,6 +467,20 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    if (contentTemplate && !isStoryboardContentTemplate(contentTemplate)) {
+      return NextResponse.json(
+        {
+          error: 'Invalid contentTemplate. Must be one of: ahlak, dizi_hikaye',
+        },
+        { status: 400 }
+      );
+    }
+
+    const resolvedContentTemplate =
+      contentTemplate && isStoryboardContentTemplate(contentTemplate)
+        ? contentTemplate
+        : DEFAULT_STORYBOARD_CONTENT_TEMPLATE;
 
     if (
       mode === 'ref_to_video' &&
@@ -506,13 +538,15 @@ export async function POST(req: NextRequest) {
           videoModel,
           model,
           workflowVariant: resolvedWorkflowVariant,
+          contentTemplate: resolvedContentTemplate,
         },
       });
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
         model,
         videoModel,
-        sourceLanguage
+        sourceLanguage,
+        resolvedContentTemplate
       );
       const finalPlanWithVariant = {
         ...finalPlan,
@@ -562,17 +596,28 @@ export async function POST(req: NextRequest) {
       storyboardId: projectId,
       step: 'GeneratePlan',
       status: 'start',
-      data: { mode: 'image_to_video', model },
+      data: {
+        mode: 'image_to_video',
+        model,
+        contentTemplate: resolvedContentTemplate,
+      },
     });
 
     const userPrompt = `Voiceover Script:
 ${voiceoverText}
 
+Selected content template: ${resolvedContentTemplate}
+
 Generate the storyboard.`;
+
+    const i2vSystemPrompt = applyStoryboardTemplateToSystemPrompt(
+      I2V_SYSTEM_PROMPT,
+      resolvedContentTemplate
+    );
 
     console.log('[Storyboard] Content LLM request:', {
       model,
-      system: I2V_SYSTEM_PROMPT,
+      system: i2vSystemPrompt,
       prompt: userPrompt,
     });
 
@@ -582,7 +627,7 @@ Generate the storyboard.`;
         plugins: [{ id: 'response-healing' }],
         ...(isOpus(model) ? {} : { reasoning: { effort: 'high' } }),
       },
-      system: I2V_SYSTEM_PROMPT,
+      system: i2vSystemPrompt,
       prompt: userPrompt,
       schema: i2vContentSchema,
       label: 'i2v/content',
@@ -639,6 +684,7 @@ Generate the storyboard.`;
       grid_image_prompt: `${I2V_GRID_PROMPT_PREFIX} ${content.grid_image_prompt}`,
       voiceover_list: { [sourceLanguage]: content.voiceover_list },
       visual_flow: content.visual_flow,
+      content_template: resolvedContentTemplate,
     };
 
     // Create draft storyboard record with the generated plan
@@ -829,11 +875,14 @@ export async function PATCH(req: NextRequest) {
           ? (storyboard.plan as {
               scene_first_frame_prompts?: string[];
               workflow_variant?: 'i2v_from_refs' | 'direct_ref_to_video';
+              content_template?: StoryboardContentTemplate;
             })
           : null;
 
       const resolvedWorkflowVariant =
         validatedPlan.workflow_variant ?? existingPlan?.workflow_variant;
+      const resolvedContentTemplate =
+        validatedPlan.content_template ?? existingPlan?.content_template;
 
       if (!Array.isArray(validatedPlan.scene_first_frame_prompts)) {
         const existingPrompts = existingPlan?.scene_first_frame_prompts;
@@ -853,12 +902,18 @@ export async function PATCH(req: NextRequest) {
           ...(resolvedWorkflowVariant
             ? { workflow_variant: resolvedWorkflowVariant }
             : {}),
+          ...(resolvedContentTemplate
+            ? { content_template: resolvedContentTemplate }
+            : {}),
         };
       } else {
         normalizedPlan = {
           ...validatedPlan,
           ...(resolvedWorkflowVariant
             ? { workflow_variant: resolvedWorkflowVariant }
+            : {}),
+          ...(resolvedContentTemplate
+            ? { content_template: resolvedContentTemplate }
             : {}),
         };
       }
@@ -906,7 +961,22 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      normalizedPlan = validatedPlan;
+      const existingPlan =
+        storyboard.plan && typeof storyboard.plan === 'object'
+          ? (storyboard.plan as {
+              content_template?: StoryboardContentTemplate;
+            })
+          : null;
+
+      const resolvedContentTemplate =
+        validatedPlan.content_template ?? existingPlan?.content_template;
+
+      normalizedPlan = {
+        ...validatedPlan,
+        ...(resolvedContentTemplate
+          ? { content_template: resolvedContentTemplate }
+          : {}),
+      };
     }
 
     const { error: updateError } = await supabase

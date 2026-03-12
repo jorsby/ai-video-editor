@@ -6,6 +6,7 @@ export const i2vPlanSchema = z.object({
   grid_image_prompt: z.string(),
   voiceover_list: z.record(z.string(), z.array(z.string())),
   visual_flow: z.array(z.string()),
+  content_template: z.enum(['ahlak', 'dizi_hikaye']).optional(),
 });
 
 export const i2vContentSchema = z.object({
