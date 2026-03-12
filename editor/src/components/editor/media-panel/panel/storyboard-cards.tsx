@@ -573,6 +573,19 @@ export function StoryboardCards({
     isRefToVideoMode && refWorkflowVariant === 'i2v_from_refs';
   const isRefDirectMode = isRefToVideoMode && !isRefI2VMode;
 
+  const refVideoMode =
+    isRefToVideoMode && storyboard?.plan && 'video_mode' in storyboard.plan
+      ? (storyboard.plan.video_mode as
+          | 'narrative'
+          | 'dialogue_scene'
+          | undefined)
+      : undefined;
+
+  const isNarrativeNoAudioMode =
+    isRefToVideoMode &&
+    storyboard?.model === 'wan26flash' &&
+    refVideoMode === 'narrative';
+
   const firstFramePromptBySceneId = useMemo(() => {
     const map = new Map<string, string>();
     if (!isRefI2VMode || !storyboard?.plan) return map;
@@ -800,6 +813,13 @@ export function StoryboardCards({
   const handleGenerateVoiceovers = async () => {
     if (selectedSceneIds.size === 0) return;
 
+    if (isNarrativeNoAudioMode) {
+      toast.info(
+        'Narrative mode keeps video silent in V1. Switch to Dialogue Scene for TTS.'
+      );
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const { data, error } = await invokeWorkflow('/api/workflow/tts', {
@@ -832,6 +852,13 @@ export function StoryboardCards({
 
   const handleGenerateAllVoiceovers = async () => {
     if (selectedSceneIds.size === 0) return;
+
+    if (isNarrativeNoAudioMode) {
+      toast.info(
+        'Narrative mode keeps video silent in V1. Switch to Dialogue Scene for TTS.'
+      );
+      return;
+    }
 
     setIsGeneratingAll(true);
     try {
@@ -1791,6 +1818,11 @@ export function StoryboardCards({
   };
 
   const handleReadScene = async (sceneId: string, newVoiceoverText: string) => {
+    if (isNarrativeNoAudioMode) {
+      toast.info('Narrative mode keeps video silent in V1.');
+      return;
+    }
+
     const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     const voiceover = scene?.voiceovers?.find(
@@ -1890,6 +1922,11 @@ export function StoryboardCards({
     sceneId: string,
     currentText: string
   ) => {
+    if (isNarrativeNoAudioMode) {
+      toast.info('Narrative mode keeps video silent in V1.');
+      return;
+    }
+
     const supabase = createClient('studio');
     const scene = sortedScenes.find((s) => s.id === sceneId);
     if (!scene) return;
@@ -3554,9 +3591,11 @@ export function StoryboardCards({
             onSelectionChange={(selected) => toggleScene(scene.id, selected)}
             playingVoiceoverId={playingVoiceoverId}
             setPlayingVoiceoverId={setPlayingVoiceoverId}
-            onReadScene={handleReadScene}
+            onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
             onTranslateScene={handleTranslateSceneVoiceover}
-            onReadSceneAllLanguages={handleReadSceneAllLanguages}
+            onReadSceneAllLanguages={
+              isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
+            }
             onGenerateSceneVideo={handleGenerateSceneVideo}
             onSaveVisualPrompt={handleSaveVisualPrompt}
             onSaveVoiceoverText={handleSaveVoiceoverText}

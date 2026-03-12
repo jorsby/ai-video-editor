@@ -46,6 +46,7 @@ import {
   type RefPlan,
   type StoryboardMode,
   type VideoModel,
+  type RefVideoMode,
 } from '@/lib/supabase/workflow-service';
 import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
@@ -94,6 +95,11 @@ const VIDEO_MODELS = [
   { value: 'klingo3' as const, label: 'Kling O3' },
   { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
   { value: 'skyreels' as const, label: 'SkyReels' },
+] as const;
+
+const REF_VIDEO_MODE_OPTIONS = [
+  { value: 'narrative' as const, label: 'Narrative (No Audio)' },
+  { value: 'dialogue_scene' as const, label: 'Cinematic Dialogue' },
 ] as const;
 
 type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
@@ -168,6 +174,8 @@ export default function PanelStoryboard() {
   const [formVideoMode, setFormVideoMode] =
     useState<CreateVideoMode>('image_to_video');
   const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
+  const [formRefVideoMode, setFormRefVideoMode] =
+    useState<RefVideoMode>('narrative');
   const [formContentTemplate, setFormContentTemplate] =
     useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
 
@@ -329,6 +337,11 @@ export default function PanelStoryboard() {
       const resolvedVideoModel =
         formVideoMode === 'image_to_video' ? 'wan26flash' : formVideoModel;
 
+      const resolvedRefVideoMode: RefVideoMode =
+        resolvedMode === 'ref_to_video' && resolvedVideoModel === 'wan26flash'
+          ? formRefVideoMode
+          : 'narrative';
+
       // Generate storyboard with AI and create draft record
       const response = await fetch('/api/storyboard', {
         method: 'POST',
@@ -343,6 +356,7 @@ export default function PanelStoryboard() {
           ...(resolvedMode === 'ref_to_video' && {
             videoModel: resolvedVideoModel,
             workflowVariant,
+            videoMode: resolvedRefVideoMode,
           }),
         }),
       });
@@ -572,6 +586,7 @@ export default function PanelStoryboard() {
               setFormModel('google/gemini-3.1-pro-preview');
               setFormVideoMode('image_to_video');
               setFormVideoModel('klingo3');
+              setFormRefVideoMode('narrative');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -860,6 +875,33 @@ export default function PanelStoryboard() {
                   )}
                 </div>
               </div>
+
+              {(formVideoMode === 'image_to_video' ||
+                (formVideoMode === 'ref_to_video' &&
+                  formVideoModel === 'wan26flash')) && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Scene Mode
+                  </span>
+                  <Select
+                    value={formRefVideoMode}
+                    onValueChange={(value) =>
+                      setFormRefVideoMode(value as RefVideoMode)
+                    }
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REF_VIDEO_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Content template */}
               <div className="flex flex-col gap-1">

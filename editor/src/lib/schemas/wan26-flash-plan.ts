@@ -5,6 +5,11 @@ export const wan26FlashElementSchema = z.object({
   description: z.string(),
 });
 
+export const wan26FlashDialogueLineSchema = z.object({
+  speaker: z.string().min(1),
+  line: z.string().min(1),
+});
+
 export const wan26FlashPlanSchema = z.object({
   // Objects grid
   objects_rows: z.number().int().min(2).max(6),
@@ -27,6 +32,10 @@ export const wan26FlashPlanSchema = z.object({
 
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
+
+  // Optional dialogue metadata (V1: visual dialogue + separate TTS track)
+  video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
+  scene_dialogue: z.array(z.array(wan26FlashDialogueLineSchema)).optional(),
 
   // Workflow metadata
   workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
@@ -54,6 +63,7 @@ export const wan26FlashContentSchema = z.object({
   scene_multi_shots: z.array(z.boolean()),
 
   voiceover_list: z.array(z.string()),
+  scene_dialogue: z.array(z.array(wan26FlashDialogueLineSchema)).optional(),
 });
 
 export const wan26FlashReviewerOutputSchema = z.object({
@@ -144,7 +154,11 @@ Return valid JSON matching this structure:
   "scene_bg_indices": [0, 1, 2, 0],
   "scene_object_indices": [[0, 1], [0], [1], [0, 1]],
   "scene_multi_shots": [true, false, false, true],
-  "voiceover_list": ["segment 1 text", "segment 2 text", ...]
+  "voiceover_list": ["segment 1 text", "segment 2 text", ...],
+  "scene_dialogue": [
+    [{ "speaker": "Mother", "line": "Please stay close." }, { "speaker": "Boy", "line": "Okay." }],
+    [{ "speaker": "Richman", "line": "Leave this here quietly." }]
+  ]
 }`;
 
 export const WAN26_FLASH_REVIEWER_SYSTEM_PROMPT = `You are a storyboard reviewer for WAN 2.6 Flash reference-to-video generation. You receive a generated storyboard plan and must fix errors and improve prompt quality.

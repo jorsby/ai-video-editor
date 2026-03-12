@@ -39,6 +39,12 @@ export interface KlingElement {
 }
 
 export type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
+export type RefVideoMode = 'narrative' | 'dialogue_scene';
+
+export interface SceneDialogueLine {
+  speaker: string;
+  line: string;
+}
 
 export interface RefPlanBase {
   objects_rows: number;
@@ -55,6 +61,8 @@ export interface RefPlanBase {
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   voiceover_list: Record<string, string[]>;
+  video_mode?: RefVideoMode;
+  scene_dialogue?: SceneDialogueLine[][];
   workflow_variant?: RefWorkflowVariant;
   content_template?: StoryboardContentTemplate;
 }

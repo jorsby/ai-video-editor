@@ -140,7 +140,69 @@ const VALID_REF_WORKFLOW_VARIANTS = [
   'direct_ref_to_video',
 ] as const;
 
+const VALID_REF_VIDEO_MODES = ['narrative', 'dialogue_scene'] as const;
+type RefVideoMode = (typeof VALID_REF_VIDEO_MODES)[number];
+
 const isOpus = (model: string) => model.includes('claude-opus');
+
+function isRefVideoMode(value: unknown): value is RefVideoMode {
+  return (
+    typeof value === 'string' &&
+    (VALID_REF_VIDEO_MODES as readonly string[]).includes(value)
+  );
+}
+
+function buildWanModeSystemPrompt(videoMode: RefVideoMode): string {
+  if (videoMode === 'dialogue_scene') {
+    return `
+
+MODE: dialogue_scene
+- This is a dialogue scene mode. Characters are in conversation, with separate audio track added later.
+- Generate scene prompts that visually stage conversation (two-shots, over-the-shoulder, reaction framing, gestures, eye contact).
+- Do NOT mention lip-sync, mouth-sync, phonemes, or exact mouth movement matching.
+- You MUST include scene_dialogue with EXACTLY one array per scene.
+- Each scene_dialogue[i] must include 1-3 lines using objects like {"speaker":"Name","line":"Text"}.
+- Keep lines concise for 5s/10s scenes.
+`;
+  }
+
+  return `
+
+MODE: narrative
+- This is narrative mode. No character speaking is rendered in-scene.
+- Scene prompts must avoid explicit speech wording like "says", "talks", quoted dialogue, or conversation staging.
+- Keep focus on action, emotion, body language, framing, and environment.
+- scene_dialogue should be omitted or empty for all scenes.
+`;
+}
+
+function buildWanModeReviewerConstraint(videoMode: RefVideoMode): string {
+  return videoMode === 'dialogue_scene'
+    ? `- Keep dialogue_scene constraints: conversation framing allowed, no lip-sync language, preserve scene_dialogue as generated.`
+    : `- Keep narrative constraints: no explicit speaking/talking/quoted dialogue in scene prompts.`;
+}
+
+function normalizeDialogueLine(
+  line: unknown
+): { speaker: string; line: string } | null {
+  if (!line || typeof line !== 'object') return null;
+
+  const speakerRaw = (line as { speaker?: unknown }).speaker;
+  const textRaw = (line as { line?: unknown }).line;
+
+  const speaker = typeof speakerRaw === 'string' ? speakerRaw.trim() : '';
+  const text = typeof textRaw === 'string' ? textRaw.trim() : '';
+
+  if (!speaker || !text) return null;
+
+  return { speaker, line: text };
+}
+
+function toDialogueVoiceoverText(
+  lines: Array<{ speaker: string; line: string }>
+): string {
+  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join(' ');
+}
 
 // --- Ref-to-Video plan generation ---
 async function generateRefToVideoPlan(
@@ -148,7 +210,8 @@ async function generateRefToVideoPlan(
   llmModel: string,
   videoModel: string,
   sourceLanguage: string,
-  contentTemplate: StoryboardContentTemplate
+  contentTemplate: StoryboardContentTemplate,
+  videoMode: RefVideoMode
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
   const isSkyReels = videoModel === 'skyreels';
@@ -156,7 +219,7 @@ async function generateRefToVideoPlan(
     ? SKYREELS_SYSTEM_PROMPT
     : isKling
       ? KLING_O3_SYSTEM_PROMPT
-      : WAN26_FLASH_SYSTEM_PROMPT;
+      : `${WAN26_FLASH_SYSTEM_PROMPT}${buildWanModeSystemPrompt(videoMode)}`;
   const systemPrompt = applyStoryboardTemplateToSystemPrompt(
     baseSystemPrompt,
     contentTemplate
@@ -167,7 +230,7 @@ async function generateRefToVideoPlan(
       ? klingO3ContentSchema
       : wan26FlashContentSchema;
 
-  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\n\nGenerate the storyboard.`;
+  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\nVideo mode: ${videoMode}\n\nGenerate the storyboard.`;
 
   // --- Call 1: Content generation ---
   console.log('[Storyboard][ref_to_video] Content LLM request:', {
@@ -243,11 +306,15 @@ async function generateRefToVideoPlan(
       : isKling
         ? 'Kling O3'
         : 'WAN 2.6 Flash';
+    const modeConstraint =
+      !isKling && !isSkyReels
+        ? `\nMODE CONSTRAINT:\n${buildWanModeReviewerConstraint(videoMode)}\n`
+        : '';
+
     const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
 
 Selected content template: ${contentTemplate}
-Keep style and tone aligned with the selected template while applying technical fixes.
-
+Keep style and tone aligned with the selected template while applying technical fixes.${modeConstraint}
 FROZEN (do not change):
 ${frozenContext}
 - background_names (${expectedBgs} items): ${JSON.stringify(content.background_names)}
@@ -308,12 +375,50 @@ Return the corrected fields.`;
   }
 
   // Validate scene_multi_shots length for WAN (not for Kling or SkyReels)
+  let normalizedSceneDialogue:
+    | Array<Array<{ speaker: string; line: string }>>
+    | undefined;
+
   if (!isKling && !isSkyReels) {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
     if (wanContent.scene_multi_shots.length !== sceneCount) {
       throw new Error(
         `scene_multi_shots length mismatch: got ${wanContent.scene_multi_shots.length} but expected ${sceneCount}`
       );
+    }
+
+    if (videoMode === 'dialogue_scene') {
+      normalizedSceneDialogue = Array.from({ length: sceneCount }, (_, i) => {
+        const rawSceneLines = Array.isArray(wanContent.scene_dialogue?.[i])
+          ? wanContent.scene_dialogue[i]
+          : [];
+        const normalizedLines = rawSceneLines
+          .map(normalizeDialogueLine)
+          .filter(
+            (line): line is { speaker: string; line: string } => line !== null
+          )
+          .slice(0, 3);
+
+        if (normalizedLines.length > 0) return normalizedLines;
+
+        const fallbackVoiceover = String(
+          wanContent.voiceover_list[i] ?? ''
+        ).trim();
+        if (!fallbackVoiceover) {
+          throw new Error(
+            `Scene ${i} in dialogue mode must have at least one dialogue line`
+          );
+        }
+
+        return [{ speaker: 'Narrator', line: fallbackVoiceover }];
+      });
+
+      // Keep TTS source text aligned with dialogue metadata in V1.
+      wanContent.voiceover_list = normalizedSceneDialogue.map(
+        toDialogueVoiceoverText
+      );
+    } else {
+      normalizedSceneDialogue = undefined;
     }
   }
 
@@ -455,6 +560,10 @@ Return the corrected fields.`;
       scene_object_indices: wanContent.scene_object_indices,
       scene_multi_shots: wanContent.scene_multi_shots,
       voiceover_list,
+      video_mode: videoMode,
+      ...(normalizedSceneDialogue
+        ? { scene_dialogue: normalizedSceneDialogue }
+        : {}),
       content_template: contentTemplate,
     };
   }
@@ -470,6 +579,7 @@ export async function POST(req: NextRequest) {
       mode = 'image_to_video',
       videoModel,
       workflowVariant,
+      videoMode: videoModeInput,
       sourceLanguage: sourceLanguageInput,
       contentTemplate,
     } = await req.json();
@@ -564,6 +674,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (
+      mode === 'ref_to_video' &&
+      videoModeInput !== undefined &&
+      !isRefVideoMode(videoModeInput)
+    ) {
+      return NextResponse.json(
+        {
+          error: `videoMode must be one of: ${VALID_REF_VIDEO_MODES.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
     const supabase = await createClient('studio');
     const {
       data: { user },
@@ -583,6 +706,11 @@ export async function POST(req: NextRequest) {
           ? 'i2v_from_refs'
           : 'direct_ref_to_video';
 
+      const resolvedVideoMode: RefVideoMode =
+        videoModel === 'wan26flash' && isRefVideoMode(videoModeInput)
+          ? videoModeInput
+          : 'narrative';
+
       await logWorkflowEvent(logSupabase, {
         storyboardId: projectId,
         step: 'GeneratePlan',
@@ -592,6 +720,7 @@ export async function POST(req: NextRequest) {
           videoModel,
           model,
           workflowVariant: resolvedWorkflowVariant,
+          videoMode: resolvedVideoMode,
           contentTemplate: resolvedContentTemplate,
         },
       });
@@ -600,7 +729,8 @@ export async function POST(req: NextRequest) {
         model,
         videoModel,
         resolvedSourceLanguage,
-        resolvedContentTemplate
+        resolvedContentTemplate,
+        resolvedVideoMode
       );
       const finalPlanWithVariant = {
         ...finalPlan,
@@ -930,6 +1060,8 @@ export async function PATCH(req: NextRequest) {
               scene_first_frame_prompts?: string[];
               workflow_variant?: 'i2v_from_refs' | 'direct_ref_to_video';
               content_template?: StoryboardContentTemplate;
+              video_mode?: RefVideoMode;
+              scene_dialogue?: Array<Array<{ speaker: string; line: string }>>;
             })
           : null;
 
@@ -937,6 +1069,35 @@ export async function PATCH(req: NextRequest) {
         validatedPlan.workflow_variant ?? existingPlan?.workflow_variant;
       const resolvedContentTemplate =
         validatedPlan.content_template ?? existingPlan?.content_template;
+      const resolvedVideoMode =
+        ('video_mode' in validatedPlan
+          ? (validatedPlan as { video_mode?: RefVideoMode }).video_mode
+          : undefined) ?? existingPlan?.video_mode;
+      const resolvedSceneDialogue =
+        ('scene_dialogue' in validatedPlan
+          ? (
+              validatedPlan as {
+                scene_dialogue?: Array<
+                  Array<{ speaker: string; line: string }>
+                >;
+              }
+            ).scene_dialogue
+          : undefined) ?? existingPlan?.scene_dialogue;
+
+      if (resolvedVideoMode === 'dialogue_scene') {
+        if (
+          !Array.isArray(resolvedSceneDialogue) ||
+          resolvedSceneDialogue.length !== validatedPlan.scene_prompts.length
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                'dialogue_scene mode requires scene_dialogue with one entry per scene',
+            },
+            { status: 400 }
+          );
+        }
+      }
 
       if (!Array.isArray(validatedPlan.scene_first_frame_prompts)) {
         const existingPrompts = existingPlan?.scene_first_frame_prompts;
@@ -959,6 +1120,10 @@ export async function PATCH(req: NextRequest) {
           ...(resolvedContentTemplate
             ? { content_template: resolvedContentTemplate }
             : {}),
+          ...(resolvedVideoMode ? { video_mode: resolvedVideoMode } : {}),
+          ...(resolvedSceneDialogue
+            ? { scene_dialogue: resolvedSceneDialogue }
+            : {}),
         };
       } else {
         normalizedPlan = {
@@ -968,6 +1133,10 @@ export async function PATCH(req: NextRequest) {
             : {}),
           ...(resolvedContentTemplate
             ? { content_template: resolvedContentTemplate }
+            : {}),
+          ...(resolvedVideoMode ? { video_mode: resolvedVideoMode } : {}),
+          ...(resolvedSceneDialogue
+            ? { scene_dialogue: resolvedSceneDialogue }
             : {}),
         };
       }
