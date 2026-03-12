@@ -31,6 +31,9 @@ export const klingO3PlanSchema = z.object({
 
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
+
+  // Workflow metadata
+  workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
 });
 
 export type KlingO3Plan = z.infer<typeof klingO3PlanSchema>;

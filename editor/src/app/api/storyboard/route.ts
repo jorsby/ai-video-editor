@@ -828,8 +828,12 @@ export async function PATCH(req: NextRequest) {
         storyboard.plan && typeof storyboard.plan === 'object'
           ? (storyboard.plan as {
               scene_first_frame_prompts?: string[];
+              workflow_variant?: 'i2v_from_refs' | 'direct_ref_to_video';
             })
           : null;
+
+      const resolvedWorkflowVariant =
+        validatedPlan.workflow_variant ?? existingPlan?.workflow_variant;
 
       if (!Array.isArray(validatedPlan.scene_first_frame_prompts)) {
         const existingPrompts = existingPlan?.scene_first_frame_prompts;
@@ -846,9 +850,17 @@ export async function PATCH(req: NextRequest) {
             existingPrompts.length === validatedPlan.scene_prompts.length
               ? existingPrompts
               : fallbackPrompts,
+          ...(resolvedWorkflowVariant
+            ? { workflow_variant: resolvedWorkflowVariant }
+            : {}),
         };
       } else {
-        normalizedPlan = validatedPlan;
+        normalizedPlan = {
+          ...validatedPlan,
+          ...(resolvedWorkflowVariant
+            ? { workflow_variant: resolvedWorkflowVariant }
+            : {}),
+        };
       }
     } else {
       const planValidation = i2vPlanSchema.safeParse(plan);
