@@ -832,6 +832,14 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
                   />
                 </div>
               )}
+              {obj.image_edit_status === 'outpainting' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-purple-400 animate-spin"
+                  />
+                </div>
+              )}
               {obj.image_edit_status === 'enhancing' && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                   <IconLoader2
@@ -845,6 +853,14 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
                   <IconLoader2
                     size={12}
                     className="text-amber-400 animate-spin"
+                  />
+                </div>
+              )}
+              {obj.image_edit_status === 'processing' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-cyan-400 animate-spin"
                   />
                 </div>
               )}

@@ -274,11 +274,11 @@ const VIDEO_MODELS = {
   'wan2.6': { label: 'Wan 2.6', resolutions: ['720p', '1080p'] as const },
   'bytedance1.5pro': {
     label: 'ByteDance 1.5 Pro',
-    resolutions: ['480p', '720p', '1080p'] as const,
+    resolutions: ['480p', '720p'] as const,
   },
   grok: {
     label: 'Grok',
-    resolutions: ['720p', '480p'] as const,
+    resolutions: ['480p', '720p'] as const,
   },
 } as const;
 
@@ -1685,7 +1685,84 @@ export function StoryboardCards({
     const supabase = createClient('studio');
     const isRef = storyboard?.mode === 'ref_to_video';
 
-    if (isRef) {
+    if (isRef && isRefI2VMode) {
+      const scene = sortedScenes.find((s) => s.id === sceneId);
+      const sceneOrder = scene?.order;
+
+      if (sceneOrder == null || !storyboard?.id) {
+        toast.error('Failed to resolve scene prompt index');
+        return;
+      }
+
+      const { data: latestStoryboard, error: latestStoryboardError } =
+        await supabase
+          .from('storyboards')
+          .select('plan')
+          .eq('id', storyboard.id)
+          .single();
+
+      if (latestStoryboardError) {
+        console.error(
+          'Failed to fetch latest storyboard plan:',
+          latestStoryboardError
+        );
+        toast.error('Failed to save first-frame prompt');
+        throw latestStoryboardError;
+      }
+
+      const latestPlan =
+        latestStoryboard?.plan && typeof latestStoryboard.plan === 'object'
+          ? (latestStoryboard.plan as Record<string, unknown>)
+          : ((storyboard.plan ?? {}) as unknown as Record<string, unknown>);
+
+      const existingPrompts = latestPlan.scene_first_frame_prompts;
+      const promptList = Array.isArray(existingPrompts)
+        ? existingPrompts.map((value) =>
+            typeof value === 'string' ? value : ''
+          )
+        : Array.from({ length: sortedScenes.length }, () => '');
+      promptList[sceneOrder] = newPrompt.trim();
+
+      const updatedPlan = {
+        ...latestPlan,
+        scene_first_frame_prompts: promptList,
+      };
+
+      const { error: planError } = await supabase
+        .from('storyboards')
+        .update({ plan: updatedPlan })
+        .eq('id', storyboard.id);
+
+      if (planError) {
+        console.error('Failed to save first-frame prompt in plan:', planError);
+        toast.error('Failed to save first-frame prompt');
+        throw planError;
+      }
+
+      const promptUpdate = buildScenePromptUpdate(newPrompt);
+      const { error: scenePromptError } = await supabase
+        .from('scenes')
+        .update(promptUpdate)
+        .eq('id', sceneId);
+
+      if (scenePromptError) {
+        console.error('Failed to save scene prompt:', scenePromptError);
+        toast.error('Failed to save scene prompt');
+        throw scenePromptError;
+      }
+
+      const { error: framePromptError } = await supabase
+        .from('first_frames')
+        .update({ visual_prompt: newPrompt })
+        .eq('scene_id', sceneId);
+
+      if (framePromptError) {
+        console.error(
+          'Failed to save first-frame prompt on first_frames:',
+          framePromptError
+        );
+      }
+    } else if (isRef) {
       const promptUpdate = buildScenePromptUpdate(newPrompt);
       const { error } = await supabase
         .from('scenes')
@@ -1709,6 +1786,8 @@ export function StoryboardCards({
         throw error;
       }
     }
+
+    await refresh();
   };
 
   const handleReadScene = async (sceneId: string, newVoiceoverText: string) => {
@@ -3336,6 +3415,11 @@ export function StoryboardCards({
                               <IconLoader2 className="size-5 animate-spin text-white" />
                             </div>
                           )}
+                          {obj.image_edit_status === 'outpainting' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconLoader2 className="size-5 animate-spin text-purple-400" />
+                            </div>
+                          )}
                           {obj.image_edit_status === 'enhancing' && (
                             <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                               <IconLoader2 className="size-5 animate-spin text-green-400" />
@@ -3344,6 +3428,11 @@ export function StoryboardCards({
                           {obj.image_edit_status === 'editing' && (
                             <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                               <IconLoader2 className="size-5 animate-spin text-amber-400" />
+                            </div>
+                          )}
+                          {obj.image_edit_status === 'processing' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <IconLoader2 className="size-5 animate-spin text-cyan-400" />
                             </div>
                           )}
                           {obj.image_edit_status === 'failed' && (

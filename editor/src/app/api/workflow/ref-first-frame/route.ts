@@ -76,6 +76,18 @@ async function getSceneRefContext(
     (typeof scene.prompt === 'string' ? scene.prompt : '') ||
     (Array.isArray(scene.multi_prompt) ? scene.multi_prompt.join('. ') : '');
 
+  let promptFromFirstFrame = '';
+  const { data: existingFirstFrame } = await supabase
+    .from('first_frames')
+    .select('visual_prompt')
+    .eq('scene_id', sceneId)
+    .limit(1)
+    .maybeSingle();
+
+  if (typeof existingFirstFrame?.visual_prompt === 'string') {
+    promptFromFirstFrame = existingFirstFrame.visual_prompt.trim();
+  }
+
   let promptFromPlan = '';
 
   const storyboardId = scene.storyboard_id as string | null;
@@ -104,7 +116,11 @@ async function getSceneRefContext(
     }
   }
 
-  const prompt = (promptFromPlan || promptFromScene).trim();
+  const prompt = (
+    promptFromFirstFrame ||
+    promptFromPlan ||
+    promptFromScene
+  ).trim();
   if (!prompt) {
     log.warn('Scene has no prompt for first-frame generation', {
       scene_id: sceneId,
