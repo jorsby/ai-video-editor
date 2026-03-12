@@ -1619,10 +1619,28 @@ async function handleGenerateSFX(
   log: Logger
 ): Promise<Response> {
   const scene_id = params.get('scene_id')!;
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: 'scenes',
+    idColumn: 'id',
+    id: scene_id,
+    statusColumn: 'sfx_status',
+    requestIdColumn: 'sfx_request_id',
+    allowedStatuses: ['processing'],
+    incomingRequestId,
+    step: 'GenerateSFX',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   log.info('Processing GenerateSFX', {
     scene_id,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   log.startTiming('extract_videos');
@@ -1632,10 +1650,27 @@ async function handleGenerateSFX(
   if (falPayload.status === 'ERROR' || !videos?.[0]?.url) {
     log.error('SFX generation failed', { fal_error: falPayload.error });
 
-    await supabase
+    let failedUpdate = supabase
       .from('scenes')
       .update({ sfx_status: 'failed', sfx_error_message: 'generation_error' })
-      .eq('id', scene_id);
+      .eq('id', scene_id)
+      .eq('sfx_status', 'processing');
+
+    if (guard.requestId) {
+      failedUpdate = failedUpdate.eq('sfx_request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failedUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenerateSFX',
+        'scene_id',
+        scene_id,
+        log
+      );
+    }
 
     log.summary('error', { scene_id, reason: 'sfx_generation_failed' });
     return new Response(
@@ -1647,10 +1682,27 @@ async function handleGenerateSFX(
   const videoUrl = videos[0].url;
   log.success('SFX generated', { video_url: videoUrl });
 
-  await supabase
+  let successUpdate = supabase
     .from('scenes')
     .update({ sfx_status: 'success', video_url: videoUrl })
-    .eq('id', scene_id);
+    .eq('id', scene_id)
+    .eq('sfx_status', 'processing');
+
+  if (guard.requestId) {
+    successUpdate = successUpdate.eq('sfx_request_id', guard.requestId);
+  }
+
+  const { data: successRows } = await successUpdate.select('id');
+
+  if (!successRows || successRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'GenerateSFX',
+      'scene_id',
+      scene_id,
+      log
+    );
+  }
 
   log.summary('success', { scene_id, video_url: videoUrl });
   return new Response(
