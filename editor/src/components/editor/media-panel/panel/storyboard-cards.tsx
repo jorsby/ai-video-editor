@@ -402,15 +402,27 @@ export function StoryboardCards({
   const hasAnyProcessing = useMemo(() => {
     if (isProcessing) return true;
     if (!storyboard || !('scenes' in storyboard)) return false;
+
+    const isEditProcessing = (status: string | null | undefined) =>
+      status === 'enhancing' ||
+      status === 'editing' ||
+      status === 'processing' ||
+      status === 'outpainting';
+
     return storyboard.scenes.some(
       (scene) =>
         scene.video_status === 'processing' ||
-        scene.first_frames?.some(
-          (ff) =>
-            ff.image_edit_status === 'enhancing' ||
-            ff.image_edit_status === 'editing' ||
-            ff.image_edit_status === 'processing'
-        )
+        scene.sfx_status === 'processing' ||
+        scene.voiceovers?.some(
+          (voiceover) => voiceover.status === 'processing'
+        ) ||
+        scene.first_frames?.some((ff) =>
+          isEditProcessing(ff.image_edit_status)
+        ) ||
+        scene.backgrounds?.some((bg) =>
+          isEditProcessing(bg.image_edit_status)
+        ) ||
+        scene.objects?.some((obj) => isEditProcessing(obj.image_edit_status))
     );
   }, [isProcessing, storyboard]);
 

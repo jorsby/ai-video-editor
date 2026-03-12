@@ -11,6 +11,11 @@ const FAL_GRID_IMAGE_ENDPOINT = 'workflows/octupost/generategridimage';
 const DEFAULT_VIDEO_ENDPOINT =
   'fal-ai/bytedance/seedance/v1.5/pro/image-to-video';
 const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/kling-image/o3/image-to-image';
+const TTS_ENDPOINTS = [
+  'fal-ai/elevenlabs/tts/turbo-v2.5',
+  'fal-ai/elevenlabs/tts/multilingual-v2',
+] as const;
+const SFX_ENDPOINT = 'mirelo-ai/sfx-v1.5/video-to-video';
 
 const VIDEO_MODEL_ENDPOINTS: Record<string, string> = {
   'wan2.6': 'fal-ai/wan/v2.6/image-to-video',
@@ -28,6 +33,7 @@ const IMAGE_EDIT_MODEL_ENDPOINTS: Record<string, string> = {
   grok: 'xai/grok-imagine-image/edit',
   'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
+const IMAGE_EDIT_ENDPOINTS = Object.values(IMAGE_EDIT_MODEL_ENDPOINTS);
 
 function resolveVideoEndpoint(videoModel: string | null): string | null {
   if (!videoModel) return DEFAULT_VIDEO_ENDPOINT;
@@ -61,6 +67,7 @@ interface FalStatusResponse {
 interface FalResultResponse {
   images?: Array<{ url: string }>;
   video?: Array<{ url: string }> | { url: string };
+  audio?: { url: string };
   // biome-ignore lint/suspicious/noExplicitAny: fal.ai outputs vary by model
   outputs?: any;
   // biome-ignore lint/suspicious/noExplicitAny: fal.ai result shape varies
@@ -137,6 +144,32 @@ async function checkFalJob(
   return { status: 'completed', url };
 }
 
+async function checkFalJobAcrossEndpoints(
+  endpoints: readonly string[],
+  requestId: string,
+  extractUrl: (result: FalResultResponse) => string | null
+): Promise<{ status: FalJobStatus; url: string | null }> {
+  for (const endpoint of endpoints) {
+    const falStatus = await fetchFalStatus(endpoint, requestId);
+    if (!falStatus) continue;
+
+    if (falStatus.status === 'FAILED') {
+      return { status: 'failed', url: null };
+    }
+
+    if (falStatus.status !== 'COMPLETED') {
+      return { status: 'running', url: null };
+    }
+
+    const result = await fetchFalResult(endpoint, requestId);
+    if (!result) return { status: 'error', url: null };
+
+    return { status: 'completed', url: extractUrl(result) };
+  }
+
+  return { status: 'error', url: null };
+}
+
 // ── URL Extractors ──────────────────────────────────────────────────
 
 function extractImageUrl(result: FalResultResponse): string | null {
@@ -175,10 +208,41 @@ function extractVideoUrl(result: FalResultResponse): string | null {
   return null;
 }
 
+function extractAudioUrl(result: FalResultResponse): string | null {
+  if (result.audio?.url) {
+    return result.audio.url;
+  }
+
+  const outputs = result.outputs;
+  if (outputs && typeof outputs === 'object' && !Array.isArray(outputs)) {
+    for (const nodeId of Object.keys(outputs)) {
+      const node = outputs[nodeId];
+      if (node?.audio?.url) {
+        return node.audio.url;
+      }
+    }
+  }
+
+  return null;
+}
+
 // ── Staleness Check ─────────────────────────────────────────────────
 
 function isStale(updatedAt: string): boolean {
   return Date.now() - new Date(updatedAt).getTime() > STALE_TIMEOUT_MS;
+}
+
+async function getSceneIdsForStoryboard(
+  // biome-ignore lint/suspicious/noExplicitAny: supabase client type
+  supabase: any,
+  storyboardId: string
+): Promise<string[]> {
+  const { data: scenes } = await supabase
+    .from('scenes')
+    .select('id')
+    .eq('storyboard_id', storyboardId);
+
+  return (scenes || []).map((s: { id: string }) => s.id);
 }
 
 // ── Poll Grid Images ────────────────────────────────────────────────
@@ -393,7 +457,7 @@ async function pollSceneVideos(
 
 // ── Poll First Frames (Image Editing) ───────────────────────────────
 
-const EDIT_STATUSES = ['enhancing', 'editing', 'processing'];
+const EDIT_STATUSES = ['enhancing', 'editing', 'processing', 'outpainting'];
 
 async function pollFirstFrames(
   supabase: SupabaseAdmin,
@@ -404,20 +468,16 @@ async function pollFirstFrames(
 
   let query = supabase
     .from('first_frames')
-    .select('id, scene_id, image_edit_request_id, image_edit_model, updated_at')
+    .select(
+      'id, scene_id, image_edit_request_id, image_edit_model, image_edit_status, updated_at'
+    )
     .in('image_edit_status', EDIT_STATUSES)
     .not('image_edit_request_id', 'is', null);
 
   if (storyboardId) {
-    const { data: sceneIds } = await supabase
-      .from('scenes')
-      .select('id')
-      .eq('storyboard_id', storyboardId);
-    if (!sceneIds || sceneIds.length === 0) return summary;
-    query = query.in(
-      'scene_id',
-      sceneIds.map((s: { id: string }) => s.id)
-    );
+    const sceneIds = await getSceneIdsForStoryboard(supabase, storyboardId);
+    if (sceneIds.length === 0) return summary;
+    query = query.in('scene_id', sceneIds);
   }
 
   const { data: items, error } = await query;
@@ -448,13 +508,23 @@ async function pollFirstFrames(
     );
 
     if (job.status === 'completed' && job.url) {
+      const successPayload =
+        frame.image_edit_status === 'outpainting'
+          ? {
+              image_edit_status: 'success',
+              image_edit_error_message: null,
+              outpainted_url: job.url,
+              final_url: job.url,
+            }
+          : {
+              image_edit_status: 'success',
+              image_edit_error_message: null,
+              final_url: job.url,
+            };
+
       await supabase
         .from('first_frames')
-        .update({
-          image_edit_status: 'success',
-          image_edit_error_message: null,
-          final_url: job.url,
-        })
+        .update(successPayload)
         .eq('id', frame.id)
         .eq('image_edit_request_id', frame.image_edit_request_id)
         .in('image_edit_status', EDIT_STATUSES);
@@ -492,6 +562,357 @@ async function pollFirstFrames(
   return summary;
 }
 
+// ── Poll Voiceovers (TTS) ───────────────────────────────────────────
+
+async function pollVoiceovers(
+  supabase: SupabaseAdmin,
+  storyboardId: string | null,
+  log: ReturnType<typeof createLogger>
+): Promise<ItemSummary> {
+  const summary = newSummary();
+
+  let query = supabase
+    .from('voiceovers')
+    .select('id, scene_id, request_id, updated_at')
+    .eq('status', 'processing')
+    .not('request_id', 'is', null);
+
+  if (storyboardId) {
+    const sceneIds = await getSceneIdsForStoryboard(supabase, storyboardId);
+    if (sceneIds.length === 0) return summary;
+    query = query.in('scene_id', sceneIds);
+  }
+
+  const { data: items, error } = await query;
+  if (error || !items) return summary;
+
+  summary.processed = items.length;
+
+  for (const voiceover of items) {
+    if (isStale(voiceover.updated_at)) {
+      await supabase
+        .from('voiceovers')
+        .update({ status: 'failed', error_message: 'Timed out (30 min)' })
+        .eq('id', voiceover.id)
+        .eq('request_id', voiceover.request_id)
+        .eq('status', 'processing');
+      summary.stale++;
+      continue;
+    }
+
+    const job = await checkFalJobAcrossEndpoints(
+      TTS_ENDPOINTS,
+      voiceover.request_id,
+      extractAudioUrl
+    );
+
+    if (job.status === 'completed' && job.url) {
+      await supabase
+        .from('voiceovers')
+        .update({ status: 'success', audio_url: job.url, error_message: null })
+        .eq('id', voiceover.id)
+        .eq('request_id', voiceover.request_id)
+        .eq('status', 'processing');
+      summary.completed++;
+      log.success('Voiceover completed via poll', {
+        voiceover_id: voiceover.id,
+      });
+    } else if (job.status === 'failed') {
+      await supabase
+        .from('voiceovers')
+        .update({ status: 'failed', error_message: 'fal.ai job failed' })
+        .eq('id', voiceover.id)
+        .eq('request_id', voiceover.request_id)
+        .eq('status', 'processing');
+      summary.failed++;
+    } else if (job.status === 'completed' && !job.url) {
+      await supabase
+        .from('voiceovers')
+        .update({ status: 'failed', error_message: 'No audio in fal result' })
+        .eq('id', voiceover.id)
+        .eq('request_id', voiceover.request_id)
+        .eq('status', 'processing');
+      summary.failed++;
+    } else {
+      summary.still_running++;
+    }
+  }
+
+  return summary;
+}
+
+// ── Poll Scene SFX ──────────────────────────────────────────────────
+
+async function pollSceneSfx(
+  supabase: SupabaseAdmin,
+  storyboardId: string | null,
+  log: ReturnType<typeof createLogger>
+): Promise<ItemSummary> {
+  const summary = newSummary();
+
+  let query = supabase
+    .from('scenes')
+    .select('id, sfx_request_id, updated_at')
+    .eq('sfx_status', 'processing')
+    .not('sfx_request_id', 'is', null);
+
+  if (storyboardId) query = query.eq('storyboard_id', storyboardId);
+
+  const { data: items, error } = await query;
+  if (error || !items) return summary;
+
+  summary.processed = items.length;
+
+  for (const scene of items) {
+    if (isStale(scene.updated_at)) {
+      await supabase
+        .from('scenes')
+        .update({
+          sfx_status: 'failed',
+          sfx_error_message: 'Timed out (30 min)',
+        })
+        .eq('id', scene.id)
+        .eq('sfx_request_id', scene.sfx_request_id)
+        .eq('sfx_status', 'processing');
+      summary.stale++;
+      continue;
+    }
+
+    const job = await checkFalJob(
+      SFX_ENDPOINT,
+      scene.sfx_request_id,
+      extractVideoUrl
+    );
+
+    if (job.status === 'completed' && job.url) {
+      await supabase
+        .from('scenes')
+        .update({
+          sfx_status: 'success',
+          sfx_error_message: null,
+          video_url: job.url,
+        })
+        .eq('id', scene.id)
+        .eq('sfx_request_id', scene.sfx_request_id)
+        .eq('sfx_status', 'processing');
+      summary.completed++;
+      log.success('Scene SFX completed via poll', { scene_id: scene.id });
+    } else if (job.status === 'failed') {
+      await supabase
+        .from('scenes')
+        .update({
+          sfx_status: 'failed',
+          sfx_error_message: 'fal.ai job failed',
+        })
+        .eq('id', scene.id)
+        .eq('sfx_request_id', scene.sfx_request_id)
+        .eq('sfx_status', 'processing');
+      summary.failed++;
+    } else if (job.status === 'completed' && !job.url) {
+      await supabase
+        .from('scenes')
+        .update({
+          sfx_status: 'failed',
+          sfx_error_message: 'No video in fal result',
+        })
+        .eq('id', scene.id)
+        .eq('sfx_request_id', scene.sfx_request_id)
+        .eq('sfx_status', 'processing');
+      summary.failed++;
+    } else {
+      summary.still_running++;
+    }
+  }
+
+  return summary;
+}
+
+// ── Poll Object Image Edits ─────────────────────────────────────────
+
+async function pollObjectEdits(
+  supabase: SupabaseAdmin,
+  storyboardId: string | null,
+  log: ReturnType<typeof createLogger>
+): Promise<ItemSummary> {
+  const summary = newSummary();
+
+  let query = supabase
+    .from('objects')
+    .select(
+      'id, scene_id, image_edit_request_id, image_edit_status, updated_at'
+    )
+    .in('image_edit_status', EDIT_STATUSES)
+    .not('image_edit_request_id', 'is', null);
+
+  if (storyboardId) {
+    const sceneIds = await getSceneIdsForStoryboard(supabase, storyboardId);
+    if (sceneIds.length === 0) return summary;
+    query = query.in('scene_id', sceneIds);
+  }
+
+  const { data: items, error } = await query;
+  if (error || !items) return summary;
+
+  summary.processed = items.length;
+
+  for (const object of items) {
+    if (isStale(object.updated_at)) {
+      await supabase
+        .from('objects')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'Timed out (30 min)',
+        })
+        .eq('id', object.id)
+        .eq('image_edit_request_id', object.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.stale++;
+      continue;
+    }
+
+    const job = await checkFalJobAcrossEndpoints(
+      IMAGE_EDIT_ENDPOINTS,
+      object.image_edit_request_id,
+      extractImageUrl
+    );
+
+    if (job.status === 'completed' && job.url) {
+      await supabase
+        .from('objects')
+        .update({
+          image_edit_status: 'success',
+          image_edit_error_message: null,
+          final_url: job.url,
+        })
+        .eq('id', object.id)
+        .eq('image_edit_request_id', object.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.completed++;
+      log.success('Object edit completed via poll', { object_id: object.id });
+    } else if (job.status === 'failed') {
+      await supabase
+        .from('objects')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'fal.ai job failed',
+        })
+        .eq('id', object.id)
+        .eq('image_edit_request_id', object.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.failed++;
+    } else if (job.status === 'completed' && !job.url) {
+      await supabase
+        .from('objects')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'No image in fal result',
+        })
+        .eq('id', object.id)
+        .eq('image_edit_request_id', object.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.failed++;
+    } else {
+      summary.still_running++;
+    }
+  }
+
+  return summary;
+}
+
+// ── Poll Background Image Edits ─────────────────────────────────────
+
+async function pollBackgroundEdits(
+  supabase: SupabaseAdmin,
+  storyboardId: string | null,
+  log: ReturnType<typeof createLogger>
+): Promise<ItemSummary> {
+  const summary = newSummary();
+
+  let query = supabase
+    .from('backgrounds')
+    .select(
+      'id, scene_id, image_edit_request_id, image_edit_status, updated_at'
+    )
+    .in('image_edit_status', EDIT_STATUSES)
+    .not('image_edit_request_id', 'is', null);
+
+  if (storyboardId) {
+    const sceneIds = await getSceneIdsForStoryboard(supabase, storyboardId);
+    if (sceneIds.length === 0) return summary;
+    query = query.in('scene_id', sceneIds);
+  }
+
+  const { data: items, error } = await query;
+  if (error || !items) return summary;
+
+  summary.processed = items.length;
+
+  for (const background of items) {
+    if (isStale(background.updated_at)) {
+      await supabase
+        .from('backgrounds')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'Timed out (30 min)',
+        })
+        .eq('id', background.id)
+        .eq('image_edit_request_id', background.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.stale++;
+      continue;
+    }
+
+    const job = await checkFalJobAcrossEndpoints(
+      IMAGE_EDIT_ENDPOINTS,
+      background.image_edit_request_id,
+      extractImageUrl
+    );
+
+    if (job.status === 'completed' && job.url) {
+      await supabase
+        .from('backgrounds')
+        .update({
+          image_edit_status: 'success',
+          image_edit_error_message: null,
+          final_url: job.url,
+        })
+        .eq('id', background.id)
+        .eq('image_edit_request_id', background.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.completed++;
+      log.success('Background edit completed via poll', {
+        background_id: background.id,
+      });
+    } else if (job.status === 'failed') {
+      await supabase
+        .from('backgrounds')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'fal.ai job failed',
+        })
+        .eq('id', background.id)
+        .eq('image_edit_request_id', background.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.failed++;
+    } else if (job.status === 'completed' && !job.url) {
+      await supabase
+        .from('backgrounds')
+        .update({
+          image_edit_status: 'failed',
+          image_edit_error_message: 'No image in fal result',
+        })
+        .eq('id', background.id)
+        .eq('image_edit_request_id', background.image_edit_request_id)
+        .in('image_edit_status', EDIT_STATUSES);
+      summary.failed++;
+    } else {
+      summary.still_running++;
+    }
+  }
+
+  return summary;
+}
+
 // ── Main Handler ────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -514,23 +935,50 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    const [gridResult, sceneResult, frameResult] = await Promise.all([
+    const [
+      gridResult,
+      sceneResult,
+      frameResult,
+      voiceoverResult,
+      sfxResult,
+      objectEditResult,
+      backgroundEditResult,
+    ] = await Promise.all([
       pollGridImages(supabase, storyboardId, log),
       pollSceneVideos(supabase, storyboardId, log),
       pollFirstFrames(supabase, storyboardId, log),
+      pollVoiceovers(supabase, storyboardId, log),
+      pollSceneSfx(supabase, storyboardId, log),
+      pollObjectEdits(supabase, storyboardId, log),
+      pollBackgroundEdits(supabase, storyboardId, log),
     ]);
 
     const totalCompleted =
-      gridResult.completed + sceneResult.completed + frameResult.completed;
+      gridResult.completed +
+      sceneResult.completed +
+      frameResult.completed +
+      voiceoverResult.completed +
+      sfxResult.completed +
+      objectEditResult.completed +
+      backgroundEditResult.completed;
+
     const totalStillRunning =
       gridResult.still_running +
       sceneResult.still_running +
-      frameResult.still_running;
+      frameResult.still_running +
+      voiceoverResult.still_running +
+      sfxResult.still_running +
+      objectEditResult.still_running +
+      backgroundEditResult.still_running;
 
     log.summary('success', {
       grid_images: gridResult,
       scenes: sceneResult,
       first_frames: frameResult,
+      voiceovers: voiceoverResult,
+      scene_sfx: sfxResult,
+      objects: objectEditResult,
+      backgrounds: backgroundEditResult,
     });
 
     return NextResponse.json({
@@ -541,6 +989,10 @@ export async function POST(req: NextRequest) {
       grid_images: gridResult,
       scenes: sceneResult,
       first_frames: frameResult,
+      voiceovers: voiceoverResult,
+      scene_sfx: sfxResult,
+      objects: objectEditResult,
+      backgrounds: backgroundEditResult,
     });
   } catch (error) {
     log.error('Unexpected error', {

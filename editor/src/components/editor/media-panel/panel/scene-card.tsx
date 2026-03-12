@@ -1174,6 +1174,17 @@ export function SceneCard({
                   </span>
                 </div>
               )}
+              {background?.image_edit_status === 'outpainting' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-purple-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-purple-300 font-medium">
+                    Outpainting...
+                  </span>
+                </div>
+              )}
               {background?.image_edit_status === 'enhancing' && (
                 <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
                   <IconLoader2
@@ -1193,6 +1204,17 @@ export function SceneCard({
                   />
                   <span className="text-[10px] text-amber-300 font-medium">
                     Editing...
+                  </span>
+                </div>
+              )}
+              {background?.image_edit_status === 'processing' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-cyan-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-cyan-300 font-medium">
+                    Processing...
                   </span>
                 </div>
               )}

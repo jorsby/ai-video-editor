@@ -181,7 +181,14 @@ export interface RefObject {
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
-  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_status:
+    | 'outpainting'
+    | 'enhancing'
+    | 'editing'
+    | 'processing'
+    | 'success'
+    | 'failed'
+    | null;
   image_edit_error_message: string | null;
   image_edit_request_id: string | null;
   created_at: string;
@@ -199,7 +206,14 @@ export interface Background {
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
-  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_status:
+    | 'outpainting'
+    | 'enhancing'
+    | 'editing'
+    | 'processing'
+    | 'success'
+    | 'failed'
+    | null;
   image_edit_error_message: string | null;
   image_edit_request_id: string | null;
   created_at: string;
