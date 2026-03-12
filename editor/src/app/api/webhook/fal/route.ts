@@ -150,6 +150,127 @@ function getAudio(payload: FalWebhookPayload): FalAudioOutput | undefined {
   return undefined;
 }
 
+function getIncomingRequestId(payload: FalWebhookPayload): string | null {
+  const requestId = payload.request_id;
+  if (typeof requestId !== 'string') return null;
+  const trimmed = requestId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function staleWebhookResponse(
+  reason: string,
+  step: string,
+  entityKey: string,
+  entityId: string,
+  log: Logger
+): Response {
+  log.warn('Ignoring stale webhook', {
+    reason,
+    step,
+    [entityKey]: entityId,
+  });
+
+  return new Response(
+    JSON.stringify({ success: true, ignored: true, reason }),
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+  );
+}
+
+async function guardWebhookRequest(params: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  table: string;
+  idColumn: string;
+  id: string;
+  statusColumn: string;
+  requestIdColumn: string;
+  allowedStatuses: string[];
+  incomingRequestId: string | null;
+  step: string;
+  log: Logger;
+}): Promise<
+  { ok: true; requestId: string | null } | { ok: false; response: Response }
+> {
+  const {
+    supabase,
+    table,
+    idColumn,
+    id,
+    statusColumn,
+    requestIdColumn,
+    allowedStatuses,
+    incomingRequestId,
+    step,
+    log,
+  } = params;
+
+  const { data: row } = await supabase
+    .from(table)
+    .select(`${statusColumn}, ${requestIdColumn}`)
+    .eq(idColumn, id)
+    .maybeSingle();
+
+  if (!row) {
+    return {
+      ok: false,
+      response: staleWebhookResponse('row_missing', step, idColumn, id, log),
+    };
+  }
+
+  const currentStatus =
+    (row as Record<string, string | null | undefined>)[statusColumn] ?? null;
+  const currentRequestId =
+    (row as Record<string, string | null | undefined>)[requestIdColumn] ?? null;
+
+  if (!allowedStatuses.includes(currentStatus ?? '')) {
+    return {
+      ok: false,
+      response: staleWebhookResponse(
+        'status_mismatch',
+        step,
+        idColumn,
+        id,
+        log
+      ),
+    };
+  }
+
+  if (
+    incomingRequestId &&
+    currentRequestId &&
+    incomingRequestId !== currentRequestId
+  ) {
+    return {
+      ok: false,
+      response: staleWebhookResponse(
+        'request_id_mismatch',
+        step,
+        idColumn,
+        id,
+        log
+      ),
+    };
+  }
+
+  if (!incomingRequestId && currentRequestId) {
+    return {
+      ok: false,
+      response: staleWebhookResponse(
+        'missing_request_id',
+        step,
+        idColumn,
+        id,
+        log
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    requestId: incomingRequestId ?? currentRequestId,
+  };
+}
+
 // ── Step Handlers ─────────────────────────────────────────────────────
 
 async function handleGenGridImage(
@@ -164,9 +285,28 @@ async function handleGenGridImage(
   const rows = parseInt(params.get('rows') || '0', 10);
   const cols = parseInt(params.get('cols') || '0', 10);
 
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: 'grid_images',
+    idColumn: 'id',
+    id: grid_image_id,
+    statusColumn: 'status',
+    requestIdColumn: 'request_id',
+    allowedStatuses: ['processing'],
+    incomingRequestId,
+    step: 'GenGridImage',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
+
   log.info('Processing GenGridImage', {
     grid_image_id,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   // Fetch storyboard mode early
@@ -201,10 +341,28 @@ async function handleGenGridImage(
     });
 
     log.startTiming('db_update_failed');
-    await supabase
+    let failUpdate = supabase
       .from('grid_images')
       .update({ status: 'failed', error_message: 'generation_error' })
-      .eq('id', grid_image_id);
+      .eq('id', grid_image_id)
+      .eq('status', 'processing');
+
+    if (guard.requestId) {
+      failUpdate = failUpdate.eq('request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenGridImage',
+        'grid_image_id',
+        grid_image_id,
+        log
+      );
+    }
+
     log.db('UPDATE', 'grid_images', {
       id: grid_image_id,
       status: 'failed',
@@ -250,14 +408,31 @@ async function handleGenGridImage(
   if (dimensionsInvalid) {
     log.error('Invalid grid dimensions from params', { rows, cols, isRefGrid });
 
-    await supabase
+    let invalidUpdate = supabase
       .from('grid_images')
       .update({
         status: 'failed',
         url: gridImageUrl,
         error_message: `Invalid grid dimensions: ${rows}x${cols}`,
       })
-      .eq('id', grid_image_id);
+      .eq('id', grid_image_id)
+      .eq('status', 'processing');
+
+    if (guard.requestId) {
+      invalidUpdate = invalidUpdate.eq('request_id', guard.requestId);
+    }
+
+    const { data: invalidRows } = await invalidUpdate.select('id');
+
+    if (!invalidRows || invalidRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenGridImage',
+        'grid_image_id',
+        grid_image_id,
+        log
+      );
+    }
 
     return new Response(
       JSON.stringify({ success: false, error: 'Invalid grid dimensions' }),
@@ -268,10 +443,28 @@ async function handleGenGridImage(
   log.info('Grid dimensions from plan', { rows, cols });
 
   log.startTiming('db_update_generated');
-  await supabase
+  let generatedUpdate = supabase
     .from('grid_images')
     .update({ status: 'generated', url: gridImageUrl })
-    .eq('id', grid_image_id);
+    .eq('id', grid_image_id)
+    .eq('status', 'processing');
+
+  if (guard.requestId) {
+    generatedUpdate = generatedUpdate.eq('request_id', guard.requestId);
+  }
+
+  const { data: generatedRows } = await generatedUpdate.select('id');
+
+  if (!generatedRows || generatedRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'GenGridImage',
+      'grid_image_id',
+      grid_image_id,
+      log
+    );
+  }
+
   log.db('UPDATE', 'grid_images', {
     id: grid_image_id,
     status: 'generated',
@@ -354,10 +547,29 @@ async function handleSplitGridImage(
   const grid_image_id = params.get('grid_image_id')!;
   const storyboard_id = params.get('storyboard_id')!;
 
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: 'grid_images',
+    idColumn: 'id',
+    id: grid_image_id,
+    statusColumn: 'status',
+    requestIdColumn: 'request_id',
+    allowedStatuses: ['processing'],
+    incomingRequestId,
+    step: 'SplitGridImage',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
+
   log.info('Processing SplitGridImage', {
     grid_image_id,
     storyboard_id,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   const { data: gridImage } = await supabase
@@ -710,11 +922,58 @@ async function handleOutpaintImage(
   params: URLSearchParams,
   log: Logger
 ): Promise<Response> {
-  const first_frame_id = params.get('first_frame_id')!;
+  const first_frame_id = params.get('first_frame_id');
+  const background_id = params.get('background_id');
+  const object_id = params.get('object_id');
+
+  const isObject = !!object_id;
+  const isBackground = !!background_id;
+  const entityId = (
+    isObject ? object_id : isBackground ? background_id : first_frame_id
+  )!;
+
+  if (!entityId) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing target id' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const tableName = isObject
+    ? 'objects'
+    : isBackground
+      ? 'backgrounds'
+      : 'first_frames';
+  const entityKey = isObject
+    ? 'object_id'
+    : isBackground
+      ? 'background_id'
+      : 'first_frame_id';
+  const allowedEditStatuses = ['outpainting', 'processing'];
+
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: tableName,
+    idColumn: 'id',
+    id: entityId,
+    statusColumn: 'image_edit_status',
+    requestIdColumn: 'image_edit_request_id',
+    allowedStatuses: allowedEditStatuses,
+    incomingRequestId,
+    step: 'OutpaintImage',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   log.info('Processing OutpaintImage', {
-    first_frame_id,
+    [entityKey]: entityId,
+    source: tableName,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   log.startTiming('extract_images');
@@ -724,15 +983,32 @@ async function handleOutpaintImage(
   if (falPayload.status === 'ERROR' || !images?.[0]?.url) {
     log.error('Image outpaint failed', { fal_error: falPayload.error });
 
-    await supabase
-      .from('first_frames')
+    let failedUpdate = supabase
+      .from(tableName)
       .update({
         image_edit_status: 'failed',
         image_edit_error_message: 'generation_error',
       })
-      .eq('id', first_frame_id);
+      .eq('id', entityId)
+      .in('image_edit_status', allowedEditStatuses);
 
-    log.summary('error', { first_frame_id, reason: 'outpaint_failed' });
+    if (guard.requestId) {
+      failedUpdate = failedUpdate.eq('image_edit_request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failedUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'OutpaintImage',
+        entityKey,
+        entityId,
+        log
+      );
+    }
+
+    log.summary('error', { [entityKey]: entityId, reason: 'outpaint_failed' });
     return new Response(
       JSON.stringify({ success: false, error: 'Outpaint failed' }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -742,22 +1018,48 @@ async function handleOutpaintImage(
   const finalUrl = images[0].url;
   log.success('Image outpainted', { final_url: finalUrl });
 
-  await supabase
-    .from('first_frames')
-    .update({
-      image_edit_status: 'success',
-      image_edit_error_message: null,
-      outpainted_url: finalUrl,
-      final_url: finalUrl,
-    })
-    .eq('id', first_frame_id);
+  const successPayload =
+    tableName === 'first_frames'
+      ? {
+          image_edit_status: 'success',
+          image_edit_error_message: null,
+          outpainted_url: finalUrl,
+          final_url: finalUrl,
+        }
+      : {
+          image_edit_status: 'success',
+          image_edit_error_message: null,
+          final_url: finalUrl,
+        };
 
-  log.summary('success', { first_frame_id, final_url: finalUrl });
+  let successUpdate = supabase
+    .from(tableName)
+    .update(successPayload)
+    .eq('id', entityId)
+    .in('image_edit_status', allowedEditStatuses);
+
+  if (guard.requestId) {
+    successUpdate = successUpdate.eq('image_edit_request_id', guard.requestId);
+  }
+
+  const { data: successRows } = await successUpdate.select('id');
+
+  if (!successRows || successRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'OutpaintImage',
+      entityKey,
+      entityId,
+      log
+    );
+  }
+
+  log.summary('success', { [entityKey]: entityId, final_url: finalUrl });
   return new Response(
     JSON.stringify({
       success: true,
       step: 'OutpaintImage',
-      first_frame_id,
+      [entityKey]: entityId,
       final_url: finalUrl,
     }),
     { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
@@ -784,6 +1086,8 @@ async function handleEnhanceImage(
     : isBackground
       ? 'background_id'
       : 'first_frame_id';
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const allowedEditStatuses = ['enhancing', 'editing', 'processing'];
 
   log.info('Processing EnhanceImage', {
     [entityKey]: entityId,
@@ -793,6 +1097,7 @@ async function handleEnhanceImage(
         ? 'backgrounds'
         : 'first_frames',
     fal_status: falPayload.status,
+    request_id: incomingRequestId,
   });
 
   log.startTiming('extract_images');
@@ -803,7 +1108,9 @@ async function handleEnhanceImage(
   if (isObject) {
     const { data: obj, error: objError } = await supabase
       .from('objects')
-      .select('id, grid_image_id, grid_position')
+      .select(
+        'id, grid_image_id, grid_position, image_edit_status, image_edit_request_id'
+      )
       .eq('id', object_id!)
       .single();
 
@@ -818,6 +1125,45 @@ async function handleEnhanceImage(
       );
     }
 
+    const objectStatus = obj.image_edit_status as string | null;
+    const objectRequestId = obj.image_edit_request_id as string | null;
+
+    if (!allowedEditStatuses.includes(objectStatus || '')) {
+      return staleWebhookResponse(
+        'status_mismatch',
+        'EnhanceImage',
+        'object_id',
+        object_id!,
+        log
+      );
+    }
+
+    if (
+      incomingRequestId &&
+      objectRequestId &&
+      incomingRequestId !== objectRequestId
+    ) {
+      return staleWebhookResponse(
+        'request_id_mismatch',
+        'EnhanceImage',
+        'object_id',
+        object_id!,
+        log
+      );
+    }
+
+    if (!incomingRequestId && objectRequestId) {
+      return staleWebhookResponse(
+        'missing_request_id',
+        'EnhanceImage',
+        'object_id',
+        object_id!,
+        log
+      );
+    }
+
+    const requestIdForFilter = incomingRequestId ?? objectRequestId ?? null;
+
     const siblingFilter = {
       grid_image_id: obj.grid_image_id,
       grid_position: obj.grid_position,
@@ -825,14 +1171,35 @@ async function handleEnhanceImage(
 
     if (falPayload.status === 'ERROR' || !images?.[0]?.url) {
       log.error('Object enhance failed', { fal_error: falPayload.error });
-      await supabase
+
+      let failedUpdate = supabase
         .from('objects')
         .update({
           image_edit_status: 'failed',
           image_edit_error_message: 'generation_error',
         })
         .eq('grid_image_id', siblingFilter.grid_image_id)
-        .eq('grid_position', siblingFilter.grid_position);
+        .eq('grid_position', siblingFilter.grid_position)
+        .in('image_edit_status', allowedEditStatuses);
+
+      if (requestIdForFilter) {
+        failedUpdate = failedUpdate.eq(
+          'image_edit_request_id',
+          requestIdForFilter
+        );
+      }
+
+      const { data: failedRows } = await failedUpdate.select('id');
+
+      if (!failedRows || failedRows.length === 0) {
+        return staleWebhookResponse(
+          'state_changed_before_update',
+          'EnhanceImage',
+          'object_id',
+          object_id!,
+          log
+        );
+      }
 
       log.summary('error', { object_id, reason: 'enhance_failed' });
       return new Response(
@@ -844,7 +1211,7 @@ async function handleEnhanceImage(
     const finalUrl = images[0].url;
     log.success('Object enhanced', { final_url: finalUrl });
 
-    await supabase
+    let successUpdate = supabase
       .from('objects')
       .update({
         image_edit_status: 'success',
@@ -852,7 +1219,27 @@ async function handleEnhanceImage(
         final_url: finalUrl,
       })
       .eq('grid_image_id', siblingFilter.grid_image_id)
-      .eq('grid_position', siblingFilter.grid_position);
+      .eq('grid_position', siblingFilter.grid_position)
+      .in('image_edit_status', allowedEditStatuses);
+
+    if (requestIdForFilter) {
+      successUpdate = successUpdate.eq(
+        'image_edit_request_id',
+        requestIdForFilter
+      );
+    }
+
+    const { data: successRows } = await successUpdate.select('id');
+
+    if (!successRows || successRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'EnhanceImage',
+        'object_id',
+        object_id!,
+        log
+      );
+    }
 
     log.summary('success', { object_id, final_url: finalUrl });
     return new Response(
@@ -869,16 +1256,50 @@ async function handleEnhanceImage(
   // --- Background / first_frame path ---
   const tableName = isBackground ? 'backgrounds' : 'first_frames';
 
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: tableName,
+    idColumn: 'id',
+    id: entityId,
+    statusColumn: 'image_edit_status',
+    requestIdColumn: 'image_edit_request_id',
+    allowedStatuses: allowedEditStatuses,
+    incomingRequestId,
+    step: 'EnhanceImage',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
+
   if (falPayload.status === 'ERROR' || !images?.[0]?.url) {
     log.error('Image enhance failed', { fal_error: falPayload.error });
 
-    await supabase
+    let failedUpdate = supabase
       .from(tableName)
       .update({
         image_edit_status: 'failed',
         image_edit_error_message: 'generation_error',
       })
-      .eq('id', entityId);
+      .eq('id', entityId)
+      .in('image_edit_status', allowedEditStatuses);
+
+    if (guard.requestId) {
+      failedUpdate = failedUpdate.eq('image_edit_request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failedUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'EnhanceImage',
+        entityKey,
+        entityId,
+        log
+      );
+    }
 
     log.summary('error', { [entityKey]: entityId, reason: 'enhance_failed' });
     return new Response(
@@ -890,14 +1311,31 @@ async function handleEnhanceImage(
   const finalUrl = images[0].url;
   log.success('Image enhanced', { final_url: finalUrl });
 
-  await supabase
+  let successUpdate = supabase
     .from(tableName)
     .update({
       image_edit_status: 'success',
       image_edit_error_message: null,
       final_url: finalUrl,
     })
-    .eq('id', entityId);
+    .eq('id', entityId)
+    .in('image_edit_status', allowedEditStatuses);
+
+  if (guard.requestId) {
+    successUpdate = successUpdate.eq('image_edit_request_id', guard.requestId);
+  }
+
+  const { data: successRows } = await successUpdate.select('id');
+
+  if (!successRows || successRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'EnhanceImage',
+      entityKey,
+      entityId,
+      log
+    );
+  }
 
   log.summary('success', { [entityKey]: entityId, final_url: finalUrl });
   return new Response(
@@ -919,10 +1357,28 @@ async function handleGenerateTTS(
   log: Logger
 ): Promise<Response> {
   const voiceover_id = params.get('voiceover_id')!;
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: 'voiceovers',
+    idColumn: 'id',
+    id: voiceover_id,
+    statusColumn: 'status',
+    requestIdColumn: 'request_id',
+    allowedStatuses: ['processing'],
+    incomingRequestId,
+    step: 'GenerateTTS',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   log.info('Processing GenerateTTS', {
     voiceover_id,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   log.startTiming('extract_audio');
@@ -932,10 +1388,27 @@ async function handleGenerateTTS(
   if (falPayload.status === 'ERROR' || !audio?.url) {
     log.error('TTS generation failed', { fal_error: falPayload.error });
 
-    await supabase
+    let failedUpdate = supabase
       .from('voiceovers')
       .update({ status: 'failed', error_message: 'generation_error' })
-      .eq('id', voiceover_id);
+      .eq('id', voiceover_id)
+      .eq('status', 'processing');
+
+    if (guard.requestId) {
+      failedUpdate = failedUpdate.eq('request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failedUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenerateTTS',
+        'voiceover_id',
+        voiceover_id,
+        log
+      );
+    }
 
     log.summary('error', { voiceover_id, reason: 'generation_failed' });
     return new Response(
@@ -971,10 +1444,20 @@ async function handleGenerateTTS(
       time_ms: log.endTiming('calculate_duration'),
     });
 
-    await supabase
+    let durationFailedUpdate = supabase
       .from('voiceovers')
       .update({ status: 'failed', error_message: 'duration_error' })
-      .eq('id', voiceover_id);
+      .eq('id', voiceover_id)
+      .eq('status', 'processing');
+
+    if (guard.requestId) {
+      durationFailedUpdate = durationFailedUpdate.eq(
+        'request_id',
+        guard.requestId
+      );
+    }
+
+    await durationFailedUpdate;
 
     log.summary('error', {
       voiceover_id,
@@ -986,10 +1469,27 @@ async function handleGenerateTTS(
     );
   }
 
-  await supabase
+  let successUpdate = supabase
     .from('voiceovers')
     .update({ status: 'success', audio_url: audioUrl, duration })
-    .eq('id', voiceover_id);
+    .eq('id', voiceover_id)
+    .eq('status', 'processing');
+
+  if (guard.requestId) {
+    successUpdate = successUpdate.eq('request_id', guard.requestId);
+  }
+
+  const { data: successRows } = await successUpdate.select('id');
+
+  if (!successRows || successRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'GenerateTTS',
+      'voiceover_id',
+      voiceover_id,
+      log
+    );
+  }
 
   log.summary('success', { voiceover_id, audio_url: audioUrl, duration });
   return new Response(
@@ -1011,10 +1511,28 @@ async function handleGenerateVideo(
   log: Logger
 ): Promise<Response> {
   const scene_id = params.get('scene_id')!;
+  const incomingRequestId = getIncomingRequestId(falPayload);
+  const guard = await guardWebhookRequest({
+    supabase,
+    table: 'scenes',
+    idColumn: 'id',
+    id: scene_id,
+    statusColumn: 'video_status',
+    requestIdColumn: 'video_request_id',
+    allowedStatuses: ['processing'],
+    incomingRequestId,
+    step: 'GenerateVideo',
+    log,
+  });
+
+  if (!guard.ok) {
+    return guard.response;
+  }
 
   log.info('Processing GenerateVideo', {
     scene_id,
     fal_status: falPayload.status,
+    request_id: guard.requestId,
   });
 
   log.startTiming('extract_videos');
@@ -1024,13 +1542,30 @@ async function handleGenerateVideo(
   if (falPayload.status === 'ERROR' || !videos?.[0]?.url) {
     log.error('Video generation failed', { fal_error: falPayload.error });
 
-    await supabase
+    let failedUpdate = supabase
       .from('scenes')
       .update({
         video_status: 'failed',
         video_error_message: 'generation_error',
       })
-      .eq('id', scene_id);
+      .eq('id', scene_id)
+      .eq('video_status', 'processing');
+
+    if (guard.requestId) {
+      failedUpdate = failedUpdate.eq('video_request_id', guard.requestId);
+    }
+
+    const { data: failedRows } = await failedUpdate.select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenerateVideo',
+        'scene_id',
+        scene_id,
+        log
+      );
+    }
 
     log.summary('error', { scene_id, reason: 'generation_failed' });
     return new Response(
@@ -1042,10 +1577,27 @@ async function handleGenerateVideo(
   const videoUrl = videos[0].url;
   log.success('Video generated', { video_url: videoUrl });
 
-  await supabase
+  let successUpdate = supabase
     .from('scenes')
     .update({ video_status: 'success', video_url: videoUrl })
-    .eq('id', scene_id);
+    .eq('id', scene_id)
+    .eq('video_status', 'processing');
+
+  if (guard.requestId) {
+    successUpdate = successUpdate.eq('video_request_id', guard.requestId);
+  }
+
+  const { data: successRows } = await successUpdate.select('id');
+
+  if (!successRows || successRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'GenerateVideo',
+      'scene_id',
+      scene_id,
+      log
+    );
+  }
 
   log.summary('success', { scene_id, video_url: videoUrl });
   return new Response(
