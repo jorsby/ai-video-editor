@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { detectAll } from 'tinyld';
 import { createClient } from '@/lib/supabase/server';
 import {
   klingO3PlanSchema,
@@ -45,7 +46,47 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const STORYBOARD_BACKUP_MODEL = 'stepfun/step-3.5-flash:free';
+// StepFun rejects the response_format used by generateObject (json schema),
+// so keep a backup model that supports structured output reliably.
+const STORYBOARD_BACKUP_MODEL = 'openai/gpt-5.2-pro';
+
+const SUPPORTED_LANGUAGE_CODES = new Set<string>(
+  SUPPORTED_LANGUAGES.map((lang) => lang.code)
+);
+
+const LANGUAGE_CODE_ALIASES: Record<string, string> = {
+  'pt-br': 'pt',
+  'pt-pt': 'pt',
+  'zh-cn': 'zh',
+  'zh-tw': 'zh',
+  'zh-hans': 'zh',
+  'zh-hant': 'zh',
+  nb: 'no',
+  nn: 'no',
+};
+
+function normalizeLanguageCode(code: string): string {
+  return code.trim().toLowerCase().replace(/_/g, '-');
+}
+
+function resolveSupportedLanguageCode(code?: string): string | null {
+  if (!code) return null;
+
+  const normalized = normalizeLanguageCode(code);
+  const direct = LANGUAGE_CODE_ALIASES[normalized] ?? normalized;
+  if (SUPPORTED_LANGUAGE_CODES.has(direct)) return direct;
+
+  const base = direct.split('-')[0] ?? direct;
+  return SUPPORTED_LANGUAGE_CODES.has(base) ? base : null;
+}
+
+function detectSourceLanguageFromText(voiceoverText: string): string {
+  for (const candidate of detectAll(voiceoverText)) {
+    const resolved = resolveSupportedLanguageCode(candidate.lang);
+    if (resolved) return resolved;
+  }
+  return 'en';
+}
 
 async function generateObjectWithFallback<T>(params: {
   primaryModel: string;
@@ -429,7 +470,7 @@ export async function POST(req: NextRequest) {
       mode = 'image_to_video',
       videoModel,
       workflowVariant,
-      sourceLanguage = 'en',
+      sourceLanguage: sourceLanguageInput,
       contentTemplate,
     } = await req.json();
 
@@ -461,12 +502,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!SUPPORTED_LANGUAGES.find((l) => l.code === sourceLanguage)) {
+    const resolvedInputSourceLanguage =
+      typeof sourceLanguageInput === 'string' && sourceLanguageInput.trim()
+        ? resolveSupportedLanguageCode(sourceLanguageInput)
+        : null;
+
+    if (
+      typeof sourceLanguageInput === 'string' &&
+      sourceLanguageInput.trim() &&
+      !resolvedInputSourceLanguage
+    ) {
       return NextResponse.json(
         { error: 'Invalid sourceLanguage' },
         { status: 400 }
       );
     }
+
+    const resolvedSourceLanguage =
+      resolvedInputSourceLanguage ??
+      detectSourceLanguageFromText(voiceoverText);
 
     if (contentTemplate && !isStoryboardContentTemplate(contentTemplate)) {
       return NextResponse.json(
@@ -545,7 +599,7 @@ export async function POST(req: NextRequest) {
         voiceoverText,
         model,
         videoModel,
-        sourceLanguage,
+        resolvedSourceLanguage,
         resolvedContentTemplate
       );
       const finalPlanWithVariant = {
@@ -682,7 +736,7 @@ Generate the storyboard.`;
       rows: content.rows,
       cols: content.cols,
       grid_image_prompt: `${I2V_GRID_PROMPT_PREFIX} ${content.grid_image_prompt}`,
-      voiceover_list: { [sourceLanguage]: content.voiceover_list },
+      voiceover_list: { [resolvedSourceLanguage]: content.voiceover_list },
       visual_flow: content.visual_flow,
       content_template: resolvedContentTemplate,
     };

@@ -33,10 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  SUPPORTED_LANGUAGES,
-  type LanguageCode,
-} from '@/lib/constants/languages';
+import type { LanguageCode } from '@/lib/constants/languages';
 import { useLanguageStore } from '@/stores/language-store';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
@@ -151,14 +148,6 @@ const formatDate = (dateStr: string) => {
   });
 };
 
-function detectLikelyTurkish(text: string): boolean {
-  const lower = text.toLowerCase();
-  const turkishChars = (lower.match(/[çğıöşü]/g) || []).length;
-  const commonWords = ['bir', 've', 'için', 'ile', 'ama', 'çok', 'gibi'];
-  const wordHits = commonWords.filter((w) => lower.includes(` ${w} `)).length;
-  return turkishChars >= 2 || wordHits >= 2;
-}
-
 export default function PanelStoryboard() {
   const projectId = useProjectId();
   const { confirm } = useDeleteConfirmation();
@@ -179,7 +168,6 @@ export default function PanelStoryboard() {
   const [formVideoMode, setFormVideoMode] =
     useState<CreateVideoMode>('image_to_video');
   const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
-  const [formSourceLanguage, setFormSourceLanguage] = useState('en');
   const [formContentTemplate, setFormContentTemplate] =
     useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
 
@@ -310,22 +298,6 @@ export default function PanelStoryboard() {
       return;
     }
 
-    let sourceLanguage = formSourceLanguage;
-
-    if (sourceLanguage === 'en' && detectLikelyTurkish(formVoiceover.trim())) {
-      const shouldSwitch = await confirm({
-        title: 'Source language looks Turkish',
-        description:
-          'Your script appears to be Turkish, but Source Language is English. Switch to Turkish to keep timeline language and voiceover labels correct?',
-        confirmLabel: 'Switch to Turkish',
-      });
-
-      if (shouldSwitch) {
-        sourceLanguage = 'tr';
-        setFormSourceLanguage('tr');
-      }
-    }
-
     setLoading(true);
     setError(null);
     setResult(null);
@@ -367,7 +339,6 @@ export default function PanelStoryboard() {
           projectId,
           aspectRatio: formAspectRatio,
           mode: resolvedMode,
-          sourceLanguage,
           contentTemplate: formContentTemplate,
           ...(resolvedMode === 'ref_to_video' && {
             videoModel: resolvedVideoModel,
@@ -601,7 +572,6 @@ export default function PanelStoryboard() {
               setFormModel('google/gemini-3.1-pro-preview');
               setFormVideoMode('image_to_video');
               setFormVideoModel('klingo3');
-              setFormSourceLanguage('en');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -811,28 +781,6 @@ export default function PanelStoryboard() {
                   value={formVoiceover}
                   onChange={(e) => setFormVoiceover(e.target.value)}
                 />
-              </div>
-
-              {/* Source Language */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Source Language
-                </span>
-                <Select
-                  value={formSourceLanguage}
-                  onValueChange={setFormSourceLanguage}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SUPPORTED_LANGUAGES.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
-                        {lang.label} — {lang.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
 
               {/* Controls Row: Dropdowns */}
