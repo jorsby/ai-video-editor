@@ -196,11 +196,15 @@ async function queueFirstFrameRequest(
   refs: SceneRefContext,
   endpoint: string,
   model: NonNullable<RefFirstFrameInput['model']>,
+  aspectRatio: GridAspectRatio,
+  resolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
     step: 'EnhanceImage',
     first_frame_id: firstFrameId,
+    aspect_ratio: aspectRatio,
+    resolution,
   });
 
   const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
@@ -408,6 +412,8 @@ export async function POST(req: NextRequest) {
         queueContext,
         endpoint,
         model,
+        selectedAspectRatio,
+        selectedResolution,
         log
       );
 

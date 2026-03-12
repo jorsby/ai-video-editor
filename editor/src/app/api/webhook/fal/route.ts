@@ -1,6 +1,16 @@
 import type { NextRequest } from 'next/server';
+import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger, type Logger } from '@/lib/logger';
+import { config } from '@/lib/config';
+import { R2StorageService } from '@/lib/r2';
+import {
+  getGridOutputDimensions,
+  isGridAspectRatio,
+  isGridResolution,
+  type GridAspectRatio,
+  type GridResolution,
+} from '@/lib/grid-generation-settings';
 import * as musicMetadata from 'music-metadata';
 
 const CORS_HEADERS = {
@@ -9,6 +19,54 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers':
     'authorization, content-type, x-client-info, apikey',
 };
+
+function createR2() {
+  return new R2StorageService({
+    bucketName: config.r2.bucket,
+    accessKeyId: config.r2.accessKeyId,
+    secretAccessKey: config.r2.secretAccessKey,
+    accountId: config.r2.accountId,
+    cdn: config.r2.cdn,
+  });
+}
+
+async function normalizeAndUploadFirstFrame(
+  sourceUrl: string,
+  firstFrameId: string,
+  aspectRatio: GridAspectRatio,
+  resolution: GridResolution,
+  log: Logger
+): Promise<string> {
+  const dimensions = getGridOutputDimensions(aspectRatio, resolution);
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch source image: ${response.status}`);
+  }
+
+  const sourceBuffer = Buffer.from(await response.arrayBuffer());
+  const normalizedBuffer = await sharp(sourceBuffer)
+    .resize(dimensions.width, dimensions.height, {
+      fit: 'cover',
+      position: 'centre',
+    })
+    .png()
+    .toBuffer();
+
+  const r2 = createR2();
+  const key = `first-frames/normalized/${firstFrameId}_${aspectRatio.replace(':', 'x')}_${resolution}.png`;
+  const url = await r2.uploadData(key, normalizedBuffer, 'image/png');
+
+  log.info('First frame normalized and uploaded', {
+    first_frame_id: firstFrameId,
+    aspect_ratio: aspectRatio,
+    resolution,
+    width: dimensions.width,
+    height: dimensions.height,
+    normalized_url: url,
+  });
+
+  return url;
+}
 
 export async function OPTIONS() {
   return new Response(null, { headers: CORS_HEADERS });
@@ -1076,6 +1134,15 @@ async function handleEnhanceImage(
   const first_frame_id = params.get('first_frame_id');
   const background_id = params.get('background_id');
   const object_id = params.get('object_id');
+  const rawAspectRatio = params.get('aspect_ratio');
+  const rawResolution = params.get('resolution');
+  const targetAspectRatio = isGridAspectRatio(rawAspectRatio)
+    ? rawAspectRatio
+    : null;
+  const targetResolution = isGridResolution(rawResolution)
+    ? rawResolution
+    : null;
+
   const isObject = !!object_id;
   const isBackground = !!background_id;
   const entityId = (
@@ -1098,6 +1165,8 @@ async function handleEnhanceImage(
         : 'first_frames',
     fal_status: falPayload.status,
     request_id: incomingRequestId,
+    target_aspect_ratio: targetAspectRatio,
+    target_resolution: targetResolution,
   });
 
   log.startTiming('extract_images');
@@ -1308,8 +1377,39 @@ async function handleEnhanceImage(
     );
   }
 
-  const finalUrl = images[0].url;
-  log.success('Image enhanced', { final_url: finalUrl });
+  const sourceFinalUrl = images[0].url;
+  let finalUrl = sourceFinalUrl;
+
+  if (
+    tableName === 'first_frames' &&
+    targetAspectRatio &&
+    targetResolution &&
+    first_frame_id
+  ) {
+    try {
+      finalUrl = await normalizeAndUploadFirstFrame(
+        sourceFinalUrl,
+        first_frame_id,
+        targetAspectRatio,
+        targetResolution,
+        log
+      );
+    } catch (normalizeError) {
+      log.warn('First frame normalization failed, using source image', {
+        first_frame_id,
+        error:
+          normalizeError instanceof Error
+            ? normalizeError.message
+            : String(normalizeError),
+      });
+      finalUrl = sourceFinalUrl;
+    }
+  }
+
+  log.success('Image enhanced', {
+    final_url: finalUrl,
+    source_final_url: sourceFinalUrl,
+  });
 
   let successUpdate = supabase
     .from(tableName)
