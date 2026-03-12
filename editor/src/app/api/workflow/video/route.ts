@@ -1007,16 +1007,26 @@ export async function POST(req: NextRequest) {
 
     let storyboardMode: string | null = null;
     let storyboardModel: string | null = null;
+    let storyboardVideoMode: 'narrative' | 'dialogue_scene' | null = null;
 
     if (storyboard_id) {
       const { data: sb } = await supabase
         .from('storyboards')
-        .select('mode, model')
+        .select('mode, model, plan')
         .eq('id', storyboard_id)
         .single();
 
       storyboardMode = sb?.mode ?? null;
       storyboardModel = sb?.model ?? null;
+      if (
+        sb?.plan &&
+        typeof sb.plan === 'object' &&
+        'video_mode' in sb.plan &&
+        (sb.plan.video_mode === 'narrative' ||
+          sb.plan.video_mode === 'dialogue_scene')
+      ) {
+        storyboardVideoMode = sb.plan.video_mode;
+      }
     }
 
     const isStoryboardRefMode = storyboardMode === 'ref_to_video';
@@ -1054,6 +1064,12 @@ export async function POST(req: NextRequest) {
         : requestedRefModel
       : null;
 
+    const effectiveWanEnableAudio =
+      effectiveDirectRefModel === 'wan26flash' &&
+      storyboardVideoMode === 'narrative'
+        ? false
+        : enable_audio;
+
     if (isRefMode && !effectiveDirectRefModel) {
       return NextResponse.json(
         {
@@ -1083,7 +1099,12 @@ export async function POST(req: NextRequest) {
                 : undefined,
           }
         : {}),
-      ...(model === 'wan26flash' ? { enable_audio } : {}),
+      ...(model === 'wan26flash'
+        ? {
+            enable_audio: effectiveWanEnableAudio,
+            storyboard_video_mode: storyboardVideoMode,
+          }
+        : {}),
     });
 
     const results: Array<{
@@ -1178,7 +1199,7 @@ export async function POST(req: NextRequest) {
           effectiveDirectRefModel,
           MODEL_CONFIG[effectiveDirectRefModel],
           aspect_ratio,
-          enable_audio,
+          effectiveWanEnableAudio,
           durationOverrideForScene,
           log,
           fallback_duration,

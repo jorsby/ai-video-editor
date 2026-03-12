@@ -616,6 +616,13 @@ export function StoryboardCards({
     storyboard?.model === 'wan26flash' &&
     refVideoMode === 'narrative';
 
+  const processingVideoCount = useMemo(
+    () =>
+      sortedScenes.filter((scene) => scene.video_status === 'processing')
+        .length,
+    [sortedScenes]
+  );
+
   const firstFramePromptBySceneId = useMemo(() => {
     const map = new Map<string, string>();
     if (!isRefI2VMode || !storyboard?.plan) return map;
@@ -661,6 +668,11 @@ export function StoryboardCards({
 
     setWanEnableAudio(true);
   }, [isRefToVideoMode, storyboard?.model, refVideoMode, storyboard?.id]);
+
+  useEffect(() => {
+    if (!isWanRefDirectMode) return;
+    setVideoResolution('720p');
+  }, [isWanRefDirectMode, storyboard?.id]);
 
   useEffect(() => {
     const aspect = storyboard?.aspect_ratio;
@@ -3140,6 +3152,7 @@ export function StoryboardCards({
                                 onValueChange={(value: 'on' | 'off') =>
                                   setWanEnableAudio(value === 'on')
                                 }
+                                disabled={refVideoMode === 'narrative'}
                               >
                                 <SelectTrigger className="h-8 text-xs">
                                   <SelectValue />
@@ -3151,7 +3164,9 @@ export function StoryboardCards({
                               </Select>
                             </div>
                             <p className="text-[10px] text-muted-foreground leading-tight pb-0.5">
-                              No Audio is cheaper for WAN ref flash.
+                              {refVideoMode === 'narrative'
+                                ? 'Narrative mode enforces No Audio.'
+                                : 'No Audio is cheaper for WAN ref flash.'}
                             </p>
                           </div>
                         )}
@@ -3465,6 +3480,15 @@ export function StoryboardCards({
                     Remove
                   </Button>
                 </div>
+
+                {(isGeneratingVideo || processingVideoCount > 0) && (
+                  <div className="mt-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-300 flex items-center gap-1.5">
+                    <IconLoader2 className="size-3 animate-spin" />
+                    {isGeneratingVideo
+                      ? 'Submitting video jobs...'
+                      : `${processingVideoCount} scene${processingVideoCount === 1 ? '' : 's'} generating...`}
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
