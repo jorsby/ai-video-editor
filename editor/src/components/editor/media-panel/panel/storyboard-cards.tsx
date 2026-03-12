@@ -488,7 +488,7 @@ export function StoryboardCards({
   >({
     en: { voice: DEFAULT_VOICE_MAP.en ?? FALLBACK_VOICE },
   });
-  const [ttsModel, setTtsModel] = useState<TTSModelKey>('multilingual-v2');
+  const [ttsModel, setTtsModel] = useState<TTSModelKey>('turbo-v2.5');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [videoVolume, setVideoVolume] = useState(0);
   const [timelineAddMode, setTimelineAddMode] =

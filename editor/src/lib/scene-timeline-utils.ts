@@ -370,7 +370,7 @@ export function regenerateVoiceover(
             body: JSON.stringify({
               scene_ids: [voiceover.scene_id],
               voice,
-              model: 'multilingual-v2',
+              model: 'turbo-v2.5',
               language: voiceover.language,
               speed: 1.0,
             }),
