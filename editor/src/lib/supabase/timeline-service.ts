@@ -319,28 +319,42 @@ export async function removeLanguageData(
 export async function copyTimeline(
   projectId: string,
   fromLang: LanguageCode,
-  toLang: LanguageCode
+  toLang: LanguageCode,
+  options?: {
+    stripAudioAndCaptionTracks?: boolean;
+  }
 ) {
   const sourceTracks = await loadTimeline(projectId, fromLang);
   if (!sourceTracks || sourceTracks.length === 0) return;
 
+  const tracksToCopy = options?.stripAudioAndCaptionTracks
+    ? sourceTracks.filter((track) => {
+        const trackType = track.data.type;
+        return trackType !== 'Audio' && trackType !== 'Caption';
+      })
+    : sourceTracks;
+
   const supabase = createClient('studio');
 
-  for (const track of sourceTracks) {
+  for (const track of tracksToCopy) {
     const newTrackId = crypto.randomUUID();
-    const oldToNewClipId = new Map<string, string>();
 
-    // Map old clip IDs to new ones
-    if (track.clips) {
-      for (const clip of track.clips) {
-        oldToNewClipId.set(clip.id, crypto.randomUUID());
-      }
+    const clipsToCopy = options?.stripAudioAndCaptionTracks
+      ? (track.clips ?? []).filter((clip) => {
+          const clipType = (clip.data as { type?: string }).type;
+          return clipType !== 'Audio' && clipType !== 'Caption';
+        })
+      : (track.clips ?? []);
+
+    const oldToNewClipId = new Map<string, string>();
+    for (const clip of clipsToCopy) {
+      oldToNewClipId.set(clip.id, crypto.randomUUID());
     }
 
-    // Build new clipIds array
-    const newClipIds = (track.data.clipIds || []).map(
-      (oldId) => oldToNewClipId.get(oldId) || crypto.randomUUID()
-    );
+    // Build new clipIds array from copied clips only
+    const newClipIds = clipsToCopy
+      .map((clip) => oldToNewClipId.get(clip.id))
+      .filter((id): id is string => Boolean(id));
 
     // Insert new track
     const newTrackData = {
@@ -358,8 +372,8 @@ export async function copyTimeline(
     if (trackError) throw trackError;
 
     // Insert new clips
-    if (track.clips && track.clips.length > 0) {
-      const clipRows = track.clips.map((clip) => {
+    if (clipsToCopy.length > 0) {
+      const clipRows = clipsToCopy.map((clip) => {
         const newClipId = oldToNewClipId.get(clip.id) || crypto.randomUUID();
         return {
           id: newClipId,

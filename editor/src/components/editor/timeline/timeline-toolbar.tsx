@@ -122,7 +122,11 @@ export function TimelineToolbar({
       const res = await fetch('/api/translate-languages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard_id: sb.id, target_languages: langs }),
+        body: JSON.stringify({
+          storyboard_id: sb.id,
+          source_language: activeLanguage,
+          target_languages: langs,
+        }),
       });
 
       if (!res.ok) {
@@ -134,15 +138,51 @@ export function TimelineToolbar({
       const {
         translated,
         failed,
-      }: { translated: string[]; failed: { code: string; reason: string }[] } =
-        result;
+        scene_ids,
+      }: {
+        translated: string[];
+        failed: { code: string; reason: string }[];
+        scene_ids?: string[];
+      } = result;
 
       if (translated.length > 0) {
         setTranslateProgress(
-          `Copying timelines for ${translated.length} language(s)...`
+          `Creating ${translated.length} language timeline(s)...`
         );
-        await copyToMultiple(translated);
+        await copyToMultiple(translated, {
+          stripAudioAndCaptionTracks: true,
+        });
+
+        let ttsFailed = 0;
+
+        if (scene_ids && scene_ids.length > 0) {
+          setTranslateProgress(
+            `Generating translated voiceovers for ${translated.length} language(s)...`
+          );
+
+          for (const lang of translated) {
+            const ttsRes = await fetch('/api/workflow/tts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scene_ids,
+                language: lang,
+              }),
+            });
+
+            if (!ttsRes.ok) {
+              ttsFailed++;
+            }
+          }
+        }
+
         await switchLanguage(translated[0]);
+
+        if (ttsFailed > 0) {
+          toast.warning(
+            `Translated timelines created, but TTS failed for ${ttsFailed} language(s).`
+          );
+        }
       }
 
       if (failed.length === 0) {
