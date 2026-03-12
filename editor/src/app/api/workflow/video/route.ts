@@ -223,6 +223,7 @@ interface GenerateVideoInput {
   fallback_duration?: number;
   storyboard_id?: string;
   enable_audio?: boolean;
+  duration_overrides?: Record<string, number>;
   skyreels_duration_mode?: 'auto' | 'fixed';
   skyreels_duration_seconds?: number;
 }
@@ -417,6 +418,10 @@ async function getRefVideoContext(
           ? 5
           : Math.max(1, Math.ceil(maxDuration))
         : fallbackDuration!;
+  } else if (model === 'wan26flash') {
+    // WAN ref flash only supports 5 or 10 seconds.
+    // Product rule: <=7.5s => 5s, >7.5s => 10s.
+    raw = maxDuration > 0 ? (maxDuration <= 7.5 ? 5 : 10) : fallbackDuration!;
   } else {
     raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   }
@@ -721,6 +726,7 @@ async function queueDirectRefVideo(
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
   wanEnableAudio: boolean,
+  durationOverride: number | undefined,
   log: ReturnType<typeof createLogger>,
   fallback_duration: number | undefined,
   skyreelsDurationMode: 'auto' | 'fixed',
@@ -731,6 +737,11 @@ async function queueDirectRefVideo(
   status: 'queued' | 'skipped' | 'failed';
   error?: string;
 }> {
+  const effectiveDurationOverride =
+    model === 'skyreels' && skyreelsDurationMode === 'fixed'
+      ? skyreelsDurationSeconds
+      : durationOverride;
+
   const refContext = await getRefVideoContext(
     supabase,
     sceneId,
@@ -738,9 +749,7 @@ async function queueDirectRefVideo(
     modelConfig.bucketDuration,
     log,
     fallback_duration,
-    model === 'skyreels' && skyreelsDurationMode === 'fixed'
-      ? skyreelsDurationSeconds
-      : undefined,
+    effectiveDurationOverride,
     skyreelsDurationMode
   );
 
@@ -884,6 +893,7 @@ export async function POST(req: NextRequest) {
       fallback_duration,
       storyboard_id,
       enable_audio = true,
+      duration_overrides,
       skyreels_duration_mode = 'auto',
       skyreels_duration_seconds,
     } = input;
@@ -931,6 +941,37 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error: 'enable_audio must be a boolean',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      duration_overrides !== undefined &&
+      (typeof duration_overrides !== 'object' || duration_overrides === null)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'duration_overrides must be an object when provided',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      duration_overrides &&
+      Object.entries(duration_overrides).some(
+        ([sceneId, seconds]) =>
+          typeof sceneId !== 'string' ||
+          !sceneId ||
+          (seconds !== 5 && seconds !== 10)
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'duration_overrides values must be 5 or 10 seconds',
         },
         { status: 400 }
       );
@@ -1128,6 +1169,8 @@ export async function POST(req: NextRequest) {
       }
 
       if (isRefMode && effectiveDirectRefModel) {
+        const durationOverrideForScene = duration_overrides?.[sceneId];
+
         const directResult = await queueDirectRefVideo(
           supabase,
           sceneId,
@@ -1136,6 +1179,7 @@ export async function POST(req: NextRequest) {
           MODEL_CONFIG[effectiveDirectRefModel],
           aspect_ratio,
           enable_audio,
+          durationOverrideForScene,
           log,
           fallback_duration,
           skyreels_duration_mode,

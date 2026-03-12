@@ -480,6 +480,9 @@ export function StoryboardCards({
     '1' | '2' | '3' | '4' | '5'
   >('4');
   const [wanEnableAudio, setWanEnableAudio] = useState(true);
+  const [wanDurationOverrides, setWanDurationOverrides] = useState<
+    Record<string, 'auto' | '5' | '10'>
+  >({});
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
@@ -544,11 +547,34 @@ export function StoryboardCards({
 
   // Auto-correct resolution when model changes
   useEffect(() => {
-    const allowed = VIDEO_MODELS[videoModel].resolutions as readonly string[];
+    const workflowVariant =
+      storyboard?.plan &&
+      'workflow_variant' in storyboard.plan &&
+      typeof storyboard.plan.workflow_variant === 'string'
+        ? storyboard.plan.workflow_variant
+        : undefined;
+
+    const isDirectRefMode =
+      storyboard?.mode === 'ref_to_video' &&
+      workflowVariant !== 'i2v_from_refs';
+
+    const allowed: ReadonlyArray<'480p' | '720p' | '1080p'> =
+      isDirectRefMode && storyboard?.model === 'wan26flash'
+        ? ['720p', '1080p']
+        : isDirectRefMode && storyboard?.model?.startsWith('kling')
+          ? ['720p', '1080p']
+          : [...VIDEO_MODELS[videoModel].resolutions];
+
     if (!allowed.includes(videoResolution)) {
       setVideoResolution(allowed[0] as '480p' | '720p' | '1080p');
     }
-  }, [videoModel, videoResolution]);
+  }, [
+    videoModel,
+    videoResolution,
+    storyboard?.mode,
+    storyboard?.model,
+    storyboard?.plan,
+  ]);
 
   const scenes =
     storyboard && 'scenes' in storyboard
@@ -581,6 +607,9 @@ export function StoryboardCards({
           | 'dialogue_scene'
           | undefined)
       : undefined;
+
+  const isWanRefDirectMode =
+    isRefDirectMode && storyboard?.model === 'wan26flash';
 
   const isNarrativeNoAudioMode =
     isRefToVideoMode &&
@@ -702,6 +731,42 @@ export function StoryboardCards({
     skyreelsDurationMode,
     skyreelsFixedDuration,
   ]);
+
+  const wanDurationBySceneId = useMemo(() => {
+    if (!isWanRefDirectMode)
+      return new Map<
+        string,
+        {
+          auto: 5 | 10;
+          selected: 5 | 10;
+          selection: 'auto' | '5' | '10';
+          voiceoverSeconds: number;
+        }
+      >();
+
+    return new Map(
+      sortedScenes.map((scene) => {
+        const voiceoverSeconds = Math.max(
+          ...(scene.voiceovers || []).map((v) => v.duration ?? 0),
+          0
+        );
+        const autoDuration: 5 | 10 = voiceoverSeconds > 7.5 ? 10 : 5;
+        const selection = wanDurationOverrides[scene.id] ?? 'auto';
+        const selected: 5 | 10 =
+          selection === '5' ? 5 : selection === '10' ? 10 : autoDuration;
+
+        return [
+          scene.id,
+          {
+            auto: autoDuration,
+            selected,
+            selection,
+            voiceoverSeconds,
+          },
+        ] as const;
+      })
+    );
+  }, [isWanRefDirectMode, sortedScenes, wanDurationOverrides]);
 
   const splitProgress = useMemo(() => {
     if (!isRefToVideoMode) return null;
@@ -1428,6 +1493,16 @@ export function StoryboardCards({
 
   const selectedVideoModel = directRefVideoModel ?? videoModel;
 
+  const handleWanDurationSelectionChange = (
+    sceneId: string,
+    selection: 'auto' | '5' | '10'
+  ) => {
+    setWanDurationOverrides((prev) => ({
+      ...prev,
+      [sceneId]: selection,
+    }));
+  };
+
   const handleGenerateRefFirstFrames = async () => {
     if (!isRefI2VMode || selectedSceneIds.size === 0) return;
 
@@ -1605,6 +1680,12 @@ export function StoryboardCards({
         ...(isRefToVideoMode &&
           selectedModel === 'wan26flash' && {
             enable_audio: wanEnableAudio,
+            duration_overrides: Object.fromEntries(
+              Array.from(selectedSceneIds).map((sceneId) => [
+                sceneId,
+                wanDurationBySceneId.get(sceneId)?.selected ?? 5,
+              ])
+            ),
           }),
         ...(storyboard?.mode === 'ref_to_video' && {
           storyboard_id: storyboard.id,
@@ -2097,7 +2178,12 @@ export function StoryboardCards({
           ? storyboard.aspect_ratio
           : '16:9',
       ...(isRef && selectedVideoModel === 'wan26flash'
-        ? { enable_audio: wanEnableAudio }
+        ? {
+            enable_audio: wanEnableAudio,
+            duration_overrides: {
+              [sceneId]: wanDurationBySceneId.get(sceneId)?.selected ?? 5,
+            },
+          }
         : {}),
       ...(isRef && { storyboard_id: storyboard?.id }),
     });
@@ -3020,9 +3106,31 @@ export function StoryboardCards({
                           </div>
                         )}
 
-                        {/* WAN ref audio controls */}
+                        {/* WAN ref controls */}
                         {storyboard?.model === 'wan26flash' && (
                           <div className="flex items-end gap-2">
+                            <div className="flex flex-col gap-1 w-[100px]">
+                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                                Resolution
+                              </span>
+                              <Select
+                                value={videoResolution}
+                                onValueChange={(
+                                  value: '480p' | '720p' | '1080p'
+                                ) => setVideoResolution(value)}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(['720p', '1080p'] as const).map((res) => (
+                                    <SelectItem key={res} value={res}>
+                                      {res}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                             <div className="flex flex-col gap-1 w-[150px]">
                               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                                 Audio
@@ -3633,49 +3741,67 @@ export function StoryboardCards({
           gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
         }}
       >
-        {sortedScenes.map((scene) => (
-          <SceneCard
-            key={scene.id}
-            scene={scene}
-            compact
-            skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
-            isSelected={selectedSceneIds.has(scene.id)}
-            onSelectionChange={(selected) => toggleScene(scene.id, selected)}
-            playingVoiceoverId={playingVoiceoverId}
-            setPlayingVoiceoverId={setPlayingVoiceoverId}
-            onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
-            onTranslateScene={handleTranslateSceneVoiceover}
-            onReadSceneAllLanguages={
-              isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
-            }
-            onGenerateSceneVideo={handleGenerateSceneVideo}
-            onSaveVisualPrompt={handleSaveVisualPrompt}
-            onSaveVoiceoverText={handleSaveVoiceoverText}
-            promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
-            promptOverride={
-              isRefI2VMode
-                ? (scene.first_frames?.[0]?.visual_prompt ??
-                  firstFramePromptBySceneId.get(scene.id) ??
-                  null)
-                : undefined
-            }
-            selectedLanguage={selectedLanguage}
-            isRefMode={isRefMode}
-            isTarget={targetSceneId === scene.id}
-            onSetTarget={(id) =>
-              setTargetSceneId(targetSceneId === id ? null : id)
-            }
-            aspectRatio={storyboard?.aspect_ratio}
-            onAddVideoToTimeline={handleAddVideoToTimeline}
-            onAddVoiceoverToTimeline={handleAddVoiceoverToTimeline}
-            availableBackgrounds={
-              isRefToVideoMode ? availableBackgrounds : undefined
-            }
-            onChangeBackground={
-              isRefToVideoMode ? handleChangeBackground : undefined
-            }
-          />
-        ))}
+        {sortedScenes.map((scene) => {
+          const wanDuration = wanDurationBySceneId.get(scene.id);
+
+          return (
+            <SceneCard
+              key={scene.id}
+              scene={scene}
+              compact
+              skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
+              isSelected={selectedSceneIds.has(scene.id)}
+              onSelectionChange={(selected) => toggleScene(scene.id, selected)}
+              playingVoiceoverId={playingVoiceoverId}
+              setPlayingVoiceoverId={setPlayingVoiceoverId}
+              onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
+              onTranslateScene={handleTranslateSceneVoiceover}
+              onReadSceneAllLanguages={
+                isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
+              }
+              onGenerateSceneVideo={handleGenerateSceneVideo}
+              onSaveVisualPrompt={handleSaveVisualPrompt}
+              onSaveVoiceoverText={handleSaveVoiceoverText}
+              promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
+              promptOverride={
+                isRefI2VMode
+                  ? (scene.first_frames?.[0]?.visual_prompt ??
+                    firstFramePromptBySceneId.get(scene.id) ??
+                    null)
+                  : undefined
+              }
+              selectedLanguage={selectedLanguage}
+              isRefMode={isRefMode}
+              isTarget={targetSceneId === scene.id}
+              onSetTarget={(id) =>
+                setTargetSceneId(targetSceneId === id ? null : id)
+              }
+              aspectRatio={storyboard?.aspect_ratio}
+              onAddVideoToTimeline={handleAddVideoToTimeline}
+              onAddVoiceoverToTimeline={handleAddVoiceoverToTimeline}
+              availableBackgrounds={
+                isRefToVideoMode ? availableBackgrounds : undefined
+              }
+              onChangeBackground={
+                isRefToVideoMode ? handleChangeBackground : undefined
+              }
+              wanDurationSeconds={
+                isWanRefDirectMode ? wanDuration?.selected : undefined
+              }
+              wanDurationSelection={
+                isWanRefDirectMode ? wanDuration?.selection : undefined
+              }
+              wanVoiceoverSeconds={
+                isWanRefDirectMode ? wanDuration?.voiceoverSeconds : undefined
+              }
+              onChangeWanDurationSelection={
+                isWanRefDirectMode
+                  ? handleWanDurationSelectionChange
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );

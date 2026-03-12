@@ -131,6 +131,13 @@ interface SceneCardProps {
     sceneId: string,
     newGridPosition: number
   ) => Promise<void>;
+  wanDurationSeconds?: 5 | 10;
+  wanDurationSelection?: 'auto' | '5' | '10';
+  wanVoiceoverSeconds?: number;
+  onChangeWanDurationSelection?: (
+    sceneId: string,
+    selection: 'auto' | '5' | '10'
+  ) => void;
 }
 
 interface SceneThumbnailProps {
@@ -999,6 +1006,10 @@ export function SceneCard({
   onAddVoiceoverToTimeline,
   availableBackgrounds,
   onChangeBackground,
+  wanDurationSeconds,
+  wanDurationSelection,
+  wanVoiceoverSeconds,
+  onChangeWanDurationSelection,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1076,6 +1087,11 @@ export function SceneCard({
   const collapsedVoiceoverDurationLabel = formatVoiceoverDuration(
     voiceover?.duration
   );
+
+  const wanDurationLabel =
+    typeof wanDurationSeconds === 'number'
+      ? `${wanDurationSelection === 'auto' ? 'Auto ' : ''}${wanDurationSeconds}s`
+      : null;
 
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
@@ -1381,6 +1397,11 @@ export function SceneCard({
               {collapsedVoiceoverDurationLabel}
             </span>
           )}
+          {wanDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-300 flex-shrink-0">
+              {wanDurationLabel}
+            </span>
+          )}
           <IconChevronDown
             size={12}
             className="text-muted-foreground flex-shrink-0"
@@ -1389,24 +1410,74 @@ export function SceneCard({
       )}
 
       {expanded && (
-        <ExpandedContent
-          voiceover={voiceover}
-          displayVoiceover={displayVoiceover}
-          displayVisualPrompt={displayVisualPrompt}
-          playingVoiceoverId={playingVoiceoverId}
-          setPlayingVoiceoverId={setPlayingVoiceoverId}
-          sceneId={scene.id}
-          onReadScene={onReadScene}
-          onTranslateScene={onTranslateScene}
-          onReadSceneAllLanguages={onReadSceneAllLanguages}
-          onGenerateSceneVideo={onGenerateSceneVideo}
-          onSaveVisualPrompt={onSaveVisualPrompt}
-          onSaveVoiceoverText={onSaveVoiceoverText}
-          promptLabel={promptLabel}
-          hasVideo={!!hasVideo}
-          onAddVideoToTimeline={onAddVideoToTimeline}
-          onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
-        />
+        <>
+          {wanDurationLabel && onChangeWanDurationSelection && (
+            <div
+              className="mt-2 p-1.5 rounded border border-cyan-500/20 bg-cyan-500/5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] text-cyan-300">WAN Duration</span>
+                <span className="text-[10px] text-muted-foreground">
+                  VO {Math.max(0, wanVoiceoverSeconds ?? 0).toFixed(1)}s →{' '}
+                  {wanDurationSeconds}s
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={
+                    wanDurationSelection === 'auto' ? 'secondary' : 'ghost'
+                  }
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, 'auto')}
+                >
+                  Auto
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={wanDurationSelection === '5' ? 'secondary' : 'ghost'}
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, '5')}
+                >
+                  5s
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={
+                    wanDurationSelection === '10' ? 'secondary' : 'ghost'
+                  }
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, '10')}
+                >
+                  10s
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <ExpandedContent
+            voiceover={voiceover}
+            displayVoiceover={displayVoiceover}
+            displayVisualPrompt={displayVisualPrompt}
+            playingVoiceoverId={playingVoiceoverId}
+            setPlayingVoiceoverId={setPlayingVoiceoverId}
+            sceneId={scene.id}
+            onReadScene={onReadScene}
+            onTranslateScene={onTranslateScene}
+            onReadSceneAllLanguages={onReadSceneAllLanguages}
+            onGenerateSceneVideo={onGenerateSceneVideo}
+            onSaveVisualPrompt={onSaveVisualPrompt}
+            onSaveVoiceoverText={onSaveVoiceoverText}
+            promptLabel={promptLabel}
+            hasVideo={!!hasVideo}
+            onAddVideoToTimeline={onAddVideoToTimeline}
+            onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
+          />
+        </>
       )}
 
       <SceneErrors
