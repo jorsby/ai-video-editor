@@ -2,6 +2,15 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
+import {
+  DEFAULT_GRID_ASPECT_RATIO,
+  DEFAULT_GRID_RESOLUTION,
+  applyGridGenerationSettingsToPrompt,
+  isGridAspectRatio,
+  isGridResolution,
+  type GridAspectRatio,
+  type GridResolution,
+} from '@/lib/grid-generation-settings';
 
 const ASPECT_RATIOS: Record<string, { width: number; height: number }> = {
   '16:9': { width: 1920, height: 1080 },
@@ -83,6 +92,8 @@ interface WorkflowInput {
   height: number;
   voiceover: string;
   aspect_ratio: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
 }
 
 function validateWorkflowInput(input: WorkflowInput): string | null {
@@ -143,7 +154,16 @@ async function executeStartWorkflow(
   grid_image_id?: string;
   request_id?: string | null;
 }> {
-  const { storyboard_id, rows, cols, grid_image_prompt, width, height } = input;
+  const {
+    storyboard_id,
+    rows,
+    cols,
+    grid_image_prompt,
+    width,
+    height,
+    grid_generation_aspect_ratio,
+    grid_generation_resolution,
+  } = input;
 
   const validationError = validateWorkflowInput(input);
   if (validationError) {
@@ -196,7 +216,22 @@ async function executeStartWorkflow(
   );
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
-  const falResult = await sendFalRequest(falUrl, grid_image_prompt, log);
+  const selectedGridAspectRatio = isGridAspectRatio(
+    grid_generation_aspect_ratio
+  )
+    ? grid_generation_aspect_ratio
+    : DEFAULT_GRID_ASPECT_RATIO;
+  const selectedGridResolution = isGridResolution(grid_generation_resolution)
+    ? grid_generation_resolution
+    : DEFAULT_GRID_RESOLUTION;
+
+  const falPrompt = applyGridGenerationSettingsToPrompt(
+    grid_image_prompt,
+    selectedGridAspectRatio,
+    selectedGridResolution
+  );
+
+  const falResult = await sendFalRequest(falUrl, falPrompt, log);
   if (falResult.error) {
     await supabase
       .from('grid_images')
@@ -245,6 +280,8 @@ interface RefWorkflowInput {
   height: number;
   voiceover: string;
   aspect_ratio: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
 }
 
 function validateRefWorkflowInput(input: RefWorkflowInput): string | null {
@@ -337,6 +374,8 @@ function validateRefWorkflowInput(input: RefWorkflowInput): string | null {
 async function sendFalGridRequest(
   prompt: string,
   webhookUrl: string,
+  gridAspectRatio: GridAspectRatio,
+  gridResolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<FalRequestResult> {
   const falUrl = new URL(
@@ -344,8 +383,16 @@ async function sendFalGridRequest(
   );
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
+  const falPrompt = applyGridGenerationSettingsToPrompt(
+    prompt,
+    gridAspectRatio,
+    gridResolution
+  );
+
   log.api('fal.ai', 'octupost/generategridimage', {
-    prompt_length: prompt.length,
+    prompt_length: falPrompt.length,
+    grid_aspect_ratio: gridAspectRatio,
+    grid_resolution: gridResolution,
   });
   log.startTiming('fal_request');
 
@@ -355,7 +402,7 @@ async function sendFalGridRequest(
       Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt, web_search: true }),
+    body: JSON.stringify({ prompt: falPrompt, web_search: true }),
   });
 
   if (!falResponse.ok) {
@@ -401,6 +448,8 @@ async function executeStartRefWorkflow(
     backgrounds_grid_prompt,
     width,
     height,
+    grid_generation_aspect_ratio,
+    grid_generation_resolution,
   } = input;
 
   const validationError = validateRefWorkflowInput(input);
@@ -497,9 +546,30 @@ async function executeStartRefWorkflow(
   });
   const bgWebhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${bgWebhookParams.toString()}`;
 
+  const selectedGridAspectRatio = isGridAspectRatio(
+    grid_generation_aspect_ratio
+  )
+    ? grid_generation_aspect_ratio
+    : DEFAULT_GRID_ASPECT_RATIO;
+  const selectedGridResolution = isGridResolution(grid_generation_resolution)
+    ? grid_generation_resolution
+    : DEFAULT_GRID_RESOLUTION;
+
   const [objectsResult, bgResult] = await Promise.all([
-    sendFalGridRequest(objects_grid_prompt, objectsWebhookUrl, log),
-    sendFalGridRequest(backgrounds_grid_prompt, bgWebhookUrl, log),
+    sendFalGridRequest(
+      objects_grid_prompt,
+      objectsWebhookUrl,
+      selectedGridAspectRatio,
+      selectedGridResolution,
+      log
+    ),
+    sendFalGridRequest(
+      backgrounds_grid_prompt,
+      bgWebhookUrl,
+      selectedGridAspectRatio,
+      selectedGridResolution,
+      log
+    ),
   ]);
 
   if (objectsResult.error) {
@@ -662,6 +732,10 @@ export async function POST(req: NextRequest) {
           height: dimensions.height,
           voiceover: storyboard.voiceover,
           aspect_ratio: storyboard.aspect_ratio,
+          grid_generation_aspect_ratio:
+            storyboard.plan.grid_generation_aspect_ratio,
+          grid_generation_resolution:
+            storyboard.plan.grid_generation_resolution,
         },
         log
       );
@@ -679,6 +753,10 @@ export async function POST(req: NextRequest) {
           height: dimensions.height,
           voiceover: storyboard.voiceover,
           aspect_ratio: storyboard.aspect_ratio,
+          grid_generation_aspect_ratio:
+            storyboard.plan.grid_generation_aspect_ratio,
+          grid_generation_resolution:
+            storyboard.plan.grid_generation_resolution,
         },
         log
       );
