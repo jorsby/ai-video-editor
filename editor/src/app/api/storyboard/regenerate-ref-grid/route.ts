@@ -260,12 +260,12 @@ export async function POST(req: NextRequest) {
 
     if (
       storyboard.plan_status !== 'grid_ready' &&
-      storyboard.plan_status !== 'failed'
+      storyboard.plan_status !== 'failed' &&
+      storyboard.plan_status !== 'generating'
     ) {
       return NextResponse.json(
         {
-          error:
-            'Storyboard must be in grid_ready or failed status to regenerate',
+          error: `Storyboard must be in grid_ready, failed, or generating status to regenerate (current: ${storyboard.plan_status ?? 'null'})`,
         },
         { status: 400 }
       );
@@ -365,7 +365,7 @@ export async function POST(req: NextRequest) {
       .from('storyboards')
       .update({ plan: updatedPlan, plan_status: 'generating' })
       .eq('id', storyboardId)
-      .in('plan_status', ['grid_ready', 'failed']);
+      .in('plan_status', ['grid_ready', 'failed', 'generating']);
 
     const dims = getGridOutputDimensions(
       selectedGridAspectRatio,
