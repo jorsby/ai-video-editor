@@ -268,7 +268,7 @@ export async function getProjectLanguagesFromStoryboard(
 
 /**
  * Remove all data for a specific language from a project.
- * Deletes: tracks + clips, voiceovers, and rendered videos.
+ * Deletes: tracks + clips, voiceovers, rendered videos, and storyboard plan references.
  */
 export async function removeLanguageData(
   projectId: string,
@@ -282,7 +282,7 @@ export async function removeLanguageData(
   // 2. Delete voiceovers for this language
   const { data: storyboards } = await supabase
     .from('storyboards')
-    .select('id')
+    .select('id, plan')
     .eq('project_id', projectId);
 
   if (storyboards && storyboards.length > 0) {
@@ -300,6 +300,25 @@ export async function removeLanguageData(
         .in('scene_id', sceneIds)
         .eq('language', language);
       if (voError) throw voError;
+    }
+
+    // 4. Remove language from storyboard plan voiceover_list so it doesn't
+    //    resurrect on next getAvailableLanguages() call.
+    for (const sb of storyboards) {
+      const plan = sb.plan as Record<string, unknown> | null;
+      if (!plan) continue;
+
+      const voiceoverList = plan.voiceover_list as
+        | Record<string, unknown>
+        | undefined;
+      if (voiceoverList && language in voiceoverList) {
+        const updated = { ...voiceoverList };
+        delete updated[language];
+        await supabase
+          .from('storyboards')
+          .update({ plan: { ...plan, voiceover_list: updated } })
+          .eq('id', sb.id);
+      }
     }
   }
 
