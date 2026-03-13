@@ -352,24 +352,25 @@ export function TimelineToolbar({
                       setPendingLang('__new__' as LanguageCode);
 
                       // Check storyboard mode to determine if Translate is available
-                      // (narrative ref-to-video only)
+                      // (narrative ref-to-video only — dialogue_scene is excluded)
                       try {
                         const supabase = createClient('studio');
                         const { data: sb } = await supabase
                           .from('storyboards')
-                          .select('plan')
+                          .select('mode, plan')
                           .eq('project_id', projectId)
                           .order('created_at', { ascending: false })
                           .limit(1)
                           .single();
 
+                        const isRefToVideo = sb?.mode === 'ref_to_video';
                         const plan =
                           sb?.plan && typeof sb.plan === 'object'
                             ? (sb.plan as Record<string, unknown>)
                             : null;
-                        const isRefToVideo =
-                          plan?.workflow_variant === 'ref_to_video';
-                        const videoMode = plan?.video_mode;
+                        // Default to narrative when video_mode is not set
+                        // (storyboards created before the mode feature)
+                        const videoMode = plan?.video_mode ?? 'narrative';
 
                         setCanTranslate(
                           isRefToVideo && videoMode === 'narrative'
