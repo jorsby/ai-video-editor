@@ -2,6 +2,10 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveForKling,
+  type CharacterImage,
+} from '@/lib/supabase/character-service';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
 const WEBHOOK_BASE_URL =
@@ -250,6 +254,11 @@ interface VideoContext {
   duration: number;
 }
 
+interface LibraryElement {
+  frontal_image_url: string;
+  reference_image_urls: string[];
+}
+
 interface RefVideoContext {
   scene_id: string;
   prompt: string;
@@ -258,6 +267,8 @@ interface RefVideoContext {
   object_urls: string[];
   background_url: string;
   duration: number;
+  /** When set, these replace the naive single-image elements for Kling. */
+  library_elements?: LibraryElement[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -370,12 +381,65 @@ async function getRefVideoContext(
 
   const { data: objects } = await supabase
     .from('objects')
-    .select('final_url')
+    .select('final_url, character_id')
     .eq('scene_id', sceneId)
     .order('scene_order', { ascending: true });
   const objectUrls: string[] = (objects || [])
     .map((o: { final_url: string | null }) => o.final_url)
     .filter((url: string | null): url is string => !!url);
+
+  // Check for library characters (via project_characters)
+  let libraryElements: LibraryElement[] | undefined;
+  if (model === 'klingo3' || model === 'klingo3pro') {
+    // Find the project via scene → storyboard → project chain
+    const { data: sceneProject } = await supabase
+      .from('scenes')
+      .select('storyboards!inner(project_id)')
+      .eq('id', sceneId)
+      .single();
+
+    const projectId = sceneProject?.storyboards?.project_id;
+    if (projectId) {
+      const { data: projectChars } = await supabase
+        .from('project_characters')
+        .select('element_index, character_id')
+        .eq('project_id', projectId)
+        .order('element_index', { ascending: true });
+
+      if (projectChars && projectChars.length > 0) {
+        // Fetch character images for each bound character
+        const charIds = projectChars.map(
+          (pc: { character_id: string }) => pc.character_id
+        );
+        const { data: charImages } = await supabase
+          .from('character_images')
+          .select('*')
+          .in('character_id', charIds);
+
+        if (charImages && charImages.length > 0) {
+          const imagesByChar = new Map<string, CharacterImage[]>();
+          for (const img of charImages as CharacterImage[]) {
+            const existing = imagesByChar.get(img.character_id) || [];
+            existing.push(img);
+            imagesByChar.set(img.character_id, existing);
+          }
+
+          const resolved: LibraryElement[] = [];
+          for (const pc of projectChars) {
+            const images = imagesByChar.get(pc.character_id);
+            if (images) {
+              const payload = resolveForKling(images);
+              if (payload) resolved.push(payload);
+            }
+          }
+
+          if (resolved.length > 0) {
+            libraryElements = resolved;
+          }
+        }
+      }
+    }
+  }
 
   const { data: bg } = await supabase
     .from('backgrounds')
@@ -487,6 +551,7 @@ async function getRefVideoContext(
       object_urls: objectUrls,
       background_url: bg.final_url,
       duration: durationInt,
+      library_elements: libraryElements,
     };
   }
 
@@ -497,6 +562,7 @@ async function getRefVideoContext(
     object_urls: objectUrls,
     background_url: bg.final_url,
     duration: durationInt,
+    library_elements: libraryElements,
   };
 }
 
@@ -615,10 +681,13 @@ async function sendRefVideoRequest(
         enable_audio: enableAudio,
       });
     } else {
-      const elements = context.object_urls.map((url) => ({
-        frontal_image_url: url,
-        reference_image_urls: [url],
-      }));
+      // Use library character elements if available, otherwise naive single-image
+      const elements = context.library_elements
+        ? context.library_elements
+        : context.object_urls.map((url) => ({
+            frontal_image_url: url,
+            reference_image_urls: [url],
+          }));
       payload = modelConfig.buildPayload!({
         prompt: context.prompt,
         image_url: '',
