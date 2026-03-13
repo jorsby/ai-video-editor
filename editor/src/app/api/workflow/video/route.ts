@@ -135,17 +135,23 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       aspect_ratio,
       multi_prompt,
       enable_audio,
-    }) => ({
-      prompt:
-        multi_prompt && multi_prompt.length > 0
-          ? multi_prompt.join('. ')
-          : prompt,
-      elements: elements || [],
-      image_urls: image_urls || [],
-      duration,
-      aspect_ratio: aspect_ratio ?? '16:9',
-      generate_audio: enable_audio ?? false,
-    }),
+    }) => {
+      const base: Record<string, unknown> = {
+        elements: elements || [],
+        image_urls: image_urls || [],
+        aspect_ratio: aspect_ratio ?? '16:9',
+        generate_audio: enable_audio ?? false,
+      };
+      if (multi_prompt && multi_prompt.length > 1) {
+        // Native Kling multi-shot: array of {prompt, duration} objects
+        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
+      } else {
+        base.prompt =
+          multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
+        base.duration = String(duration);
+      }
+      return base;
+    },
   },
   klingo3pro: {
     endpoint: 'fal-ai/kling-video/o3/pro/reference-to-video',
@@ -160,17 +166,22 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       aspect_ratio,
       multi_prompt,
       enable_audio,
-    }) => ({
-      prompt:
-        multi_prompt && multi_prompt.length > 0
-          ? multi_prompt.join('. ')
-          : prompt,
-      elements: elements || [],
-      image_urls: image_urls || [],
-      duration,
-      aspect_ratio: aspect_ratio ?? '16:9',
-      generate_audio: enable_audio ?? false,
-    }),
+    }) => {
+      const base: Record<string, unknown> = {
+        elements: elements || [],
+        image_urls: image_urls || [],
+        aspect_ratio: aspect_ratio ?? '16:9',
+        generate_audio: enable_audio ?? false,
+      };
+      if (multi_prompt && multi_prompt.length > 1) {
+        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
+      } else {
+        base.prompt =
+          multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
+        base.duration = String(duration);
+      }
+      return base;
+    },
   },
   skyreels: {
     endpoint: 'skyreels-direct',
@@ -622,13 +633,18 @@ async function sendRefVideoRequest(
       });
     }
 
+    const isKlingRef = model === 'klingo3' || model === 'klingo3pro';
     const falResponse = await fetch(falUrl.toString(), {
       method: 'POST',
       headers: {
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ...payload, web_search: true }),
+      body: JSON.stringify({
+        ...payload,
+        // web_search is WAN-specific; Kling API doesn't support it
+        ...(!isKlingRef ? { web_search: true } : {}),
+      }),
     });
     if (!falResponse.ok) {
       const errorText = await falResponse.text();
