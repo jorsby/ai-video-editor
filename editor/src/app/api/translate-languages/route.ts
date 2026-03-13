@@ -85,14 +85,16 @@ async function safeUpsertTranslationJob(
     status: TranslationJobStatus;
     error_message?: string | null;
   }
-) {
+): Promise<boolean> {
   try {
     await supabase.from('translation_jobs').upsert(payload, {
       onConflict: 'idempotency_key',
       ignoreDuplicates: false,
     });
+    return true;
   } catch {
     // Table may not exist yet in some environments. Keep translation flow working.
+    return false;
   }
 }
 
@@ -111,6 +113,22 @@ async function safeGetTranslationJobByKey(
     return (data as { status: TranslationJobStatus } | null) ?? null;
   } catch {
     return null;
+  }
+}
+
+async function isTranslationJobsTableAvailable(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('translation_jobs')
+      .select('id')
+      .limit(1);
+
+    return !error;
+  } catch {
+    return false;
   }
 }
 
@@ -160,6 +178,13 @@ export async function POST(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const warnings: string[] = [];
+  let translationJobsTableAvailable =
+    await isTranslationJobsTableAvailable(supabase);
+  if (!translationJobsTableAvailable) {
+    warnings.push('translation_jobs_table_missing');
   }
 
   const {
@@ -221,6 +246,7 @@ export async function POST(req: NextRequest) {
       tts_retry_languages: [],
       scene_count: 0,
       scene_ids: [],
+      warnings,
     });
   }
 
@@ -338,27 +364,35 @@ export async function POST(req: NextRequest) {
         voiceProfileHash,
       });
 
-      const existingJob = await safeGetTranslationJobByKey(
-        supabase,
-        idempotencyKey
-      );
+      const existingJob = translationJobsTableAvailable
+        ? await safeGetTranslationJobByKey(supabase, idempotencyKey)
+        : null;
       if (existingJob && existingJob.status !== 'failed') {
         failed.push({ code: lang, reason: 'idempotent skip' });
         continue;
       }
 
-      await safeUpsertTranslationJob(supabase, {
-        user_id: user.id,
-        project_id: storyboard.project_id,
-        storyboard_id,
-        source_language: requestedSourceLanguage,
-        target_language: lang,
-        idempotency_key: idempotencyKey,
-        script_hash: scriptHash,
-        voice_profile_hash: voiceProfileHash,
-        status: 'processing',
-        error_message: null,
-      });
+      if (translationJobsTableAvailable) {
+        const upserted = await safeUpsertTranslationJob(supabase, {
+          user_id: user.id,
+          project_id: storyboard.project_id,
+          storyboard_id,
+          source_language: requestedSourceLanguage,
+          target_language: lang,
+          idempotency_key: idempotencyKey,
+          script_hash: scriptHash,
+          voice_profile_hash: voiceProfileHash,
+          status: 'processing',
+          error_message: null,
+        });
+
+        if (!upserted) {
+          translationJobsTableAvailable = false;
+          if (!warnings.includes('translation_jobs_table_missing')) {
+            warnings.push('translation_jobs_table_missing');
+          }
+        }
+      }
 
       try {
         for (let i = 0; i < typedScenes.length; i++) {
@@ -401,33 +435,51 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        await safeUpsertTranslationJob(supabase, {
-          user_id: user.id,
-          project_id: storyboard.project_id,
-          storyboard_id,
-          source_language: requestedSourceLanguage,
-          target_language: lang,
-          idempotency_key: idempotencyKey,
-          script_hash: scriptHash,
-          voice_profile_hash: voiceProfileHash,
-          status: 'translated_text_ready',
-          error_message: null,
-        });
+        if (translationJobsTableAvailable) {
+          const upserted = await safeUpsertTranslationJob(supabase, {
+            user_id: user.id,
+            project_id: storyboard.project_id,
+            storyboard_id,
+            source_language: requestedSourceLanguage,
+            target_language: lang,
+            idempotency_key: idempotencyKey,
+            script_hash: scriptHash,
+            voice_profile_hash: voiceProfileHash,
+            status: 'translated_text_ready',
+            error_message: null,
+          });
+
+          if (!upserted) {
+            translationJobsTableAvailable = false;
+            if (!warnings.includes('translation_jobs_table_missing')) {
+              warnings.push('translation_jobs_table_missing');
+            }
+          }
+        }
 
         translated.push(lang);
       } catch {
-        await safeUpsertTranslationJob(supabase, {
-          user_id: user.id,
-          project_id: storyboard.project_id,
-          storyboard_id,
-          source_language: requestedSourceLanguage,
-          target_language: lang,
-          idempotency_key: idempotencyKey,
-          script_hash: scriptHash,
-          voice_profile_hash: voiceProfileHash,
-          status: 'failed',
-          error_message: 'database write failed',
-        });
+        if (translationJobsTableAvailable) {
+          const upserted = await safeUpsertTranslationJob(supabase, {
+            user_id: user.id,
+            project_id: storyboard.project_id,
+            storyboard_id,
+            source_language: requestedSourceLanguage,
+            target_language: lang,
+            idempotency_key: idempotencyKey,
+            script_hash: scriptHash,
+            voice_profile_hash: voiceProfileHash,
+            status: 'failed',
+            error_message: 'database write failed',
+          });
+
+          if (!upserted) {
+            translationJobsTableAvailable = false;
+            if (!warnings.includes('translation_jobs_table_missing')) {
+              warnings.push('translation_jobs_table_missing');
+            }
+          }
+        }
 
         failed.push({ code: lang, reason: 'database write failed' });
       }
@@ -454,6 +506,7 @@ export async function POST(req: NextRequest) {
           tts_retry_languages: ttsRetryLanguages,
           scene_count: typedScenes.length,
           scene_ids: sceneIds,
+          warnings,
         },
         { status: 500 }
       );
@@ -466,5 +519,6 @@ export async function POST(req: NextRequest) {
     tts_retry_languages: ttsRetryLanguages,
     scene_count: typedScenes.length,
     scene_ids: sceneIds,
+    warnings,
   });
 }

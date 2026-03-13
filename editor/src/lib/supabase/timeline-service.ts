@@ -327,24 +327,80 @@ export async function copyTimeline(
   const sourceTracks = await loadTimeline(projectId, fromLang);
   if (!sourceTracks || sourceTracks.length === 0) return;
 
-  const tracksToCopy = options?.stripAudioAndCaptionTracks
-    ? sourceTracks.filter((track) => {
-        const trackType = track.data.type;
-        return trackType !== 'Audio' && trackType !== 'Caption';
-      })
-    : sourceTracks;
-
   const supabase = createClient('studio');
 
-  for (const track of tracksToCopy) {
+  let sourceVoiceoverAudioUrls = new Set<string>();
+  if (options?.stripAudioAndCaptionTracks) {
+    const { data: sourceStoryboards } = await supabase
+      .from('storyboards')
+      .select('id')
+      .eq('project_id', projectId);
+
+    const storyboardIds = (sourceStoryboards ?? []).map((row) => row.id);
+
+    if (storyboardIds.length > 0) {
+      const { data: sourceScenes } = await supabase
+        .from('scenes')
+        .select('id')
+        .in('storyboard_id', storyboardIds);
+
+      const sceneIds = (sourceScenes ?? []).map((row) => row.id);
+
+      if (sceneIds.length > 0) {
+        const { data: sourceVoiceovers } = await supabase
+          .from('voiceovers')
+          .select('audio_url')
+          .in('scene_id', sceneIds)
+          .eq('language', fromLang)
+          .not('audio_url', 'is', null);
+
+        sourceVoiceoverAudioUrls = new Set(
+          (sourceVoiceovers ?? [])
+            .map((row) => row.audio_url)
+            .filter((url): url is string => Boolean(url))
+        );
+      }
+    }
+  }
+
+  const isVoiceoverAudioClip = (clipData: Record<string, unknown>) => {
+    if (clipData.type !== 'Audio') return false;
+
+    const style = clipData.style as Record<string, unknown> | undefined;
+    if (style?.voiceoverId) return true;
+
+    const src = clipData.src;
+    return (
+      typeof src === 'string' &&
+      src.length > 0 &&
+      sourceVoiceoverAudioUrls.has(src)
+    );
+  };
+
+  for (const track of sourceTracks) {
     const newTrackId = crypto.randomUUID();
 
     const clipsToCopy = options?.stripAudioAndCaptionTracks
       ? (track.clips ?? []).filter((clip) => {
-          const clipType = (clip.data as { type?: string }).type;
-          return clipType !== 'Audio' && clipType !== 'Caption';
+          const clipData = clip.data as Record<string, unknown>;
+          const clipType = clipData.type;
+
+          if (clipType === 'Caption') return false;
+          if (isVoiceoverAudioClip(clipData)) return false;
+
+          return true;
         })
       : (track.clips ?? []);
+
+    const trackType = track.data.type;
+    const shouldSkipEmptyTrack =
+      options?.stripAudioAndCaptionTracks &&
+      clipsToCopy.length === 0 &&
+      (trackType === 'Audio' || trackType === 'Caption');
+
+    if (shouldSkipEmptyTrack) {
+      continue;
+    }
 
     const oldToNewClipId = new Map<string, string>();
     for (const clip of clipsToCopy) {

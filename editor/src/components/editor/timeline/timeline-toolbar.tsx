@@ -140,11 +140,13 @@ export function TimelineToolbar({
         failed,
         tts_retry_languages,
         scene_ids,
+        warnings,
       }: {
         translated: string[];
         failed: { code: string; reason: string }[];
         tts_retry_languages?: string[];
         scene_ids?: string[];
+        warnings?: string[];
       } = result;
 
       if (translated.length > 0) {
@@ -207,6 +209,12 @@ export function TimelineToolbar({
       if (ttsFailed > 0) {
         toast.warning(
           `TTS failed for ${ttsFailed} language(s). You can retry Translate.`
+        );
+      }
+
+      if (warnings?.includes('translation_jobs_table_missing')) {
+        toast.info(
+          'Translation jobs table not found; using fallback idempotency mode.'
         );
       }
     } catch (err) {
