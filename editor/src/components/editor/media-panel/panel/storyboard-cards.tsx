@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   IconChevronDown,
@@ -494,6 +494,8 @@ export function StoryboardCards({
   });
   const [ttsModel, setTtsModel] = useState<TTSModelKey>('turbo-v2.5');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const voiceConfigSaveTimerRef =
+    useRef<ReturnType<typeof setTimeout>>(undefined);
   const [videoVolume, setVideoVolume] = useState(0);
   const [timelineAddMode, setTimelineAddMode] =
     useState<TimelineAddMode>('both');
@@ -512,14 +514,39 @@ export function StoryboardCards({
   useEffect(() => {
     if (!storyboard?.plan?.voiceover_list) return;
     const langs = Object.keys(storyboard.plan.voiceover_list);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const savedConfig = (storyboard.plan as any).voice_config as
+      | Record<string, { voice?: string; model?: string; speed?: number }>
+      | undefined;
+
     setVoiceConfig(
       Object.fromEntries(
         langs.map((lang) => [
           lang,
-          { voice: DEFAULT_VOICE_MAP[lang] ?? FALLBACK_VOICE },
+          {
+            voice:
+              savedConfig?.[lang]?.voice ??
+              DEFAULT_VOICE_MAP[lang] ??
+              FALLBACK_VOICE,
+          },
         ])
       )
     );
+
+    // Restore model and speed from the first language that has saved config
+    if (savedConfig) {
+      const firstConfig = Object.values(savedConfig)[0];
+      if (firstConfig?.model && firstConfig.model in TTS_MODELS) {
+        setTtsModel(firstConfig.model as TTSModelKey);
+      }
+      if (
+        firstConfig?.speed !== undefined &&
+        firstConfig.speed >= 0.7 &&
+        firstConfig.speed <= 1.2
+      ) {
+        setTtsSpeed(firstConfig.speed);
+      }
+    }
   }, [storyboard?.id]);
 
   // Ensure voiceConfig has entries for all available languages (e.g. after translation)
@@ -537,6 +564,55 @@ export function StoryboardCards({
       return changed ? updated : prev;
     });
   }, [availableLanguages]);
+
+  // Persist voice config to storyboard plan (debounced)
+  const saveVoiceConfig = useCallback(
+    (
+      config: Record<string, { voice: string }>,
+      model: TTSModelKey,
+      speed: number
+    ) => {
+      clearTimeout(voiceConfigSaveTimerRef.current);
+      voiceConfigSaveTimerRef.current = setTimeout(async () => {
+        if (!storyboard?.id) return;
+        const supabase = createClient('studio');
+        const voiceConfigPayload: Record<
+          string,
+          { voice: string; model: string; speed: number }
+        > = {};
+        for (const [lang, cfg] of Object.entries(config)) {
+          voiceConfigPayload[lang] = {
+            voice: cfg.voice,
+            model,
+            speed,
+          };
+        }
+        const { data: sb } = await supabase
+          .from('storyboards')
+          .select('plan')
+          .eq('id', storyboard.id)
+          .single();
+        if (sb?.plan) {
+          await supabase
+            .from('storyboards')
+            .update({
+              plan: {
+                ...(sb.plan as Record<string, unknown>),
+                voice_config: voiceConfigPayload,
+              },
+            })
+            .eq('id', storyboard.id);
+        }
+      }, 1000);
+    },
+    [storyboard?.id]
+  );
+
+  // Auto-save when voice/model/speed changes
+  useEffect(() => {
+    if (!storyboard?.id) return;
+    saveVoiceConfig(voiceConfig, ttsModel, ttsSpeed);
+  }, [voiceConfig, ttsModel, ttsSpeed, storyboard?.id, saveVoiceConfig]);
 
   // Refresh data when refreshTrigger changes (new storyboard generated)
   useEffect(() => {
