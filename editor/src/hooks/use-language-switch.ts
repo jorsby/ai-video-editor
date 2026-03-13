@@ -18,7 +18,7 @@ export function useLanguageSwitch() {
   const projectId = useProjectId();
 
   const switchLanguage = useCallback(
-    async (targetLanguage: LanguageCode) => {
+    async (targetLanguage: LanguageCode, options?: { skipSave?: boolean }) => {
       const {
         activeLanguage,
         setActiveLanguage,
@@ -36,21 +36,23 @@ export function useLanguageSwitch() {
         // Wait for any in-flight auto-save to complete
         await waitForSave();
 
-        // Save current language's timeline
-        try {
-          await saveTimeline(
-            projectId,
-            studio.tracks,
-            studio.clips,
-            activeLanguage
-          );
-        } catch (error) {
-          // Save failed — abort switch
-          toast.error(
-            'Failed to save current timeline. Language switch aborted.'
-          );
-          setIsLanguageSwitching(false);
-          return;
+        // Save current language's timeline (skip when removing the active language)
+        if (!options?.skipSave) {
+          try {
+            await saveTimeline(
+              projectId,
+              studio.tracks,
+              studio.clips,
+              activeLanguage
+            );
+          } catch (error) {
+            // Save failed — abort switch
+            toast.error(
+              'Failed to save current timeline. Language switch aborted.'
+            );
+            setIsLanguageSwitching(false);
+            return;
+          }
         }
 
         // Load target language's timeline
@@ -201,10 +203,11 @@ export function useLanguageSwitch() {
       try {
         await waitForSave();
 
-        // If removing the active language, switch to another one first
+        // If removing the active language, switch to another one first.
+        // Skip saving the current language since we're about to delete it.
         if (language === activeLanguage && studio) {
           const remaining = availableLanguages.filter((l) => l !== language);
-          await switchLanguage(remaining[0]);
+          await switchLanguage(remaining[0], { skipSave: true });
         }
 
         // Delete all data for this language
