@@ -28,14 +28,20 @@ export function useAutoSave() {
     if (isSavingRef.current || !state.studio) return;
 
     // Skip save if a language switch is in progress
-    const { isLanguageSwitching } = useLanguageStore.getState();
+    const { isLanguageSwitching, activeLanguage, availableLanguages } =
+      useLanguageStore.getState();
     if (isLanguageSwitching) return;
+
+    // Don't save if the active language was removed (prevents zombie tracks)
+    if (
+      availableLanguages.length > 0 &&
+      !availableLanguages.includes(activeLanguage)
+    )
+      return;
 
     isSavingRef.current = true;
     setSaveStatus('saving');
     clearTimeout(savedTimerRef.current);
-
-    const { activeLanguage } = useLanguageStore.getState();
 
     const promise = (async () => {
       try {
@@ -74,8 +80,14 @@ export function useAutoSave() {
       clearInterval(intervalId);
       clearTimeout(savedTimerRef.current);
       // Sync save on unmount (best effort)
-      if (studio && studio.clips.length > 0) {
-        const { activeLanguage } = useLanguageStore.getState();
+      // Guard: only save if the active language is still in available languages
+      // (prevents re-writing tracks for a language that was just removed)
+      const { activeLanguage, availableLanguages } =
+        useLanguageStore.getState();
+      const langStillValid =
+        availableLanguages.length === 0 ||
+        availableLanguages.includes(activeLanguage);
+      if (studio && studio.clips.length > 0 && langStillValid) {
         saveTimeline(
           projectId,
           studio.tracks,
