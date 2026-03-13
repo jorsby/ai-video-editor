@@ -834,10 +834,11 @@ export function StoryboardCards({
 
     return new Map(
       sortedScenes.map((scene) => {
-        const voiceoverSeconds = Math.max(
-          ...(scene.voiceovers || []).map((v) => v.duration ?? 0),
-          0
+        // Only use the active language's voiceover duration
+        const langVoiceover = (scene.voiceovers || []).find(
+          (v) => v.language === selectedLanguage
         );
+        const voiceoverSeconds = langVoiceover?.duration ?? 0;
         const autoDuration: 5 | 10 = voiceoverSeconds > 7.5 ? 10 : 5;
         const selection = wanDurationOverrides[scene.id] ?? 'auto';
         const selected: 5 | 10 =
@@ -854,7 +855,12 @@ export function StoryboardCards({
         ] as const;
       })
     );
-  }, [isWanRefDirectMode, sortedScenes, wanDurationOverrides]);
+  }, [
+    isWanRefDirectMode,
+    sortedScenes,
+    wanDurationOverrides,
+    selectedLanguage,
+  ]);
 
   const splitProgress = useMemo(() => {
     if (!isRefToVideoMode) return null;
