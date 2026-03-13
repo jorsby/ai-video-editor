@@ -173,31 +173,18 @@ export async function clearTimeline(
 
 /**
  * Get distinct languages available for a project.
- * Merges languages from three sources:
- *   1. Saved timeline tracks
- *   2. Voiceover records (catches translations made before timeline is built)
- *   3. Storyboard plan (source language)
+ * Authoritative sources (voiceovers + storyboard plan) determine which
+ * languages exist. Tracks alone cannot resurrect a removed language —
+ * they are a timeline cache that may contain orphans after removal.
  */
 export async function getAvailableLanguages(
   projectId: string
 ): Promise<LanguageCode[]> {
   const supabase = createClient('studio');
 
-  // 1. Languages from saved timeline tracks
-  const { data: trackData, error: trackError } = await supabase
-    .from('tracks')
-    .select('language')
-    .eq('project_id', projectId);
+  const authoritative = new Set<string>();
 
-  if (trackError) {
-    console.error('Failed to get track languages:', trackError);
-  }
-
-  const allLangs = new Set<string>(
-    (trackData ?? []).map((t) => t.language as string)
-  );
-
-  // 2. Languages from voiceover records (via ALL storyboards → scenes → voiceovers)
+  // 1. Languages from voiceover records (via ALL storyboards → scenes → voiceovers)
   const { data: storyboards } = await supabase
     .from('storyboards')
     .select('id')
@@ -221,19 +208,37 @@ export async function getAvailableLanguages(
         console.error('Failed to get voiceover languages:', voError);
       } else {
         for (const row of voData ?? []) {
-          allLangs.add(row.language as string);
+          authoritative.add(row.language as string);
         }
       }
     }
   }
 
-  // 3. Languages from storyboard plan (source language)
+  // 2. Languages from storyboard plan (source language)
   const planLangs = await getProjectLanguagesFromStoryboard(projectId);
   for (const lang of planLangs) {
-    allLangs.add(lang);
+    authoritative.add(lang);
   }
 
-  return [...allLangs] as LanguageCode[];
+  // 3. Include track-only languages only if backed by an authoritative source.
+  //    This prevents orphan tracks from resurrecting removed languages.
+  const { data: trackData, error: trackError } = await supabase
+    .from('tracks')
+    .select('language')
+    .eq('project_id', projectId);
+
+  if (trackError) {
+    console.error('Failed to get track languages:', trackError);
+  }
+
+  for (const row of trackData ?? []) {
+    if (authoritative.has(row.language as string)) {
+      // Track language is backed by voiceovers or plan — already included
+    }
+    // else: orphan track language, ignore
+  }
+
+  return [...authoritative] as LanguageCode[];
 }
 
 /**
