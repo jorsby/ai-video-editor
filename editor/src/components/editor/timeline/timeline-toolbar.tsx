@@ -71,7 +71,7 @@ export function TimelineToolbar({
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
   const { activeLanguage, availableLanguages, isLanguageSwitching } =
     useLanguageStore();
-  const { switchLanguage, copyToMultiple, addEmptyLanguages, removeLanguage } =
+  const { switchLanguage, addEmptyLanguages, removeLanguage } =
     useLanguageSwitch();
   const projectId = useProjectId();
   const { confirm: confirmDelete } = useDeleteConfirmation();
@@ -195,40 +195,6 @@ export function TimelineToolbar({
       toast.error(err instanceof Error ? err.message : 'Translation failed');
     } finally {
       setIsTranslating(false);
-      closeDialog();
-    }
-  };
-
-  const handleCopyTimeline = async () => {
-    if (selectedLangs.size === 0) return;
-    const langs = Array.from(selectedLangs);
-
-    setIsTranslating(true);
-    setTranslateProgress(`Copying timeline to ${langs.length} language(s)...`);
-
-    try {
-      await copyToMultiple(langs);
-      await switchLanguage(langs[0]);
-      toast.success(`Timeline copied to ${langs.length} language(s)`);
-    } catch {
-      toast.error('Failed to copy timeline');
-    } finally {
-      setIsTranslating(false);
-      closeDialog();
-    }
-  };
-
-  const handleStartEmpty = async () => {
-    if (selectedLangs.size === 0) return;
-    const langs = Array.from(selectedLangs);
-
-    try {
-      await addEmptyLanguages(langs);
-      await switchLanguage(langs[0]);
-      toast.success(`${langs.length} empty language(s) added`);
-    } catch {
-      toast.error('Failed to add languages');
-    } finally {
       closeDialog();
     }
   };
@@ -391,20 +357,19 @@ export function TimelineToolbar({
                         const supabase = createClient('studio');
                         const { data: sb } = await supabase
                           .from('storyboards')
-                          .select('plan, workflow_variant')
+                          .select('plan')
                           .eq('project_id', projectId)
                           .order('created_at', { ascending: false })
                           .limit(1)
                           .single();
 
+                        const plan =
+                          sb?.plan && typeof sb.plan === 'object'
+                            ? (sb.plan as Record<string, unknown>)
+                            : null;
                         const isRefToVideo =
-                          sb?.workflow_variant === 'ref_to_video';
-                        const videoMode =
-                          sb?.plan &&
-                          typeof sb.plan === 'object' &&
-                          'video_mode' in sb.plan
-                            ? (sb.plan as Record<string, unknown>).video_mode
-                            : undefined;
+                          plan?.workflow_variant === 'ref_to_video';
+                        const videoMode = plan?.video_mode;
 
                         setCanTranslate(
                           isRefToVideo && videoMode === 'narrative'
@@ -607,22 +572,6 @@ export function TimelineToolbar({
                     >
                       Translate{someSelected ? ` (${selectedLangs.size})` : ''}{' '}
                       from {activeLanguage.toUpperCase()}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!someSelected}
-                      onClick={handleCopyTimeline}
-                    >
-                      Copy timeline
-                      {someSelected ? ` (${selectedLangs.size})` : ''}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!someSelected}
-                      onClick={handleStartEmpty}
-                    >
-                      Start empty
-                      {someSelected ? ` (${selectedLangs.size})` : ''}
                     </Button>
                   </div>
                 </>
