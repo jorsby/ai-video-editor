@@ -82,6 +82,7 @@ export function TimelineToolbar({
   const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set());
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateProgress, setTranslateProgress] = useState('');
+  const [canTranslate, setCanTranslate] = useState(false);
 
   const unaddedLanguages = SUPPORTED_LANGUAGES.filter(
     (l) => !availableLanguages.includes(l.code)
@@ -95,6 +96,7 @@ export function TimelineToolbar({
     setPendingLang(null);
     setSelectedLangs(new Set());
     setTranslateProgress('');
+    setCanTranslate(false);
   };
 
   const handleTranslate = async () => {
@@ -138,17 +140,15 @@ export function TimelineToolbar({
       const {
         translated,
         failed,
-        tts_retry_languages,
-        scene_ids,
         warnings,
       }: {
         translated: string[];
         failed: { code: string; reason: string }[];
-        tts_retry_languages?: string[];
-        scene_ids?: string[];
         warnings?: string[];
       } = result;
 
+      // Create stripped timelines: videos + music kept, voiceover audio + captions removed.
+      // User generates voiceovers manually from scene cards (same flow as original language).
       if (translated.length > 0) {
         setTranslateProgress(
           `Creating ${translated.length} language timeline(s)...`
@@ -158,58 +158,45 @@ export function TimelineToolbar({
         });
       }
 
-      const ttsLanguages = Array.from(
-        new Set([...(translated ?? []), ...(tts_retry_languages ?? [])])
-      );
-
-      let ttsFailed = 0;
-      if (scene_ids && scene_ids.length > 0 && ttsLanguages.length > 0) {
-        setTranslateProgress(
-          `Generating translated voiceovers for ${ttsLanguages.length} language(s)...`
+      // Also create timelines for idempotent-skip languages that don't have one yet
+      const idempotentSkipped = failed
+        .filter((f) => f.reason === 'idempotent skip')
+        .map((f) => f.code);
+      if (idempotentSkipped.length > 0 && translated.length === 0) {
+        // Check which skipped languages are missing a timeline
+        const { availableLanguages: currentLangs } =
+          useLanguageStore.getState();
+        const missingTimelines = idempotentSkipped.filter(
+          (code) => !currentLangs.includes(code)
         );
-
-        for (const lang of ttsLanguages) {
-          const ttsRes = await fetch('/api/workflow/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              scene_ids,
-              language: lang,
-            }),
+        if (missingTimelines.length > 0) {
+          setTranslateProgress(
+            `Creating ${missingTimelines.length} timeline(s) for previously translated language(s)...`
+          );
+          await copyToMultiple(missingTimelines, {
+            stripAudioAndCaptionTracks: true,
           });
-
-          if (!ttsRes.ok) {
-            ttsFailed++;
-          }
         }
       }
 
-      if (translated.length > 0) {
-        await switchLanguage(translated[0]);
+      // Switch to the first new language
+      const firstNewLang = translated[0] ?? idempotentSkipped[0];
+      if (firstNewLang) {
+        await switchLanguage(firstNewLang);
       }
 
       if (failed.length === 0) {
         toast.success(
-          `${translated.length} language(s) translated successfully`
+          `${translated.length} language(s) translated. Generate voiceovers from scene cards.`
         );
       } else if (translated.length > 0) {
         toast.warning(
-          `${translated.length} translated, ${failed.length} skipped/failed: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
-        );
-      } else if ((tts_retry_languages?.length ?? 0) > 0) {
-        toast.success(
-          `Re-ran translated TTS for ${tts_retry_languages?.length ?? 0} language(s).`
+          `${translated.length} translated, ${failed.length} skipped: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
         );
       } else if (failed.every((f) => f.reason === 'idempotent skip')) {
         toast.info('Selected language(s) are already translated.');
       } else {
         toast.error('All translations failed');
-      }
-
-      if (ttsFailed > 0) {
-        toast.warning(
-          `TTS failed for ${ttsFailed} language(s). You can retry Translate.`
-        );
       }
 
       if (warnings?.includes('translation_jobs_table_missing')) {
@@ -408,9 +395,37 @@ export function TimelineToolbar({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       setSelectedLangs(new Set());
                       setPendingLang('__new__' as LanguageCode);
+
+                      // Check storyboard mode to determine if Translate is available
+                      // (narrative ref-to-video only)
+                      try {
+                        const supabase = createClient('studio');
+                        const { data: sb } = await supabase
+                          .from('storyboards')
+                          .select('plan, workflow_variant')
+                          .eq('project_id', projectId)
+                          .order('created_at', { ascending: false })
+                          .limit(1)
+                          .single();
+
+                        const isRefToVideo =
+                          sb?.workflow_variant === 'ref_to_video';
+                        const videoMode =
+                          sb?.plan &&
+                          typeof sb.plan === 'object' &&
+                          'video_mode' in sb.plan
+                            ? (sb.plan as Record<string, unknown>).video_mode
+                            : undefined;
+
+                        setCanTranslate(
+                          isRefToVideo && videoMode === 'narrative'
+                        );
+                      } catch {
+                        setCanTranslate(false);
+                      }
                     }}
                     className="px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 rounded transition-colors"
                   >
@@ -595,7 +610,15 @@ export function TimelineToolbar({
 
                   {/* Action buttons */}
                   <div className="flex flex-col gap-2">
-                    <Button disabled={!someSelected} onClick={handleTranslate}>
+                    <Button
+                      disabled={!someSelected || !canTranslate}
+                      onClick={handleTranslate}
+                      title={
+                        !canTranslate
+                          ? 'Translation is only available for narrative ref-to-video storyboards'
+                          : undefined
+                      }
+                    >
                       Translate{someSelected ? ` (${selectedLangs.size})` : ''}{' '}
                       from {activeLanguage.toUpperCase()}
                     </Button>

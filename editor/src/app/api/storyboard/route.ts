@@ -48,7 +48,7 @@ const openrouter = createOpenRouter({
 
 // StepFun rejects the response_format used by generateObject (json schema),
 // so keep a backup model that supports structured output reliably.
-const STORYBOARD_BACKUP_MODEL = 'openai/gpt-5.2-pro';
+const STORYBOARD_BACKUP_MODEL = 'openai/gpt-5.4';
 
 const SUPPORTED_LANGUAGE_CODES = new Set<string>(
   SUPPORTED_LANGUAGES.map((lang) => lang.code)
