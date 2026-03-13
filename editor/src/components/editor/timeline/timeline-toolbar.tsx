@@ -147,40 +147,26 @@ export function TimelineToolbar({
         warnings?: string[];
       } = result;
 
-      // Create stripped timelines: videos + music kept, voiceover audio + captions removed.
-      // User generates voiceovers manually from scene cards (same flow as original language).
-      if (translated.length > 0) {
-        setTranslateProgress(
-          `Creating ${translated.length} language timeline(s)...`
-        );
-        await copyToMultiple(translated, {
-          stripAudioAndCaptionTracks: true,
-        });
-      }
+      // Register translated languages with empty timelines.
+      // Storyboard scene cards have the translated voiceover text + same videos.
+      // User builds timeline from scratch: generate voiceovers, add clips manually.
+      const allNewLangs = [
+        ...translated,
+        ...failed
+          .filter((f) => f.reason === 'idempotent skip')
+          .map((f) => f.code)
+          .filter(
+            (code) =>
+              !useLanguageStore.getState().availableLanguages.includes(code)
+          ),
+      ];
 
-      // Also create timelines for idempotent-skip languages that don't have one yet
-      const idempotentSkipped = failed
-        .filter((f) => f.reason === 'idempotent skip')
-        .map((f) => f.code);
-      if (idempotentSkipped.length > 0 && translated.length === 0) {
-        // Check which skipped languages are missing a timeline
-        const { availableLanguages: currentLangs } =
-          useLanguageStore.getState();
-        const missingTimelines = idempotentSkipped.filter(
-          (code) => !currentLangs.includes(code)
-        );
-        if (missingTimelines.length > 0) {
-          setTranslateProgress(
-            `Creating ${missingTimelines.length} timeline(s) for previously translated language(s)...`
-          );
-          await copyToMultiple(missingTimelines, {
-            stripAudioAndCaptionTracks: true,
-          });
-        }
+      if (allNewLangs.length > 0) {
+        await addEmptyLanguages(allNewLangs);
       }
 
       // Switch to the first new language
-      const firstNewLang = translated[0] ?? idempotentSkipped[0];
+      const firstNewLang = allNewLangs[0];
       if (firstNewLang) {
         await switchLanguage(firstNewLang);
       }
