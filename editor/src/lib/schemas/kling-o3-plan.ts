@@ -34,6 +34,7 @@ export const klingO3PlanSchema = z.object({
 
   // Workflow metadata
   workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
+  video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
   content_template: z.enum(['ahlak', 'dizi_hikaye']).optional(),
 });
 

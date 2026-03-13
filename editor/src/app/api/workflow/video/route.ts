@@ -134,6 +134,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
+      enable_audio,
     }) => ({
       prompt:
         multi_prompt && multi_prompt.length > 0
@@ -143,6 +144,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls: image_urls || [],
       duration,
       aspect_ratio: aspect_ratio ?? '16:9',
+      generate_audio: enable_audio ?? false,
     }),
   },
   klingo3pro: {
@@ -157,6 +159,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
+      enable_audio,
     }) => ({
       prompt:
         multi_prompt && multi_prompt.length > 0
@@ -166,6 +169,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       image_urls: image_urls || [],
       duration,
       aspect_ratio: aspect_ratio ?? '16:9',
+      generate_audio: enable_audio ?? false,
     }),
   },
   skyreels: {
@@ -614,6 +618,7 @@ async function sendRefVideoRequest(
         aspect_ratio,
         multi_prompt: context.multi_prompt,
         multi_shots: context.multi_shots,
+        enable_audio: enableAudio,
       });
     }
 
@@ -1064,9 +1069,12 @@ export async function POST(req: NextRequest) {
         : requestedRefModel
       : null;
 
-    const effectiveWanEnableAudio =
-      effectiveDirectRefModel === 'wan26flash' &&
-      storyboardVideoMode === 'narrative'
+    const isNarrativeMode = storyboardVideoMode === 'narrative';
+    const effectiveEnableAudio =
+      isNarrativeMode &&
+      (effectiveDirectRefModel === 'wan26flash' ||
+        effectiveDirectRefModel === 'klingo3' ||
+        effectiveDirectRefModel === 'klingo3pro')
         ? false
         : enable_audio;
 
@@ -1101,7 +1109,7 @@ export async function POST(req: NextRequest) {
         : {}),
       ...(model === 'wan26flash'
         ? {
-            enable_audio: effectiveWanEnableAudio,
+            enable_audio: effectiveEnableAudio,
             storyboard_video_mode: storyboardVideoMode,
           }
         : {}),
@@ -1199,7 +1207,7 @@ export async function POST(req: NextRequest) {
           effectiveDirectRefModel,
           MODEL_CONFIG[effectiveDirectRefModel],
           aspect_ratio,
-          effectiveWanEnableAudio,
+          effectiveEnableAudio,
           durationOverrideForScene,
           log,
           fallback_duration,

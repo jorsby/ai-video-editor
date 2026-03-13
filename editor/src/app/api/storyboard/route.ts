@@ -182,6 +182,37 @@ function buildWanModeReviewerConstraint(videoMode: RefVideoMode): string {
     : `- Keep narrative constraints: no explicit speaking/talking/quoted dialogue in scene prompts.`;
 }
 
+function buildKlingModeSystemPrompt(videoMode: RefVideoMode): string {
+  if (videoMode === 'dialogue_scene') {
+    return `
+
+MODE: dialogue_scene
+- This is a dialogue scene mode. Characters are in conversation. Kling O3 will generate native audio including dialogue.
+- Generate scene prompts that visually stage conversation (two-shots, over-the-shoulder, reaction framing, gestures, eye contact).
+- Include emotional delivery cues in prompts: tone of voice, facial expressions, body language.
+- Include ambient sound cues (crowd murmur, rain, footsteps) to enrich the native audio.
+- Characters should be shown speaking with natural lip movement and gestures.
+`;
+  }
+
+  return `
+
+MODE: narrative
+- This is narrative mode. A separate voiceover narrates over the video.
+- Characters must NOT appear to be speaking, talking, or having dialogue on screen.
+- Scene prompts must avoid speech wording like "says", "talks", "tells", quoted dialogue, or conversation staging.
+- Focus on action, emotion, body language, environmental storytelling, and cinematic framing.
+- Kling will generate ambient audio (wind, traffic, nature sounds) which enhances the narrative. Do NOT include dialogue audio cues.
+- DIALOGUE section in scene prompts should be omitted entirely.
+`;
+}
+
+function buildKlingModeReviewerConstraint(videoMode: RefVideoMode): string {
+  return videoMode === 'dialogue_scene'
+    ? `- Keep dialogue_scene constraints: conversation framing, emotional delivery cues, and character speech allowed.`
+    : `- Keep narrative constraints: no speaking, talking, quoted dialogue, or conversation staging in scene prompts. Characters must not appear to be having dialogue.`;
+}
+
 function normalizeDialogueLine(
   line: unknown
 ): { speaker: string; line: string } | null {
@@ -218,7 +249,7 @@ async function generateRefToVideoPlan(
   const baseSystemPrompt = isSkyReels
     ? SKYREELS_SYSTEM_PROMPT
     : isKling
-      ? KLING_O3_SYSTEM_PROMPT
+      ? `${KLING_O3_SYSTEM_PROMPT}${buildKlingModeSystemPrompt(videoMode)}`
       : `${WAN26_FLASH_SYSTEM_PROMPT}${buildWanModeSystemPrompt(videoMode)}`;
   const systemPrompt = applyStoryboardTemplateToSystemPrompt(
     baseSystemPrompt,
@@ -306,10 +337,11 @@ async function generateRefToVideoPlan(
       : isKling
         ? 'Kling O3'
         : 'WAN 2.6 Flash';
-    const modeConstraint =
-      !isKling && !isSkyReels
-        ? `\nMODE CONSTRAINT:\n${buildWanModeReviewerConstraint(videoMode)}\n`
-        : '';
+    const modeConstraint = isSkyReels
+      ? ''
+      : isKling
+        ? `\nMODE CONSTRAINT:\n${buildKlingModeReviewerConstraint(videoMode)}\n`
+        : `\nMODE CONSTRAINT:\n${buildWanModeReviewerConstraint(videoMode)}\n`;
 
     const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
 
@@ -541,6 +573,7 @@ Return the corrected fields.`;
       scene_bg_indices: klingContent.scene_bg_indices,
       scene_object_indices: klingContent.scene_object_indices,
       voiceover_list,
+      video_mode: videoMode,
       content_template: contentTemplate,
     };
   } else {

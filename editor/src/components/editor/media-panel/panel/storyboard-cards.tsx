@@ -687,9 +687,11 @@ export function StoryboardCards({
   const isWanRefDirectMode =
     isRefDirectMode && storyboard?.model === 'wan26flash';
 
+  const isKlingModel = storyboard?.model?.startsWith('kling') ?? false;
+
   const isNarrativeNoAudioMode =
     isRefToVideoMode &&
-    storyboard?.model === 'wan26flash' &&
+    (storyboard?.model === 'wan26flash' || isKlingModel) &&
     refVideoMode === 'narrative';
 
   const processingVideoCount = useMemo(
@@ -730,7 +732,11 @@ export function StoryboardCards({
   }, [isRefToVideoMode, storyboard?.model]);
 
   useEffect(() => {
-    if (!isRefToVideoMode || storyboard?.model !== 'wan26flash') return;
+    if (
+      !isRefToVideoMode ||
+      (storyboard?.model !== 'wan26flash' && !isKlingModel)
+    )
+      return;
 
     if (refVideoMode === 'narrative') {
       setWanEnableAudio(false);
@@ -743,7 +749,13 @@ export function StoryboardCards({
     }
 
     setWanEnableAudio(true);
-  }, [isRefToVideoMode, storyboard?.model, refVideoMode, storyboard?.id]);
+  }, [
+    isRefToVideoMode,
+    storyboard?.model,
+    isKlingModel,
+    refVideoMode,
+    storyboard?.id,
+  ]);
 
   useEffect(() => {
     if (!isWanRefDirectMode) return;
