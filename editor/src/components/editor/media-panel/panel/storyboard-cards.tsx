@@ -483,6 +483,9 @@ export function StoryboardCards({
   const [wanDurationOverrides, setWanDurationOverrides] = useState<
     Record<string, 'auto' | '5' | '10'>
   >({});
+  const [dialogueDurationOverrides, setDialogueDurationOverrides] = useState<
+    Record<string, number>
+  >({});
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
@@ -873,6 +876,38 @@ export function StoryboardCards({
     wanDurationOverrides,
     selectedLanguage,
   ]);
+
+  // Dialogue mode: LLM-planned durations with user overrides
+  const dialogueDurationBySceneId = useMemo(() => {
+    const planDurations =
+      storyboard?.plan &&
+      typeof storyboard.plan === 'object' &&
+      'scene_durations' in storyboard.plan &&
+      Array.isArray((storyboard.plan as any).scene_durations)
+        ? ((storyboard.plan as any).scene_durations as number[])
+        : null;
+
+    if (!planDurations || planDurations.length === 0)
+      return new Map<string, { llmDefault: number; selected: number }>();
+
+    return new Map(
+      sortedScenes
+        .filter((scene) => planDurations[scene.order] != null)
+        .map((scene) => {
+          const llmDefault = planDurations[scene.order];
+          const override = dialogueDurationOverrides[scene.id];
+          const selected = typeof override === 'number' ? override : llmDefault;
+          return [scene.id, { llmDefault, selected }] as const;
+        })
+    );
+  }, [storyboard?.plan, sortedScenes, dialogueDurationOverrides]);
+
+  const handleDialogueDurationChange = (sceneId: string, seconds: number) => {
+    setDialogueDurationOverrides((prev) => ({
+      ...prev,
+      [sceneId]: seconds,
+    }));
+  };
 
   const splitProgress = useMemo(() => {
     if (!isRefToVideoMode) return null;
@@ -1768,23 +1803,15 @@ export function StoryboardCards({
       }
     }
 
-    // Dialogue mode: use LLM-planned scene_durations from plan, fallback to 10s for older storyboards
-    let dialogueDurationOverrides: Record<string, number> | undefined;
+    // Dialogue mode: use LLM-planned scene_durations (with user overrides), fallback to 10s for older storyboards
+    let dialogueDurationOverridesPayload: Record<string, number> | undefined;
     if (refVideoMode === 'dialogue_scene') {
-      const planDurations =
-        storyboard?.plan &&
-        typeof storyboard.plan === 'object' &&
-        'scene_durations' in storyboard.plan &&
-        Array.isArray((storyboard.plan as any).scene_durations)
-          ? ((storyboard.plan as any).scene_durations as number[])
-          : null;
-
-      if (planDurations && planDurations.length > 0) {
-        // Map scene IDs to LLM-planned durations via scene.order (index into plan arrays)
-        dialogueDurationOverrides = Object.fromEntries(
+      if (dialogueDurationBySceneId.size > 0) {
+        // Use user-adjusted durations (defaults to LLM-planned if not overridden)
+        dialogueDurationOverridesPayload = Object.fromEntries(
           selectedScenes
-            .filter((s) => planDurations[s.order] != null)
-            .map((s) => [s.id, planDurations[s.order]])
+            .filter((s) => dialogueDurationBySceneId.has(s.id))
+            .map((s) => [s.id, dialogueDurationBySceneId.get(s.id)!.selected])
         );
       } else {
         // Older storyboard without scene_durations — flat fallback
@@ -1803,8 +1830,8 @@ export function StoryboardCards({
             ? storyboard.aspect_ratio
             : '16:9',
         ...(fallbackDuration && { fallback_duration: fallbackDuration }),
-        ...(dialogueDurationOverrides && {
-          duration_overrides: dialogueDurationOverrides,
+        ...(dialogueDurationOverridesPayload && {
+          duration_overrides: dialogueDurationOverridesPayload,
         }),
         ...(selectedModel === 'skyreels' && {
           skyreels_duration_mode: skyreelsDurationMode,
@@ -1815,7 +1842,7 @@ export function StoryboardCards({
         ...(isRefToVideoMode &&
           selectedModel === 'wan26flash' && {
             enable_audio: wanEnableAudio,
-            ...(!dialogueDurationOverrides && {
+            ...(!dialogueDurationOverridesPayload && {
               duration_overrides: Object.fromEntries(
                 Array.from(selectedSceneIds).map((sceneId) => [
                   sceneId,
@@ -3946,6 +3973,17 @@ export function StoryboardCards({
               onChangeWanDurationSelection={
                 isWanRefDirectMode
                   ? handleWanDurationSelectionChange
+                  : undefined
+              }
+              dialogueDurationSeconds={
+                dialogueDurationBySceneId.get(scene.id)?.selected
+              }
+              dialogueDurationLlmDefault={
+                dialogueDurationBySceneId.get(scene.id)?.llmDefault
+              }
+              onChangeDialogueDuration={
+                dialogueDurationBySceneId.size > 0
+                  ? handleDialogueDurationChange
                   : undefined
               }
             />

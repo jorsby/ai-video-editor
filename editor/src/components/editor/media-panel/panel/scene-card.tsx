@@ -138,6 +138,9 @@ interface SceneCardProps {
     sceneId: string,
     selection: 'auto' | '5' | '10'
   ) => void;
+  dialogueDurationSeconds?: number;
+  dialogueDurationLlmDefault?: number;
+  onChangeDialogueDuration?: (sceneId: string, seconds: number) => void;
 }
 
 interface SceneThumbnailProps {
@@ -1010,6 +1013,9 @@ export function SceneCard({
   wanDurationSelection,
   wanVoiceoverSeconds,
   onChangeWanDurationSelection,
+  dialogueDurationSeconds,
+  dialogueDurationLlmDefault,
+  onChangeDialogueDuration,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1458,6 +1464,41 @@ export function SceneCard({
               </div>
             </div>
           )}
+
+          {typeof dialogueDurationSeconds === 'number' &&
+            onChangeDialogueDuration && (
+              <div
+                className="mt-2 p-1.5 rounded border border-amber-500/20 bg-amber-500/5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[10px] text-amber-300">
+                    Scene Duration
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {dialogueDurationSeconds}s
+                    {dialogueDurationLlmDefault &&
+                      dialogueDurationSeconds !== dialogueDurationLlmDefault &&
+                      ` (AI: ${dialogueDurationLlmDefault}s)`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={3}
+                  max={15}
+                  step={1}
+                  value={dialogueDurationSeconds}
+                  onChange={(e) =>
+                    onChangeDialogueDuration(scene.id, Number(e.target.value))
+                  }
+                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-400 bg-amber-500/20"
+                />
+                <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+                  <span>3s</span>
+                  <span>15s</span>
+                </div>
+              </div>
+            )}
 
           <ExpandedContent
             voiceover={voiceover}
