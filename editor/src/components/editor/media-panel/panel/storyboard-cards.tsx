@@ -1740,7 +1740,9 @@ export function StoryboardCards({
     let fallbackDuration: number | undefined;
 
     const shouldSkipMissingVoiceoverCheck =
-      selectedModel === 'skyreels' && skyreelsDurationMode === 'fixed';
+      (selectedModel === 'skyreels' && skyreelsDurationMode === 'fixed') ||
+      // Kling dialogue mode generates native audio — no voiceover expected
+      (isKlingModel && refVideoMode === 'dialogue_scene');
 
     if (!shouldSkipMissingVoiceoverCheck) {
       // Check for scenes without voiceover audio
@@ -1764,6 +1766,15 @@ export function StoryboardCards({
         if (!confirmed) return;
         fallbackDuration = 3;
       }
+    }
+
+    // Kling dialogue mode: use longer default duration since Kling generates native audio
+    if (
+      isKlingModel &&
+      refVideoMode === 'dialogue_scene' &&
+      !fallbackDuration
+    ) {
+      fallbackDuration = 10;
     }
 
     setIsGeneratingVideo(true);
