@@ -1120,7 +1120,11 @@ export async function PATCH(req: NextRequest) {
             ).scene_dialogue
           : undefined) ?? existingPlan?.scene_dialogue;
 
-      if (resolvedVideoMode === 'dialogue_scene') {
+      // Kling generates native dialogue audio from prompts — no scene_dialogue needed.
+      // Only WAN requires scene_dialogue for dialogue_scene mode.
+      const isKlingModel =
+        storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro';
+      if (resolvedVideoMode === 'dialogue_scene' && !isKlingModel) {
         if (
           !Array.isArray(resolvedSceneDialogue) ||
           resolvedSceneDialogue.length !== validatedPlan.scene_prompts.length
