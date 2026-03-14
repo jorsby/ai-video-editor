@@ -338,7 +338,10 @@ export default function PanelStoryboard() {
         formVideoMode === 'image_to_video' ? 'wan26flash' : formVideoModel;
 
       const resolvedRefVideoMode: RefVideoMode =
-        resolvedMode === 'ref_to_video' && resolvedVideoModel === 'wan26flash'
+        resolvedMode === 'ref_to_video' &&
+        (resolvedVideoModel === 'wan26flash' ||
+          resolvedVideoModel === 'klingo3' ||
+          resolvedVideoModel === 'klingo3pro')
           ? formRefVideoMode
           : 'narrative';
 
@@ -878,7 +881,9 @@ export default function PanelStoryboard() {
 
               {(formVideoMode === 'image_to_video' ||
                 (formVideoMode === 'ref_to_video' &&
-                  formVideoModel === 'wan26flash')) && (
+                  (formVideoModel === 'wan26flash' ||
+                    formVideoModel === 'klingo3' ||
+                    formVideoModel === 'klingo3pro'))) && (
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                     Scene Mode
