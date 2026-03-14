@@ -1768,13 +1768,28 @@ export function StoryboardCards({
       }
     }
 
-    // Kling dialogue mode: use longer default duration since Kling generates native audio
-    if (
-      isKlingModel &&
-      refVideoMode === 'dialogue_scene' &&
-      !fallbackDuration
-    ) {
-      fallbackDuration = 10;
+    // Dialogue mode: use LLM-planned scene_durations from plan, fallback to 10s for older storyboards
+    let dialogueDurationOverrides: Record<string, number> | undefined;
+    if (refVideoMode === 'dialogue_scene') {
+      const planDurations =
+        storyboard?.plan &&
+        typeof storyboard.plan === 'object' &&
+        'scene_durations' in storyboard.plan &&
+        Array.isArray((storyboard.plan as any).scene_durations)
+          ? ((storyboard.plan as any).scene_durations as number[])
+          : null;
+
+      if (planDurations && planDurations.length > 0) {
+        // Map scene IDs to LLM-planned durations via scene.order (index into plan arrays)
+        dialogueDurationOverrides = Object.fromEntries(
+          selectedScenes
+            .filter((s) => planDurations[s.order] != null)
+            .map((s) => [s.id, planDurations[s.order]])
+        );
+      } else {
+        // Older storyboard without scene_durations — flat fallback
+        fallbackDuration = 10;
+      }
     }
 
     setIsGeneratingVideo(true);
@@ -1788,6 +1803,9 @@ export function StoryboardCards({
             ? storyboard.aspect_ratio
             : '16:9',
         ...(fallbackDuration && { fallback_duration: fallbackDuration }),
+        ...(dialogueDurationOverrides && {
+          duration_overrides: dialogueDurationOverrides,
+        }),
         ...(selectedModel === 'skyreels' && {
           skyreels_duration_mode: skyreelsDurationMode,
           ...(skyreelsDurationMode === 'fixed' && {
@@ -1797,12 +1815,14 @@ export function StoryboardCards({
         ...(isRefToVideoMode &&
           selectedModel === 'wan26flash' && {
             enable_audio: wanEnableAudio,
-            duration_overrides: Object.fromEntries(
-              Array.from(selectedSceneIds).map((sceneId) => [
-                sceneId,
-                wanDurationBySceneId.get(sceneId)?.selected ?? 5,
-              ])
-            ),
+            ...(!dialogueDurationOverrides && {
+              duration_overrides: Object.fromEntries(
+                Array.from(selectedSceneIds).map((sceneId) => [
+                  sceneId,
+                  wanDurationBySceneId.get(sceneId)?.selected ?? 5,
+                ])
+              ),
+            }),
           }),
         ...(storyboard?.mode === 'ref_to_video' && {
           storyboard_id: storyboard.id,

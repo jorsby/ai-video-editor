@@ -32,6 +32,9 @@ export const klingO3PlanSchema = z.object({
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
 
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+
   // Workflow metadata
   workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
   video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
@@ -58,6 +61,9 @@ export const klingO3ContentSchema = z.object({
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 
   voiceover_list: z.array(z.string()),
+
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
 });
 
 export const KLING_O3_SYSTEM_PROMPT = `You are a storyboard planner for AI video generation using Kling O3 (reference-to-video).
@@ -157,7 +163,8 @@ Return valid JSON matching this structure:
   ],
   "scene_bg_indices": [0, 1, 2, 0],
   "scene_object_indices": [[0, 1], [0, 1], [1], [0, 1]],
-  "voiceover_list": ["segment 1 text", "segment 2 text", ...]
+  "voiceover_list": ["segment 1 text", "segment 2 text", ...],
+  "scene_durations": [5, 10, 7, 12]
 }`;
 
 export const klingO3ReviewerOutputSchema = z.object({

@@ -162,7 +162,12 @@ MODE: dialogue_scene
 - Do NOT mention lip-sync, mouth-sync, phonemes, or exact mouth movement matching.
 - You MUST include scene_dialogue with EXACTLY one array per scene.
 - Each scene_dialogue[i] must include 1-3 lines using objects like {"speaker":"Name","line":"Text"}.
-- Keep lines concise for 5s/10s scenes.
+
+SCENE DURATIONS (dialogue mode only):
+- You MUST include "scene_durations" — an array of integers (one per scene), each 5 or 10 seconds (WAN only supports 5s or 10s).
+- 5s for short exchanges (1-2 lines) or quick reaction beats.
+- 10s for longer conversations (3+ lines), dramatic moments, or scenes with significant action.
+- scene_durations.length MUST equal scene_prompts.length.
 `;
   }
 
@@ -192,6 +197,15 @@ MODE: dialogue_scene
 - Include emotional delivery cues in prompts: tone of voice, facial expressions, body language.
 - Include ambient sound cues (crowd murmur, rain, footsteps) to enrich the native audio.
 - Characters should be shown speaking with natural lip movement and gestures.
+
+SCENE DURATIONS (dialogue mode only):
+- You MUST include "scene_durations" — an array of integers (one per scene), each between 3 and 15 seconds.
+- Estimate duration based on the cinematic needs of each scene:
+  - Short exchange (1-2 lines), quick reaction, or a beat: 3-5 seconds
+  - Medium conversation (2-4 lines), emotional moment with pauses: 6-10 seconds
+  - Long dialogue (5+ lines), dramatic confrontation, or scene with significant physical action: 10-15 seconds
+- Think cinematically: a tense silent stare-down deserves more time than a quick "hello". Pacing matters.
+- scene_durations.length MUST equal scene_prompts.length.
 `;
   }
 
@@ -406,6 +420,19 @@ Return the corrected fields.`;
     );
   }
 
+  // Validate scene_durations length if present (LLM-planned for dialogue mode)
+  if (
+    'scene_durations' in content &&
+    Array.isArray((content as any).scene_durations) &&
+    (content as any).scene_durations.length !== sceneCount
+  ) {
+    // Length mismatch — drop it rather than crash, fallback will handle it
+    console.warn(
+      `[Storyboard] scene_durations length mismatch: got ${(content as any).scene_durations.length} but expected ${sceneCount}. Dropping scene_durations.`
+    );
+    delete (content as any).scene_durations;
+  }
+
   // Validate scene_multi_shots length for WAN (not for Kling or SkyReels)
   let normalizedSceneDialogue:
     | Array<Array<{ speaker: string; line: string }>>
@@ -574,6 +601,9 @@ Return the corrected fields.`;
       scene_object_indices: klingContent.scene_object_indices,
       voiceover_list,
       video_mode: videoMode,
+      ...(klingContent.scene_durations
+        ? { scene_durations: klingContent.scene_durations }
+        : {}),
       content_template: contentTemplate,
     };
   } else {
@@ -596,6 +626,9 @@ Return the corrected fields.`;
       video_mode: videoMode,
       ...(normalizedSceneDialogue
         ? { scene_dialogue: normalizedSceneDialogue }
+        : {}),
+      ...(wanContent.scene_durations
+        ? { scene_durations: wanContent.scene_durations }
         : {}),
       content_template: contentTemplate,
     };
@@ -1098,6 +1131,7 @@ export async function PATCH(req: NextRequest) {
               content_template?: StoryboardContentTemplate;
               video_mode?: RefVideoMode;
               scene_dialogue?: Array<Array<{ speaker: string; line: string }>>;
+              scene_durations?: number[];
             })
           : null;
 
@@ -1119,6 +1153,11 @@ export async function PATCH(req: NextRequest) {
               }
             ).scene_dialogue
           : undefined) ?? existingPlan?.scene_dialogue;
+
+      const resolvedSceneDurations =
+        ('scene_durations' in validatedPlan
+          ? (validatedPlan as { scene_durations?: number[] }).scene_durations
+          : undefined) ?? existingPlan?.scene_durations;
 
       // Kling generates native dialogue audio from prompts — no scene_dialogue needed.
       // Only WAN requires scene_dialogue for dialogue_scene mode.
@@ -1164,6 +1203,9 @@ export async function PATCH(req: NextRequest) {
           ...(resolvedSceneDialogue
             ? { scene_dialogue: resolvedSceneDialogue }
             : {}),
+          ...(resolvedSceneDurations
+            ? { scene_durations: resolvedSceneDurations }
+            : {}),
         };
       } else {
         normalizedPlan = {
@@ -1177,6 +1219,9 @@ export async function PATCH(req: NextRequest) {
           ...(resolvedVideoMode ? { video_mode: resolvedVideoMode } : {}),
           ...(resolvedSceneDialogue
             ? { scene_dialogue: resolvedSceneDialogue }
+            : {}),
+          ...(resolvedSceneDurations
+            ? { scene_durations: resolvedSceneDurations }
             : {}),
         };
       }

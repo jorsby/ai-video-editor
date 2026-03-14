@@ -33,6 +33,9 @@ export const wan26FlashPlanSchema = z.object({
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
 
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+
   // Optional dialogue metadata (V1: visual dialogue + separate TTS track)
   video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
   scene_dialogue: z.array(z.array(wan26FlashDialogueLineSchema)).optional(),
@@ -64,6 +67,9 @@ export const wan26FlashContentSchema = z.object({
 
   voiceover_list: z.array(z.string()),
   scene_dialogue: z.array(z.array(wan26FlashDialogueLineSchema)).optional(),
+
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
 });
 
 export const wan26FlashReviewerOutputSchema = z.object({
@@ -155,6 +161,7 @@ Return valid JSON matching this structure:
   "scene_object_indices": [[0, 1], [0], [1], [0, 1]],
   "scene_multi_shots": [true, false, false, true],
   "voiceover_list": ["segment 1 text", "segment 2 text", ...],
+  "scene_durations": [5, 10, 5, 10],
   "scene_dialogue": [
     [{ "speaker": "Mother", "line": "Please stay close." }, { "speaker": "Boy", "line": "Okay." }],
     [{ "speaker": "Richman", "line": "Leave this here quietly." }]
