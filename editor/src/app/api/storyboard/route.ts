@@ -740,7 +740,10 @@ export async function POST(req: NextRequest) {
           : 'direct_ref_to_video';
 
       const resolvedVideoMode: RefVideoMode =
-        videoModel === 'wan26flash' && isRefVideoMode(videoModeInput)
+        (videoModel === 'wan26flash' ||
+          videoModel === 'klingo3' ||
+          videoModel === 'klingo3pro') &&
+        isRefVideoMode(videoModeInput)
           ? videoModeInput
           : 'narrative';
 
