@@ -217,25 +217,36 @@ export default function PanelStoryboard() {
       const data = await getStoryboardsForProject(projectId);
       setStoryboards(data);
 
-      // Auto-select most recent storyboard if exists
-      if (data.length > 0) {
-        setSelectedStoryboardId(data[0].id);
+      // Approved storyboards = everything except drafts
+      const approvedStoryboards = data.filter(
+        (sb) => sb.plan_status !== 'draft'
+      );
+
+      // Auto-select most recent approved storyboard if exists
+      if (approvedStoryboards.length > 0) {
+        setSelectedStoryboardId(approvedStoryboards[0].id);
       }
 
       // Check for existing draft
       const draft = await getDraftStoryboard(projectId);
       if (draft?.plan) {
-        // Restore draft state
+        // Store draft state so user can resume later
         setDraftPlan(draft.plan);
         setDraftStoryboardId(draft.id);
         setDraftMode(draft.mode || 'image_to_video');
         setDraftVideoModel(draft.model || null);
-        setViewMode('draft');
-        return;
+
+        // Only auto-enter draft mode when no approved storyboards exist.
+        // Otherwise default to viewing the most recent approved one —
+        // the user can still access the draft via "New Storyboard".
+        if (approvedStoryboards.length === 0) {
+          setViewMode('draft');
+          return;
+        }
       }
 
       // Set view mode based on storyboard existence
-      if (data.length > 0) {
+      if (approvedStoryboards.length > 0) {
         setViewMode('view');
       } else {
         setViewMode('create');
@@ -551,18 +562,23 @@ export default function PanelStoryboard() {
               setSelectedStoryboardId(value);
               setViewMode('view');
             }}
-            disabled={storyboards.length === 0}
+            disabled={
+              storyboards.filter((sb) => sb.plan_status !== 'draft').length ===
+              0
+            }
           >
             <SelectTrigger className="flex-1 h-8 text-xs">
               <SelectValue placeholder="No storyboards yet" />
             </SelectTrigger>
             <SelectContent>
-              {storyboards.map((sb) => (
-                <SelectItem key={sb.id} value={sb.id}>
-                  {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
-                  {getStoryboardModeLabel(sb)}
-                </SelectItem>
-              ))}
+              {storyboards
+                .filter((sb) => sb.plan_status !== 'draft')
+                .map((sb) => (
+                  <SelectItem key={sb.id} value={sb.id}>
+                    {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
+                    {getStoryboardModeLabel(sb)}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
 
@@ -599,6 +615,17 @@ export default function PanelStoryboard() {
             New
           </Button>
         </div>
+
+        {/* Draft banner — show when viewing approved storyboards but a draft exists */}
+        {viewMode === 'view' && draftPlan && draftStoryboardId && (
+          <button
+            type="button"
+            className="w-full mt-1.5 px-2 py-1 text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded hover:bg-amber-500/20 transition-colors text-left"
+            onClick={() => setViewMode('draft')}
+          >
+            📝 Unsaved draft — click to resume
+          </button>
+        )}
       </div>
 
       {/* Main Content Area */}
