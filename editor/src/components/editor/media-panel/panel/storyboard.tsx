@@ -669,17 +669,36 @@ export default function PanelStoryboard() {
 
         {/* Draft Plan Editor - show when in draft mode */}
         {viewMode === 'draft' && draftPlan && (
-          <DraftPlanEditor
-            plan={draftPlan}
-            mode={draftMode}
-            videoModel={draftVideoModel}
-            onPlanChange={setDraftPlan}
-            onApprove={handleApproveDraft}
-            onRegenerate={handleRegenerateDraft}
-            onCancel={handleCancelDraft}
-            isApproving={isApprovingDraft}
-            error={draftError}
-          />
+          <>
+            {storyboards.some((sb) => sb.plan_status !== 'draft') && (
+              <button
+                type="button"
+                className="w-full mb-2 px-2 py-1 text-[10px] text-muted-foreground bg-muted/30 border border-border/50 rounded hover:bg-muted/50 transition-colors text-left"
+                onClick={() => {
+                  const approved = storyboards.find(
+                    (sb) => sb.plan_status !== 'draft'
+                  );
+                  if (approved) {
+                    setSelectedStoryboardId(approved.id);
+                    setViewMode('view');
+                  }
+                }}
+              >
+                ← Back to storyboards
+              </button>
+            )}
+            <DraftPlanEditor
+              plan={draftPlan}
+              mode={draftMode}
+              videoModel={draftVideoModel}
+              onPlanChange={setDraftPlan}
+              onApprove={handleApproveDraft}
+              onRegenerate={handleRegenerateDraft}
+              onCancel={handleCancelDraft}
+              isApproving={isApprovingDraft}
+              error={draftError}
+            />
+          </>
         )}
 
         {/* Plan (read-only) - show when viewing a storyboard that has a plan */}
