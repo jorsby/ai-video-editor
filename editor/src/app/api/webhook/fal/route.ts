@@ -1816,6 +1816,111 @@ async function handleGenerateSFX(
   );
 }
 
+// ── Series Asset Image Handler ────────────────────────────────────────
+
+async function handleSeriesAssetImage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  falPayload: FalWebhookPayload,
+  params: URLSearchParams,
+  log: Logger
+): Promise<Response> {
+  const variantId = params.get('variant_id');
+  if (!variantId) {
+    log.error('Missing variant_id for SeriesAssetImage');
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing variant_id' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  log.setContext({ step: 'SeriesAssetImage', variant_id: variantId });
+
+  if (falPayload.status === 'ERROR') {
+    log.error('fal.ai returned error', { error: falPayload.error });
+    return new Response(
+      JSON.stringify({ success: false, error: falPayload.error }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  const images = getImages(falPayload);
+  const imageUrl = images?.[0]?.url;
+
+  if (!imageUrl) {
+    log.error('No image URL in fal.ai response');
+    return new Response(
+      JSON.stringify({ success: false, error: 'No image in response' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  try {
+    // Download image from fal.ai
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+    const imgBuffer = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+
+    // Build storage path
+    const storagePath = `generated/${variantId}/${Date.now()}.${ext}`;
+
+    // Upload to series-assets storage bucket
+    const { error: uploadError } = await supabase.storage
+      .from('series-assets')
+      .upload(storagePath, imgBuffer, { contentType, upsert: false });
+
+    if (uploadError) {
+      log.error('Storage upload failed', { error: uploadError.message });
+      return new Response(
+        JSON.stringify({ success: false, error: 'Storage upload failed' }),
+        { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+      );
+    }
+
+    // Get public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+
+    // Create series_asset_variant_images record
+    const { error: dbError } = await supabase
+      .from('series_asset_variant_images')
+      .insert({
+        variant_id: variantId,
+        angle: 'front',
+        kind: 'frontal',
+        url: publicUrl,
+        storage_path: storagePath,
+        source: 'generated',
+        metadata: { fal_request_id: falPayload.request_id ?? null },
+      });
+
+    if (dbError) {
+      log.error('DB insert failed', { error: dbError.message });
+      return new Response(
+        JSON.stringify({ success: false, error: 'DB insert failed' }),
+        { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+      );
+    }
+
+    log.summary('success', { variant_id: variantId, url: publicUrl });
+    return new Response(
+      JSON.stringify({ success: true, variant_id: variantId, url: publicUrl }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  } catch (err) {
+    log.error('SeriesAssetImage exception', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return new Response(
+      JSON.stringify({ success: false, error: 'Internal error' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -1877,6 +1982,8 @@ export async function POST(req: NextRequest) {
         return await handleGenerateVideo(supabase, falPayload, params, log);
       case 'GenerateSFX':
         return await handleGenerateSFX(supabase, falPayload, params, log);
+      case 'SeriesAssetImage':
+        return await handleSeriesAssetImage(supabase, falPayload, params, log);
       default:
         log.error('Unknown step', { step });
         return new Response(

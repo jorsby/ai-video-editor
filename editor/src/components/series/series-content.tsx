@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Clapperboard } from 'lucide-react';
+import { Plus, Search, Clapperboard, Pencil } from 'lucide-react';
 import { CreateSeriesDialog } from './create-series-dialog';
 import { SeriesDetailPage } from './series-detail-page';
 import type {
@@ -15,22 +16,33 @@ import type {
 
 // ── Series card ────────────────────────────────────────────────────────────────
 
+interface SeriesWithStatus extends Series {
+  plan_status?: string;
+}
+
 function SeriesCard({
   series,
   onClick,
 }: {
-  series: Series;
+  series: SeriesWithStatus;
   onClick: () => void;
 }) {
+  const isDraft = !series.plan_status || series.plan_status === 'draft';
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group"
+      className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative"
     >
+      {isDraft && (
+        <div className="absolute top-3 right-3 flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
+          <Pencil className="w-2.5 h-2.5" />
+          Planning
+        </div>
+      )}
       <div className="flex items-start justify-between gap-2">
         <div className="space-y-1">
-          <h3 className="font-semibold text-sm group-hover:text-primary transition-colors">
+          <h3 className="font-semibold text-sm group-hover:text-primary transition-colors pr-16">
             {series.name}
           </h3>
           <div className="flex flex-wrap gap-1.5">
@@ -46,7 +58,6 @@ function SeriesCard({
             )}
           </div>
         </div>
-        <Clapperboard className="w-4 h-4 text-muted-foreground/50 mt-0.5 shrink-0" />
       </div>
       {series.bible && (
         <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
@@ -63,7 +74,8 @@ function SeriesCard({
 // ── Main content ───────────────────────────────────────────────────────────────
 
 export function SeriesContent() {
-  const [seriesList, setSeriesList] = useState<Series[]>([]);
+  const router = useRouter();
+  const [seriesList, setSeriesList] = useState<SeriesWithStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -94,12 +106,19 @@ export function SeriesContent() {
     fetchSeries();
   }, [fetchSeries]);
 
-  const openDetail = async (id: string) => {
+  const openDetail = async (s: SeriesWithStatus) => {
+    // Draft series → go to planning page
+    if (!s.plan_status || s.plan_status === 'draft') {
+      router.push(`/series/${s.id}/plan`);
+      return;
+    }
+
+    // Finalized series → load detail inline
     setLoadingDetail(true);
     try {
       const [seriesRes, episodesRes] = await Promise.all([
-        fetch(`/api/series/${id}`),
-        fetch(`/api/series/${id}/episodes`),
+        fetch(`/api/series/${s.id}`),
+        fetch(`/api/series/${s.id}/episodes`),
       ]);
       if (!seriesRes.ok) throw new Error('Not found');
       const { series } = await seriesRes.json();
@@ -117,13 +136,14 @@ export function SeriesContent() {
 
   const refreshDetail = async () => {
     if (!detailSeries) return;
-    await openDetail(detailSeries.id);
+    await openDetail(detailSeries as SeriesWithStatus);
     await fetchSeries();
   };
 
   const handleCreated = (newSeries: Series) => {
     setShowCreateDialog(false);
-    setSeriesList((prev) => [newSeries, ...prev]);
+    // Redirect to planning page for the new series
+    router.push(`/series/${newSeries.id}/plan`);
   };
 
   const filtered = searchQuery
@@ -215,11 +235,7 @@ export function SeriesContent() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filtered.map((s) => (
-            <SeriesCard
-              key={s.id}
-              series={s}
-              onClick={() => openDetail(s.id)}
-            />
+            <SeriesCard key={s.id} series={s} onClick={() => openDetail(s)} />
           ))}
         </div>
       )}
