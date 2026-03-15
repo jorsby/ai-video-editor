@@ -697,6 +697,10 @@ export function StoryboardCards({
     (storyboard?.model === 'wan26flash' || isKlingModel) &&
     refVideoMode === 'narrative';
 
+  // Dialogue/cinematic mode: Kling generates native audio — no TTS, no voiceover controls
+  const isDialogueMode =
+    isRefToVideoMode && isKlingModel && refVideoMode === 'dialogue_scene';
+
   const processingVideoCount = useMemo(
     () =>
       sortedScenes.filter((scene) => scene.video_status === 'processing')
@@ -2804,171 +2808,175 @@ export function StoryboardCards({
           </div>
         )}
 
-        {/* Audio Section */}
-        <Collapsible open={isAudioOpen} onOpenChange={setIsAudioOpen}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
-            >
-              <span className="flex items-center gap-1.5">
-                <IconMicrophone className="size-3.5 text-blue-400" />
-                <span className="text-xs font-medium">Audio</span>
-              </span>
-              {isAudioOpen ? (
-                <IconChevronUp className="size-3 text-muted-foreground" />
-              ) : (
-                <IconChevronDown className="size-3 text-muted-foreground" />
-              )}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="px-2 py-2 flex flex-col gap-2">
-              {/* Voice select */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Voice
+        {/* Audio Section — hidden in dialogue mode (Kling generates native audio) */}
+        {!isDialogueMode && (
+          <Collapsible open={isAudioOpen} onOpenChange={setIsAudioOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <IconMicrophone className="size-3.5 text-blue-400" />
+                  <span className="text-xs font-medium">Audio</span>
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <Select
-                    value={
-                      (
-                        voiceConfig[selectedLanguage] ??
-                        voiceConfig[Object.keys(voiceConfig)[0]]
-                      )?.voice ?? FALLBACK_VOICE
+                {isAudioOpen ? (
+                  <IconChevronUp className="size-3 text-muted-foreground" />
+                ) : (
+                  <IconChevronDown className="size-3 text-muted-foreground" />
+                )}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="px-2 py-2 flex flex-col gap-2">
+                {/* Voice select */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Voice
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={
+                        (
+                          voiceConfig[selectedLanguage] ??
+                          voiceConfig[Object.keys(voiceConfig)[0]]
+                        )?.voice ?? FALLBACK_VOICE
+                      }
+                      onValueChange={(value) => {
+                        setVoiceConfig((prev) => ({
+                          ...prev,
+                          [selectedLanguage]: {
+                            ...prev[selectedLanguage],
+                            voice: value,
+                          },
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="h-8 flex-1 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VOICES.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
+                            <span>{v.label}</span>
+                            <span className="ml-1 text-muted-foreground">
+                              {v.description}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* TTS Model + Speed */}
+                <div className="flex items-end gap-2">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      TTS Model
+                    </span>
+                    <Select
+                      value={ttsModel}
+                      onValueChange={(v) => setTtsModel(v as TTSModelKey)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(TTS_MODELS) as TTSModelKey[]).map(
+                          (key) => (
+                            <SelectItem key={key} value={key}>
+                              <span>{TTS_MODELS[key].label}</span>
+                              <span className="ml-1 text-muted-foreground">
+                                {TTS_MODELS[key].description}
+                              </span>
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      Speed {ttsSpeed.toFixed(1)}x
+                    </span>
+                    <Slider
+                      value={[ttsSpeed]}
+                      onValueChange={([v]) => setTtsSpeed(v)}
+                      min={0.7}
+                      max={1.2}
+                      step={0.05}
+                      className="py-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={selectedSceneIds.size === 0 || isGenerating}
+                    onClick={handleGenerateVoiceovers}
+                    className="h-9 text-xs flex-1"
+                  >
+                    {isGenerating ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconMicrophone className="size-3.5 mr-1" />
+                    )}
+                    Generate Voiceover
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      selectedSceneIds.size === 0 ||
+                      isGeneratingAll ||
+                      isGenerating
                     }
-                    onValueChange={(value) => {
-                      setVoiceConfig((prev) => ({
-                        ...prev,
-                        [selectedLanguage]: {
-                          ...prev[selectedLanguage],
-                          voice: value,
-                        },
-                      }));
-                    }}
+                    onClick={handleGenerateAllVoiceovers}
+                    className="h-9 text-xs"
+                    title={`Generate voiceovers for all languages (${Object.keys(
+                      voiceConfig
+                    )
+                      .map((c) => c.toUpperCase())
+                      .join(', ')})`}
                   >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VOICES.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          <span>{v.label}</span>
-                          <span className="ml-1 text-muted-foreground">
-                            {v.description}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* TTS Model + Speed */}
-              <div className="flex items-end gap-2">
-                <div className="flex flex-col gap-1 flex-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    TTS Model
-                  </span>
-                  <Select
-                    value={ttsModel}
-                    onValueChange={(v) => setTtsModel(v as TTSModelKey)}
+                    {isGeneratingAll ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconMicrophone className="size-3.5 mr-1" />
+                    )}
+                    All Languages
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      selectedScenesWithVideoForSfx.length === 0 ||
+                      isGeneratingSfx
+                    }
+                    onClick={handleGenerateSfx}
+                    className="h-9 text-xs"
+                    title={
+                      selectedScenesWithVideoForSfx.length === 0
+                        ? 'Select scenes with generated videos'
+                        : `Add SFX to ${selectedScenesWithVideoForSfx.length} scene(s)`
+                    }
                   >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(TTS_MODELS) as TTSModelKey[]).map((key) => (
-                        <SelectItem key={key} value={key}>
-                          <span>{TTS_MODELS[key].label}</span>
-                          <span className="ml-1 text-muted-foreground">
-                            {TTS_MODELS[key].description}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1 flex-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Speed {ttsSpeed.toFixed(1)}x
-                  </span>
-                  <Slider
-                    value={[ttsSpeed]}
-                    onValueChange={([v]) => setTtsSpeed(v)}
-                    min={0.7}
-                    max={1.2}
-                    step={0.05}
-                    className="py-2"
-                  />
+                    {isGeneratingSfx ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconVolume className="size-3.5 mr-1" />
+                    )}
+                    SFX
+                  </Button>
                 </div>
               </div>
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-1.5 pt-1">
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={selectedSceneIds.size === 0 || isGenerating}
-                  onClick={handleGenerateVoiceovers}
-                  className="h-9 text-xs flex-1"
-                >
-                  {isGenerating ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconMicrophone className="size-3.5 mr-1" />
-                  )}
-                  Generate Voiceover
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={
-                    selectedSceneIds.size === 0 ||
-                    isGeneratingAll ||
-                    isGenerating
-                  }
-                  onClick={handleGenerateAllVoiceovers}
-                  className="h-9 text-xs"
-                  title={`Generate voiceovers for all languages (${Object.keys(
-                    voiceConfig
-                  )
-                    .map((c) => c.toUpperCase())
-                    .join(', ')})`}
-                >
-                  {isGeneratingAll ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconMicrophone className="size-3.5 mr-1" />
-                  )}
-                  All Languages
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={
-                    selectedScenesWithVideoForSfx.length === 0 ||
-                    isGeneratingSfx
-                  }
-                  onClick={handleGenerateSfx}
-                  className="h-9 text-xs"
-                  title={
-                    selectedScenesWithVideoForSfx.length === 0
-                      ? 'Select scenes with generated videos'
-                      : `Add SFX to ${selectedScenesWithVideoForSfx.length} scene(s)`
-                  }
-                >
-                  {isGeneratingSfx ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconVolume className="size-3.5 mr-1" />
-                  )}
-                  SFX
-                </Button>
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         {/* Visual Section */}
         <Collapsible open={isVisualOpen} onOpenChange={setIsVisualOpen}>
@@ -3986,6 +3994,7 @@ export function StoryboardCards({
                   ? handleDialogueDurationChange
                   : undefined
               }
+              isDialogueMode={isDialogueMode}
             />
           );
         })}

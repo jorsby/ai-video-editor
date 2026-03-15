@@ -141,6 +141,7 @@ interface SceneCardProps {
   dialogueDurationSeconds?: number;
   dialogueDurationLlmDefault?: number;
   onChangeDialogueDuration?: (sceneId: string, seconds: number) => void;
+  isDialogueMode?: boolean;
 }
 
 interface SceneThumbnailProps {
@@ -431,6 +432,7 @@ interface ExpandedContentProps {
   hasVideo?: boolean;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
+  isDialogueMode?: boolean;
 }
 
 function ExpandedContent({
@@ -450,6 +452,7 @@ function ExpandedContent({
   hasVideo,
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
+  isDialogueMode: isDialogueModeExpanded,
 }: ExpandedContentProps) {
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
@@ -539,7 +542,7 @@ function ExpandedContent({
         <div className="flex items-center gap-1.5">
           <IconMicrophone size={12} className="text-blue-400" />
           <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            Voiceover
+            {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
           </span>
           {renderVoiceoverStatus()}
           {voiceoverDurationLabel && (
@@ -662,7 +665,9 @@ function ExpandedContent({
             title={onSaveVoiceoverText ? 'Click to edit' : undefined}
           >
             {displayVoiceover || (
-              <span className="italic text-muted-foreground">No voiceover</span>
+              <span className="italic text-muted-foreground">
+                {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+              </span>
             )}
           </p>
         )}
@@ -792,7 +797,8 @@ function ExpandedContent({
               Video
             </Button>
           )}
-          {voiceover?.status === 'success' &&
+          {!isDialogueModeExpanded &&
+            voiceover?.status === 'success' &&
             voiceover?.audio_url &&
             onAddVoiceoverToTimeline && (
               <Button
@@ -1016,6 +1022,7 @@ export function SceneCard({
   dialogueDurationSeconds,
   dialogueDurationLlmDefault,
   onChangeDialogueDuration,
+  isDialogueMode,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1394,7 +1401,9 @@ export function SceneCard({
           <IconMicrophone size={10} className="text-blue-400 flex-shrink-0" />
           <p className="text-[10px] text-foreground/70 truncate flex-1">
             {voiceoverPreview || (
-              <span className="italic text-muted-foreground">No voiceover</span>
+              <span className="italic text-muted-foreground">
+                {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+              </span>
             )}
           </p>
           {renderCollapsedVoiceoverStatus()}
@@ -1517,6 +1526,7 @@ export function SceneCard({
             hasVideo={!!hasVideo}
             onAddVideoToTimeline={onAddVideoToTimeline}
             onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
+            isDialogueMode={isDialogueMode}
           />
         </>
       )}
