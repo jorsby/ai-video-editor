@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   createCharacter,
   listCharacters,
@@ -6,18 +8,26 @@ import {
 import { type NextRequest, NextResponse } from 'next/server';
 
 // GET /api/characters — list all characters for the authenticated user
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const characters = await listCharacters(supabase, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const characters = await listCharacters(dbClient, user.id);
     return NextResponse.json({ characters });
   } catch (error) {
     console.error('List characters error:', error);
@@ -33,8 +43,15 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -47,7 +64,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    const character = await createCharacter(supabase, user.id, {
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const character = await createCharacter(dbClient, user.id, {
       name: name.trim(),
       description: description?.trim() || undefined,
       tags: Array.isArray(tags) ? tags : undefined,

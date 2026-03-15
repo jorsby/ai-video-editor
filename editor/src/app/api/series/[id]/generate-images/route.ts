@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -32,12 +34,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
 
     const body = await req.json();
     const { asset_id, variant_id } = body;
@@ -50,7 +61,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Load series (verify ownership)
-    const { data: series, error: seriesError } = await supabase
+    const { data: series, error: seriesError } = await dbClient
       .from('series')
       .select('id, name, genre, tone, plan_draft')
       .eq('id', id)
@@ -62,7 +73,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Load asset
-    const { data: asset, error: assetError } = await supabase
+    const { data: asset, error: assetError } = await dbClient
       .from('series_assets')
       .select('id, type, name, description, tags')
       .eq('id', asset_id)
@@ -74,7 +85,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Load variant
-    const { data: variant, error: variantError } = await supabase
+    const { data: variant, error: variantError } = await dbClient
       .from('series_asset_variants')
       .select('id, label, description')
       .eq('id', variant_id)

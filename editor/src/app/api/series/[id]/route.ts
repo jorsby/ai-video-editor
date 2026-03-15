@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   deleteSeries,
   getSeriesWithAssets,
@@ -9,19 +11,27 @@ import { type NextRequest, NextResponse } from 'next/server';
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/series/[id] — get series with all assets/variants
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeriesWithAssets(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeriesWithAssets(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -42,8 +52,15 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -74,7 +91,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const series = await updateSeries(supabase, id, user.id, updates);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await updateSeries(dbClient, id, user.id, updates);
     return NextResponse.json({ series });
   } catch (error) {
     console.error('Update series error:', error);
@@ -86,24 +104,32 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/series/[id] — delete series (cascades to all assets/episodes)
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const existing = await getSeriesWithAssets(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const existing = await getSeriesWithAssets(dbClient, id, user.id);
     if (!existing) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    await deleteSeries(supabase, id, user.id);
+    await deleteSeries(dbClient, id, user.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete series error:', error);

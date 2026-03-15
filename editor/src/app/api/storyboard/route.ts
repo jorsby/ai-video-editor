@@ -4,6 +4,8 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { detectAll } from 'tinyld';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   klingO3PlanSchema,
   klingO3ContentSchema,
@@ -755,15 +757,24 @@ export async function POST(req: NextRequest) {
 
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+
     // We need a supabase client that can write to debug_logs (service role not needed, user supabase works)
-    const logSupabase = supabase;
+    const logSupabase = dbClient;
 
     // --- Ref-to-Video mode ---
     if (mode === 'ref_to_video') {
@@ -806,7 +817,7 @@ export async function POST(req: NextRequest) {
         workflow_variant: resolvedWorkflowVariant,
       };
 
-      const { data: storyboard, error: dbError } = await supabase
+      const { data: storyboard, error: dbError } = await dbClient
         .from('storyboards')
         .insert({
           project_id: projectId,
@@ -941,7 +952,7 @@ Generate the storyboard.`;
     };
 
     // Create draft storyboard record with the generated plan
-    const { data: storyboard, error: dbError } = await supabase
+    const { data: storyboard, error: dbError } = await dbClient
       .from('storyboards')
       .insert({
         project_id: projectId,

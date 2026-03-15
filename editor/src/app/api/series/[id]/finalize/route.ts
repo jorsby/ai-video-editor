@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   createSeriesAsset,
   createAssetVariant,
@@ -43,20 +45,29 @@ interface SeriesPlanDraft {
   episodes?: PlanEpisode[];
 }
 
-export async function POST(_req: NextRequest, context: RouteContext) {
+export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+
     // Load series with plan_draft
-    const { data: series, error: seriesError } = await supabase
+    const { data: series, error: seriesError } = await dbClient
       .from('series')
       .select('id, name, plan_draft, plan_status')
       .eq('id', id)
@@ -118,7 +129,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
         char.appearance ? `Appearance: ${char.appearance}` : null,
       ].filter(Boolean);
 
-      const asset = await createSeriesAsset(supabase, id, {
+      const asset = await createSeriesAsset(dbClient, id, {
         type: 'character',
         name: char.name,
         description: descParts.join('\n') || undefined,
@@ -126,7 +137,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
         sort_order: i,
       });
 
-      const variant = await createAssetVariant(supabase, asset.id, {
+      const variant = await createAssetVariant(dbClient, asset.id, {
         label: 'Default',
         description: char.appearance || undefined,
         is_default: true,
@@ -150,14 +161,14 @@ export async function POST(_req: NextRequest, context: RouteContext) {
         loc.atmosphere ? `Atmosphere: ${loc.atmosphere}` : null,
       ].filter(Boolean);
 
-      const asset = await createSeriesAsset(supabase, id, {
+      const asset = await createSeriesAsset(dbClient, id, {
         type: 'location',
         name: loc.name,
         description: descParts.join('\n') || undefined,
         sort_order: i,
       });
 
-      const variant = await createAssetVariant(supabase, asset.id, {
+      const variant = await createAssetVariant(dbClient, asset.id, {
         label: 'Default',
         description: loc.atmosphere || undefined,
         is_default: true,
@@ -176,14 +187,14 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       const prop = props[i];
       if (!prop.name) continue;
 
-      const asset = await createSeriesAsset(supabase, id, {
+      const asset = await createSeriesAsset(dbClient, id, {
         type: 'prop',
         name: prop.name,
         description: prop.description || undefined,
         sort_order: i,
       });
 
-      const variant = await createAssetVariant(supabase, asset.id, {
+      const variant = await createAssetVariant(dbClient, asset.id, {
         label: 'Default',
         is_default: true,
       });
@@ -202,7 +213,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
       const epTitle = ep.title ?? `Episode ${epNum}`;
 
       // Create a project for this episode
-      const { data: project, error: projectError } = await supabase
+      const { data: project, error: projectError } = await dbClient
         .from('projects')
         .insert({ user_id: user.id, name: `${series.name} — ${epTitle}` })
         .select('id')
@@ -213,7 +224,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
         continue;
       }
 
-      const episode = await createEpisode(supabase, id, {
+      const episode = await createEpisode(dbClient, id, {
         project_id: project.id,
         episode_number: epNum,
         title: ep.title || undefined,
@@ -234,7 +245,7 @@ export async function POST(_req: NextRequest, context: RouteContext) {
     }
 
     // Mark series as finalized
-    const { error: finalizeError } = await supabase
+    const { error: finalizeError } = await dbClient
       .from('series')
       .update(seriesUpdates)
       .eq('id', id)

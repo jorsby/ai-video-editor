@@ -1,20 +1,30 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import { createSeries, listSeries } from '@/lib/supabase/series-service';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // GET /api/series — list all series for the authenticated user
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await listSeries(supabase, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await listSeries(dbClient, user.id);
     return NextResponse.json({ series });
   } catch (error) {
     console.error('List series error:', error);
@@ -30,8 +40,15 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -44,7 +61,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    const series = await createSeries(supabase, user.id, {
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await createSeries(dbClient, user.id, {
       name: name.trim(),
       genre: genre?.trim() || undefined,
       tone: tone?.trim() || undefined,
