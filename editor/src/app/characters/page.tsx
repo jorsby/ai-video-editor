@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { Button } from '@/components/ui/button';
-import { LogOut, Calendar, Users } from 'lucide-react';
-import { DashboardContent } from '@/components/dashboard/dashboard-content';
+import { LogOut, ArrowLeft } from 'lucide-react';
+import { CharactersContent } from '@/components/characters/characters-content';
 import Link from 'next/link';
 
-export default async function Dashboard() {
+export default async function CharactersPage() {
   const supabase = await createClient();
 
   const {
@@ -18,28 +18,20 @@ export default async function Dashboard() {
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-background relative overflow-hidden">
-      {/* Subtle gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-muted/10" />
-
-      {/* Ambient glow */}
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/3 rounded-full blur-3xl" />
 
-      {/* Header */}
       <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border/50">
         <div className="flex items-center gap-4">
-          <span className="text-lg font-semibold tracking-tight">Combo</span>
-          <Link href="/calendar">
+          <Link href="/dashboard">
             <Button variant="ghost" size="sm">
-              <Calendar className="w-4 h-4" />
-              <span className="ml-1.5">Calendar</span>
+              <ArrowLeft className="w-4 h-4" />
+              <span className="ml-1.5">Dashboard</span>
             </Button>
           </Link>
-          <Link href="/characters">
-            <Button variant="ghost" size="sm">
-              <Users className="w-4 h-4" />
-              <span className="ml-1.5">Characters</span>
-            </Button>
-          </Link>
+          <span className="text-lg font-semibold tracking-tight">
+            Characters
+          </span>
         </div>
 
         <div className="flex items-center gap-4">
@@ -53,17 +45,9 @@ export default async function Dashboard() {
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="relative z-10 flex-1 px-6 py-12">
-        <DashboardContent />
+      <main className="relative z-10 flex-1 px-6 py-8">
+        <CharactersContent />
       </main>
-
-      {/* Footer */}
-      <footer className="relative z-10 py-4 text-center">
-        <p className="text-xs text-muted-foreground/50">
-          AI-powered video editing
-        </p>
-      </footer>
     </div>
   );
 }

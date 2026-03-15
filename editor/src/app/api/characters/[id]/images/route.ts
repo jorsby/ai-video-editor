@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import {
   addCharacterImage,
+  deleteCharacterImage,
   getCharacter,
   type CharacterImageAngle,
   type CharacterImageKind,
@@ -116,6 +117,65 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({ image }, { status: 201 });
   } catch (error) {
     console.error('Upload character image error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/characters/[id]/images — delete a character image
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  try {
+    const { id: characterId } = await context.params;
+    const supabase = await createClient('studio');
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Verify character ownership
+    const character = await getCharacter(supabase, characterId, user.id);
+    if (!character) {
+      return NextResponse.json(
+        { error: 'Character not found' },
+        { status: 404 }
+      );
+    }
+
+    const body = await req.json();
+    const imageId = body.image_id;
+
+    if (!imageId || typeof imageId !== 'string') {
+      return NextResponse.json(
+        { error: 'image_id is required' },
+        { status: 400 }
+      );
+    }
+
+    // Find the image to get storage path
+    const image = character.character_images.find((img) => img.id === imageId);
+
+    if (!image) {
+      return NextResponse.json({ error: 'Image not found' }, { status: 404 });
+    }
+
+    // Delete from storage
+    if (image.storage_path) {
+      await supabase.storage
+        .from('character-assets')
+        .remove([image.storage_path]);
+    }
+
+    // Delete DB record
+    await deleteCharacterImage(supabase, imageId, characterId);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Delete character image error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
