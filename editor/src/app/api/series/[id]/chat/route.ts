@@ -136,7 +136,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           'X-Title': 'Octupost Series Showrunner',
         },
         body: JSON.stringify({
-          model: 'openai/gpt-5.4',
+          model: 'google/gemini-2.5-pro-preview',
           messages: [
             { role: 'system', content: contextualSystemPrompt },
             ...messages,
