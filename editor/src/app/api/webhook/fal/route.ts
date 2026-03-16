@@ -559,11 +559,13 @@ async function handleObjectsSplit(
     const imageUrl = urlImages[i]?.url || null;
     const status = imageUrl ? 'success' : 'failed';
 
+    // Don't overwrite objects that were pre-populated from series assets
     const { count } = await supabase
       .from('objects')
       .update({ url: imageUrl, final_url: imageUrl, status })
       .eq('grid_image_id', grid_image_id)
-      .eq('grid_position', i);
+      .eq('grid_position', i)
+      .neq('status', 'success'); // Skip already-resolved objects
 
     if (status === 'success') successCount++;
     log.info('Objects updated for grid position', {
@@ -602,11 +604,13 @@ async function handleBackgroundsSplit(
     const imageUrl = urlImages[i]?.url || null;
     const status = imageUrl ? 'success' : 'failed';
 
+    // Don't overwrite backgrounds that were pre-populated from series assets
     const { count } = await supabase
       .from('backgrounds')
       .update({ url: imageUrl, final_url: imageUrl, status })
       .eq('grid_image_id', grid_image_id)
-      .eq('grid_position', i);
+      .eq('grid_position', i)
+      .neq('status', 'success'); // Skip already-resolved backgrounds
 
     if (status === 'success') successCount++;
     log.info('Backgrounds updated for grid position', {

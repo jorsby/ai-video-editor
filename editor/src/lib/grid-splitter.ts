@@ -460,11 +460,13 @@ export async function updateObjects(
   let successCount = 0;
   for (const tile of tiles) {
     const status = tile.url ? 'success' : 'failed';
+    // Skip rows already pre-populated from series assets (status = 'success')
     await supabase
       .from('objects')
       .update({ url: tile.url, final_url: tile.url, status })
       .eq('grid_image_id', gridImageId)
-      .eq('grid_position', tile.index);
+      .eq('grid_position', tile.index)
+      .neq('status', 'success'); // Don't overwrite series-injected images
     if (status === 'success') successCount++;
   }
   log.success('Objects updated', {
@@ -483,11 +485,13 @@ export async function updateBackgrounds(
   let successCount = 0;
   for (const tile of tiles) {
     const status = tile.url ? 'success' : 'failed';
+    // Skip rows already pre-populated from series assets (status = 'success')
     await supabase
       .from('backgrounds')
       .update({ url: tile.url, final_url: tile.url, status })
       .eq('grid_image_id', gridImageId)
-      .eq('grid_position', tile.index);
+      .eq('grid_position', tile.index)
+      .neq('status', 'success'); // Don't overwrite series-injected images
     if (status === 'success') successCount++;
   }
   log.success('Backgrounds updated', {

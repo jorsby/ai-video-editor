@@ -7,6 +7,10 @@ import {
   updateObjects,
   updateBackgrounds,
 } from '@/lib/grid-splitter';
+import {
+  resolveSeriesAssetsForProject,
+  matchSeriesAsset,
+} from '@/lib/supabase/series-asset-resolver';
 
 export async function POST(req: NextRequest) {
   try {
@@ -357,6 +361,81 @@ export async function POST(req: NextRequest) {
       count: backgroundsCreated,
       time_ms: log.endTiming('create_backgrounds'),
     });
+
+    // Step 3.5: Inject series asset images for matched objects/backgrounds
+    // This pre-populates url/final_url/status for items that match series characters,
+    // locations, or props — so they appear immediately without waiting for grid split.
+    const projectId: string = storyboard.project_id;
+    let seriesObjectsInjected = 0;
+    let seriesBackgroundsInjected = 0;
+
+    try {
+      const seriesAssetMap = await resolveSeriesAssetsForProject(
+        adminSupabase,
+        projectId
+      );
+
+      if (seriesAssetMap) {
+        // Pre-populate objects that match series characters or props
+        for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
+          const objectIndices = scene_object_indices[sceneIdx] || [];
+          for (const gridPos of objectIndices) {
+            const objName = objectNames[gridPos];
+            const match =
+              matchSeriesAsset(seriesAssetMap, objName, 'character') ??
+              matchSeriesAsset(seriesAssetMap, objName, 'prop');
+
+            if (match) {
+              await adminSupabase
+                .from('objects')
+                .update({
+                  url: match.url,
+                  final_url: match.url,
+                  status: 'success',
+                })
+                .eq('grid_image_id', objectsGrid.id)
+                .eq('grid_position', gridPos)
+                .eq('scene_id', sceneIds[sceneIdx]);
+              seriesObjectsInjected++;
+            }
+          }
+        }
+
+        // Pre-populate backgrounds that match series locations
+        for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
+          const bgIndex = scene_bg_indices[sceneIdx];
+          const bgName = plan.background_names[bgIndex];
+          const match = matchSeriesAsset(seriesAssetMap, bgName, 'location');
+
+          if (match) {
+            await adminSupabase
+              .from('backgrounds')
+              .update({
+                url: match.url,
+                final_url: match.url,
+                status: 'success',
+              })
+              .eq('grid_image_id', bgGrid.id)
+              .eq('grid_position', bgIndex)
+              .eq('scene_id', sceneIds[sceneIdx]);
+            seriesBackgroundsInjected++;
+          }
+        }
+
+        log.info('Series asset injection complete', {
+          objects_injected: seriesObjectsInjected,
+          objects_total: objectsCreated,
+          backgrounds_injected: seriesBackgroundsInjected,
+          backgrounds_total: backgroundsCreated,
+        });
+      }
+    } catch (seriesErr) {
+      // Non-fatal: log and continue — grid split will cover everything
+      console.warn(
+        '[approve-ref-grid] Series asset injection failed:',
+        seriesErr
+      );
+    }
 
     // Step 4: Split both grids using Sharp-based auto-splitter
     log.startTiming('split_requests');
