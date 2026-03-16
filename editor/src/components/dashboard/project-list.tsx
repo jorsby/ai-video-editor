@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ProjectCard } from './project-card';
 import { ProjectTagFilter } from './project-tag-filter';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { DBProject, ProjectTagMap } from '@/types/project';
 
 interface ProjectListProps {
@@ -78,12 +79,15 @@ export function ProjectList({
     if (!confirmed) return;
 
     setBulkDeleting(true);
-    for (const id of selectedIds) {
+    const ids = [...selectedIds];
+    for (let i = 0; i < ids.length; i++) {
       try {
-        const res = await fetch(`/api/projects?id=${id}`, {
+        const res = await fetch(`/api/projects?id=${ids[i]}`, {
           method: 'DELETE',
         });
-        if (res.ok) onDeleteProject(id);
+        if (res.ok) onDeleteProject(ids[i]);
+        // Small delay between deletes to avoid overwhelming the UI
+        if (i < ids.length - 1) await new Promise((r) => setTimeout(r, 200));
       } catch {
         // continue
       }
