@@ -1,46 +1,52 @@
-/**
- * POST /api/v2/storyboard/{id}/generate-video
- *
- * Queues video generation for scenes in a storyboard using Kling O3.
- * Only generates for scenes where objects + backgrounds are "ready".
- *
- * Body: {
- *   scene_indices?: number[],  // which scenes (0-based order). Omit → all ready scenes
- *   audio?: boolean            // Kling native audio. default false
- * }
- *
- * Response: {
- *   jobs: [{ scene_index, scene_id, fal_request_id, estimated_cost_usd }]
- * }
- */
 import { type NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { createLogger } from '@/lib/logger';
+import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-// Kling O3 standard reference-to-video
+const bodySchema = z.object({
+  scene_indices: z.array(z.number().int().min(0)).optional(),
+  audio: z.boolean().optional(),
+  confirm: z.boolean().optional(),
+});
+
 const KLING_O3_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
 
-// Cost estimates (USD) based on Kling O3 pricing
-const KLING_COST_PER_SECOND = 0.045; // ~$0.045/s for standard O3
+const COST_PER_5S = {
+  withAudio: 0.112,
+  withoutAudio: 0.084,
+};
 
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
-
-function estimateCost(durationSeconds: number): number {
-  return Math.round(durationSeconds * KLING_COST_PER_SECOND * 100) / 100;
+function calculateSceneCost(
+  durationSeconds: number,
+  withAudio: boolean
+): number {
+  const rate = withAudio ? COST_PER_5S.withAudio : COST_PER_5S.withoutAudio;
+  return (
+    Math.round(((durationSeconds / 5) * rate + Number.EPSILON) * 1000) / 1000
+  );
 }
 
-function bucketDuration(raw: number): number {
-  return Math.max(3, Math.min(15, raw));
+function splitMultiPromptDurations(prompts: string[], totalDuration: number) {
+  const count = prompts.length;
+  const base = Math.floor(totalDuration / count);
+  const remainder = totalDuration - base * count;
+
+  return prompts.map((prompt, index) => ({
+    prompt,
+    duration: String(
+      Math.max(3, Math.min(15, base + (index < remainder ? 1 : 0)))
+    ),
+  }));
+}
+
+function getWebhookBaseUrl() {
+  return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 }
 
 export async function POST(req: NextRequest, context: RouteContext) {
-  const log = createLogger();
-  log.setContext({ step: 'V2GenerateVideo' });
-
   try {
     const { id: storyboardId } = await context.params;
 
@@ -49,27 +55,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await req.json().catch(() => ({}));
-    const sceneIndicesFilter: number[] | undefined = Array.isArray(
-      body?.scene_indices
-    )
-      ? (body.scene_indices as unknown[]).filter(
-          (v): v is number => typeof v === 'number'
-        )
-      : undefined;
+    const parsedBody = bodySchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        {
+          error: parsedBody.error.issues[0]?.message ?? 'Invalid request body',
+        },
+        { status: 400 }
+      );
+    }
 
-    const enableAudio = typeof body?.audio === 'boolean' ? body.audio : false;
+    const sceneIndicesFilter = parsedBody.data.scene_indices;
+    const withAudio = parsedBody.data.audio ?? true;
+    const confirm = parsedBody.data.confirm ?? false;
 
     const db = createServiceClient('studio');
 
-    // Fetch storyboard + verify ownership via project
-    const { data: storyboard, error: sbError } = await db
+    const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
-      .select('id, project_id, plan_status, mode, model, aspect_ratio')
+      .select('id, project_id, plan, plan_status, aspect_ratio')
       .eq('id', storyboardId)
       .single();
 
-    if (sbError || !storyboard) {
+    if (storyboardError || !storyboard) {
       return NextResponse.json(
         { error: 'Storyboard not found' },
         { status: 404 }
@@ -87,16 +95,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    if (storyboard.plan_status !== 'approved') {
+    const parsedPlan = klingO3PlanSchema.safeParse(storyboard.plan);
+    if (!parsedPlan.success) {
       return NextResponse.json(
-        {
-          error: `Storyboard must be approved before generating video (current status: ${storyboard.plan_status})`,
-        },
+        { error: 'Storyboard plan is invalid or missing' },
         { status: 400 }
       );
     }
 
-    // Fetch scenes with their assets
+    const plan = parsedPlan.data;
+
     const { data: scenes, error: scenesError } = await db
       .from('scenes')
       .select(
@@ -107,262 +115,234 @@ export async function POST(req: NextRequest, context: RouteContext) {
         multi_prompt,
         multi_shots,
         video_status,
-        voiceovers (id, status, duration, language),
-        objects (id, final_url, scene_order, status),
-        backgrounds (id, final_url, status)
+        objects (scene_order, final_url, url, status),
+        backgrounds (final_url, url, status)
       `
       )
       .eq('storyboard_id', storyboardId)
       .order('order', { ascending: true });
 
-    if (scenesError || !scenes) {
-      console.error('[v2/generate-video] Failed to load scenes:', scenesError);
+    if (scenesError) {
       return NextResponse.json(
         { error: 'Failed to load scenes' },
         { status: 500 }
       );
     }
 
-    const aspectRatio = (storyboard.aspect_ratio as string | null) ?? '9:16';
+    const indexFilterSet = sceneIndicesFilter
+      ? new Set(sceneIndicesFilter)
+      : null;
+
+    const candidates = (scenes ?? []).filter(
+      (scene: {
+        order: number;
+        video_status: string | null;
+        objects: Array<{
+          scene_order: number;
+          final_url: string | null;
+          url: string | null;
+          status: string | null;
+        }>;
+        backgrounds: Array<{
+          final_url: string | null;
+          url: string | null;
+          status: string | null;
+        }>;
+      }) => {
+        if (indexFilterSet && !indexFilterSet.has(scene.order)) {
+          return false;
+        }
+
+        const objectsReady =
+          scene.objects.length > 0 &&
+          scene.objects.every(
+            (object) =>
+              object.status === 'success' &&
+              Boolean(object.final_url ?? object.url)
+          );
+
+        const backgroundsReady =
+          scene.backgrounds.length > 0 &&
+          scene.backgrounds.every(
+            (background) =>
+              background.status === 'success' &&
+              Boolean(background.final_url ?? background.url)
+          );
+
+        return objectsReady && backgroundsReady;
+      }
+    );
 
     const jobs: Array<{
       scene_index: number;
-      scene_id: string;
-      fal_request_id: string;
       estimated_cost_usd: number;
+      fal_request_id?: string;
     }> = [];
 
-    const skipped: Array<{
-      scene_index: number;
-      reason: string;
-    }> = [];
-
-    for (const scene of scenes as Array<{
+    for (const scene of candidates as Array<{
       id: string;
       order: number;
       prompt: string | null;
       multi_prompt: string[] | null;
-      multi_shots: boolean | null;
       video_status: string | null;
-      voiceovers: Array<{
-        id: string;
-        status: string;
-        duration: number | null;
-        language: string;
-      }>;
       objects: Array<{
-        id: string;
-        final_url: string | null;
         scene_order: number;
-        status: string;
+        final_url: string | null;
+        url: string | null;
       }>;
       backgrounds: Array<{
-        id: string;
         final_url: string | null;
-        status: string;
+        url: string | null;
       }>;
     }>) {
-      const sceneIndex = scene.order;
+      const duration = plan.scene_durations?.[scene.order] ?? 5;
+      const estimatedCost = calculateSceneCost(duration, withAudio);
 
-      // Filter by requested scene_indices if provided
-      if (
-        sceneIndicesFilter !== undefined &&
-        !sceneIndicesFilter.includes(sceneIndex)
-      ) {
+      if (!confirm) {
+        jobs.push({
+          scene_index: scene.order,
+          estimated_cost_usd: estimatedCost,
+        });
         continue;
       }
 
-      // Skip if video already processing or done
       if (
         scene.video_status === 'processing' ||
         scene.video_status === 'success'
       ) {
-        skipped.push({
-          scene_index: sceneIndex,
-          reason: `video_status is ${scene.video_status}`,
+        jobs.push({
+          scene_index: scene.order,
+          estimated_cost_usd: estimatedCost,
         });
         continue;
       }
 
-      // Check assets are ready
-      const objectsReady = scene.objects.every(
-        (o) => o.status === 'success' && o.final_url
-      );
-      const bgReady = scene.backgrounds.every(
-        (b) => b.status === 'success' && b.final_url
-      );
-
-      if (!objectsReady || !bgReady) {
-        skipped.push({
-          scene_index: sceneIndex,
-          reason: `assets not ready (objects: ${objectsReady}, backgrounds: ${bgReady})`,
+      const backgroundUrl =
+        scene.backgrounds[0]?.final_url ?? scene.backgrounds[0]?.url;
+      if (!backgroundUrl) {
+        jobs.push({
+          scene_index: scene.order,
+          estimated_cost_usd: estimatedCost,
         });
         continue;
       }
 
-      const background = scene.backgrounds[0];
-      if (!background?.final_url) {
-        skipped.push({ scene_index: sceneIndex, reason: 'no background url' });
-        continue;
-      }
-
-      // Determine duration from voiceovers
-      const maxDuration = Math.max(
-        0,
-        ...(scene.voiceovers ?? []).map((v) => v.duration ?? 0)
-      );
-      const rawDuration = maxDuration > 0 ? Math.ceil(maxDuration) : 5;
-      const duration = bucketDuration(rawDuration);
-
-      // Build Kling elements from objects (sorted by scene_order)
-      const sortedObjects = [...scene.objects].sort(
-        (a, b) => a.scene_order - b.scene_order
-      );
-      const elements = sortedObjects
-        .filter((o) => o.final_url)
-        .map((o) => ({
-          frontal_image_url: o.final_url!,
-          reference_image_urls: [o.final_url!],
-        }));
-
-      // Resolve prompt
-      const prompt =
-        scene.multi_prompt && scene.multi_prompt.length > 0
-          ? scene.multi_prompt[0]
-          : (scene.prompt ?? '');
+      const objectUrls = [...scene.objects]
+        .sort((a, b) => a.scene_order - b.scene_order)
+        .map((object) => object.final_url ?? object.url)
+        .filter((url): url is string => Boolean(url));
 
       const payload: Record<string, unknown> = {
-        elements,
-        image_urls: [background.final_url],
-        aspect_ratio: aspectRatio,
-        generate_audio: enableAudio,
+        elements: objectUrls.map((url) => ({
+          frontal_image_url: url,
+          reference_image_urls: [url],
+        })),
+        image_urls: [backgroundUrl],
+        aspect_ratio: storyboard.aspect_ratio ?? '9:16',
+        generate_audio: withAudio,
       };
 
       if (scene.multi_prompt && scene.multi_prompt.length > 1) {
-        const count = scene.multi_prompt.length;
-        const base = Math.floor(duration / count);
-        payload.multi_prompt = scene.multi_prompt.map((p, i) => ({
-          prompt: p,
-          duration: String(
-            Math.max(3, base + (i < duration - base * count ? 1 : 0))
-          ),
-        }));
+        payload.multi_prompt = splitMultiPromptDurations(
+          scene.multi_prompt,
+          duration
+        );
       } else {
-        payload.prompt = prompt;
+        payload.prompt =
+          scene.multi_prompt?.[0] ?? scene.prompt ?? `Scene ${scene.order + 1}`;
         payload.duration = String(duration);
       }
 
-      // Mark as processing (atomic set)
       await db
         .from('scenes')
         .update({
           video_status: 'processing',
-          video_resolution: '720p',
           video_model: 'klingo3',
+          video_resolution: '720p',
         })
         .eq('id', scene.id);
 
-      // Queue fal.ai job
-      const webhookParams = new URLSearchParams({
-        step: 'GenerateVideo',
-        scene_id: scene.id,
-      });
-      const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+      const webhookBase = getWebhookBaseUrl();
+      if (!webhookBase) {
+        return NextResponse.json(
+          { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+          { status: 500 }
+        );
+      }
 
       const falUrl = new URL(`https://queue.fal.run/${KLING_O3_ENDPOINT}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl);
+      falUrl.searchParams.set(
+        'fal_webhook',
+        `${webhookBase}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
+      );
 
-      try {
-        const falRes = await fetch(falUrl.toString(), {
-          method: 'POST',
-          headers: {
-            Authorization: `Key ${process.env.FAL_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+      const falRes = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${process.env.FAL_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-        if (!falRes.ok) {
-          const errText = await falRes.text();
-          console.error(
-            `[v2/generate-video] fal.ai error for scene ${sceneIndex}:`,
-            errText
-          );
-          await db
-            .from('scenes')
-            .update({
-              video_status: 'failed',
-              video_error_message: 'request_error',
-            })
-            .eq('id', scene.id);
-
-          skipped.push({
-            scene_index: sceneIndex,
-            reason: `fal.ai request failed: ${falRes.status}`,
-          });
-          continue;
-        }
-
-        const falData = await falRes.json();
-        const requestId = falData.request_id as string;
-
-        await db
-          .from('scenes')
-          .update({ video_request_id: requestId })
-          .eq('id', scene.id);
-
-        jobs.push({
-          scene_index: sceneIndex,
-          scene_id: scene.id,
-          fal_request_id: requestId,
-          estimated_cost_usd: estimateCost(duration),
-        });
-
-        log.info('Video queued', {
-          scene_id: scene.id,
-          scene_index: sceneIndex,
-          request_id: requestId,
-          duration,
-        });
-      } catch (err) {
-        console.error(
-          `[v2/generate-video] Exception for scene ${sceneIndex}:`,
-          err
-        );
+      if (!falRes.ok) {
         await db
           .from('scenes')
           .update({
             video_status: 'failed',
-            video_error_message: 'request_exception',
+            video_error_message: 'request_error',
           })
           .eq('id', scene.id);
 
-        skipped.push({
-          scene_index: sceneIndex,
-          reason: err instanceof Error ? err.message : 'Request exception',
-        });
+        return NextResponse.json(
+          { error: `Failed to queue scene ${scene.order}` },
+          { status: 500 }
+        );
       }
 
-      // Small delay between requests to avoid rate-limiting
-      if (jobs.length > 0 && scenes.indexOf(scene) < scenes.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      const falData = await falRes.json();
+      const requestId = falData.request_id as string | undefined;
+
+      if (!requestId) {
+        await db
+          .from('scenes')
+          .update({
+            video_status: 'failed',
+            video_error_message: 'missing_request_id',
+          })
+          .eq('id', scene.id);
+
+        return NextResponse.json(
+          {
+            error: `fal.ai response missing request_id for scene ${scene.order}`,
+          },
+          { status: 500 }
+        );
       }
+
+      await db
+        .from('scenes')
+        .update({ video_request_id: requestId })
+        .eq('id', scene.id);
+
+      jobs.push({
+        scene_index: scene.order,
+        estimated_cost_usd: estimatedCost,
+        fal_request_id: requestId,
+      });
     }
+
+    const totalEstimatedCost =
+      Math.round(
+        jobs.reduce((sum, job) => sum + job.estimated_cost_usd, 0) * 1000
+      ) / 1000;
 
     return NextResponse.json({
       jobs,
-      ...(skipped.length > 0 ? { skipped } : {}),
-      summary: {
-        queued: jobs.length,
-        skipped: skipped.length,
-        total_estimated_cost_usd:
-          Math.round(
-            jobs.reduce((sum, j) => sum + j.estimated_cost_usd, 0) * 100
-          ) / 100,
-      },
+      total_estimated_cost_usd: totalEstimatedCost,
     });
   } catch (error) {
-    console.error('[v2/generate-video] Unexpected error:', error);
+    console.error('[v2/storyboard/generate-video] Unexpected error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
