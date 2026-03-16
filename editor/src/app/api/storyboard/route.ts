@@ -258,7 +258,8 @@ async function generateRefToVideoPlan(
   videoModel: string,
   sourceLanguage: string,
   contentTemplate: StoryboardContentTemplate,
-  videoMode: RefVideoMode
+  videoMode: RefVideoMode,
+  seriesContext?: string
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
   const isSkyReels = videoModel === 'skyreels';
@@ -267,10 +268,13 @@ async function generateRefToVideoPlan(
     : isKling
       ? `${KLING_O3_SYSTEM_PROMPT}${buildKlingModeSystemPrompt(videoMode)}`
       : `${WAN26_FLASH_SYSTEM_PROMPT}${buildWanModeSystemPrompt(videoMode)}`;
-  const systemPrompt = applyStoryboardTemplateToSystemPrompt(
+  const templatePrompt = applyStoryboardTemplateToSystemPrompt(
     baseSystemPrompt,
     contentTemplate
   );
+  const systemPrompt = seriesContext
+    ? `${templatePrompt}\n\n--- SERIES CONTEXT ---\nThis episode is part of a series. Use the following context to maintain consistency:\n${seriesContext}\n--- END SERIES CONTEXT ---`
+    : templatePrompt;
   const contentSchemaForModel = isSkyReels
     ? skyreelsContentSchema
     : isKling
@@ -804,13 +808,108 @@ export async function POST(req: NextRequest) {
           contentTemplate: resolvedContentTemplate,
         },
       });
+
+      // --- Check if project belongs to a series and build context ---
+      let seriesContext: string | undefined;
+      try {
+        const { data: episodeLink } = await dbClient
+          .from('series_episodes')
+          .select('series_id, episode_number, title, synopsis')
+          .eq('project_id', projectId)
+          .single();
+
+        if (episodeLink) {
+          const { data: series } = await dbClient
+            .from('series')
+            .select('name, genre, tone, bible')
+            .eq('id', episodeLink.series_id)
+            .single();
+
+          const { data: allEpisodes } = (await dbClient
+            .from('series_episodes')
+            .select('episode_number, title, synopsis')
+            .eq('series_id', episodeLink.series_id)
+            .order('episode_number')) as {
+            data: Array<{
+              episode_number: number;
+              title: string | null;
+              synopsis: string | null;
+            }> | null;
+          };
+
+          const { data: assets } = (await dbClient
+            .from('series_assets')
+            .select('type, name, description')
+            .eq('series_id', episodeLink.series_id)
+            .order('sort_order')) as {
+            data: Array<{
+              type: string;
+              name: string;
+              description: string | null;
+            }> | null;
+          };
+
+          if (series) {
+            const parts: string[] = [];
+            parts.push(
+              `Series: "${series.name}" (${series.genre || 'unspecified genre'})`
+            );
+            if (series.tone) parts.push(`Tone: ${series.tone}`);
+            if (series.bible) parts.push(`Series Bible:\n${series.bible}`);
+
+            if (assets?.length) {
+              const characters = assets.filter((a) => a.type === 'character');
+              const locations = assets.filter((a) => a.type === 'location');
+              if (characters.length) {
+                parts.push(
+                  `Characters:\n${characters.map((c) => `- ${c.name}: ${c.description || 'No description'}`).join('\n')}`
+                );
+              }
+              if (locations.length) {
+                parts.push(
+                  `Locations:\n${locations.map((l) => `- ${l.name}: ${l.description || 'No description'}`).join('\n')}`
+                );
+              }
+            }
+
+            parts.push(
+              `\nThis is Episode ${episodeLink.episode_number}: "${episodeLink.title || 'Untitled'}"`
+            );
+            if (episodeLink.synopsis)
+              parts.push(`Episode Synopsis: ${episodeLink.synopsis}`);
+
+            if (allEpisodes?.length) {
+              const otherEps = allEpisodes
+                .filter((e) => e.episode_number !== episodeLink.episode_number)
+                .map(
+                  (e) =>
+                    `  Ep ${e.episode_number}: ${e.title || 'Untitled'} — ${e.synopsis || 'No synopsis'}`
+                )
+                .join('\n');
+              if (otherEps)
+                parts.push(`Other episodes in the series:\n${otherEps}`);
+            }
+
+            seriesContext = parts.join('\n\n');
+            console.log(
+              '[Storyboard] Series context injected for episode',
+              episodeLink.episode_number
+            );
+          }
+        }
+      } catch (err) {
+        // No series link — that's fine, standalone project
+        console.log('[Storyboard] No series context (standalone project)');
+      }
+
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
         model,
         videoModel,
         resolvedSourceLanguage,
         resolvedContentTemplate,
-        resolvedVideoMode
+        resolvedVideoMode,
+        seriesContext
       );
       const finalPlanWithVariant = {
         ...finalPlan,
