@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const dbClient = sessionUser ? supabase : createServiceClient('studio');
 
     const body = await req.json();
-    const { asset_id, variant_id } = body;
+    const { asset_id, variant_id, prompt: customPrompt } = body;
 
     if (!asset_id || !variant_id) {
       return NextResponse.json(
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Load series (verify ownership)
     const { data: series, error: seriesError } = await dbClient
       .from('series')
-      .select('id, name, genre, tone, plan_draft')
+      .select('id, name, genre, tone, bible, plan_draft')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
@@ -100,29 +100,40 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const config =
       ASSET_IMAGE_CONFIG[assetType] ?? ASSET_IMAGE_CONFIG.character;
 
-    // Build prompt from series context + asset info
-    const promptParts: string[] = [];
+    // Build prompt — use custom prompt if provided, otherwise auto-generate
+    let prompt: string;
+    if (typeof customPrompt === 'string' && customPrompt.trim()) {
+      prompt = customPrompt.trim();
+    } else {
+      const promptParts: string[] = [];
 
-    // Series style context
-    if (series.genre) promptParts.push(`${series.genre} genre`);
-    if (series.tone) promptParts.push(`${series.tone} tone`);
+      // Series style context
+      if (series.genre) promptParts.push(`${series.genre} genre`);
+      if (series.tone) promptParts.push(`${series.tone} tone`);
 
-    // Extract visual style from plan_draft if available
-    const planDraft = series.plan_draft as Record<string, unknown> | null;
-    if (planDraft?.bible && typeof planDraft.bible === 'string') {
-      const biblePreview = planDraft.bible.substring(0, 100);
-      if (biblePreview) promptParts.push(`visual style: ${biblePreview}`);
+      // Extract visual style from plan_draft or series bible
+      const planDraft = series.plan_draft as Record<string, unknown> | null;
+      const bibleText =
+        (planDraft?.bible && typeof planDraft.bible === 'string'
+          ? planDraft.bible
+          : null) ??
+        (series.bible && typeof series.bible === 'string'
+          ? series.bible
+          : null);
+      if (bibleText) {
+        promptParts.push(`visual style: ${bibleText.substring(0, 500)}`);
+      }
+
+      // Asset-specific info
+      promptParts.push(asset.name);
+      if (asset.description) promptParts.push(asset.description);
+      if (variant.description) promptParts.push(variant.description);
+
+      // Technical requirements
+      promptParts.push(config.suffix);
+
+      prompt = promptParts.filter(Boolean).join(', ');
     }
-
-    // Asset-specific info
-    promptParts.push(asset.name);
-    if (asset.description) promptParts.push(asset.description);
-    if (variant.description) promptParts.push(variant.description);
-
-    // Technical requirements
-    promptParts.push(config.suffix);
-
-    const prompt = promptParts.filter(Boolean).join(', ');
 
     // Build webhook URL
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal?step=SeriesAssetImage&variant_id=${variant_id}`;

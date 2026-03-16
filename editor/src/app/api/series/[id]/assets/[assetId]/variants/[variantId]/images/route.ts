@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
 import {
   addVariantImage,
   deleteVariantImage,
@@ -28,7 +29,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = createServiceClient('studio');
+
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const storagePath = `${user.id}/${id}/${variantId}/${fileName}`;
 
     const arrayBuffer = await file.arrayBuffer();
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await dbClient.storage
       .from('series-assets')
       .upload(storagePath, arrayBuffer, {
         contentType: file.type || 'image/jpeg',
@@ -61,15 +64,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+    const { data: signedData } = await dbClient.storage
+      .from('series-assets')
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
 
-    const image = await addVariantImage(supabase, {
+    const image = await addVariantImage(dbClient, {
       variant_id: variantId,
       angle: angle as Parameters<typeof addVariantImage>[1]['angle'],
       kind: kind as Parameters<typeof addVariantImage>[1]['kind'],
-      url: publicUrl,
+      url: signedData?.signedUrl ?? storagePath,
       storage_path: storagePath,
       source: 'upload',
     });
@@ -97,7 +100,9 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = createServiceClient('studio');
+
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -115,10 +120,10 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
 
     // Remove from storage if path provided
     if (storagePath) {
-      await supabase.storage.from('series-assets').remove([storagePath]);
+      await dbClient.storage.from('series-assets').remove([storagePath]);
     }
 
-    await deleteVariantImage(supabase, imageId, variantId);
+    await deleteVariantImage(dbClient, imageId, variantId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete variant image error:', error);

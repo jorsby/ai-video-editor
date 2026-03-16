@@ -30,7 +30,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    // Use service-role client so private storage URLs can always be signed.
+    const dbClient = createServiceClient('studio');
 
     // Verify series ownership
     const series = await getSeries(dbClient, id, user.id);

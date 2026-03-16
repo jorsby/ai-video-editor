@@ -1879,10 +1879,11 @@ async function handleSeriesAssetImage(
       );
     }
 
-    // Get public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+    // Get signed URL (private bucket)
+    const { data: signedData } = await supabase.storage
+      .from('series-assets')
+      .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
+    const signedImageUrl = signedData?.signedUrl ?? storagePath;
 
     // Create series_asset_variant_images record
     const { error: dbError } = await supabase
@@ -1891,7 +1892,7 @@ async function handleSeriesAssetImage(
         variant_id: variantId,
         angle: 'front',
         kind: 'frontal',
-        url: publicUrl,
+        url: signedImageUrl,
         storage_path: storagePath,
         source: 'generated',
         metadata: { fal_request_id: falPayload.request_id ?? null },
@@ -1905,9 +1906,13 @@ async function handleSeriesAssetImage(
       );
     }
 
-    log.summary('success', { variant_id: variantId, url: publicUrl });
+    log.summary('success', { variant_id: variantId, url: signedImageUrl });
     return new Response(
-      JSON.stringify({ success: true, variant_id: variantId, url: publicUrl }),
+      JSON.stringify({
+        success: true,
+        variant_id: variantId,
+        url: signedImageUrl,
+      }),
       { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
     );
   } catch (err) {
@@ -2028,10 +2033,11 @@ async function handleSeriesGridImage(
           continue;
         }
 
-        // Get public URL
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+        // Get signed URL (private bucket)
+        const { data: signedData } = await supabase.storage
+          .from('series-assets')
+          .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
+        const imageUrl = signedData?.signedUrl ?? storagePath;
 
         // Insert DB record
         const { error: dbError } = await supabase
@@ -2040,7 +2046,7 @@ async function handleSeriesGridImage(
             variant_id: variantId,
             angle: 'front',
             kind: 'frontal',
-            url: publicUrl,
+            url: imageUrl,
             storage_path: storagePath,
             source: 'generated',
             metadata: {
@@ -2056,13 +2062,13 @@ async function handleSeriesGridImage(
           });
           results.push({
             variant_id: variantId,
-            url: publicUrl,
+            url: imageUrl,
             success: false,
           });
           continue;
         }
 
-        results.push({ variant_id: variantId, url: publicUrl, success: true });
+        results.push({ variant_id: variantId, url: imageUrl, success: true });
         log.info(`Variant ${idx} saved`, { variant_id: variantId });
       } catch (cropErr) {
         log.error(`Crop/upload failed for variant ${idx}`, {

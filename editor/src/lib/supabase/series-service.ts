@@ -109,6 +109,65 @@ export interface SeriesEpisodeWithVariants extends SeriesEpisode {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any;
 
+const SERIES_ASSETS_BUCKET = 'series-assets';
+const SERIES_ASSET_SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
+
+function needsSignedSeriesAssetUrl(url: string | null): boolean {
+  if (!url) return true;
+
+  // Legacy rows stored public URLs even though the bucket is private.
+  if (url.includes('/object/public/series-assets/')) return true;
+
+  // Fallback rows may store raw storage paths (e.g. "generated/..."),
+  // which need to be converted to signed URLs at read time.
+  if (!/^https?:\/\//i.test(url)) return true;
+
+  return false;
+}
+
+async function hydrateSeriesAssetImageUrls(
+  supabase: SupabaseClient,
+  assets: SeriesAssetWithVariants[]
+): Promise<SeriesAssetWithVariants[]> {
+  return Promise.all(
+    assets.map(async (asset) => ({
+      ...asset,
+      series_asset_variants: await Promise.all(
+        asset.series_asset_variants.map(async (variant) => ({
+          ...variant,
+          series_asset_variant_images: await Promise.all(
+            variant.series_asset_variant_images.map(async (img) => {
+              if (
+                !img.storage_path ||
+                !needsSignedSeriesAssetUrl(img.url ?? null)
+              ) {
+                return img;
+              }
+
+              const { data: signedData, error: signedError } =
+                await supabase.storage
+                  .from(SERIES_ASSETS_BUCKET)
+                  .createSignedUrl(
+                    img.storage_path,
+                    SERIES_ASSET_SIGNED_URL_TTL_SECONDS
+                  );
+
+              if (signedError || !signedData?.signedUrl) {
+                return img;
+              }
+
+              return {
+                ...img,
+                url: signedData.signedUrl,
+              };
+            })
+          ),
+        }))
+      ),
+    }))
+  );
+}
+
 // ── Series CRUD ───────────────────────────────────────────────────────────────
 
 export async function listSeries(
@@ -162,7 +221,18 @@ export async function getSeriesWithAssets(
     if (error.code === 'PGRST116') return null;
     throw new Error(`Failed to get series with assets: ${error.message}`);
   }
-  return data;
+
+  if (!data) return null;
+
+  const hydratedAssets = await hydrateSeriesAssetImageUrls(
+    supabase,
+    data.series_assets ?? []
+  );
+
+  return {
+    ...data,
+    series_assets: hydratedAssets,
+  };
 }
 
 export async function createSeries(
@@ -244,7 +314,8 @@ export async function listSeriesAssets(
     .order('sort_order', { ascending: true });
 
   if (error) throw new Error(`Failed to list series assets: ${error.message}`);
-  return data ?? [];
+
+  return hydrateSeriesAssetImageUrls(supabase, data ?? []);
 }
 
 export async function createSeriesAsset(
