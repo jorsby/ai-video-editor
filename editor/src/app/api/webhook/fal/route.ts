@@ -1991,7 +1991,7 @@ async function handleSeriesGridImage(
   const requestId = falPayload.request_id ?? null;
   const { data: job } = await supabase
     .from('series_generation_jobs')
-    .select('prompt, model')
+    .select('prompt, model, config')
     .eq('request_id', requestId)
     .maybeSingle();
 
@@ -2098,6 +2098,15 @@ async function handleSeriesGridImage(
         } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
         const imageUrl = publicUrl;
 
+        const cellPrompts = Array.isArray(job?.config?.cell_prompts)
+          ? (job.config.cell_prompts as Array<{
+              variant_id?: string;
+              prompt?: string;
+            }>)
+          : [];
+        const cellPrompt =
+          cellPrompts.find((p) => p?.variant_id === variantId)?.prompt ?? null;
+
         // Insert DB record
         const { error: dbError } = await supabase
           .from('series_asset_variant_images')
@@ -2111,7 +2120,10 @@ async function handleSeriesGridImage(
             metadata: {
               fal_request_id: falPayload.request_id ?? null,
               grid_position: { row, col, index: idx },
-              prompt: job?.prompt ?? null,
+              generation_mode: 'grid',
+              prompt: cellPrompt ?? job?.prompt ?? null,
+              cell_prompt: cellPrompt,
+              grid_prompt: job?.prompt ?? null,
               model: job?.model ?? null,
             },
           });

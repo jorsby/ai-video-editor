@@ -331,6 +331,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return `${positionLabel(idx, cols, rows)}: ${label}${desc ? ` — ${desc}` : ''}`;
     });
 
+    // Cell-specific prompts (shown in UI as the generation prompt per image)
+    const cellPrompts = items.map((item, idx) => {
+      const asset = assetMap.get(item.asset_id);
+      const variant = variantMap.get(item.variant_id);
+      const label = itemLabel(type, idx);
+      const desc = [asset?.description, variant?.description]
+        .filter(Boolean)
+        .join(', ');
+
+      const parts = [
+        ...stylePrefix,
+        `${label}${desc ? ` — ${desc}` : ''}`,
+        TYPE_SUFFIXES[type] ?? '',
+        !allow_text
+          ? 'Absolutely no text, no words, no letters, no writing, no labels, no captions'
+          : '',
+        custom_suffix ?? '',
+      ].filter(Boolean);
+
+      return {
+        variant_id: item.variant_id,
+        prompt: parts.join('. '),
+      };
+    });
+
     const noTextSuffix = allow_text
       ? ''
       : 'Absolutely no text, no words, no letters, no writing, no labels, no captions';
@@ -472,6 +497,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         allow_text: !!allow_text,
         skip_genre: shouldSkipGenre,
         custom_suffix: custom_suffix ?? null,
+        cell_prompts: cellPrompts,
       },
     });
 
@@ -533,6 +559,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         resolution_requested: resolution,
         resolution_used: resolutionUsed,
         cell_ratio: cellRatio,
+        cell_prompts_count: cellPrompts.length,
       },
       poll_fallback: '60s automatic',
     });

@@ -54,6 +54,21 @@ type LightboxState = {
   isFinalized: boolean;
 };
 
+function getImagePrompt(metadata: unknown): string {
+  if (!metadata || typeof metadata !== 'object') return '';
+  const meta = metadata as Record<string, unknown>;
+
+  if (typeof meta.cell_prompt === 'string' && meta.cell_prompt.trim()) {
+    return meta.cell_prompt;
+  }
+
+  if (typeof meta.prompt === 'string' && meta.prompt.trim()) {
+    return meta.prompt;
+  }
+
+  return '';
+}
+
 function ImageLightbox({
   state,
   onClose,
@@ -178,7 +193,7 @@ function ImageLightbox({
           <div className="bg-background/90 rounded p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium text-muted-foreground">
-                Generation prompt
+                Generation prompt (cell)
               </p>
               <Badge variant={isFinalized ? 'secondary' : 'outline'}>
                 {isFinalized ? 'Finalized (locked)' : 'Editable'}
@@ -188,7 +203,7 @@ function ImageLightbox({
             <Textarea
               value={promptDraft}
               onChange={(e) => setPromptDraft(e.target.value)}
-              placeholder="Prompt used to generate this image"
+              placeholder="Cell prompt used to generate this image"
               className="min-h-[96px] text-xs"
               disabled={isFinalized || busy}
             />
@@ -299,10 +314,7 @@ function VariantCard({
     )[0];
   }, [variant.series_asset_variant_images]);
 
-  const latestPrompt =
-    typeof latestImage?.metadata?.prompt === 'string'
-      ? String(latestImage.metadata.prompt)
-      : '';
+  const latestPrompt = getImagePrompt(latestImage?.metadata);
 
   const latestModel =
     typeof latestImage?.metadata?.model === 'string'
@@ -482,10 +494,7 @@ function VariantCard({
                       img.url &&
                       onImageClick({
                         url: img.url,
-                        prompt:
-                          typeof img.metadata?.prompt === 'string'
-                            ? String(img.metadata.prompt)
-                            : '',
+                        prompt: getImagePrompt(img.metadata),
                         variantId: variant.id,
                         isFinalized: variant.is_finalized || variantInUse,
                       })
@@ -542,11 +551,11 @@ function VariantCard({
           )}
 
           <div className="space-y-2 pt-1 border-t border-border/40">
-            <p className="text-xs font-medium">Generation Prompt</p>
+            <p className="text-xs font-medium">Generation Prompt (Cell)</p>
             <Textarea
               value={promptDraft}
               onChange={(e) => setPromptDraft(e.target.value)}
-              placeholder="No prompt metadata found yet. Add a prompt and regenerate."
+              placeholder="No cell prompt metadata found yet. Add a prompt and regenerate."
               rows={3}
               className="text-xs"
               disabled={isLocked}
@@ -667,10 +676,7 @@ function AssetCard({
               setLightboxState({
                 url: firstImage.url,
                 alt: asset.name,
-                prompt:
-                  typeof firstImage.metadata?.prompt === 'string'
-                    ? String(firstImage.metadata.prompt)
-                    : '',
+                prompt: getImagePrompt(firstImage.metadata),
                 seriesId,
                 assetId: asset.id,
                 variantId: firstVariantWithImage.id,

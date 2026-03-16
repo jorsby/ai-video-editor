@@ -28,6 +28,7 @@ interface JobMeta {
     variant_ids?: string[];
     cols?: number;
     rows?: number;
+    cell_prompts?: Array<{ variant_id?: string; prompt?: string }>;
   } | null;
 }
 
@@ -269,6 +270,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
               .from(SERIES_ASSETS_BUCKET)
               .getPublicUrl(storagePath);
 
+            const cellPrompt =
+              jobMeta?.config?.cell_prompts?.find((p) => p?.variant_id === vid)
+                ?.prompt ?? null;
+
             await dbClient.from('series_asset_variant_images').insert({
               variant_id: vid,
               angle: 'front',
@@ -280,7 +285,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
                 fal_request_id: job.request_id,
                 grid_position: idx,
                 source: 'poll_fallback',
-                prompt: jobMeta?.prompt ?? null,
+                generation_mode: 'grid',
+                prompt: cellPrompt ?? jobMeta?.prompt ?? null,
+                cell_prompt: cellPrompt,
+                grid_prompt: jobMeta?.prompt ?? null,
                 model: jobMeta?.model ?? modelEndpoint,
               },
             });
