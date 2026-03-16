@@ -10,22 +10,57 @@ const SERIES_ASSETS_BUCKET = 'series-assets';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-interface PendingJob {
+interface PendingJobInput {
   request_id: string;
-  model: string;
-  type: 'grid' | 'single';
-  variant_ids: string[];
+  model?: string;
+  type?: 'grid' | 'single';
+  variant_ids?: string[];
   cols?: number;
   rows?: number;
+}
+
+interface JobMeta {
+  prompt?: string | null;
+  model?: string | null;
+  type?: string | null;
+  config?: {
+    variant_id?: string;
+    variant_ids?: string[];
+    cols?: number;
+    rows?: number;
+  } | null;
+}
+
+function resolveModelEndpoint(model?: string | null): string {
+  if (!model) return 'fal-ai/nano-banana-2';
+  if (model.includes('/')) return model;
+
+  const aliases: Record<string, string> = {
+    'nano-banana-2': 'fal-ai/nano-banana-2',
+    'flux-pro': 'fal-ai/flux-pro/v1.1',
+    'flux-2-pro': 'fal-ai/flux-2-pro',
+    banana: 'fal-ai/nano-banana-2',
+  };
+
+  return aliases[model] ?? model;
+}
+
+function extractImages(payload: any): Array<{ url?: string }> {
+  if (Array.isArray(payload?.images)) return payload.images;
+  if (Array.isArray(payload?.output?.images)) return payload.output.images;
+  return [];
 }
 
 /**
  * POST /api/series/[id]/poll-images
  *
  * Polls fal.ai for pending image generation jobs and processes completed ones.
- * This is a fallback for when webhooks don't land.
+ * Fallback for missing webhooks.
  *
- * Body: { jobs: PendingJob[] }
+ * Body:
+ * {
+ *   jobs: [{ request_id, model?, type?, variant_ids?, cols?, rows? }]
+ * }
  */
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
@@ -53,7 +88,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json();
-    const jobs: PendingJob[] = body.jobs;
+    const jobs: PendingJobInput[] = body.jobs;
 
     if (!Array.isArray(jobs) || jobs.length === 0) {
       return NextResponse.json(
@@ -71,11 +106,61 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (const job of jobs) {
       try {
+        if (!job.request_id) {
+          results.push({
+            request_id: '',
+            status: 'ERROR',
+            images_saved: 0,
+            error: 'request_id is required',
+          });
+          continue;
+        }
+
+        // Lookup saved metadata for this request
+        const { data: jobMetaRaw } = await dbClient
+          .from('series_generation_jobs')
+          .select('prompt, model, type, config')
+          .eq('request_id', job.request_id)
+          .maybeSingle();
+        const jobMeta = (jobMetaRaw ?? null) as JobMeta | null;
+
+        const modelEndpoint = resolveModelEndpoint(job.model ?? jobMeta?.model);
+        const type = (job.type ?? jobMeta?.type ?? 'single') as
+          | 'grid'
+          | 'single';
+
+        const inferredVariantIds =
+          job.variant_ids && job.variant_ids.length > 0
+            ? job.variant_ids
+            : Array.isArray(jobMeta?.config?.variant_ids)
+              ? jobMeta?.config?.variant_ids
+              : jobMeta?.config?.variant_id
+                ? [jobMeta.config.variant_id]
+                : [];
+
+        const cols = job.cols ?? jobMeta?.config?.cols ?? 2;
+        const rows =
+          job.rows ??
+          jobMeta?.config?.rows ??
+          Math.ceil(inferredVariantIds.length / cols);
+
         // Check fal.ai status
-        const statusUrl = `https://queue.fal.run/${job.model}/requests/${job.request_id}/status`;
+        const statusUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}/status`;
         const statusRes = await fetch(statusUrl, {
           headers: { Authorization: `Key ${FAL_KEY}` },
         });
+
+        if (!statusRes.ok) {
+          const errText = await statusRes.text();
+          results.push({
+            request_id: job.request_id,
+            status: 'ERROR',
+            images_saved: 0,
+            error: `Status check failed: ${statusRes.status} ${errText.slice(0, 120)}`,
+          });
+          continue;
+        }
+
         const statusData = await statusRes.json();
 
         if (statusData.status !== 'COMPLETED') {
@@ -83,17 +168,33 @@ export async function POST(req: NextRequest, context: RouteContext) {
             request_id: job.request_id,
             status: statusData.status ?? 'UNKNOWN',
             images_saved: 0,
+            error:
+              statusData.status === 'ERROR'
+                ? (statusData.error ?? 'fal.ai error')
+                : undefined,
           });
           continue;
         }
 
         // Fetch result
-        const resultUrl = `https://queue.fal.run/${job.model}/requests/${job.request_id}`;
+        const resultUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}`;
         const resultRes = await fetch(resultUrl, {
           headers: { Authorization: `Key ${FAL_KEY}` },
         });
+
+        if (!resultRes.ok) {
+          const errText = await resultRes.text();
+          results.push({
+            request_id: job.request_id,
+            status: 'COMPLETED',
+            images_saved: 0,
+            error: `Result fetch failed: ${resultRes.status} ${errText.slice(0, 120)}`,
+          });
+          continue;
+        }
+
         const resultData = await resultRes.json();
-        const images = resultData.images ?? resultData.output?.images ?? [];
+        const images = extractImages(resultData);
 
         if (!images.length || !images[0]?.url) {
           results.push({
@@ -105,10 +206,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
           continue;
         }
 
-        if (job.type === 'grid') {
-          // Grid: download, crop, upload each cell
-          const cols = job.cols ?? 2;
-          const rows = job.rows ?? Math.ceil(job.variant_ids.length / cols);
+        if (type === 'grid') {
+          if (!inferredVariantIds.length) {
+            results.push({
+              request_id: job.request_id,
+              status: 'COMPLETED',
+              images_saved: 0,
+              error: 'No variant_ids available for grid job',
+            });
+            continue;
+          }
+
           const imgRes = await fetch(images[0].url);
           const imgBuf = Buffer.from(await imgRes.arrayBuffer());
           const meta = await sharp(imgBuf).metadata();
@@ -116,8 +224,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           const cellH = Math.floor((meta.height ?? rows * 1024) / rows);
 
           let saved = 0;
-          for (let idx = 0; idx < job.variant_ids.length; idx++) {
-            const vid = job.variant_ids[idx];
+          for (let idx = 0; idx < inferredVariantIds.length; idx++) {
+            const vid = inferredVariantIds[idx];
             const col = idx % cols;
             const row = Math.floor(idx / cols);
 
@@ -130,15 +238,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
               const paths = old
                 .map((x: { storage_path?: string }) => x.storage_path)
                 .filter(Boolean);
-              if (paths.length)
+              if (paths.length) {
                 await dbClient.storage.from(SERIES_ASSETS_BUCKET).remove(paths);
+              }
               await dbClient
                 .from('series_asset_variant_images')
                 .delete()
                 .eq('variant_id', vid);
             }
 
-            // Crop
             const cellBuf = await sharp(imgBuf)
               .extract({
                 left: col * cellW,
@@ -149,7 +257,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
               .jpeg({ quality: 95 })
               .toBuffer();
 
-            // Upload
             const storagePath = `generated/${vid}/${Date.now()}_grid_poll_${idx}.jpg`;
             const { error: upErr } = await dbClient.storage
               .from(SERIES_ASSETS_BUCKET)
@@ -173,6 +280,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
                 fal_request_id: job.request_id,
                 grid_position: idx,
                 source: 'poll_fallback',
+                prompt: jobMeta?.prompt ?? null,
+                model: jobMeta?.model ?? modelEndpoint,
               },
             });
             saved++;
@@ -184,19 +293,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
             images_saved: saved,
           });
         } else {
-          // Single image: upload directly
-          const vid = job.variant_ids[0];
+          const vid = inferredVariantIds[0];
           if (!vid) {
             results.push({
               request_id: job.request_id,
               status: 'COMPLETED',
               images_saved: 0,
-              error: 'No variant_id',
+              error: 'No variant_id available for single job',
             });
             continue;
           }
 
-          // Delete old
           const { data: old } = await dbClient
             .from('series_asset_variant_images')
             .select('id, storage_path')
@@ -205,15 +312,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
             const paths = old
               .map((x: { storage_path?: string }) => x.storage_path)
               .filter(Boolean);
-            if (paths.length)
+            if (paths.length) {
               await dbClient.storage.from(SERIES_ASSETS_BUCKET).remove(paths);
+            }
             await dbClient
               .from('series_asset_variant_images')
               .delete()
               .eq('variant_id', vid);
           }
 
-          // Download and upload
           const imgRes = await fetch(images[0].url);
           const imgBuf = Buffer.from(await imgRes.arrayBuffer());
           const storagePath = `generated/${vid}/${Date.now()}_poll.jpg`;
@@ -246,6 +353,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             metadata: {
               fal_request_id: job.request_id,
               source: 'poll_fallback',
+              prompt: jobMeta?.prompt ?? null,
+              model: jobMeta?.model ?? modelEndpoint,
             },
           });
 
