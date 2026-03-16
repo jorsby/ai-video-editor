@@ -5,6 +5,14 @@ import { validateApiKey } from '@/lib/auth/api-key';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+// ── Model configuration ───────────────────────────────────────────────────────
+const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
+  'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
+  'flux-pro': { endpoint: 'fal-ai/flux-pro/v1.1', useImageSize: true },
+  'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
+};
+const DEFAULT_MODEL = 'nano-banana-2';
+
 // ── Aspect ratio → fal.ai value mapping ───────────────────────────────────────
 const ASPECT_RATIOS: Record<string, string> = {
   '1:1': '1:1',
@@ -109,9 +117,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       allow_text,
       skip_genre,
       custom_suffix,
+      model: modelOverride,
     } = body as {
       type: string;
       items: Array<{ asset_id: string; variant_id: string }>;
+      model?: string;
       grid?: {
         cols?: number;
         rows?: number;
@@ -325,41 +335,78 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('cols', String(cols));
     webhookUrl.searchParams.set('rows', String(rows));
 
-    // ── Submit to fal.ai ────────────────────────────────────────────────────
-    const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
-    falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
+    // ── Submit to fal.ai (with resolution fallback) ───────────────────────
+    const modelKey =
+      modelOverride && MODELS[modelOverride] ? modelOverride : DEFAULT_MODEL;
+    const modelConfig = MODELS[modelKey];
 
-    const falRes = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${process.env.FAL_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        num_images: 1,
-        resolution,
-        aspect_ratio: gridAspect,
-        output_format: 'jpeg',
-        safety_tolerance: '6',
-      }),
-    });
+    async function submitToFal(
+      res: string
+    ): Promise<{ request_id: string; resolution_used: string }> {
+      const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
+      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
 
-    if (!falRes.ok) {
-      const errText = await falRes.text();
-      console.error(
-        '[SeriesGrid] fal.ai request failed:',
-        falRes.status,
-        errText
-      );
-      return NextResponse.json(
-        { error: 'Image generation request failed' },
-        { status: 500 }
-      );
+      // Models use different size params
+      const sizeParams = modelConfig.useImageSize
+        ? { image_size: { width: gridWidth, height: gridHeight } }
+        : { resolution: res, aspect_ratio: gridAspect };
+
+      const falRes = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${process.env.FAL_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          num_images: 1,
+          ...sizeParams,
+          output_format: 'jpeg',
+          safety_tolerance: '6',
+        }),
+      });
+
+      if (!falRes.ok) {
+        const errText = await falRes.text();
+        throw new Error(
+          `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
+        );
+      }
+
+      const data = await falRes.json();
+      return { request_id: data.request_id, resolution_used: res };
     }
 
-    const falData = await falRes.json();
-    const requestId = falData.request_id;
+    let requestId: string;
+    let resolutionUsed = resolution;
+
+    try {
+      const result = await submitToFal(resolution);
+      requestId = result.request_id;
+      resolutionUsed = result.resolution_used;
+    } catch (err) {
+      // If 2K/4K fails, retry at 1K
+      if (resolution !== '1K') {
+        console.warn(`[SeriesGrid] ${resolution} failed, retrying at 1K:`, err);
+        try {
+          const result = await submitToFal('1K');
+          requestId = result.request_id;
+          resolutionUsed = '1K';
+        } catch (retryErr) {
+          console.error('[SeriesGrid] 1K retry also failed:', retryErr);
+          return NextResponse.json(
+            { error: 'Image generation failed at all resolutions' },
+            { status: 500 }
+          );
+        }
+      } else {
+        console.error('[SeriesGrid] fal.ai request failed:', err);
+        return NextResponse.json(
+          { error: 'Image generation request failed' },
+          { status: 500 }
+        );
+      }
+    }
 
     console.log('[SeriesGrid] Submitted', {
       request_id: requestId,
@@ -369,7 +416,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       cell: `${cell.w}x${cell.h}`,
       total: `${gridWidth}x${gridHeight}`,
       aspect: gridAspect,
-      resolution,
+      resolution_requested: resolution,
+      resolution_used: resolutionUsed,
       allow_text: !!allow_text,
       skip_genre: shouldSkipGenre,
     });
@@ -427,7 +475,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         type,
         allow_text: !!allow_text,
         skip_genre: shouldSkipGenre,
-        resolution,
+        resolution_requested: resolution,
+        resolution_used: resolutionUsed,
         cell_ratio: cellRatio,
       },
       poll_fallback: '60s automatic',
