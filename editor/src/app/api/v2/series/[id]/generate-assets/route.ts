@@ -127,8 +127,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
     }
 
-    fal.config({ credentials: process.env.FAL_KEY });
-
     const jobs: Array<{
       asset_id: string;
       asset_name: string;

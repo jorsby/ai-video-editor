@@ -64,7 +64,8 @@ async function queueGridJob(params: {
   }
 
   const data = await res.json();
-  const requestId = typeof data?.request_id === 'string' ? data.request_id : null;
+  const requestId =
+    typeof data?.request_id === 'string' ? data.request_id : null;
 
   if (!requestId) {
     throw new Error('fal.ai response missing request_id');
@@ -223,8 +224,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!process.env.FAL_KEY) {
       return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
     }
-
-    fal.config({ credentials: process.env.FAL_KEY });
 
     const objectsWebhook = `${webhookBase}/api/webhook/fal?step=GenGridImage&grid_image_id=${objectsGrid.id}&storyboard_id=${storyboardId}&rows=${plan.objects_rows}&cols=${plan.objects_cols}&width=${RESOLUTION_TO_SIZE[resolution].width}&height=${RESOLUTION_TO_SIZE[resolution].height}`;
     const backgroundsWebhook = `${webhookBase}/api/webhook/fal?step=GenGridImage&grid_image_id=${backgroundsGrid.id}&storyboard_id=${storyboardId}&rows=${plan.bg_rows}&cols=${plan.bg_cols}&width=${RESOLUTION_TO_SIZE[resolution].width}&height=${RESOLUTION_TO_SIZE[resolution].height}`;
