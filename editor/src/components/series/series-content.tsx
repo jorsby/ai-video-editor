@@ -71,7 +71,7 @@ function SeriesCard({
             }}
             title="Delete series"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </button>
         </div>
       </button>
