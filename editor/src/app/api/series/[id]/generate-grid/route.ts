@@ -5,15 +5,78 @@ import { validateApiKey } from '@/lib/auth/api-key';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+// ── Aspect ratio → fal.ai value mapping ───────────────────────────────────────
+const ASPECT_RATIOS: Record<string, string> = {
+  '1:1': '1:1',
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '3:4': '3:4',
+  '4:3': '4:3',
+};
+
+// ── Cell pixel sizes per aspect ratio ─────────────────────────────────────────
+function cellPixels(
+  ratio: string,
+  resolution: string
+): { w: number; h: number } {
+  const base = resolution === '4K' ? 1365 : resolution === '1K' ? 512 : 1024;
+  switch (ratio) {
+    case '16:9':
+      return { w: Math.round(base * (16 / 9)), h: base };
+    case '9:16':
+      return { w: base, h: Math.round(base * (16 / 9)) };
+    case '3:4':
+      return { w: base, h: Math.round(base * (4 / 3)) };
+    case '4:3':
+      return { w: Math.round(base * (4 / 3)), h: base };
+    default:
+      return { w: base, h: base }; // 1:1
+  }
+}
+
+// ── Position labels for up to 4×4 ────────────────────────────────────────────
+function positionLabel(idx: number, cols: number, rows: number): string {
+  if (rows === 1) {
+    const labels = ['left', 'center-left', 'center-right', 'right'];
+    return labels[idx] ?? `position ${idx + 1}`;
+  }
+  const row = Math.floor(idx / cols);
+  const col = idx % cols;
+  const rowLabel =
+    row === 0 ? 'top' : row === rows - 1 ? 'bottom' : `row-${row + 1}`;
+  const colLabel =
+    col === 0 ? 'left' : col === cols - 1 ? 'right' : `col-${col + 1}`;
+  return `${rowLabel}-${colLabel}`;
+}
+
+// ── Type-specific prompt suffixes ─────────────────────────────────────────────
+const TYPE_SUFFIXES: Record<string, string> = {
+  character:
+    'Each person shown full body, front-facing, well-lit, neutral background, consistent art style across all panels, high detail character reference sheet',
+  location:
+    'Each location shown as wide establishing shot, consistent art style across all panels, cinematic composition, atmospheric lighting',
+  prop: 'Each object shown as a clean product shot, front-facing, well-lit, studio lighting, white or neutral background, consistent style across all panels, high detail',
+};
+
+// ── Item label by type (avoids baking names as text) ──────────────────────────
+function itemLabel(type: string, idx: number): string {
+  if (type === 'character') return `Person ${idx + 1}`;
+  if (type === 'prop') return `Object ${idx + 1}`;
+  return `Scene ${idx + 1}`;
+}
+
 /**
  * POST /api/series/[id]/generate-grid
  *
- * Generate a grid image containing multiple assets for visual consistency,
- * then split and upload each crop to the corresponding variant.
+ * Configurable grid image generation.
  *
  * Body: {
- *   type: "character" | "location",
- *   items: Array<{ asset_id: string, variant_id: string }>  // 2-4 items, order = grid position
+ *   type: "character" | "location" | "prop",
+ *   items: Array<{ asset_id, variant_id }>,           // 2-16 items
+ *   grid?: { cols?, rows?, cell_ratio?, resolution? }, // defaults: auto cols/rows, 1:1, 2K
+ *   allow_text?: boolean,                              // default false
+ *   skip_genre?: boolean,                              // default: auto (true for character/prop)
+ *   custom_suffix?: string                             // extra prompt instructions
  * }
  */
 export async function POST(req: NextRequest, context: RouteContext) {
@@ -36,11 +99,28 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const dbClient = sessionUser ? supabase : createServiceClient('studio');
-
     const body = await req.json();
-    const { type, items } = body as {
-      type: 'character' | 'location' | 'prop';
+
+    // ── Parse & validate ────────────────────────────────────────────────────
+    const {
+      type,
+      items,
+      grid: gridOpts,
+      allow_text,
+      skip_genre,
+      custom_suffix,
+    } = body as {
+      type: string;
       items: Array<{ asset_id: string; variant_id: string }>;
+      grid?: {
+        cols?: number;
+        rows?: number;
+        cell_ratio?: string;
+        resolution?: string;
+      };
+      allow_text?: boolean;
+      skip_genre?: boolean;
+      custom_suffix?: string;
     };
 
     if (!type || !['character', 'location', 'prop'].includes(type)) {
@@ -54,15 +134,85 @@ export async function POST(req: NextRequest, context: RouteContext) {
       !items ||
       !Array.isArray(items) ||
       items.length < 2 ||
-      items.length > 4
+      items.length > 16
     ) {
       return NextResponse.json(
-        { error: 'items must be an array of 2-4 { asset_id, variant_id }' },
+        { error: 'items must be an array of 2-16 { asset_id, variant_id }' },
         { status: 400 }
       );
     }
 
-    // Verify series ownership
+    // Grid configuration with smart defaults
+    const cellRatio = gridOpts?.cell_ratio ?? '1:1';
+    const resolution = gridOpts?.resolution ?? '2K';
+
+    if (!ASPECT_RATIOS[cellRatio]) {
+      return NextResponse.json(
+        {
+          error: `cell_ratio must be one of: ${Object.keys(ASPECT_RATIOS).join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!['1K', '2K', '4K'].includes(resolution)) {
+      return NextResponse.json(
+        { error: 'resolution must be "1K", "2K", or "4K"' },
+        { status: 400 }
+      );
+    }
+
+    // Auto-compute cols/rows if not provided
+    const count = items.length;
+    let cols = gridOpts?.cols ?? 0;
+    let rows = gridOpts?.rows ?? 0;
+
+    if (cols && rows) {
+      if (cols * rows < count) {
+        return NextResponse.json(
+          {
+            error: `Grid ${cols}×${rows} = ${cols * rows} cells, but ${count} items provided`,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (cols) {
+      rows = Math.ceil(count / cols);
+    } else if (rows) {
+      cols = Math.ceil(count / rows);
+    } else {
+      // Auto: prefer square-ish grids
+      if (count <= 2) {
+        cols = 2;
+        rows = 1;
+      } else if (count <= 4) {
+        cols = 2;
+        rows = 2;
+      } else if (count <= 6) {
+        cols = 3;
+        rows = 2;
+      } else if (count <= 9) {
+        cols = 3;
+        rows = 3;
+      } else {
+        cols = 4;
+        rows = Math.ceil(count / 4);
+      }
+    }
+
+    if (cols < 1 || cols > 4 || rows < 1 || rows > 4) {
+      return NextResponse.json(
+        { error: 'cols and rows must be between 1 and 4' },
+        { status: 400 }
+      );
+    }
+
+    // Cell and total dimensions
+    const cell = cellPixels(cellRatio, resolution);
+    const gridWidth = cols * cell.w;
+    const gridHeight = rows * cell.h;
+
+    // ── Verify series ownership ─────────────────────────────────────────────
     const { data: series, error: seriesError } = await dbClient
       .from('series')
       .select('id, name, genre, tone, bible')
@@ -74,7 +224,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    // Load all assets + variants
+    // ── Load assets + variants ──────────────────────────────────────────────
     const assetIds = items.map((i) => i.asset_id);
     const variantIds = items.map((i) => i.variant_id);
 
@@ -103,83 +253,70 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }> | null;
     };
 
-    if (!assets || assets.length !== items.length) {
+    if (!assets || assets.length !== new Set(assetIds).size) {
       return NextResponse.json(
         { error: 'One or more assets not found in this series' },
         { status: 404 }
       );
     }
 
-    if (!variants || variants.length !== items.length) {
+    if (!variants || variants.length !== new Set(variantIds).size) {
       return NextResponse.json(
         { error: 'One or more variants not found' },
         { status: 404 }
       );
     }
 
-    // Compute grid layout
-    const count = items.length;
-    const cols = count <= 2 ? 2 : 2;
-    const rows = count <= 2 ? 1 : 2;
-    const cellSize = 1024;
-    const gridWidth = cols * cellSize;
-    const gridHeight = rows * cellSize;
-
-    // Build asset map for quick lookup
     const assetMap = new Map(assets.map((a) => [a.id, a]));
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
-    // Build grid prompt
-    // For character/prop grids, skip genre/tone — they make images too dark/moody
-    // Reference sheets should be clean and well-lit
+    // ── Build prompt ────────────────────────────────────────────────────────
+    // Genre/tone: auto-skip for character/prop, include for location
+    const shouldSkipGenre =
+      skip_genre !== undefined ? skip_genre : type !== 'location';
+
     const stylePrefix: string[] = [];
-    if (type === 'location') {
+    if (!shouldSkipGenre) {
       if (series.genre) stylePrefix.push(`${series.genre} genre`);
       if (series.tone) stylePrefix.push(`${series.tone} tone`);
     }
 
-    const positionLabels =
-      count <= 2
-        ? ['left', 'right']
-        : ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-
     const itemDescriptions = items.map((item, idx) => {
       const asset = assetMap.get(item.asset_id);
       const variant = variantMap.get(item.variant_id);
-      // Use generic labels instead of asset names to prevent model from
-      // rendering names as text in the image
-      const label =
-        type === 'character'
-          ? `Person ${idx + 1}`
-          : type === 'prop'
-            ? `Object ${idx + 1}`
-            : `Scene ${idx + 1}`;
+      const label = itemLabel(type, idx);
       const desc = [asset?.description, variant?.description]
         .filter(Boolean)
         .join(', ');
-      return `${positionLabels[idx]}: ${label}${desc ? ` — ${desc}` : ''}`;
+      return `${positionLabel(idx, cols, rows)}: ${label}${desc ? ` — ${desc}` : ''}`;
     });
 
-    const typeSuffixes: Record<string, string> = {
-      character:
-        'Each person shown full body, front-facing, well-lit, neutral background, consistent art style across all panels, high detail character reference sheet',
-      location:
-        'Each location shown as wide establishing shot, consistent art style across all panels, cinematic composition, atmospheric lighting',
-      prop: 'Each object shown as a clean product shot, front-facing, well-lit, studio lighting, white or neutral background, consistent style across all panels, high detail',
-    };
-    const typeSuffix = typeSuffixes[type];
+    const noTextSuffix = allow_text
+      ? ''
+      : 'Absolutely no text, no words, no letters, no writing, no labels, no captions';
 
-    const prompt = [
+    const promptParts = [
       `A ${cols}x${rows} grid image with clear dividing lines between panels`,
       ...stylePrefix,
       ...itemDescriptions,
-      typeSuffix,
-      'Same unified visual style across all panels, absolutely no text, no words, no letters, no writing, no labels, no captions',
-    ]
-      .filter(Boolean)
-      .join('. ');
+      TYPE_SUFFIXES[type] ?? '',
+      'Same unified visual style across all panels',
+      noTextSuffix,
+      custom_suffix ?? '',
+    ].filter(Boolean);
 
-    // Build webhook URL with variant IDs and grid info
+    const prompt = promptParts.join('. ');
+
+    // ── Compute fal.ai aspect ratio from total grid dimensions ──────────────
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const g = gcd(gridWidth, gridHeight);
+    const ratioW = gridWidth / g;
+    const ratioH = gridHeight / g;
+    // Map to closest fal.ai supported ratio
+    const gridAspect =
+      ratioW === ratioH ? '1:1' : ratioW > ratioH ? '16:9' : '9:16';
+
+    // ── Build webhook URL ───────────────────────────────────────────────────
     const webhookUrl = new URL(
       `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal`
     );
@@ -188,9 +325,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('cols', String(cols));
     webhookUrl.searchParams.set('rows', String(rows));
 
-    // Submit to fal.ai queue
-    // Note: fal.ai queue drops version suffix for status/result polling
-    // but requires it for submission
+    // ── Submit to fal.ai ────────────────────────────────────────────────────
     const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
     falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
 
@@ -203,8 +338,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body: JSON.stringify({
         prompt,
         num_images: 1,
-        resolution: '2K',
-        aspect_ratio: cols === rows ? '1:1' : cols > rows ? '16:9' : '9:16',
+        resolution,
+        aspect_ratio: gridAspect,
         output_format: 'jpeg',
         safety_tolerance: '6',
       }),
@@ -224,20 +359,78 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const falData = await falRes.json();
+    const requestId = falData.request_id;
 
-    console.log('[SeriesGrid] Submitted grid generation', {
-      request_id: falData.request_id,
+    console.log('[SeriesGrid] Submitted', {
+      request_id: requestId,
       type,
-      items: items.length,
+      items: count,
       grid: `${cols}x${rows}`,
-      size: `${gridWidth}x${gridHeight}`,
+      cell: `${cell.w}x${cell.h}`,
+      total: `${gridWidth}x${gridHeight}`,
+      aspect: gridAspect,
+      resolution,
+      allow_text: !!allow_text,
+      skip_genre: shouldSkipGenre,
     });
 
+    // ── Background polling fallback ─────────────────────────────────────────
+    // Fire a delayed poll after 60s in case the webhook doesn't land.
+    // Uses waitUntil-style fire-and-forget via setTimeout in the runtime.
+    const pollUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/series/${id}/poll-images`;
+    const authHeader = req.headers.get('authorization') ?? '';
+
+    setTimeout(async () => {
+      try {
+        const res = await fetch(pollUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            jobs: [
+              {
+                request_id: requestId,
+                model: 'fal-ai/nano-banana-2',
+                type: 'grid',
+                variant_ids: variantIds,
+                cols,
+                rows,
+              },
+            ],
+          }),
+        });
+        const result = await res.json();
+        console.log(
+          '[SeriesGrid] Background poll result:',
+          JSON.stringify(result)
+        );
+      } catch (err) {
+        console.error('[SeriesGrid] Background poll failed:', err);
+      }
+    }, 60_000);
+
     return NextResponse.json({
-      request_id: falData.request_id,
-      grid: { cols, rows, width: gridWidth, height: gridHeight },
+      request_id: requestId,
+      grid: {
+        cols,
+        rows,
+        cell_width: cell.w,
+        cell_height: cell.h,
+        total_width: gridWidth,
+        total_height: gridHeight,
+      },
       prompt,
       variant_ids: variantIds,
+      config: {
+        type,
+        allow_text: !!allow_text,
+        skip_genre: shouldSkipGenre,
+        resolution,
+        cell_ratio: cellRatio,
+      },
+      poll_fallback: '60s automatic',
     });
   } catch (error) {
     console.error('[SeriesGrid] Error:', error);
