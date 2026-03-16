@@ -111,22 +111,22 @@ function VariantCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0"
+            className="h-9 w-9 sm:h-7 sm:w-7 p-0"
             onClick={() => setExpanded((v) => !v)}
           >
             {expanded ? (
-              <ChevronUp className="w-3.5 h-3.5" />
+              <ChevronUp className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
+              <ChevronDown className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             )}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+            className="h-9 w-9 sm:h-7 sm:w-7 p-0 text-destructive hover:text-destructive"
             onClick={onDelete}
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </Button>
         </div>
       </div>
@@ -155,7 +155,7 @@ function VariantCard({
                 <button
                   type="button"
                   onClick={() => handleDeleteImage(img.id, img.storage_path)}
-                  className="absolute -top-1 -right-1 w-5 h-5 sm:w-4 sm:h-4 bg-destructive text-destructive-foreground rounded-full flex sm:hidden sm:group-hover:flex items-center justify-center text-xs"
+                  className="absolute -top-1 -right-1 w-6 h-6 sm:w-5 sm:h-5 bg-destructive text-destructive-foreground rounded-full flex md:hidden md:group-hover:flex items-center justify-center text-xs"
                 >
                   ×
                 </button>
@@ -381,7 +381,11 @@ function EpisodeRow({
       <div className="flex items-center gap-2 shrink-0">
         {episode.project_id && (
           <Link href={`/editor/${episode.project_id}`}>
-            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 sm:h-7 gap-1.5 text-xs"
+            >
               <ExternalLink className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Open in Editor</span>
               <span className="sm:hidden">Open</span>
@@ -539,7 +543,12 @@ export function SeriesDetailPage({
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Back + title */}
       <div className="flex items-start gap-3">
-        <Button variant="ghost" size="sm" onClick={onBack} className="mt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="mt-1 h-10 w-10 sm:h-8 sm:w-8 p-0"
+        >
           <ArrowLeft className="w-4 h-4" />
         </Button>
 
@@ -574,13 +583,13 @@ export function SeriesDetailPage({
                 value={editGenre}
                 onChange={(e) => setEditGenre(e.target.value)}
                 placeholder="Genre (e.g. Drama)"
-                className="h-8 text-xs"
+                className="h-10 sm:h-8 text-sm sm:text-xs"
               />
               <Input
                 value={editTone}
                 onChange={(e) => setEditTone(e.target.value)}
                 placeholder="Tone (e.g. Dark comedy)"
-                className="h-8 text-xs"
+                className="h-10 sm:h-8 text-sm sm:text-xs"
               />
             </div>
             <Textarea

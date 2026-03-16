@@ -21,21 +21,28 @@ export default async function SeriesPage() {
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-muted/10" />
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/3 rounded-full blur-3xl" />
 
-      <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border/50">
-        <div className="flex items-center gap-4">
+      <header className="relative z-10 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border/50">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/dashboard">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
               <ArrowLeft className="w-4 h-4" />
-              <span className="ml-1.5">Dashboard</span>
+              <span className="ml-1.5 hidden sm:inline">Dashboard</span>
             </Button>
           </Link>
           <span className="text-lg font-semibold tracking-tight">Series</span>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">{user.email}</span>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <span className="text-sm text-muted-foreground hidden sm:inline">
+            {user.email}
+          </span>
           <form action="/auth/signout" method="post">
-            <Button variant="ghost" size="sm" type="submit">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 w-10 p-0 sm:w-auto sm:px-3"
+              type="submit"
+            >
               <LogOut className="w-4 h-4" />
               <span className="sr-only">Sign out</span>
             </Button>
@@ -43,7 +50,7 @@ export default async function SeriesPage() {
         </div>
       </header>
 
-      <main className="relative z-10 flex-1 px-6 py-8">
+      <main className="relative z-10 flex-1 px-4 sm:px-6 py-6 sm:py-8">
         <SeriesContent />
       </main>
     </div>

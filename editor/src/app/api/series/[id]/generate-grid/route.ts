@@ -146,16 +146,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const itemDescriptions = items.map((item, idx) => {
       const asset = assetMap.get(item.asset_id);
       const variant = variantMap.get(item.variant_id);
-      const name = asset?.name ?? 'Unknown';
+      // Use generic labels instead of asset names to prevent Flux from
+      // rendering names as text in the image
+      const label =
+        type === 'character' ? `Person ${idx + 1}` : `Scene ${idx + 1}`;
       const desc = [asset?.description, variant?.description]
         .filter(Boolean)
         .join(', ');
-      return `${positionLabels[idx]}: ${name}${desc ? ` — ${desc}` : ''}`;
+      return `${positionLabels[idx]}: ${label}${desc ? ` — ${desc}` : ''}`;
     });
 
     const typeSuffix =
       type === 'character'
-        ? 'Each character shown full body, front-facing, consistent art style across all panels, high detail character reference sheet'
+        ? 'Each person shown full body, front-facing, well-lit, neutral background, consistent art style across all panels, high detail character reference sheet'
         : 'Each location shown as wide establishing shot, consistent art style across all panels, cinematic composition, atmospheric lighting';
 
     const prompt = [
@@ -163,7 +166,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       ...stylePrefix,
       ...itemDescriptions,
       typeSuffix,
-      'Same unified visual style across all panels, no text or labels',
+      'Same unified visual style across all panels, absolutely no text, no words, no letters, no writing, no labels, no captions',
     ]
       .filter(Boolean)
       .join('. ');
@@ -180,7 +183,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Submit to fal.ai queue
     // Note: fal.ai queue drops version suffix for status/result polling
     // but requires it for submission
-    const falUrl = new URL('https://queue.fal.run/fal-ai/flux-pro/v1.1');
+    const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
     falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
 
     const falRes = await fetch(falUrl.toString(), {
@@ -191,9 +194,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       body: JSON.stringify({
         prompt,
-        image_size: { width: gridWidth, height: gridHeight },
         num_images: 1,
-        safety_tolerance: '5',
+        resolution: '2K',
+        aspect_ratio: '1:1',
+        output_format: 'jpeg',
+        safety_tolerance: '6',
       }),
     });
 
