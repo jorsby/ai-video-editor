@@ -34,16 +34,22 @@ interface JobMeta {
 
 function resolveModelEndpoint(model?: string | null): string {
   if (!model) return 'fal-ai/nano-banana-2';
-  if (model.includes('/')) return model;
+
+  // Normalize known status/result endpoints
+  const normalized = model
+    .replace('fal-ai/flux-pro/v1.1', 'fal-ai/flux-pro')
+    .replace('fal-ai/flux-pro/v1', 'fal-ai/flux-pro');
+
+  if (normalized.includes('/')) return normalized;
 
   const aliases: Record<string, string> = {
     'nano-banana-2': 'fal-ai/nano-banana-2',
-    'flux-pro': 'fal-ai/flux-pro/v1.1',
+    'flux-pro': 'fal-ai/flux-pro',
     'flux-2-pro': 'fal-ai/flux-2-pro',
     banana: 'fal-ai/nano-banana-2',
   };
 
-  return aliases[model] ?? model;
+  return aliases[normalized] ?? normalized;
 }
 
 function extractImages(payload: any): Array<{ url?: string }> {
