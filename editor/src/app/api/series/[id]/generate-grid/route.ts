@@ -174,6 +174,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('rows', String(rows));
 
     // Submit to fal.ai queue
+    // Note: fal.ai queue drops version suffix for status/result polling
+    // but requires it for submission
     const falUrl = new URL('https://queue.fal.run/fal-ai/flux-pro/v1.1');
     falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
 

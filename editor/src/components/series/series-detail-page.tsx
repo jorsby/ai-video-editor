@@ -142,7 +142,7 @@ function VariantCard({
           {/* Images */}
           <div className="flex flex-wrap gap-2">
             {variant.series_asset_variant_images.map((img) => (
-              <div key={img.id} className="relative group w-16 h-16">
+              <div key={img.id} className="relative group w-20 h-20">
                 {img.url ? (
                   // biome-ignore lint/a11y/useAltText: thumbnail
                   <img
@@ -236,94 +236,116 @@ function AssetCard({
   };
 
   return (
-    <div className="border border-border/50 rounded-xl p-4 space-y-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="font-medium text-sm">{asset.name}</p>
-          {asset.description && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {asset.description}
-            </p>
-          )}
+    <div className="border border-border/50 rounded-xl overflow-hidden space-y-0">
+      {/* Hero image from first variant's first image */}
+      {(() => {
+        const firstImage = asset.series_asset_variants?.flatMap(
+          (v) => v.series_asset_variant_images ?? []
+        )?.[0];
+        return firstImage?.url ? (
+          // biome-ignore lint/a11y/useAltText: asset hero
+          <img src={firstImage.url} className="w-full h-40 object-cover" />
+        ) : (
+          <div className="w-full h-24 bg-muted/30 flex items-center justify-center">
+            <span className="text-2xl opacity-20">
+              {asset.type === 'character'
+                ? '👤'
+                : asset.type === 'location'
+                  ? '🏠'
+                  : '📦'}
+            </span>
+          </div>
+        );
+      })()}
+      <div className="p-4 space-y-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-medium text-sm">{asset.name}</p>
+            {asset.description && (
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                {asset.description}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+            onClick={onDelete}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      </div>
 
-      {/* Variants */}
-      <div className="space-y-2">
-        {asset.series_asset_variants.map((v) => (
-          <VariantCard
-            key={v.id}
-            variant={v}
-            seriesId={seriesId}
-            assetId={asset.id}
-            onDelete={() => handleDeleteVariant(v.id)}
-            onImageUploaded={onRefresh}
-          />
-        ))}
-      </div>
-
-      {/* Add variant */}
-      {showAddVariant ? (
-        <form onSubmit={handleAddVariant} className="space-y-2 pt-1">
-          <Input
-            placeholder="Variant label (e.g. Young, Aged, Undercover)"
-            value={variantLabel}
-            onChange={(e) => setVariantLabel(e.target.value)}
-            required
-          />
-          <Input
-            placeholder="Description (optional)"
-            value={variantDesc}
-            onChange={(e) => setVariantDesc(e.target.value)}
-          />
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id={`default-${asset.id}`}
-              checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
-              className="w-4 h-4"
+        {/* Variants */}
+        <div className="space-y-2">
+          {asset.series_asset_variants.map((v) => (
+            <VariantCard
+              key={v.id}
+              variant={v}
+              seriesId={seriesId}
+              assetId={asset.id}
+              onDelete={() => handleDeleteVariant(v.id)}
+              onImageUploaded={onRefresh}
             />
-            <label
-              htmlFor={`default-${asset.id}`}
-              className="text-xs text-muted-foreground"
-            >
-              Set as default variant
-            </label>
-          </div>
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={saving}>
-              {saving ? 'Saving...' : 'Add'}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowAddVariant(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full text-muted-foreground border border-dashed border-border/50"
-          onClick={() => setShowAddVariant(true)}
-        >
-          <Plus className="w-3.5 h-3.5 mr-1.5" />
-          Add Variant
-        </Button>
-      )}
+          ))}
+        </div>
+
+        {/* Add variant */}
+        {showAddVariant ? (
+          <form onSubmit={handleAddVariant} className="space-y-2 pt-1">
+            <Input
+              placeholder="Variant label (e.g. Young, Aged, Undercover)"
+              value={variantLabel}
+              onChange={(e) => setVariantLabel(e.target.value)}
+              required
+            />
+            <Input
+              placeholder="Description (optional)"
+              value={variantDesc}
+              onChange={(e) => setVariantDesc(e.target.value)}
+            />
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id={`default-${asset.id}`}
+                checked={isDefault}
+                onChange={(e) => setIsDefault(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <label
+                htmlFor={`default-${asset.id}`}
+                className="text-xs text-muted-foreground"
+              >
+                Set as default variant
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" disabled={saving}>
+                {saving ? 'Saving...' : 'Add'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowAddVariant(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-muted-foreground border border-dashed border-border/50"
+            onClick={() => setShowAddVariant(true)}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Add Variant
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
