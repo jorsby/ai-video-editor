@@ -20,6 +20,7 @@ import {
   Settings,
   Database,
   FilePlus,
+  FolderOpen,
   Save,
   Check,
   Loader2,
@@ -412,6 +413,18 @@ export default function Header({ saveNow, saveStatus }: HeaderProps) {
 
       {/* Right Section */}
       <div className="flex items-center gap-2">
+        <Link href="/dashboard">
+          <Button
+            size={'sm'}
+            variant="outline"
+            className="h-7"
+            title="Open Projects"
+          >
+            <FolderOpen className="size-4" />
+            <span className="hidden md:block">Projects</span>
+          </Button>
+        </Link>
+
         <div className="flex items-center mr-2">
           <Button
             variant="ghost"
