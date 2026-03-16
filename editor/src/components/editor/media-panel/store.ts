@@ -13,6 +13,7 @@ import {
   IconMessageCircle,
   IconLayoutGrid,
   IconDeviceTv,
+  IconCategory,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -30,6 +31,7 @@ export type Tab =
   | 'transitions'
   | 'assistant'
   | 'storyboard'
+  | 'library'
   | 'renders';
 
 export const tabs: {
@@ -38,6 +40,10 @@ export const tabs: {
   storyboard: {
     icon: IconLayoutGrid,
     label: 'Storyboard',
+  },
+  library: {
+    icon: IconCategory,
+    label: 'Library',
   },
   renders: {
     icon: IconDeviceTv,
