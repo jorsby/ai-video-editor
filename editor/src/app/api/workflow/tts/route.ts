@@ -4,14 +4,15 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 const TTS_ENDPOINTS: Record<string, string> = {
   'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
 };
 
-const DEFAULT_TTS_MODEL = 'multilingual-v2';
+const DEFAULT_TTS_MODEL = 'turbo-v2.5';
 
 interface GenerateTTSInput {
   scene_ids: string[];
@@ -120,7 +121,7 @@ async function sendTTSRequest(
     step: 'GenerateTTS',
     voiceover_id: context.voiceover_id,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);

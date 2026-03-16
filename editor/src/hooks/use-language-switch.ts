@@ -18,9 +18,13 @@ export function useLanguageSwitch() {
   const projectId = useProjectId();
 
   const switchLanguage = useCallback(
-    async (targetLanguage: LanguageCode) => {
-      const { activeLanguage, setActiveLanguage, setIsLanguageSwitching, setAvailableLanguages } =
-        useLanguageStore.getState();
+    async (targetLanguage: LanguageCode, options?: { skipSave?: boolean }) => {
+      const {
+        activeLanguage,
+        setActiveLanguage,
+        setIsLanguageSwitching,
+        setAvailableLanguages,
+      } = useLanguageStore.getState();
       const { studio } = useStudioStore.getState();
 
       if (targetLanguage === activeLanguage) return;
@@ -32,19 +36,23 @@ export function useLanguageSwitch() {
         // Wait for any in-flight auto-save to complete
         await waitForSave();
 
-        // Save current language's timeline
-        try {
-          await saveTimeline(
-            projectId,
-            studio.tracks,
-            studio.clips,
-            activeLanguage
-          );
-        } catch (error) {
-          // Save failed — abort switch
-          toast.error('Failed to save current timeline. Language switch aborted.');
-          setIsLanguageSwitching(false);
-          return;
+        // Save current language's timeline (skip when removing the active language)
+        if (!options?.skipSave) {
+          try {
+            await saveTimeline(
+              projectId,
+              studio.tracks,
+              studio.clips,
+              activeLanguage
+            );
+          } catch (error) {
+            // Save failed — abort switch
+            toast.error(
+              'Failed to save current timeline. Language switch aborted.'
+            );
+            setIsLanguageSwitching(false);
+            return;
+          }
         }
 
         // Load target language's timeline
@@ -71,8 +79,11 @@ export function useLanguageSwitch() {
         // Refresh available languages — merge DB results with current store
         // to prevent losing languages that have no DB footprint (e.g. "Start empty")
         const dbLangs = await getAvailableLanguages(projectId);
-        const { availableLanguages: currentLangs } = useLanguageStore.getState();
-        const merged = [...new Set([...currentLangs, ...dbLangs, targetLanguage])];
+        const { availableLanguages: currentLangs } =
+          useLanguageStore.getState();
+        const merged = [
+          ...new Set([...currentLangs, ...dbLangs, targetLanguage]),
+        ];
         setAvailableLanguages(merged);
       } catch (error) {
         console.error('Language switch error:', error);
@@ -121,7 +132,10 @@ export function useLanguageSwitch() {
   );
 
   const copyToMultiple = useCallback(
-    async (targetLanguages: LanguageCode[]) => {
+    async (
+      targetLanguages: LanguageCode[],
+      options?: { stripAudioAndCaptionTracks?: boolean }
+    ) => {
       const { activeLanguage, setAvailableLanguages } =
         useLanguageStore.getState();
       const { studio } = useStudioStore.getState();
@@ -132,11 +146,18 @@ export function useLanguageSwitch() {
       await waitForSave();
 
       // Save current language first
-      await saveTimeline(projectId, studio.tracks, studio.clips, activeLanguage);
+      await saveTimeline(
+        projectId,
+        studio.tracks,
+        studio.clips,
+        activeLanguage
+      );
 
       // Copy to each target sequentially to avoid DB connection pool issues
       for (const lang of targetLanguages) {
-        await copyTimeline(projectId, activeLanguage, lang);
+        await copyTimeline(projectId, activeLanguage, lang, {
+          stripAudioAndCaptionTracks: options?.stripAudioAndCaptionTracks,
+        });
       }
 
       // Refresh available languages, ensuring all targets are included
@@ -164,8 +185,12 @@ export function useLanguageSwitch() {
 
   const removeLanguage = useCallback(
     async (language: LanguageCode) => {
-      const { activeLanguage, availableLanguages, setAvailableLanguages, setIsLanguageSwitching } =
-        useLanguageStore.getState();
+      const {
+        activeLanguage,
+        availableLanguages,
+        setAvailableLanguages,
+        setIsLanguageSwitching,
+      } = useLanguageStore.getState();
       const { studio } = useStudioStore.getState();
 
       if (availableLanguages.length <= 1) {
@@ -178,17 +203,19 @@ export function useLanguageSwitch() {
       try {
         await waitForSave();
 
-        // If removing the active language, switch to another one first
+        // If removing the active language, switch to another one first.
+        // Skip saving the current language since we're about to delete it.
         if (language === activeLanguage && studio) {
           const remaining = availableLanguages.filter((l) => l !== language);
-          await switchLanguage(remaining[0]);
+          await switchLanguage(remaining[0], { skipSave: true });
         }
 
         // Delete all data for this language
         await removeLanguageData(projectId, language);
 
         // Update available languages
-        const { availableLanguages: currentLangs } = useLanguageStore.getState();
+        const { availableLanguages: currentLangs } =
+          useLanguageStore.getState();
         setAvailableLanguages(currentLangs.filter((l) => l !== language));
 
         toast.success(`Removed ${language.toUpperCase()} language.`);
@@ -202,5 +229,11 @@ export function useLanguageSwitch() {
     [projectId, switchLanguage]
   );
 
-  return { switchLanguage, copyAndSwitch, copyToMultiple, addEmptyLanguages, removeLanguage };
+  return {
+    switchLanguage,
+    copyAndSwitch,
+    copyToMultiple,
+    addEmptyLanguages,
+    removeLanguage,
+  };
 }

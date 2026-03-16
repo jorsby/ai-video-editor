@@ -4,6 +4,29 @@ import { createClient } from '@/lib/supabase/client';
 import type { Voiceover } from '@/lib/supabase/workflow-service';
 import { DEFAULT_VOICE_MAP, FALLBACK_VOICE } from '@/lib/constants/languages';
 
+function shouldProxyMediaUrl(src: string): boolean {
+  if (
+    !src ||
+    src.startsWith('blob:') ||
+    src.startsWith('data:') ||
+    src.startsWith('/')
+  ) {
+    return false;
+  }
+
+  try {
+    const hostname = new URL(src).hostname;
+    return hostname.endsWith('.oss-accelerate.aliyuncs.com');
+  } catch {
+    return false;
+  }
+}
+
+function toPlayableMediaUrl(src: string): string {
+  if (!shouldProxyMediaUrl(src)) return src;
+  return `/api/proxy/media?url=${encodeURIComponent(src)}`;
+}
+
 /**
  * Find a track of the given type that has no clips overlapping [from, to].
  * Returns undefined if all matching tracks have conflicts.
@@ -61,7 +84,7 @@ export async function addSceneToTimeline(
   const canvasWidth = studio.opts.width;
   const canvasHeight = studio.opts.height;
 
-  const videoClip = await Video.fromUrl(scene.videoUrl);
+  const videoClip = await Video.fromUrl(toPlayableMediaUrl(scene.videoUrl));
   await videoClip.scaleToFit(canvasWidth, canvasHeight);
   videoClip.centerInScene(canvasWidth, canvasHeight);
   videoClip.volume = options.videoVolume ?? 0;
@@ -347,7 +370,7 @@ export function regenerateVoiceover(
             body: JSON.stringify({
               scene_ids: [voiceover.scene_id],
               voice,
-              model: 'multilingual-v2',
+              model: 'turbo-v2.5',
               language: voiceover.language,
               speed: 1.0,
             }),

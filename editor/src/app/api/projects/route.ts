@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // GET - Fetch user's projects
@@ -6,17 +8,25 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
     const { searchParams } = new URL(req.url);
     const showArchived = searchParams.get('archived') === 'true';
 
-    let query = supabase
+    let query = dbClient
       .from('projects')
       .select('*')
       .eq('user_id', user.id)
@@ -53,13 +63,21 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
     const body = await req.json();
     const { name } = body;
 
@@ -70,7 +88,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: project, error } = await supabase
+    const { data: project, error } = await dbClient
       .from('projects')
       .insert({
         user_id: user.id,
@@ -102,13 +120,21 @@ export async function PATCH(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
     const body = await req.json();
     const { id, name, archive } = body;
 
@@ -142,7 +168,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const { data: project, error } = await supabase
+    const { data: project, error } = await dbClient
       .from('projects')
       .update(updateData)
       .eq('id', id)
@@ -173,13 +199,21 @@ export async function DELETE(req: NextRequest) {
   try {
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 
@@ -190,7 +224,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const { error } = await supabase
+    const { error } = await dbClient
       .from('projects')
       .delete()
       .eq('id', id)

@@ -25,11 +25,20 @@ export const klingO3PlanSchema = z.object({
 
   // Scene mapping
   scene_prompts: z.array(scenePromptItem),
+  scene_first_frame_prompts: z.array(z.string()).optional(),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
+
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+
+  // Workflow metadata
+  workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
+  video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
+  content_template: z.enum(['ahlak', 'dizi_hikaye']).optional(),
 });
 
 export type KlingO3Plan = z.infer<typeof klingO3PlanSchema>;
@@ -47,10 +56,14 @@ export const klingO3ContentSchema = z.object({
   background_names: z.array(z.string()).min(1).max(36),
 
   scene_prompts: z.array(scenePromptItem),
+  scene_first_frame_prompts: z.array(z.string()),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 
   voiceover_list: z.array(z.string()),
+
+  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
 });
 
 export const KLING_O3_SYSTEM_PROMPT = `You are a storyboard planner for AI video generation using Kling O3 (reference-to-video).
@@ -92,7 +105,14 @@ RULES:
 - FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @Image1 when Kling should have creative freedom with the environment.
 - DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Kling O3 generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
 
-5. Multi-Shot Prompts
+5. First-Frame Prompts (NEW)
+- Generate "scene_first_frame_prompts" with EXACTLY one prompt per scene.
+- These are for first-frame image composition (static keyframe), NOT motion.
+- Must describe: composition, character placement, pose/expression, camera framing/angle, lighting, environment details.
+- Do NOT include motion language like "walks", "runs", "camera pans", "then", "suddenly".
+- Use the same assigned references as that scene.
+
+6. Multi-Shot Prompts
 - When the voiceover describes multiple distinct actions, transitions, or camera changes, use an ARRAY of 2-3 shot prompts instead of a single string.
 - When the voiceover describes a single continuous action or moment, use a single prompt string.
 - Each shot uses @ElementN and @Image1 references.
@@ -106,7 +126,7 @@ Example multi-shot prompts:
   ["Aerial drone shot slowly revealing @Image1 at sunrise, lens flare, ultra-wide angle", "The camera descends as @Element1 walks into frame from the left", "Medium shot of @Element1 looking up at the sky in @Image1"]
 
 
-6. Visual & Content Rules
+7. Visual & Content Rules
 DO:
 - The prompts will be English but the texts and style on the image will depend on the language of the voiceover.
 - Use modern islamic clothing styles if people are shown. For girls use modest clothing with NO Hijab. Modern muslim fashion styles like Turkey without religious symbols.
@@ -136,9 +156,15 @@ Return valid JSON matching this structure:
     ["Wide establishing shot of @Image1 as @Element1 arrives, golden hour light", "Medium shot of @Element1 kneeling down to pet @Element2 in @Image1, warm rim light on both", "Close-up of @Element1 smiling as @Element2 purrs"],
     "@Element1 sits alone in @Image1, leaning back with a tired expression, ambient hum of the room"
   ],
+  "scene_first_frame_prompts": [
+    "Static medium-wide composition: @Image1 as background, @Element1 standing left foreground facing camera three-quarter, @Element2 right foreground looking up, golden-hour rim light, shallow depth of field, no motion.",
+    "Static two-shot composition in @Image1: @Element1 kneeling center frame and @Element2 seated near hands, eye-level camera, warm soft light, clear facial expressions, no motion.",
+    "Static interior portrait composition: @Element1 seated center-right in @Image1, relaxed shoulders, thoughtful expression, practical lamp key light with soft shadows, no motion."
+  ],
   "scene_bg_indices": [0, 1, 2, 0],
   "scene_object_indices": [[0, 1], [0, 1], [1], [0, 1]],
-  "voiceover_list": ["segment 1 text", "segment 2 text", ...]
+  "voiceover_list": ["segment 1 text", "segment 2 text", ...],
+  "scene_durations": [5, 10, 7, 12]
 }`;
 
 export const klingO3ReviewerOutputSchema = z.object({

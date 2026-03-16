@@ -1,10 +1,16 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveForKling,
+  type CharacterImage,
+} from '@/lib/supabase/character-service';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+const WEBHOOK_BASE_URL =
+  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 // ── Model configuration ───────────────────────────────────────────────
 
@@ -27,6 +33,8 @@ interface ModelConfig {
         }>;
         multi_prompt?: string[];
         multi_shots?: boolean;
+        video_urls?: string[];
+        enable_audio?: boolean;
       }) => Record<string, unknown>)
     | null;
 }
@@ -94,21 +102,27 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
     }),
   },
   wan26flash: {
-    endpoint: 'wan/v2.6/image-to-video/flash',
+    endpoint: 'wan/v2.6/reference-to-video/flash',
     mode: 'ref_to_video',
     validResolutions: ['720p', '1080p'],
     bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
     buildPayload: ({
       prompt,
       image_urls,
+      video_urls,
       resolution,
       duration,
+      aspect_ratio,
       multi_shots,
+      enable_audio,
     }) => ({
       prompt,
-      image_url: image_urls?.[0] || '',
+      video_urls: video_urls ?? [],
+      image_urls: image_urls ?? [],
+      aspect_ratio: aspect_ratio ?? '16:9',
       resolution,
       duration: String(duration),
+      enable_audio: enable_audio ?? true,
       enable_safety_checker: false,
       multi_shots: multi_shots ?? false,
     }),
@@ -125,16 +139,24 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
-    }) => ({
-      prompt:
-        multi_prompt && multi_prompt.length > 0
-          ? multi_prompt.join('. ')
-          : prompt,
-      elements: elements || [],
-      image_urls: image_urls || [],
-      duration,
-      aspect_ratio: aspect_ratio ?? '16:9',
-    }),
+      enable_audio,
+    }) => {
+      const base: Record<string, unknown> = {
+        elements: elements || [],
+        image_urls: image_urls || [],
+        aspect_ratio: aspect_ratio ?? '16:9',
+        generate_audio: enable_audio ?? false,
+      };
+      if (multi_prompt && multi_prompt.length > 1) {
+        // Native Kling multi-shot: array of {prompt, duration} objects
+        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
+      } else {
+        base.prompt =
+          multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
+        base.duration = String(duration);
+      }
+      return base;
+    },
   },
   klingo3pro: {
     endpoint: 'fal-ai/kling-video/o3/pro/reference-to-video',
@@ -148,16 +170,23 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
-    }) => ({
-      prompt:
-        multi_prompt && multi_prompt.length > 0
-          ? multi_prompt.join('. ')
-          : prompt,
-      elements: elements || [],
-      image_urls: image_urls || [],
-      duration,
-      aspect_ratio: aspect_ratio ?? '16:9',
-    }),
+      enable_audio,
+    }) => {
+      const base: Record<string, unknown> = {
+        elements: elements || [],
+        image_urls: image_urls || [],
+        aspect_ratio: aspect_ratio ?? '16:9',
+        generate_audio: enable_audio ?? false,
+      };
+      if (multi_prompt && multi_prompt.length > 1) {
+        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
+      } else {
+        base.prompt =
+          multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
+        base.duration = String(duration);
+      }
+      return base;
+    },
   },
   skyreels: {
     endpoint: 'skyreels-direct',
@@ -172,6 +201,12 @@ const SKYREELS_API_URL = 'https://apis.skyreels.ai/api/v1/video/multiobject';
 
 const DEFAULT_MODEL = 'bytedance1.5pro';
 
+type ModelKey = keyof typeof MODEL_CONFIG;
+
+function isModelKey(value: string): value is ModelKey {
+  return value in MODEL_CONFIG;
+}
+
 // ── Prompt resolution ─────────────────────────────────────────────────
 
 function resolvePrompt(
@@ -181,9 +216,9 @@ function resolvePrompt(
 ): string {
   let resolved = scenePrompt;
   if (model === 'wan26flash') {
-    resolved = resolved.replaceAll(`{bg}`, `@Character1`);
+    resolved = resolved.replaceAll(`{bg}`, `Character1`);
     for (let i = 1; i <= objectCount; i++) {
-      resolved = resolved.replaceAll(`{object_${i}}`, `@Character${i + 1}`);
+      resolved = resolved.replaceAll(`{object_${i}}`, `Character${i + 1}`);
     }
   }
   return resolved;
@@ -203,9 +238,14 @@ interface GenerateVideoInput {
   scene_ids: string[];
   resolution: '480p' | '720p' | '1080p';
   model?: string;
+  generation_path?: 'i2v';
   aspect_ratio?: string;
   fallback_duration?: number;
   storyboard_id?: string;
+  enable_audio?: boolean;
+  duration_overrides?: Record<string, number>;
+  skyreels_duration_mode?: 'auto' | 'fixed';
+  skyreels_duration_seconds?: number;
 }
 
 interface VideoContext {
@@ -213,6 +253,11 @@ interface VideoContext {
   final_url: string;
   visual_prompt: string;
   duration: number;
+}
+
+interface LibraryElement {
+  frontal_image_url: string;
+  reference_image_urls: string[];
 }
 
 interface RefVideoContext {
@@ -223,6 +268,8 @@ interface RefVideoContext {
   object_urls: string[];
   background_url: string;
   duration: number;
+  /** When set, these replace the naive single-image elements for Kling. */
+  library_elements?: LibraryElement[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -305,7 +352,9 @@ async function getRefVideoContext(
   model: string,
   bucketDuration: (raw: number) => number,
   log: ReturnType<typeof createLogger>,
-  fallbackDuration?: number
+  fallbackDuration?: number,
+  durationOverride?: number,
+  skyreelsDurationMode: 'auto' | 'fixed' = 'auto'
 ): Promise<RefVideoContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
@@ -333,12 +382,65 @@ async function getRefVideoContext(
 
   const { data: objects } = await supabase
     .from('objects')
-    .select('final_url')
+    .select('final_url, character_id')
     .eq('scene_id', sceneId)
     .order('scene_order', { ascending: true });
   const objectUrls: string[] = (objects || [])
     .map((o: { final_url: string | null }) => o.final_url)
     .filter((url: string | null): url is string => !!url);
+
+  // Check for library characters (via project_characters)
+  let libraryElements: LibraryElement[] | undefined;
+  if (model === 'klingo3' || model === 'klingo3pro') {
+    // Find the project via scene → storyboard → project chain
+    const { data: sceneProject } = await supabase
+      .from('scenes')
+      .select('storyboards!inner(project_id)')
+      .eq('id', sceneId)
+      .single();
+
+    const projectId = sceneProject?.storyboards?.project_id;
+    if (projectId) {
+      const { data: projectChars } = await supabase
+        .from('project_characters')
+        .select('element_index, character_id')
+        .eq('project_id', projectId)
+        .order('element_index', { ascending: true });
+
+      if (projectChars && projectChars.length > 0) {
+        // Fetch character images for each bound character
+        const charIds = projectChars.map(
+          (pc: { character_id: string }) => pc.character_id
+        );
+        const { data: charImages } = await supabase
+          .from('character_images')
+          .select('*')
+          .in('character_id', charIds);
+
+        if (charImages && charImages.length > 0) {
+          const imagesByChar = new Map<string, CharacterImage[]>();
+          for (const img of charImages as CharacterImage[]) {
+            const existing = imagesByChar.get(img.character_id) || [];
+            existing.push(img);
+            imagesByChar.set(img.character_id, existing);
+          }
+
+          const resolved: LibraryElement[] = [];
+          for (const pc of projectChars) {
+            const images = imagesByChar.get(pc.character_id);
+            if (images) {
+              const payload = resolveForKling(images);
+              if (payload) resolved.push(payload);
+            }
+          }
+
+          if (resolved.length > 0) {
+            libraryElements = resolved;
+          }
+        }
+      }
+    }
+  }
 
   const { data: bg } = await supabase
     .from('backgrounds')
@@ -371,12 +473,39 @@ async function getRefVideoContext(
       (v) => v.duration ?? 0
     )
   );
-  if (maxDuration === 0 && (!fallbackDuration || fallbackDuration <= 0)) {
+
+  const hasDurationOverride =
+    typeof durationOverride === 'number' && durationOverride > 0;
+
+  if (
+    maxDuration === 0 &&
+    !hasDurationOverride &&
+    (!fallbackDuration || fallbackDuration <= 0)
+  ) {
     log.warn('No voiceover duration found', { scene_id: sceneId });
     return null;
   }
 
-  const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
+  let raw: number;
+
+  if (hasDurationOverride) {
+    raw = durationOverride;
+  } else if (model === 'skyreels' && skyreelsDurationMode === 'auto') {
+    // Policy: <=4s keep natural bucket, >4s force 5s then timeline can stretch.
+    raw =
+      maxDuration > 0
+        ? maxDuration > 4
+          ? 5
+          : Math.max(1, Math.ceil(maxDuration))
+        : fallbackDuration!;
+  } else if (model === 'wan26flash') {
+    // WAN ref flash only supports 5 or 10 seconds.
+    // Product rule: <=7.5s => 5s, >7.5s => 10s.
+    raw = maxDuration > 0 ? (maxDuration <= 7.5 ? 5 : 10) : fallbackDuration!;
+  } else {
+    raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
+  }
+
   const durationInt = bucketDuration(raw);
 
   if (model === 'skyreels') {
@@ -423,6 +552,7 @@ async function getRefVideoContext(
       object_urls: objectUrls,
       background_url: bg.final_url,
       duration: durationInt,
+      library_elements: libraryElements,
     };
   }
 
@@ -433,6 +563,7 @@ async function getRefVideoContext(
     object_urls: objectUrls,
     background_url: bg.final_url,
     duration: durationInt,
+    library_elements: libraryElements,
   };
 }
 
@@ -480,6 +611,14 @@ async function sendSkyReelsRequest(
         error: errorText,
         time_ms: log.endTiming('skyreels_submit'),
       });
+
+      if (response.status === 481) {
+        return {
+          taskId: null,
+          error: 'skyreels_parallel_limit',
+        };
+      }
+
       return {
         taskId: null,
         error: `SkyReels submit failed: ${response.status}`,
@@ -506,13 +645,14 @@ async function sendRefVideoRequest(
   model: string,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
+  enableAudio: boolean,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -522,6 +662,8 @@ async function sendRefVideoRequest(
     model,
     resolution,
     duration: context.duration,
+    aspect_ratio,
+    ...(model === 'wan26flash' ? { enable_audio: enableAudio } : {}),
   });
   log.startTiming('fal_video_request');
 
@@ -532,15 +674,21 @@ async function sendRefVideoRequest(
         prompt: context.prompt,
         image_url: '',
         image_urls: [context.background_url, ...context.object_urls],
+        video_urls: [],
         resolution,
         duration: context.duration,
+        aspect_ratio,
         multi_shots: context.multi_shots,
+        enable_audio: enableAudio,
       });
     } else {
-      const elements = context.object_urls.map((url) => ({
-        frontal_image_url: url,
-        reference_image_urls: [url],
-      }));
+      // Use library character elements if available, otherwise naive single-image
+      const elements = context.library_elements
+        ? context.library_elements
+        : context.object_urls.map((url) => ({
+            frontal_image_url: url,
+            reference_image_urls: [url],
+          }));
       payload = modelConfig.buildPayload!({
         prompt: context.prompt,
         image_url: '',
@@ -551,16 +699,22 @@ async function sendRefVideoRequest(
         aspect_ratio,
         multi_prompt: context.multi_prompt,
         multi_shots: context.multi_shots,
+        enable_audio: enableAudio,
       });
     }
 
+    const isKlingRef = model === 'klingo3' || model === 'klingo3pro';
     const falResponse = await fetch(falUrl.toString(), {
       method: 'POST',
       headers: {
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        // web_search is WAN-specific; Kling API doesn't support it
+        ...(!isKlingRef ? { web_search: true } : {}),
+      }),
     });
     if (!falResponse.ok) {
       const errorText = await falResponse.text();
@@ -600,7 +754,7 @@ async function sendVideoRequest(
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${APP_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -626,7 +780,7 @@ async function sendVideoRequest(
         Authorization: `Key ${FAL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, web_search: true }),
     });
     if (!falResponse.ok) {
       const errorText = await falResponse.text();
@@ -655,6 +809,151 @@ async function sendVideoRequest(
   }
 }
 
+async function queueDirectRefVideo(
+  supabase: ReturnType<typeof createServiceClient>,
+  sceneId: string,
+  resolution: string,
+  model: ModelKey,
+  modelConfig: ModelConfig,
+  aspect_ratio: string | undefined,
+  wanEnableAudio: boolean,
+  durationOverride: number | undefined,
+  log: ReturnType<typeof createLogger>,
+  fallback_duration: number | undefined,
+  skyreelsDurationMode: 'auto' | 'fixed',
+  skyreelsDurationSeconds: number | undefined
+): Promise<{
+  scene_id: string;
+  request_id: string | null;
+  status: 'queued' | 'skipped' | 'failed';
+  error?: string;
+}> {
+  const effectiveDurationOverride =
+    model === 'skyreels' && skyreelsDurationMode === 'fixed'
+      ? skyreelsDurationSeconds
+      : durationOverride;
+
+  const refContext = await getRefVideoContext(
+    supabase,
+    sceneId,
+    model,
+    modelConfig.bucketDuration,
+    log,
+    fallback_duration,
+    effectiveDurationOverride,
+    skyreelsDurationMode
+  );
+
+  if (!refContext) {
+    return {
+      scene_id: sceneId,
+      request_id: null,
+      status: 'skipped',
+      error: 'Prerequisites not met',
+    };
+  }
+
+  await supabase
+    .from('scenes')
+    .update({
+      video_status: 'processing',
+      video_resolution: resolution,
+      video_model: model,
+    })
+    .eq('id', refContext.scene_id);
+
+  if (model === 'skyreels') {
+    const { taskId, error } = await sendSkyReelsRequest(
+      refContext,
+      aspect_ratio,
+      log
+    );
+
+    if (error || !taskId) {
+      if (error === 'skyreels_parallel_limit') {
+        await supabase
+          .from('scenes')
+          .update({
+            video_status: 'pending',
+            video_error_message: 'skyreels_parallel_limit',
+          })
+          .eq('id', refContext.scene_id);
+
+        return {
+          scene_id: sceneId,
+          request_id: null,
+          status: 'skipped',
+          error: 'SkyReels parallel limit exceeded',
+        };
+      }
+
+      await supabase
+        .from('scenes')
+        .update({
+          video_status: 'failed',
+          video_error_message: error || 'request_error',
+        })
+        .eq('id', refContext.scene_id);
+
+      return {
+        scene_id: sceneId,
+        request_id: null,
+        status: 'failed',
+        error: error || 'Unknown error',
+      };
+    }
+
+    await supabase
+      .from('scenes')
+      .update({ video_request_id: taskId })
+      .eq('id', refContext.scene_id);
+
+    return {
+      scene_id: sceneId,
+      request_id: taskId,
+      status: 'queued',
+    };
+  }
+
+  const { requestId, error } = await sendRefVideoRequest(
+    refContext,
+    resolution,
+    model,
+    modelConfig,
+    aspect_ratio,
+    wanEnableAudio,
+    log
+  );
+
+  if (error || !requestId) {
+    await supabase
+      .from('scenes')
+      .update({
+        video_status: 'failed',
+        video_error_message: 'request_error',
+      })
+      .eq('id', refContext.scene_id);
+
+    return {
+      scene_id: sceneId,
+      request_id: null,
+      status: 'failed',
+      error: error || 'Unknown error',
+    };
+  }
+
+  await supabase
+    .from('scenes')
+    .update({ video_request_id: requestId })
+    .eq('id', refContext.scene_id);
+
+  return {
+    scene_id: sceneId,
+    request_id: requestId,
+    status: 'queued',
+  };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -668,8 +967,16 @@ export async function POST(req: NextRequest) {
   try {
     const authClient = await createClient();
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await authClient.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -680,14 +987,29 @@ export async function POST(req: NextRequest) {
       scene_ids,
       resolution = '720p',
       model = DEFAULT_MODEL,
+      generation_path,
       aspect_ratio,
       fallback_duration,
       storyboard_id,
+      enable_audio = true,
+      duration_overrides,
+      skyreels_duration_mode = 'auto',
+      skyreels_duration_seconds,
     } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scene_ids must be a non-empty array' },
+        { status: 400 }
+      );
+    }
+
+    if (generation_path && generation_path !== 'i2v') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'generation_path only supports i2v override',
+        },
         { status: 400 }
       );
     }
@@ -698,6 +1020,72 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error: `model must be one of: ${Object.keys(MODEL_CONFIG).join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!['auto', 'fixed'].includes(skyreels_duration_mode)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'skyreels_duration_mode must be auto or fixed',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (typeof enable_audio !== 'boolean') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'enable_audio must be a boolean',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      duration_overrides !== undefined &&
+      (typeof duration_overrides !== 'object' || duration_overrides === null)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'duration_overrides must be an object when provided',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      duration_overrides &&
+      Object.entries(duration_overrides).some(
+        ([sceneId, seconds]) =>
+          typeof sceneId !== 'string' ||
+          !sceneId ||
+          (seconds !== 5 && seconds !== 10)
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'duration_overrides values must be 5 or 10 seconds',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      skyreels_duration_mode === 'fixed' &&
+      (typeof skyreels_duration_seconds !== 'number' ||
+        skyreels_duration_seconds < 1 ||
+        skyreels_duration_seconds > 5)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'skyreels_duration_seconds must be between 1 and 5',
         },
         { status: 400 }
       );
@@ -716,21 +1104,109 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    let isRefMode = modelConfig.mode === 'ref_to_video';
-    if (storyboard_id && !isRefMode) {
+    let storyboardMode: string | null = null;
+    let storyboardModel: string | null = null;
+    let storyboardVideoMode: 'narrative' | 'dialogue_scene' | null = null;
+
+    if (storyboard_id) {
       const { data: sb } = await supabase
         .from('storyboards')
-        .select('mode')
+        .select('mode, model, plan')
         .eq('id', storyboard_id)
         .single();
-      if (sb?.mode === 'ref_to_video') isRefMode = true;
+
+      storyboardMode = sb?.mode ?? null;
+      storyboardModel = sb?.model ?? null;
+      if (
+        sb?.plan &&
+        typeof sb.plan === 'object' &&
+        'video_mode' in sb.plan &&
+        (sb.plan.video_mode === 'narrative' ||
+          sb.plan.video_mode === 'dialogue_scene')
+      ) {
+        storyboardVideoMode = sb.plan.video_mode;
+      }
+    }
+
+    const isStoryboardRefMode = storyboardMode === 'ref_to_video';
+    const forceI2v = generation_path === 'i2v';
+
+    if (forceI2v && modelConfig.mode !== 'image_to_video') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'i2v override requires an image_to_video model',
+        },
+        { status: 400 }
+      );
+    }
+
+    const directStoryboardRefModel: ModelKey | null =
+      storyboardModel &&
+      isModelKey(storyboardModel) &&
+      MODEL_CONFIG[storyboardModel].mode === 'ref_to_video'
+        ? storyboardModel
+        : null;
+
+    const requestedRefModel: ModelKey | null =
+      isModelKey(model) && MODEL_CONFIG[model].mode === 'ref_to_video'
+        ? model
+        : null;
+
+    const isRefMode = isStoryboardRefMode
+      ? !forceI2v
+      : modelConfig.mode === 'ref_to_video';
+
+    const effectiveDirectRefModel: ModelKey | null = isRefMode
+      ? isStoryboardRefMode
+        ? directStoryboardRefModel
+        : requestedRefModel
+      : null;
+
+    const isNarrativeMode = storyboardVideoMode === 'narrative';
+    const effectiveEnableAudio =
+      isNarrativeMode &&
+      (effectiveDirectRefModel === 'wan26flash' ||
+        effectiveDirectRefModel === 'klingo3' ||
+        effectiveDirectRefModel === 'klingo3pro')
+        ? false
+        : enable_audio;
+
+    if (isRefMode && !effectiveDirectRefModel) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Direct ref_to_video path requires a valid ref model (klingo3, klingo3pro, wan26flash, skyreels)',
+        },
+        { status: 400 }
+      );
     }
 
     log.info('Processing video requests', {
       scene_count: scene_ids.length,
       resolution,
       model,
-      mode: isRefMode ? 'ref_to_video' : 'image_to_video',
+      mode: isRefMode
+        ? 'ref_to_video'
+        : forceI2v
+          ? 'i2v_override'
+          : 'image_to_video',
+      ...(model === 'skyreels'
+        ? {
+            skyreels_duration_mode,
+            skyreels_duration_seconds:
+              skyreels_duration_mode === 'fixed'
+                ? skyreels_duration_seconds
+                : undefined,
+          }
+        : {}),
+      ...(model === 'wan26flash'
+        ? {
+            enable_audio: effectiveEnableAudio,
+            storyboard_video_mode: storyboardVideoMode,
+          }
+        : {}),
     });
 
     const results: Array<{
@@ -747,134 +1223,42 @@ export async function POST(req: NextRequest) {
         await delay(1000);
       }
 
-      if (isRefMode) {
-        const refContext = await getRefVideoContext(
+      if (forceI2v) {
+        const i2vContext = await getVideoContext(
           supabase,
           sceneId,
-          model,
           modelConfig.bucketDuration,
           log,
           fallback_duration
         );
-        if (!refContext) {
-          results.push({
-            scene_id: sceneId,
-            request_id: null,
-            status: 'skipped',
-            error: 'Prerequisites not met',
-          });
-          continue;
-        }
 
-        if (model === 'skyreels') {
-          await supabase
-            .from('scenes')
-            .update({
-              video_status: 'processing',
-              video_resolution: resolution,
-            })
-            .eq('id', refContext.scene_id);
-          const { taskId, error } = await sendSkyReelsRequest(
-            refContext,
-            aspect_ratio,
-            log
-          );
-          if (error || !taskId) {
-            await supabase
-              .from('scenes')
-              .update({
-                video_status: 'failed',
-                video_error_message: error || 'request_error',
-              })
-              .eq('id', refContext.scene_id);
-            results.push({
-              scene_id: sceneId,
-              request_id: null,
-              status: 'failed',
-              error: error || 'Unknown error',
-            });
-            continue;
-          }
-          await supabase
-            .from('scenes')
-            .update({ video_request_id: taskId })
-            .eq('id', refContext.scene_id);
-          results.push({
-            scene_id: sceneId,
-            request_id: taskId,
-            status: 'queued',
-          });
-        } else {
-          await supabase
-            .from('scenes')
-            .update({
-              video_status: 'processing',
-              video_resolution: resolution,
-            })
-            .eq('id', refContext.scene_id);
-          const { requestId, error } = await sendRefVideoRequest(
-            refContext,
-            resolution,
-            model,
-            modelConfig,
-            aspect_ratio,
-            log
-          );
-          if (error || !requestId) {
-            await supabase
-              .from('scenes')
-              .update({
-                video_status: 'failed',
-                video_error_message: 'request_error',
-              })
-              .eq('id', refContext.scene_id);
-            results.push({
-              scene_id: sceneId,
-              request_id: null,
-              status: 'failed',
-              error: error || 'Unknown error',
-            });
-            continue;
-          }
-          await supabase
-            .from('scenes')
-            .update({ video_request_id: requestId })
-            .eq('id', refContext.scene_id);
-          results.push({
-            scene_id: sceneId,
-            request_id: requestId,
-            status: 'queued',
-          });
-        }
-      } else {
-        const context = await getVideoContext(
-          supabase,
-          sceneId,
-          modelConfig.bucketDuration,
-          log,
-          fallback_duration
-        );
-        if (!context) {
+        if (!i2vContext) {
           results.push({
             scene_id: sceneId,
             request_id: null,
             status: 'skipped',
-            error: 'Prerequisites not met',
+            error: 'Prerequisites not met (missing first frame)',
           });
           continue;
         }
 
         await supabase
           .from('scenes')
-          .update({ video_status: 'processing', video_resolution: resolution })
-          .eq('id', context.scene_id);
+          .update({
+            video_status: 'processing',
+            video_resolution: resolution,
+            video_model: model,
+          })
+          .eq('id', i2vContext.scene_id);
+
         const { requestId, error } = await sendVideoRequest(
-          context,
+          i2vContext,
           resolution,
           modelConfig,
           aspect_ratio,
           log
         );
+
         if (error || !requestId) {
           await supabase
             .from('scenes')
@@ -882,7 +1266,8 @@ export async function POST(req: NextRequest) {
               video_status: 'failed',
               video_error_message: 'request_error',
             })
-            .eq('id', context.scene_id);
+            .eq('id', i2vContext.scene_id);
+
           results.push({
             scene_id: sceneId,
             request_id: null,
@@ -891,16 +1276,130 @@ export async function POST(req: NextRequest) {
           });
           continue;
         }
+
         await supabase
           .from('scenes')
           .update({ video_request_id: requestId })
-          .eq('id', context.scene_id);
+          .eq('id', i2vContext.scene_id);
+
         results.push({
           scene_id: sceneId,
           request_id: requestId,
           status: 'queued',
         });
+
+        continue;
       }
+
+      if (isRefMode && effectiveDirectRefModel) {
+        const durationOverrideForScene = duration_overrides?.[sceneId];
+
+        const directResult = await queueDirectRefVideo(
+          supabase,
+          sceneId,
+          resolution,
+          effectiveDirectRefModel,
+          MODEL_CONFIG[effectiveDirectRefModel],
+          aspect_ratio,
+          effectiveEnableAudio,
+          durationOverrideForScene,
+          log,
+          fallback_duration,
+          skyreels_duration_mode,
+          skyreels_duration_seconds
+        );
+        results.push(directResult);
+
+        if (
+          effectiveDirectRefModel === 'skyreels' &&
+          directResult.error === 'SkyReels parallel limit exceeded'
+        ) {
+          const remainingSceneIds = scene_ids.slice(i + 1);
+
+          if (remainingSceneIds.length > 0) {
+            await supabase
+              .from('scenes')
+              .update({
+                video_status: 'pending',
+                video_error_message: 'skyreels_parallel_limit',
+              })
+              .in('id', remainingSceneIds)
+              .eq('video_status', 'failed');
+
+            results.push(
+              ...remainingSceneIds.map((remainingSceneId) => ({
+                scene_id: remainingSceneId,
+                request_id: null,
+                status: 'skipped' as const,
+                error:
+                  'Deferred due to SkyReels parallel limit (will need retry)',
+              }))
+            );
+          }
+
+          break;
+        }
+
+        continue;
+      }
+
+      const context = await getVideoContext(
+        supabase,
+        sceneId,
+        modelConfig.bucketDuration,
+        log,
+        fallback_duration
+      );
+      if (!context) {
+        results.push({
+          scene_id: sceneId,
+          request_id: null,
+          status: 'skipped',
+          error: 'Prerequisites not met',
+        });
+        continue;
+      }
+
+      await supabase
+        .from('scenes')
+        .update({
+          video_status: 'processing',
+          video_resolution: resolution,
+          video_model: model,
+        })
+        .eq('id', context.scene_id);
+      const { requestId, error } = await sendVideoRequest(
+        context,
+        resolution,
+        modelConfig,
+        aspect_ratio,
+        log
+      );
+      if (error || !requestId) {
+        await supabase
+          .from('scenes')
+          .update({
+            video_status: 'failed',
+            video_error_message: 'request_error',
+          })
+          .eq('id', context.scene_id);
+        results.push({
+          scene_id: sceneId,
+          request_id: null,
+          status: 'failed',
+          error: error || 'Unknown error',
+        });
+        continue;
+      }
+      await supabase
+        .from('scenes')
+        .update({ video_request_id: requestId })
+        .eq('id', context.scene_id);
+      results.push({
+        scene_id: sceneId,
+        request_id: requestId,
+        status: 'queued',
+      });
     }
 
     const queuedCount = results.filter((r) => r.status === 'queued').length;

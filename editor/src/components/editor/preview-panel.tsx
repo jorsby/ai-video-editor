@@ -97,6 +97,9 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
           console.log('Loading from Supabase...');
           const projectJson = reconstructProjectJSON(savedData);
           await previewRef.current?.loadFromJSON(projectJson as any);
+        } else {
+          // No timeline data for this language — ensure clean slate
+          await previewRef.current?.clear();
         }
 
         if (abortController.signal.aborted) return;

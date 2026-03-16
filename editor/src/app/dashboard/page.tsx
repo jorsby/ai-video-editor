@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { Button } from '@/components/ui/button';
-import { LogOut, Calendar } from 'lucide-react';
+import { LogOut, Calendar, Users, Clapperboard } from 'lucide-react';
 import { DashboardContent } from '@/components/dashboard/dashboard-content';
 import Link from 'next/link';
 
@@ -25,21 +25,40 @@ export default async function Dashboard() {
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/3 rounded-full blur-3xl" />
 
       {/* Header */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border/50">
-        <div className="flex items-center gap-4">
+      <header className="relative z-10 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border/50">
+        <div className="flex items-center gap-2 sm:gap-4">
           <span className="text-lg font-semibold tracking-tight">Combo</span>
           <Link href="/calendar">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
               <Calendar className="w-4 h-4" />
-              <span className="ml-1.5">Calendar</span>
+              <span className="ml-1.5 hidden sm:inline">Calendar</span>
+            </Button>
+          </Link>
+          <Link href="/characters">
+            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
+              <Users className="w-4 h-4" />
+              <span className="ml-1.5 hidden sm:inline">Characters</span>
+            </Button>
+          </Link>
+          <Link href="/series">
+            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
+              <Clapperboard className="w-4 h-4" />
+              <span className="ml-1.5 hidden sm:inline">Series</span>
             </Button>
           </Link>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">{user.email}</span>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <span className="text-sm text-muted-foreground hidden sm:inline">
+            {user.email}
+          </span>
           <form action="/auth/signout" method="post">
-            <Button variant="ghost" size="sm" type="submit">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 w-10 p-0 sm:w-auto sm:px-3"
+              type="submit"
+            >
               <LogOut className="w-4 h-4" />
               <span className="sr-only">Sign out</span>
             </Button>
@@ -48,7 +67,7 @@ export default async function Dashboard() {
       </header>
 
       {/* Main content */}
-      <main className="relative z-10 flex-1 px-6 py-12">
+      <main className="relative z-10 flex-1 px-4 sm:px-6 py-6 sm:py-12">
         <DashboardContent />
       </main>
 

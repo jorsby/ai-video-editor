@@ -1,5 +1,10 @@
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import type {
+  GridAspectRatio,
+  GridResolution,
+} from '@/lib/grid-generation-settings';
+import type { StoryboardContentTemplate } from '@/lib/storyboard-content-template';
 
 // Types for workflow data
 
@@ -20,14 +25,25 @@ export interface StoryboardPlan {
   rows: number;
   cols: number;
   grid_image_prompt: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
   voiceover_list: Record<string, string[]>;
   visual_flow: string[];
+  content_template?: StoryboardContentTemplate;
 }
 
 // Ref-to-video plan shapes
 export interface KlingElement {
   name: string;
   description: string;
+}
+
+export type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
+export type RefVideoMode = 'narrative' | 'dialogue_scene';
+
+export interface SceneDialogueLine {
+  speaker: string;
+  line: string;
 }
 
 export interface RefPlanBase {
@@ -37,11 +53,18 @@ export interface RefPlanBase {
   bg_rows: number;
   bg_cols: number;
   backgrounds_grid_prompt: string;
+  grid_generation_aspect_ratio?: GridAspectRatio;
+  grid_generation_resolution?: GridResolution;
   background_names: string[];
   scene_prompts: (string | string[])[];
+  scene_first_frame_prompts?: string[];
   scene_bg_indices: number[];
   scene_object_indices: number[][];
   voiceover_list: Record<string, string[]>;
+  video_mode?: RefVideoMode;
+  scene_dialogue?: SceneDialogueLine[][];
+  workflow_variant?: RefWorkflowVariant;
+  content_template?: StoryboardContentTemplate;
 }
 
 export interface KlingO3RefPlan extends RefPlanBase {
@@ -61,6 +84,8 @@ export interface SkyReelsRefPlan extends RefPlanBase {
 
 export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan | SkyReelsRefPlan;
 
+export type StoryboardInputType = 'voiceover_script' | 'cinematic_flow';
+
 export interface Storyboard {
   id: string;
   project_id: string;
@@ -71,6 +96,10 @@ export interface Storyboard {
   plan_status: PlanStatus;
   mode: StoryboardMode;
   model: VideoModel | null;
+  title: string | null;
+  input_type: StoryboardInputType;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export type GridImageType = 'scene' | 'objects' | 'backgrounds';
@@ -106,6 +135,7 @@ export interface FirstFrame {
     | 'outpainting'
     | 'enhancing'
     | 'editing'
+    | 'processing'
     | 'success'
     | 'failed'
     | null;
@@ -168,7 +198,14 @@ export interface RefObject {
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
-  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_status:
+    | 'outpainting'
+    | 'enhancing'
+    | 'editing'
+    | 'processing'
+    | 'success'
+    | 'failed'
+    | null;
   image_edit_error_message: string | null;
   image_edit_request_id: string | null;
   created_at: string;
@@ -186,7 +223,14 @@ export interface Background {
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
-  image_edit_status: 'enhancing' | 'editing' | 'success' | 'failed' | null;
+  image_edit_status:
+    | 'outpainting'
+    | 'enhancing'
+    | 'editing'
+    | 'processing'
+    | 'success'
+    | 'failed'
+    | null;
   image_edit_error_message: string | null;
   image_edit_request_id: string | null;
   created_at: string;
@@ -479,6 +523,10 @@ export interface StoryboardRow {
   plan: Record<string, unknown> | null;
   mode: StoryboardMode;
   model: VideoModel | null;
+  title: string | null;
+  input_type: StoryboardInputType;
+  is_active: boolean;
+  sort_order: number;
   [key: string]: unknown;
 }
 

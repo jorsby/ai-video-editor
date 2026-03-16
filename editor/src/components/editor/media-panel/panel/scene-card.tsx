@@ -73,12 +73,33 @@ function formatPromptPreview(
   return prompt;
 }
 
+function formatVoiceoverDuration(
+  seconds: number | null | undefined
+): string | null {
+  if (
+    typeof seconds !== 'number' ||
+    !Number.isFinite(seconds) ||
+    seconds <= 0
+  ) {
+    return null;
+  }
+
+  return `${seconds.toFixed(1)}s`;
+}
+
 interface SceneCardProps {
   scene: Scene;
   onClick?: () => void;
   compact?: boolean;
   isSelected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
+  skyreelsTiming?: {
+    voiceoverSeconds: number | null;
+    generatedSeconds: number;
+    playbackRate: number | null;
+    warnSlowdown: boolean;
+    mode: 'auto' | 'fixed';
+  };
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
@@ -93,6 +114,8 @@ interface SceneCardProps {
   ) => Promise<void>;
   onSaveVisualPrompt?: (sceneId: string, newPrompt: string) => Promise<void>;
   onSaveVoiceoverText?: (sceneId: string, newText: string) => Promise<void>;
+  promptLabel?: string;
+  promptOverride?: string | null;
   selectedLanguage?: import('@/lib/constants/languages').LanguageCode;
   isRefMode?: boolean;
   isTarget?: boolean;
@@ -108,6 +131,17 @@ interface SceneCardProps {
     sceneId: string,
     newGridPosition: number
   ) => Promise<void>;
+  wanDurationSeconds?: 5 | 10;
+  wanDurationSelection?: 'auto' | '5' | '10';
+  wanVoiceoverSeconds?: number;
+  onChangeWanDurationSelection?: (
+    sceneId: string,
+    selection: 'auto' | '5' | '10'
+  ) => void;
+  dialogueDurationSeconds?: number;
+  dialogueDurationLlmDefault?: number;
+  onChangeDialogueDuration?: (sceneId: string, seconds: number) => void;
+  isDialogueMode?: boolean;
 }
 
 interface SceneThumbnailProps {
@@ -153,8 +187,17 @@ function SceneThumbnail({
   const isOutpainting = editStatus === 'outpainting';
   const isEnhancing = editStatus === 'enhancing';
   const isCustomEditing = editStatus === 'editing';
+  const isProcessingEdit = editStatus === 'processing';
   const isEditFailed = editStatus === 'failed';
   const isGeneratingVideo = videoStatus === 'processing';
+
+  const firstFrameBadgeStatus = firstFrame
+    ? isEditFailed
+      ? 'failed'
+      : isOutpainting || isEnhancing || isCustomEditing || isProcessingEdit
+        ? 'processing'
+        : firstFrame.status
+    : null;
 
   const thumbRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -251,6 +294,14 @@ function SceneThumbnail({
           </span>
         </div>
       )}
+      {isProcessingEdit && (
+        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+          <IconLoader2 size={20} className="text-cyan-400 animate-spin" />
+          <span className="text-[10px] text-cyan-300 font-medium">
+            Generating Frame...
+          </span>
+        </div>
+      )}
       {isEditFailed && (
         <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
           <IconAlertTriangle size={20} className="text-red-400" />
@@ -294,7 +345,9 @@ function SceneThumbnail({
               <IconVideo size={10} />
             </div>
           )}
-          {firstFrame && <StatusBadge status={firstFrame.status} size="sm" />}
+          {firstFrame && firstFrameBadgeStatus && (
+            <StatusBadge status={firstFrameBadgeStatus} size="sm" />
+          )}
         </div>
       )}
     </div>
@@ -375,9 +428,11 @@ interface ExpandedContentProps {
   ) => Promise<void>;
   onSaveVisualPrompt?: (sceneId: string, newPrompt: string) => Promise<void>;
   onSaveVoiceoverText?: (sceneId: string, newText: string) => Promise<void>;
+  promptLabel?: string;
   hasVideo?: boolean;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
+  isDialogueMode?: boolean;
 }
 
 function ExpandedContent({
@@ -393,9 +448,11 @@ function ExpandedContent({
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
+  promptLabel,
   hasVideo,
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
+  isDialogueMode: isDialogueModeExpanded,
 }: ExpandedContentProps) {
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
@@ -477,15 +534,22 @@ function ExpandedContent({
     return null;
   };
 
+  const voiceoverDurationLabel = formatVoiceoverDuration(voiceover?.duration);
+
   return (
     <div className="mt-2 flex flex-col gap-2">
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-1.5">
           <IconMicrophone size={12} className="text-blue-400" />
           <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            Voiceover
+            {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
           </span>
           {renderVoiceoverStatus()}
+          {voiceoverDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
+              {voiceoverDurationLabel}
+            </span>
+          )}
           {isSavingVoiceover && (
             <IconLoader2 size={10} className="animate-spin text-blue-400" />
           )}
@@ -601,7 +665,9 @@ function ExpandedContent({
             title={onSaveVoiceoverText ? 'Click to edit' : undefined}
           >
             {displayVoiceover || (
-              <span className="italic text-muted-foreground">No voiceover</span>
+              <span className="italic text-muted-foreground">
+                {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+              </span>
             )}
           </p>
         )}
@@ -610,7 +676,7 @@ function ExpandedContent({
         <div className="flex items-center gap-1.5">
           <IconEye size={12} className="text-purple-400" />
           <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            Visual
+            {promptLabel ?? 'Visual'}
           </span>
           {isSaving && (
             <IconLoader2 size={10} className="animate-spin text-purple-400" />
@@ -731,7 +797,8 @@ function ExpandedContent({
               Video
             </Button>
           )}
-          {voiceover?.status === 'success' &&
+          {!isDialogueModeExpanded &&
+            voiceover?.status === 'success' &&
             voiceover?.audio_url &&
             onAddVoiceoverToTimeline && (
               <Button
@@ -802,6 +869,14 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
                   />
                 </div>
               )}
+              {obj.image_edit_status === 'outpainting' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-purple-400 animate-spin"
+                  />
+                </div>
+              )}
               {obj.image_edit_status === 'enhancing' && (
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                   <IconLoader2
@@ -815,6 +890,14 @@ function ObjectsRow({ objects }: { objects: RefObject[] }) {
                   <IconLoader2
                     size={12}
                     className="text-amber-400 animate-spin"
+                  />
+                </div>
+              )}
+              {obj.image_edit_status === 'processing' && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <IconLoader2
+                    size={12}
+                    className="text-cyan-400 animate-spin"
                   />
                 </div>
               )}
@@ -912,6 +995,7 @@ export function SceneCard({
   scene,
   isSelected,
   onSelectionChange,
+  skyreelsTiming,
   playingVoiceoverId,
   setPlayingVoiceoverId,
   onReadScene,
@@ -920,6 +1004,8 @@ export function SceneCard({
   onGenerateSceneVideo,
   onSaveVisualPrompt,
   onSaveVoiceoverText,
+  promptLabel,
+  promptOverride,
   selectedLanguage = 'en',
   isRefMode,
   isTarget,
@@ -929,6 +1015,14 @@ export function SceneCard({
   onAddVoiceoverToTimeline,
   availableBackgrounds,
   onChangeBackground,
+  wanDurationSeconds,
+  wanDurationSelection,
+  wanVoiceoverSeconds,
+  onChangeWanDurationSelection,
+  dialogueDurationSeconds,
+  dialogueDurationLlmDefault,
+  onChangeDialogueDuration,
+  isDialogueMode,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -944,11 +1038,12 @@ export function SceneCard({
       null)
     : (background?.final_url ?? background?.url ?? null);
   const displayVoiceover = voiceover?.text;
-  // For ref_to_video scenes, prefer multi_prompt (as JSON string for display), then scene.prompt
+  // For ref_to_video scenes, prefer explicit override (first-frame prompt), then multi_prompt, then scene/first-frame prompt.
   const displayVisualPrompt =
-    scene.multi_prompt && scene.multi_prompt.length > 0
+    promptOverride ??
+    (scene.multi_prompt && scene.multi_prompt.length > 0
       ? JSON.stringify(scene.multi_prompt)
-      : (firstFrame?.visual_prompt ?? scene.prompt);
+      : (firstFrame?.visual_prompt ?? scene.prompt));
 
   const handleAddToCanvas = async () => {
     if (!studio || !scene.video_url) return;
@@ -1001,6 +1096,15 @@ export function SceneCard({
     ? displayVoiceover.slice(0, 35) +
       (displayVoiceover.length > 35 ? '...' : '')
     : null;
+
+  const collapsedVoiceoverDurationLabel = formatVoiceoverDuration(
+    voiceover?.duration
+  );
+
+  const wanDurationLabel =
+    typeof wanDurationSeconds === 'number'
+      ? `${wanDurationSelection === 'auto' ? 'Auto ' : ''}${wanDurationSeconds}s`
+      : null;
 
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
@@ -1140,6 +1244,17 @@ export function SceneCard({
                   </span>
                 </div>
               )}
+              {background?.image_edit_status === 'outpainting' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-purple-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-purple-300 font-medium">
+                    Outpainting...
+                  </span>
+                </div>
+              )}
               {background?.image_edit_status === 'enhancing' && (
                 <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
                   <IconLoader2
@@ -1159,6 +1274,17 @@ export function SceneCard({
                   />
                   <span className="text-[10px] text-amber-300 font-medium">
                     Editing...
+                  </span>
+                </div>
+              )}
+              {background?.image_edit_status === 'processing' && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                  <IconLoader2
+                    size={20}
+                    className="text-cyan-400 animate-spin"
+                  />
+                  <span className="text-[10px] text-cyan-300 font-medium">
+                    Processing...
                   </span>
                 </div>
               )}
@@ -1251,15 +1377,46 @@ export function SceneCard({
       {/* Objects row (ref_to_video characters/items) */}
       {scene.objects?.length > 0 && <ObjectsRow objects={scene.objects} />}
 
+      {skyreelsTiming && (
+        <div
+          className={`mt-1.5 px-1.5 py-1 rounded text-[9px] ${skyreelsTiming.warnSlowdown ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'}`}
+        >
+          <div>
+            SkyReels ({skyreelsTiming.mode === 'fixed' ? 'fixed' : 'auto'}):{' '}
+            {skyreelsTiming.voiceoverSeconds
+              ? `VO ${skyreelsTiming.voiceoverSeconds.toFixed(1)}s → Gen ${skyreelsTiming.generatedSeconds}s`
+              : `No VO → Gen ${skyreelsTiming.generatedSeconds}s`}
+            {skyreelsTiming.playbackRate
+              ? ` → ${skyreelsTiming.playbackRate.toFixed(2)}x`
+              : ''}
+          </div>
+          {skyreelsTiming.warnSlowdown && (
+            <div className="mt-0.5">Heavy slowdown may feel unnatural.</div>
+          )}
+        </div>
+      )}
+
       {!expanded && (
         <div className="mt-2 flex items-center gap-1.5">
           <IconMicrophone size={10} className="text-blue-400 flex-shrink-0" />
           <p className="text-[10px] text-foreground/70 truncate flex-1">
             {voiceoverPreview || (
-              <span className="italic text-muted-foreground">No voiceover</span>
+              <span className="italic text-muted-foreground">
+                {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+              </span>
             )}
           </p>
           {renderCollapsedVoiceoverStatus()}
+          {collapsedVoiceoverDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
+              {collapsedVoiceoverDurationLabel}
+            </span>
+          )}
+          {wanDurationLabel && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-300 flex-shrink-0">
+              {wanDurationLabel}
+            </span>
+          )}
           <IconChevronDown
             size={12}
             className="text-muted-foreground flex-shrink-0"
@@ -1268,23 +1425,110 @@ export function SceneCard({
       )}
 
       {expanded && (
-        <ExpandedContent
-          voiceover={voiceover}
-          displayVoiceover={displayVoiceover}
-          displayVisualPrompt={displayVisualPrompt}
-          playingVoiceoverId={playingVoiceoverId}
-          setPlayingVoiceoverId={setPlayingVoiceoverId}
-          sceneId={scene.id}
-          onReadScene={onReadScene}
-          onTranslateScene={onTranslateScene}
-          onReadSceneAllLanguages={onReadSceneAllLanguages}
-          onGenerateSceneVideo={onGenerateSceneVideo}
-          onSaveVisualPrompt={onSaveVisualPrompt}
-          onSaveVoiceoverText={onSaveVoiceoverText}
-          hasVideo={!!hasVideo}
-          onAddVideoToTimeline={onAddVideoToTimeline}
-          onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
-        />
+        <>
+          {wanDurationLabel && onChangeWanDurationSelection && (
+            <div
+              className="mt-2 p-1.5 rounded border border-cyan-500/20 bg-cyan-500/5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-[10px] text-cyan-300">WAN Duration</span>
+                <span className="text-[10px] text-muted-foreground">
+                  VO {Math.max(0, wanVoiceoverSeconds ?? 0).toFixed(1)}s →{' '}
+                  {wanDurationSeconds}s
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={
+                    wanDurationSelection === 'auto' ? 'secondary' : 'ghost'
+                  }
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, 'auto')}
+                >
+                  Auto
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={wanDurationSelection === '5' ? 'secondary' : 'ghost'}
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, '5')}
+                >
+                  5s
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={
+                    wanDurationSelection === '10' ? 'secondary' : 'ghost'
+                  }
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChangeWanDurationSelection(scene.id, '10')}
+                >
+                  10s
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {typeof dialogueDurationSeconds === 'number' &&
+            onChangeDialogueDuration && (
+              <div
+                className="mt-2 p-1.5 rounded border border-amber-500/20 bg-amber-500/5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[10px] text-amber-300">
+                    Scene Duration
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {dialogueDurationSeconds}s
+                    {dialogueDurationLlmDefault &&
+                      dialogueDurationSeconds !== dialogueDurationLlmDefault &&
+                      ` (AI: ${dialogueDurationLlmDefault}s)`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={3}
+                  max={15}
+                  step={1}
+                  value={dialogueDurationSeconds}
+                  onChange={(e) =>
+                    onChangeDialogueDuration(scene.id, Number(e.target.value))
+                  }
+                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-400 bg-amber-500/20"
+                />
+                <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+                  <span>3s</span>
+                  <span>15s</span>
+                </div>
+              </div>
+            )}
+
+          <ExpandedContent
+            voiceover={voiceover}
+            displayVoiceover={displayVoiceover}
+            displayVisualPrompt={displayVisualPrompt}
+            playingVoiceoverId={playingVoiceoverId}
+            setPlayingVoiceoverId={setPlayingVoiceoverId}
+            sceneId={scene.id}
+            onReadScene={onReadScene}
+            onTranslateScene={onTranslateScene}
+            onReadSceneAllLanguages={onReadSceneAllLanguages}
+            onGenerateSceneVideo={onGenerateSceneVideo}
+            onSaveVisualPrompt={onSaveVisualPrompt}
+            onSaveVoiceoverText={onSaveVoiceoverText}
+            promptLabel={promptLabel}
+            hasVideo={!!hasVideo}
+            onAddVideoToTimeline={onAddVideoToTimeline}
+            onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
+            isDialogueMode={isDialogueMode}
+          />
+        </>
       )}
 
       <SceneErrors

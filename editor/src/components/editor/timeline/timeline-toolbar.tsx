@@ -71,7 +71,7 @@ export function TimelineToolbar({
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
   const { activeLanguage, availableLanguages, isLanguageSwitching } =
     useLanguageStore();
-  const { switchLanguage, copyToMultiple, addEmptyLanguages, removeLanguage } =
+  const { switchLanguage, addEmptyLanguages, removeLanguage } =
     useLanguageSwitch();
   const projectId = useProjectId();
   const { confirm: confirmDelete } = useDeleteConfirmation();
@@ -82,6 +82,7 @@ export function TimelineToolbar({
   const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set());
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateProgress, setTranslateProgress] = useState('');
+  const [canTranslate, setCanTranslate] = useState(false);
 
   const unaddedLanguages = SUPPORTED_LANGUAGES.filter(
     (l) => !availableLanguages.includes(l.code)
@@ -95,6 +96,7 @@ export function TimelineToolbar({
     setPendingLang(null);
     setSelectedLangs(new Set());
     setTranslateProgress('');
+    setCanTranslate(false);
   };
 
   const handleTranslate = async () => {
@@ -122,7 +124,11 @@ export function TimelineToolbar({
       const res = await fetch('/api/translate-languages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard_id: sb.id, target_languages: langs }),
+        body: JSON.stringify({
+          storyboard_id: sb.id,
+          source_language: activeLanguage,
+          target_languages: langs,
+        }),
       });
 
       if (!res.ok) {
@@ -134,67 +140,61 @@ export function TimelineToolbar({
       const {
         translated,
         failed,
-      }: { translated: string[]; failed: { code: string; reason: string }[] } =
-        result;
+        warnings,
+      }: {
+        translated: string[];
+        failed: { code: string; reason: string }[];
+        warnings?: string[];
+      } = result;
 
-      if (translated.length > 0) {
-        setTranslateProgress(
-          `Copying timelines for ${translated.length} language(s)...`
-        );
-        await copyToMultiple(translated);
-        await switchLanguage(translated[0]);
+      // Register translated languages with empty timelines.
+      // Storyboard scene cards have the translated voiceover text + same videos.
+      // User builds timeline from scratch: generate voiceovers, add clips manually.
+      const allNewLangs = [
+        ...translated,
+        ...failed
+          .filter((f) => f.reason === 'idempotent skip')
+          .map((f) => f.code)
+          .filter(
+            (code) =>
+              !useLanguageStore.getState().availableLanguages.includes(code)
+          ),
+      ];
+
+      if (allNewLangs.length > 0) {
+        await addEmptyLanguages(allNewLangs);
+      }
+
+      // Switch to the first new language
+      const firstNewLang = allNewLangs[0];
+      if (firstNewLang) {
+        await switchLanguage(firstNewLang);
       }
 
       if (failed.length === 0) {
         toast.success(
-          `${translated.length} language(s) translated successfully`
+          `${translated.length} language(s) translated. Generate voiceovers from scene cards.`
         );
       } else if (translated.length > 0) {
         toast.warning(
-          `${translated.length} translated, ${failed.length} failed: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
+          `${translated.length} translated, ${failed.length} skipped: ${failed.map((f: { code: string }) => f.code.toUpperCase()).join(', ')}`
         );
+      } else if (failed.every((f) => f.reason === 'idempotent skip')) {
+        toast.info('Selected language(s) are already translated.');
       } else {
         toast.error('All translations failed');
+      }
+
+      if (warnings?.includes('translation_jobs_table_missing')) {
+        toast.info(
+          'Translation jobs table not found; using fallback idempotency mode.'
+        );
       }
     } catch (err) {
       console.error('Batch translate error:', err);
       toast.error(err instanceof Error ? err.message : 'Translation failed');
     } finally {
       setIsTranslating(false);
-      closeDialog();
-    }
-  };
-
-  const handleCopyTimeline = async () => {
-    if (selectedLangs.size === 0) return;
-    const langs = Array.from(selectedLangs);
-
-    setIsTranslating(true);
-    setTranslateProgress(`Copying timeline to ${langs.length} language(s)...`);
-
-    try {
-      await copyToMultiple(langs);
-      await switchLanguage(langs[0]);
-      toast.success(`Timeline copied to ${langs.length} language(s)`);
-    } catch {
-      toast.error('Failed to copy timeline');
-    } finally {
-      setIsTranslating(false);
-      closeDialog();
-    }
-  };
-
-  const handleStartEmpty = async () => {
-    if (selectedLangs.size === 0) return;
-    const langs = Array.from(selectedLangs);
-
-    try {
-      await addEmptyLanguages(langs);
-      await switchLanguage(langs[0]);
-      toast.success(`${langs.length} empty language(s) added`);
-    } catch {
-      toast.error('Failed to add languages');
-    } finally {
       closeDialog();
     }
   };
@@ -347,9 +347,37 @@ export function TimelineToolbar({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       setSelectedLangs(new Set());
                       setPendingLang('__new__' as LanguageCode);
+
+                      // Check storyboard mode to determine if Translate is available
+                      // (narrative ref-to-video only — dialogue_scene is excluded)
+                      try {
+                        const supabase = createClient('studio');
+                        const { data: sb } = await supabase
+                          .from('storyboards')
+                          .select('mode, plan')
+                          .eq('project_id', projectId)
+                          .order('created_at', { ascending: false })
+                          .limit(1)
+                          .single();
+
+                        const isRefToVideo = sb?.mode === 'ref_to_video';
+                        const plan =
+                          sb?.plan && typeof sb.plan === 'object'
+                            ? (sb.plan as Record<string, unknown>)
+                            : null;
+                        // Default to narrative when video_mode is not set
+                        // (storyboards created before the mode feature)
+                        const videoMode = plan?.video_mode ?? 'narrative';
+
+                        setCanTranslate(
+                          isRefToVideo && videoMode === 'narrative'
+                        );
+                      } catch {
+                        setCanTranslate(false);
+                      }
                     }}
                     className="px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 rounded transition-colors"
                   >
@@ -534,25 +562,17 @@ export function TimelineToolbar({
 
                   {/* Action buttons */}
                   <div className="flex flex-col gap-2">
-                    <Button disabled={!someSelected} onClick={handleTranslate}>
+                    <Button
+                      disabled={!someSelected || !canTranslate}
+                      onClick={handleTranslate}
+                      title={
+                        !canTranslate
+                          ? 'Translation is only available for narrative ref-to-video storyboards'
+                          : undefined
+                      }
+                    >
                       Translate{someSelected ? ` (${selectedLangs.size})` : ''}{' '}
                       from {activeLanguage.toUpperCase()}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!someSelected}
-                      onClick={handleCopyTimeline}
-                    >
-                      Copy timeline
-                      {someSelected ? ` (${selectedLangs.size})` : ''}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!someSelected}
-                      onClick={handleStartEmpty}
-                    >
-                      Start empty
-                      {someSelected ? ` (${selectedLangs.size})` : ''}
                     </Button>
                   </div>
                 </>

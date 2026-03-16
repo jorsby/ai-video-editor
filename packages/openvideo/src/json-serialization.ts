@@ -127,7 +127,12 @@ export interface TextStyleJSON {
   letterSpacing?: number;
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'title';
   wordsPerLine?: 'single' | 'multiple';
-  verticalAlign?: 'top' | 'top-quarter' | 'center' | 'bottom-quarter' | 'bottom';
+  verticalAlign?:
+    | 'top'
+    | 'top-quarter'
+    | 'center'
+    | 'bottom-quarter'
+    | 'bottom';
   isRTL?: boolean;
   wordAnimation?: ICaptionWordAnimation;
 }
@@ -352,6 +357,7 @@ export async function jsonToClip(json: ClipJSON): Promise<IClip> {
   // Ensure id and name are correct
   if (json.id) clip.id = json.id;
   if (json.name) clip.name = json.name;
+
 
   return clip;
 }

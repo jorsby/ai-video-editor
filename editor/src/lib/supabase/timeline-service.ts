@@ -173,31 +173,18 @@ export async function clearTimeline(
 
 /**
  * Get distinct languages available for a project.
- * Merges languages from three sources:
- *   1. Saved timeline tracks
- *   2. Voiceover records (catches translations made before timeline is built)
- *   3. Storyboard plan (source language)
+ * Authoritative sources (voiceovers + storyboard plan) determine which
+ * languages exist. Tracks alone cannot resurrect a removed language —
+ * they are a timeline cache that may contain orphans after removal.
  */
 export async function getAvailableLanguages(
   projectId: string
 ): Promise<LanguageCode[]> {
   const supabase = createClient('studio');
 
-  // 1. Languages from saved timeline tracks
-  const { data: trackData, error: trackError } = await supabase
-    .from('tracks')
-    .select('language')
-    .eq('project_id', projectId);
+  const authoritative = new Set<string>();
 
-  if (trackError) {
-    console.error('Failed to get track languages:', trackError);
-  }
-
-  const allLangs = new Set<string>(
-    (trackData ?? []).map((t) => t.language as string)
-  );
-
-  // 2. Languages from voiceover records (via ALL storyboards → scenes → voiceovers)
+  // 1. Languages from voiceover records (via ALL storyboards → scenes → voiceovers)
   const { data: storyboards } = await supabase
     .from('storyboards')
     .select('id')
@@ -221,19 +208,37 @@ export async function getAvailableLanguages(
         console.error('Failed to get voiceover languages:', voError);
       } else {
         for (const row of voData ?? []) {
-          allLangs.add(row.language as string);
+          authoritative.add(row.language as string);
         }
       }
     }
   }
 
-  // 3. Languages from storyboard plan (source language)
+  // 2. Languages from storyboard plan (source language)
   const planLangs = await getProjectLanguagesFromStoryboard(projectId);
   for (const lang of planLangs) {
-    allLangs.add(lang);
+    authoritative.add(lang);
   }
 
-  return [...allLangs] as LanguageCode[];
+  // 3. Include track-only languages only if backed by an authoritative source.
+  //    This prevents orphan tracks from resurrecting removed languages.
+  const { data: trackData, error: trackError } = await supabase
+    .from('tracks')
+    .select('language')
+    .eq('project_id', projectId);
+
+  if (trackError) {
+    console.error('Failed to get track languages:', trackError);
+  }
+
+  for (const row of trackData ?? []) {
+    if (authoritative.has(row.language as string)) {
+      // Track language is backed by voiceovers or plan — already included
+    }
+    // else: orphan track language, ignore
+  }
+
+  return [...authoritative] as LanguageCode[];
 }
 
 /**
@@ -268,7 +273,7 @@ export async function getProjectLanguagesFromStoryboard(
 
 /**
  * Remove all data for a specific language from a project.
- * Deletes: tracks + clips, voiceovers, and rendered videos.
+ * Deletes: tracks + clips, voiceovers, rendered videos, and storyboard plan references.
  */
 export async function removeLanguageData(
   projectId: string,
@@ -282,7 +287,7 @@ export async function removeLanguageData(
   // 2. Delete voiceovers for this language
   const { data: storyboards } = await supabase
     .from('storyboards')
-    .select('id')
+    .select('id, plan')
     .eq('project_id', projectId);
 
   if (storyboards && storyboards.length > 0) {
@@ -300,6 +305,25 @@ export async function removeLanguageData(
         .in('scene_id', sceneIds)
         .eq('language', language);
       if (voError) throw voError;
+    }
+
+    // 4. Remove language from storyboard plan voiceover_list so it doesn't
+    //    resurrect on next getAvailableLanguages() call.
+    for (const sb of storyboards) {
+      const plan = sb.plan as Record<string, unknown> | null;
+      if (!plan) continue;
+
+      const voiceoverList = plan.voiceover_list as
+        | Record<string, unknown>
+        | undefined;
+      if (voiceoverList && language in voiceoverList) {
+        const updated = { ...voiceoverList };
+        delete updated[language];
+        await supabase
+          .from('storyboards')
+          .update({ plan: { ...plan, voiceover_list: updated } })
+          .eq('id', sb.id);
+      }
     }
   }
 
@@ -319,28 +343,98 @@ export async function removeLanguageData(
 export async function copyTimeline(
   projectId: string,
   fromLang: LanguageCode,
-  toLang: LanguageCode
+  toLang: LanguageCode,
+  options?: {
+    stripAudioAndCaptionTracks?: boolean;
+  }
 ) {
   const sourceTracks = await loadTimeline(projectId, fromLang);
   if (!sourceTracks || sourceTracks.length === 0) return;
 
   const supabase = createClient('studio');
 
-  for (const track of sourceTracks) {
-    const newTrackId = crypto.randomUUID();
-    const oldToNewClipId = new Map<string, string>();
+  let sourceVoiceoverAudioUrls = new Set<string>();
+  if (options?.stripAudioAndCaptionTracks) {
+    const { data: sourceStoryboards } = await supabase
+      .from('storyboards')
+      .select('id')
+      .eq('project_id', projectId);
 
-    // Map old clip IDs to new ones
-    if (track.clips) {
-      for (const clip of track.clips) {
-        oldToNewClipId.set(clip.id, crypto.randomUUID());
+    const storyboardIds = (sourceStoryboards ?? []).map((row) => row.id);
+
+    if (storyboardIds.length > 0) {
+      const { data: sourceScenes } = await supabase
+        .from('scenes')
+        .select('id')
+        .in('storyboard_id', storyboardIds);
+
+      const sceneIds = (sourceScenes ?? []).map((row) => row.id);
+
+      if (sceneIds.length > 0) {
+        const { data: sourceVoiceovers } = await supabase
+          .from('voiceovers')
+          .select('audio_url')
+          .in('scene_id', sceneIds)
+          .eq('language', fromLang)
+          .not('audio_url', 'is', null);
+
+        sourceVoiceoverAudioUrls = new Set(
+          (sourceVoiceovers ?? [])
+            .map((row) => row.audio_url)
+            .filter((url): url is string => Boolean(url))
+        );
       }
     }
+  }
 
-    // Build new clipIds array
-    const newClipIds = (track.data.clipIds || []).map(
-      (oldId) => oldToNewClipId.get(oldId) || crypto.randomUUID()
+  const isVoiceoverAudioClip = (clipData: Record<string, unknown>) => {
+    if (clipData.type !== 'Audio') return false;
+
+    const style = clipData.style as Record<string, unknown> | undefined;
+    if (style?.voiceoverId) return true;
+
+    const src = clipData.src;
+    return (
+      typeof src === 'string' &&
+      src.length > 0 &&
+      sourceVoiceoverAudioUrls.has(src)
     );
+  };
+
+  for (const track of sourceTracks) {
+    const newTrackId = crypto.randomUUID();
+
+    const clipsToCopy = options?.stripAudioAndCaptionTracks
+      ? (track.clips ?? []).filter((clip) => {
+          const clipData = clip.data as Record<string, unknown>;
+          const clipType = clipData.type;
+
+          if (clipType === 'Caption') return false;
+          if (isVoiceoverAudioClip(clipData)) return false;
+
+          return true;
+        })
+      : (track.clips ?? []);
+
+    const trackType = track.data.type;
+    const shouldSkipEmptyTrack =
+      options?.stripAudioAndCaptionTracks &&
+      clipsToCopy.length === 0 &&
+      (trackType === 'Audio' || trackType === 'Caption');
+
+    if (shouldSkipEmptyTrack) {
+      continue;
+    }
+
+    const oldToNewClipId = new Map<string, string>();
+    for (const clip of clipsToCopy) {
+      oldToNewClipId.set(clip.id, crypto.randomUUID());
+    }
+
+    // Build new clipIds array from copied clips only
+    const newClipIds = clipsToCopy
+      .map((clip) => oldToNewClipId.get(clip.id))
+      .filter((id): id is string => Boolean(id));
 
     // Insert new track
     const newTrackData = {
@@ -358,8 +452,8 @@ export async function copyTimeline(
     if (trackError) throw trackError;
 
     // Insert new clips
-    if (track.clips && track.clips.length > 0) {
-      const clipRows = track.clips.map((clip) => {
+    if (clipsToCopy.length > 0) {
+      const clipRows = clipsToCopy.map((clip) => {
         const newClipId = oldToNewClipId.get(clip.id) || crypto.randomUUID();
         return {
           id: newClipId,

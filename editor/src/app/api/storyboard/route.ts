@@ -2,7 +2,10 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { detectAll } from 'tinyld';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   klingO3PlanSchema,
   klingO3ContentSchema,
@@ -34,12 +37,58 @@ import {
 } from '@/lib/schemas/i2v-plan';
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { logWorkflowEvent } from '@/lib/logger';
+import {
+  applyStoryboardTemplateToSystemPrompt,
+  DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
+  isStoryboardContentTemplate,
+  type StoryboardContentTemplate,
+} from '@/lib/storyboard-content-template';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const STORYBOARD_BACKUP_MODEL = 'stepfun/step-3.5-flash:free';
+// StepFun rejects the response_format used by generateObject (json schema),
+// so keep a backup model that supports structured output reliably.
+const STORYBOARD_BACKUP_MODEL = 'openai/gpt-5.4';
+
+const SUPPORTED_LANGUAGE_CODES = new Set<string>(
+  SUPPORTED_LANGUAGES.map((lang) => lang.code)
+);
+
+const LANGUAGE_CODE_ALIASES: Record<string, string> = {
+  'pt-br': 'pt',
+  'pt-pt': 'pt',
+  'zh-cn': 'zh',
+  'zh-tw': 'zh',
+  'zh-hans': 'zh',
+  'zh-hant': 'zh',
+  nb: 'no',
+  nn: 'no',
+};
+
+function normalizeLanguageCode(code: string): string {
+  return code.trim().toLowerCase().replace(/_/g, '-');
+}
+
+function resolveSupportedLanguageCode(code?: string): string | null {
+  if (!code) return null;
+
+  const normalized = normalizeLanguageCode(code);
+  const direct = LANGUAGE_CODE_ALIASES[normalized] ?? normalized;
+  if (SUPPORTED_LANGUAGE_CODES.has(direct)) return direct;
+
+  const base = direct.split('-')[0] ?? direct;
+  return SUPPORTED_LANGUAGE_CODES.has(base) ? base : null;
+}
+
+function detectSourceLanguageFromText(voiceoverText: string): string {
+  for (const candidate of detectAll(voiceoverText)) {
+    const resolved = resolveSupportedLanguageCode(candidate.lang);
+    if (resolved) return resolved;
+  }
+  return 'en';
+}
 
 async function generateObjectWithFallback<T>(params: {
   primaryModel: string;
@@ -88,29 +137,151 @@ const VALID_VIDEO_MODELS = [
   'skyreels',
 ] as const;
 
+const VALID_REF_WORKFLOW_VARIANTS = [
+  'i2v_from_refs',
+  'direct_ref_to_video',
+] as const;
+
+const VALID_REF_VIDEO_MODES = ['narrative', 'dialogue_scene'] as const;
+type RefVideoMode = (typeof VALID_REF_VIDEO_MODES)[number];
+
 const isOpus = (model: string) => model.includes('claude-opus');
+
+function isRefVideoMode(value: unknown): value is RefVideoMode {
+  return (
+    typeof value === 'string' &&
+    (VALID_REF_VIDEO_MODES as readonly string[]).includes(value)
+  );
+}
+
+function buildWanModeSystemPrompt(videoMode: RefVideoMode): string {
+  if (videoMode === 'dialogue_scene') {
+    return `
+
+MODE: dialogue_scene
+- This is a dialogue scene mode. Characters are in conversation, with separate audio track added later.
+- Generate scene prompts that visually stage conversation (two-shots, over-the-shoulder, reaction framing, gestures, eye contact).
+- Do NOT mention lip-sync, mouth-sync, phonemes, or exact mouth movement matching.
+- You MUST include scene_dialogue with EXACTLY one array per scene.
+- Each scene_dialogue[i] must include 1-3 lines using objects like {"speaker":"Name","line":"Text"}.
+
+SCENE DURATIONS (dialogue mode only):
+- You MUST include "scene_durations" — an array of integers (one per scene), each 5 or 10 seconds (WAN only supports 5s or 10s).
+- 5s for short exchanges (1-2 lines) or quick reaction beats.
+- 10s for longer conversations (3+ lines), dramatic moments, or scenes with significant action.
+- scene_durations.length MUST equal scene_prompts.length.
+`;
+  }
+
+  return `
+
+MODE: narrative
+- This is narrative mode. No character speaking is rendered in-scene.
+- Scene prompts must avoid explicit speech wording like "says", "talks", quoted dialogue, or conversation staging.
+- Keep focus on action, emotion, body language, framing, and environment.
+- scene_dialogue should be omitted or empty for all scenes.
+`;
+}
+
+function buildWanModeReviewerConstraint(videoMode: RefVideoMode): string {
+  return videoMode === 'dialogue_scene'
+    ? `- Keep dialogue_scene constraints: conversation framing allowed, no lip-sync language, preserve scene_dialogue as generated.`
+    : `- Keep narrative constraints: no explicit speaking/talking/quoted dialogue in scene prompts.`;
+}
+
+function buildKlingModeSystemPrompt(videoMode: RefVideoMode): string {
+  if (videoMode === 'dialogue_scene') {
+    return `
+
+MODE: dialogue_scene
+- This is a dialogue scene mode. Characters are in conversation. Kling O3 will generate native audio including dialogue.
+- Generate scene prompts that visually stage conversation (two-shots, over-the-shoulder, reaction framing, gestures, eye contact).
+- Include emotional delivery cues in prompts: tone of voice, facial expressions, body language.
+- Include ambient sound cues (crowd murmur, rain, footsteps) to enrich the native audio.
+- Characters should be shown speaking with natural lip movement and gestures.
+
+SCENE DURATIONS (dialogue mode only):
+- You MUST include "scene_durations" — an array of integers (one per scene), each between 3 and 15 seconds.
+- Estimate duration based on the cinematic needs of each scene:
+  - Short exchange (1-2 lines), quick reaction, or a beat: 3-5 seconds
+  - Medium conversation (2-4 lines), emotional moment with pauses: 6-10 seconds
+  - Long dialogue (5+ lines), dramatic confrontation, or scene with significant physical action: 10-15 seconds
+- Think cinematically: a tense silent stare-down deserves more time than a quick "hello". Pacing matters.
+- scene_durations.length MUST equal scene_prompts.length.
+`;
+  }
+
+  return `
+
+MODE: narrative
+- This is narrative mode. A separate voiceover narrates over the video.
+- Characters must NOT appear to be speaking, talking, or having dialogue on screen.
+- Scene prompts must avoid speech wording like "says", "talks", "tells", quoted dialogue, or conversation staging.
+- Focus on action, emotion, body language, environmental storytelling, and cinematic framing.
+- Kling will generate ambient audio (wind, traffic, nature sounds) which enhances the narrative. Do NOT include dialogue audio cues.
+- DIALOGUE section in scene prompts should be omitted entirely.
+`;
+}
+
+function buildKlingModeReviewerConstraint(videoMode: RefVideoMode): string {
+  return videoMode === 'dialogue_scene'
+    ? `- Keep dialogue_scene constraints: conversation framing, emotional delivery cues, and character speech allowed.`
+    : `- Keep narrative constraints: no speaking, talking, quoted dialogue, or conversation staging in scene prompts. Characters must not appear to be having dialogue.`;
+}
+
+function normalizeDialogueLine(
+  line: unknown
+): { speaker: string; line: string } | null {
+  if (!line || typeof line !== 'object') return null;
+
+  const speakerRaw = (line as { speaker?: unknown }).speaker;
+  const textRaw = (line as { line?: unknown }).line;
+
+  const speaker = typeof speakerRaw === 'string' ? speakerRaw.trim() : '';
+  const text = typeof textRaw === 'string' ? textRaw.trim() : '';
+
+  if (!speaker || !text) return null;
+
+  return { speaker, line: text };
+}
+
+function toDialogueVoiceoverText(
+  lines: Array<{ speaker: string; line: string }>
+): string {
+  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join(' ');
+}
 
 // --- Ref-to-Video plan generation ---
 async function generateRefToVideoPlan(
   voiceoverText: string,
   llmModel: string,
   videoModel: string,
-  sourceLanguage: string
+  sourceLanguage: string,
+  contentTemplate: StoryboardContentTemplate,
+  videoMode: RefVideoMode,
+  seriesContext?: string
 ) {
   const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
   const isSkyReels = videoModel === 'skyreels';
-  const systemPrompt = isSkyReels
+  const baseSystemPrompt = isSkyReels
     ? SKYREELS_SYSTEM_PROMPT
     : isKling
-      ? KLING_O3_SYSTEM_PROMPT
-      : WAN26_FLASH_SYSTEM_PROMPT;
+      ? `${KLING_O3_SYSTEM_PROMPT}${buildKlingModeSystemPrompt(videoMode)}`
+      : `${WAN26_FLASH_SYSTEM_PROMPT}${buildWanModeSystemPrompt(videoMode)}`;
+  const templatePrompt = applyStoryboardTemplateToSystemPrompt(
+    baseSystemPrompt,
+    contentTemplate
+  );
+  const systemPrompt = seriesContext
+    ? `${templatePrompt}\n\n--- SERIES CONTEXT ---\nThis episode is part of a series. Use the following context to maintain consistency:\n${seriesContext}\n--- END SERIES CONTEXT ---`
+    : templatePrompt;
   const contentSchemaForModel = isSkyReels
     ? skyreelsContentSchema
     : isKling
       ? klingO3ContentSchema
       : wan26FlashContentSchema;
 
-  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nGenerate the storyboard.`;
+  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\nVideo mode: ${videoMode}\n\nGenerate the storyboard.`;
 
   // --- Call 1: Content generation ---
   console.log('[Storyboard][ref_to_video] Content LLM request:', {
@@ -186,8 +357,16 @@ async function generateRefToVideoPlan(
       : isKling
         ? 'Kling O3'
         : 'WAN 2.6 Flash';
+    const modeConstraint = isSkyReels
+      ? ''
+      : isKling
+        ? `\nMODE CONSTRAINT:\n${buildKlingModeReviewerConstraint(videoMode)}\n`
+        : `\nMODE CONSTRAINT:\n${buildWanModeReviewerConstraint(videoMode)}\n`;
+
     const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
 
+Selected content template: ${contentTemplate}
+Keep style and tone aligned with the selected template while applying technical fixes.${modeConstraint}
 FROZEN (do not change):
 ${frozenContext}
 - background_names (${expectedBgs} items): ${JSON.stringify(content.background_names)}
@@ -197,6 +376,9 @@ MUTABLE (fix and improve):
 - scene_prompts: ${JSON.stringify(content.scene_prompts)}
 - scene_bg_indices: ${JSON.stringify(content.scene_bg_indices)}
 - scene_object_indices: ${JSON.stringify(content.scene_object_indices)}${mutableMultiShots}
+
+FROZEN (keep as generated):
+- scene_first_frame_prompts: ${JSON.stringify(content.scene_first_frame_prompts)}
 
 Return the corrected fields.`;
 
@@ -235,21 +417,73 @@ Return the corrected fields.`;
   // Validate scene counts match (safety net after reviewer)
   if (
     content.scene_prompts.length !== sceneCount ||
+    content.scene_first_frame_prompts.length !== sceneCount ||
     content.scene_bg_indices.length !== sceneCount ||
     content.scene_object_indices.length !== sceneCount
   ) {
     throw new Error(
-      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
+      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
     );
   }
 
+  // Validate scene_durations length if present (LLM-planned for dialogue mode)
+  if (
+    'scene_durations' in content &&
+    Array.isArray((content as any).scene_durations) &&
+    (content as any).scene_durations.length !== sceneCount
+  ) {
+    // Length mismatch — drop it rather than crash, fallback will handle it
+    console.warn(
+      `[Storyboard] scene_durations length mismatch: got ${(content as any).scene_durations.length} but expected ${sceneCount}. Dropping scene_durations.`
+    );
+    delete (content as any).scene_durations;
+  }
+
   // Validate scene_multi_shots length for WAN (not for Kling or SkyReels)
+  let normalizedSceneDialogue:
+    | Array<Array<{ speaker: string; line: string }>>
+    | undefined;
+
   if (!isKling && !isSkyReels) {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
     if (wanContent.scene_multi_shots.length !== sceneCount) {
       throw new Error(
         `scene_multi_shots length mismatch: got ${wanContent.scene_multi_shots.length} but expected ${sceneCount}`
       );
+    }
+
+    if (videoMode === 'dialogue_scene') {
+      normalizedSceneDialogue = Array.from({ length: sceneCount }, (_, i) => {
+        const rawSceneLines = Array.isArray(wanContent.scene_dialogue?.[i])
+          ? wanContent.scene_dialogue[i]
+          : [];
+        const normalizedLines = rawSceneLines
+          .map(normalizeDialogueLine)
+          .filter(
+            (line): line is { speaker: string; line: string } => line !== null
+          )
+          .slice(0, 3);
+
+        if (normalizedLines.length > 0) return normalizedLines;
+
+        const fallbackVoiceover = String(
+          wanContent.voiceover_list[i] ?? ''
+        ).trim();
+        if (!fallbackVoiceover) {
+          throw new Error(
+            `Scene ${i} in dialogue mode must have at least one dialogue line`
+          );
+        }
+
+        return [{ speaker: 'Narrator', line: fallbackVoiceover }];
+      });
+
+      // Keep TTS source text aligned with dialogue metadata in V1.
+      wanContent.voiceover_list = normalizedSceneDialogue.map(
+        toDialogueVoiceoverText
+      );
+    } else {
+      normalizedSceneDialogue = undefined;
     }
   }
 
@@ -350,9 +584,11 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${skyContent.backgrounds_grid_prompt}`,
       background_names: skyContent.background_names,
       scene_prompts: skyContent.scene_prompts,
+      scene_first_frame_prompts: skyContent.scene_first_frame_prompts,
       scene_bg_indices: skyContent.scene_bg_indices,
       scene_object_indices: skyContent.scene_object_indices,
       voiceover_list,
+      content_template: contentTemplate,
     };
   } else if (isKling) {
     const klingContent = content as z.infer<typeof klingO3ContentSchema>;
@@ -366,9 +602,15 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${klingContent.backgrounds_grid_prompt}`,
       background_names: klingContent.background_names,
       scene_prompts: klingContent.scene_prompts,
+      scene_first_frame_prompts: klingContent.scene_first_frame_prompts,
       scene_bg_indices: klingContent.scene_bg_indices,
       scene_object_indices: klingContent.scene_object_indices,
       voiceover_list,
+      video_mode: videoMode,
+      ...(klingContent.scene_durations
+        ? { scene_durations: klingContent.scene_durations }
+        : {}),
+      content_template: contentTemplate,
     };
   } else {
     const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
@@ -382,10 +624,19 @@ Return the corrected fields.`;
       backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${wanContent.backgrounds_grid_prompt}`,
       background_names: wanContent.background_names,
       scene_prompts: wanContent.scene_prompts,
+      scene_first_frame_prompts: wanContent.scene_first_frame_prompts,
       scene_bg_indices: wanContent.scene_bg_indices,
       scene_object_indices: wanContent.scene_object_indices,
       scene_multi_shots: wanContent.scene_multi_shots,
       voiceover_list,
+      video_mode: videoMode,
+      ...(normalizedSceneDialogue
+        ? { scene_dialogue: normalizedSceneDialogue }
+        : {}),
+      ...(wanContent.scene_durations
+        ? { scene_durations: wanContent.scene_durations }
+        : {}),
+      content_template: contentTemplate,
     };
   }
 }
@@ -399,7 +650,10 @@ export async function POST(req: NextRequest) {
       aspectRatio,
       mode = 'image_to_video',
       videoModel,
-      sourceLanguage = 'en',
+      workflowVariant,
+      videoMode: videoModeInput,
+      sourceLanguage: sourceLanguageInput,
+      contentTemplate,
     } = await req.json();
 
     if (!voiceoverText) {
@@ -430,12 +684,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!SUPPORTED_LANGUAGES.find((l) => l.code === sourceLanguage)) {
+    const resolvedInputSourceLanguage =
+      typeof sourceLanguageInput === 'string' && sourceLanguageInput.trim()
+        ? resolveSupportedLanguageCode(sourceLanguageInput)
+        : null;
+
+    if (
+      typeof sourceLanguageInput === 'string' &&
+      sourceLanguageInput.trim() &&
+      !resolvedInputSourceLanguage
+    ) {
       return NextResponse.json(
         { error: 'Invalid sourceLanguage' },
         { status: 400 }
       );
     }
+
+    const resolvedSourceLanguage =
+      resolvedInputSourceLanguage ??
+      detectSourceLanguageFromText(voiceoverText);
+
+    if (contentTemplate && !isStoryboardContentTemplate(contentTemplate)) {
+      return NextResponse.json(
+        {
+          error: 'Invalid contentTemplate. Must be one of: ahlak, dizi_hikaye',
+        },
+        { status: 400 }
+      );
+    }
+
+    const resolvedContentTemplate =
+      contentTemplate && isStoryboardContentTemplate(contentTemplate)
+        ? contentTemplate
+        : DEFAULT_STORYBOARD_CONTENT_TEMPLATE;
 
     if (
       mode === 'ref_to_video' &&
@@ -450,40 +731,198 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (
+      mode === 'ref_to_video' &&
+      workflowVariant &&
+      !(VALID_REF_WORKFLOW_VARIANTS as readonly string[]).includes(
+        workflowVariant
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `workflowVariant must be one of: ${VALID_REF_WORKFLOW_VARIANTS.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      mode === 'ref_to_video' &&
+      videoModeInput !== undefined &&
+      !isRefVideoMode(videoModeInput)
+    ) {
+      return NextResponse.json(
+        {
+          error: `videoMode must be one of: ${VALID_REF_VIDEO_MODES.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+
     // We need a supabase client that can write to debug_logs (service role not needed, user supabase works)
-    const logSupabase = supabase;
+    const logSupabase = dbClient;
 
     // --- Ref-to-Video mode ---
     if (mode === 'ref_to_video') {
+      const resolvedWorkflowVariant =
+        workflowVariant === 'i2v_from_refs'
+          ? 'i2v_from_refs'
+          : 'direct_ref_to_video';
+
+      const resolvedVideoMode: RefVideoMode =
+        (videoModel === 'wan26flash' ||
+          videoModel === 'klingo3' ||
+          videoModel === 'klingo3pro') &&
+        isRefVideoMode(videoModeInput)
+          ? videoModeInput
+          : 'narrative';
+
       await logWorkflowEvent(logSupabase, {
         storyboardId: projectId,
         step: 'GeneratePlan',
         status: 'start',
-        data: { mode, videoModel, model },
+        data: {
+          mode,
+          videoModel,
+          model,
+          workflowVariant: resolvedWorkflowVariant,
+          videoMode: resolvedVideoMode,
+          contentTemplate: resolvedContentTemplate,
+        },
       });
+
+      // --- Check if project belongs to a series and build context ---
+      let seriesContext: string | undefined;
+      try {
+        const { data: episodeLink } = await dbClient
+          .from('series_episodes')
+          .select('series_id, episode_number, title, synopsis')
+          .eq('project_id', projectId)
+          .single();
+
+        if (episodeLink) {
+          const { data: series } = await dbClient
+            .from('series')
+            .select('name, genre, tone, bible')
+            .eq('id', episodeLink.series_id)
+            .single();
+
+          const { data: allEpisodes } = (await dbClient
+            .from('series_episodes')
+            .select('episode_number, title, synopsis')
+            .eq('series_id', episodeLink.series_id)
+            .order('episode_number')) as {
+            data: Array<{
+              episode_number: number;
+              title: string | null;
+              synopsis: string | null;
+            }> | null;
+          };
+
+          const { data: assets } = (await dbClient
+            .from('series_assets')
+            .select('type, name, description')
+            .eq('series_id', episodeLink.series_id)
+            .order('sort_order')) as {
+            data: Array<{
+              type: string;
+              name: string;
+              description: string | null;
+            }> | null;
+          };
+
+          if (series) {
+            const parts: string[] = [];
+            parts.push(
+              `Series: "${series.name}" (${series.genre || 'unspecified genre'})`
+            );
+            if (series.tone) parts.push(`Tone: ${series.tone}`);
+            if (series.bible) parts.push(`Series Bible:\n${series.bible}`);
+
+            if (assets?.length) {
+              const characters = assets.filter((a) => a.type === 'character');
+              const locations = assets.filter((a) => a.type === 'location');
+              if (characters.length) {
+                parts.push(
+                  `Characters:\n${characters.map((c) => `- ${c.name}: ${c.description || 'No description'}`).join('\n')}`
+                );
+              }
+              if (locations.length) {
+                parts.push(
+                  `Locations:\n${locations.map((l) => `- ${l.name}: ${l.description || 'No description'}`).join('\n')}`
+                );
+              }
+            }
+
+            parts.push(
+              `\nThis is Episode ${episodeLink.episode_number}: "${episodeLink.title || 'Untitled'}"`
+            );
+            if (episodeLink.synopsis)
+              parts.push(`Episode Synopsis: ${episodeLink.synopsis}`);
+
+            if (allEpisodes?.length) {
+              const otherEps = allEpisodes
+                .filter((e) => e.episode_number !== episodeLink.episode_number)
+                .map(
+                  (e) =>
+                    `  Ep ${e.episode_number}: ${e.title || 'Untitled'} — ${e.synopsis || 'No synopsis'}`
+                )
+                .join('\n');
+              if (otherEps)
+                parts.push(`Other episodes in the series:\n${otherEps}`);
+            }
+
+            seriesContext = parts.join('\n\n');
+            console.log(
+              '[Storyboard] Series context injected for episode',
+              episodeLink.episode_number
+            );
+          }
+        }
+      } catch (err) {
+        // No series link — that's fine, standalone project
+        console.log('[Storyboard] No series context (standalone project)');
+      }
+
       const finalPlan = await generateRefToVideoPlan(
         voiceoverText,
         model,
         videoModel,
-        sourceLanguage
+        resolvedSourceLanguage,
+        resolvedContentTemplate,
+        resolvedVideoMode,
+        seriesContext
       );
+      const finalPlanWithVariant = {
+        ...finalPlan,
+        workflow_variant: resolvedWorkflowVariant,
+      };
 
-      const { data: storyboard, error: dbError } = await supabase
+      const { data: storyboard, error: dbError } = await dbClient
         .from('storyboards')
         .insert({
           project_id: projectId,
           voiceover: voiceoverText,
           aspect_ratio: aspectRatio,
-          plan: finalPlan,
+          plan: finalPlanWithVariant,
           plan_status: 'draft',
           mode: 'ref_to_video',
           model: videoModel,
@@ -507,10 +946,11 @@ export async function POST(req: NextRequest) {
       });
 
       return NextResponse.json({
-        ...finalPlan,
+        ...finalPlanWithVariant,
         storyboard_id: storyboard.id,
         mode: 'ref_to_video',
         model: videoModel,
+        workflow_variant: resolvedWorkflowVariant,
       });
     }
 
@@ -519,17 +959,28 @@ export async function POST(req: NextRequest) {
       storyboardId: projectId,
       step: 'GeneratePlan',
       status: 'start',
-      data: { mode: 'image_to_video', model },
+      data: {
+        mode: 'image_to_video',
+        model,
+        contentTemplate: resolvedContentTemplate,
+      },
     });
 
     const userPrompt = `Voiceover Script:
 ${voiceoverText}
 
+Selected content template: ${resolvedContentTemplate}
+
 Generate the storyboard.`;
+
+    const i2vSystemPrompt = applyStoryboardTemplateToSystemPrompt(
+      I2V_SYSTEM_PROMPT,
+      resolvedContentTemplate
+    );
 
     console.log('[Storyboard] Content LLM request:', {
       model,
-      system: I2V_SYSTEM_PROMPT,
+      system: i2vSystemPrompt,
       prompt: userPrompt,
     });
 
@@ -539,7 +990,7 @@ Generate the storyboard.`;
         plugins: [{ id: 'response-healing' }],
         ...(isOpus(model) ? {} : { reasoning: { effort: 'high' } }),
       },
-      system: I2V_SYSTEM_PROMPT,
+      system: i2vSystemPrompt,
       prompt: userPrompt,
       schema: i2vContentSchema,
       label: 'i2v/content',
@@ -594,12 +1045,13 @@ Generate the storyboard.`;
       rows: content.rows,
       cols: content.cols,
       grid_image_prompt: `${I2V_GRID_PROMPT_PREFIX} ${content.grid_image_prompt}`,
-      voiceover_list: { [sourceLanguage]: content.voiceover_list },
+      voiceover_list: { [resolvedSourceLanguage]: content.voiceover_list },
       visual_flow: content.visual_flow,
+      content_template: resolvedContentTemplate,
     };
 
     // Create draft storyboard record with the generated plan
-    const { data: storyboard, error: dbError } = await supabase
+    const { data: storyboard, error: dbError } = await dbClient
       .from('storyboards')
       .insert({
         project_id: projectId,
@@ -741,7 +1193,7 @@ export async function PATCH(req: NextRequest) {
     // Fetch storyboard to check status and mode
     const { data: storyboard, error: fetchError } = await supabase
       .from('storyboards')
-      .select('plan_status, mode, model')
+      .select('plan_status, mode, model, plan')
       .eq('id', storyboardId)
       .single();
 
@@ -760,6 +1212,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Validate plan structure based on mode
+    let normalizedPlan = plan;
+
     if (storyboard.mode === 'ref_to_video') {
       const schema =
         storyboard.model === 'skyreels'
@@ -777,6 +1231,110 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         );
       }
+
+      const validatedPlan = planValidation.data;
+      const existingPlan =
+        storyboard.plan && typeof storyboard.plan === 'object'
+          ? (storyboard.plan as {
+              scene_first_frame_prompts?: string[];
+              workflow_variant?: 'i2v_from_refs' | 'direct_ref_to_video';
+              content_template?: StoryboardContentTemplate;
+              video_mode?: RefVideoMode;
+              scene_dialogue?: Array<Array<{ speaker: string; line: string }>>;
+              scene_durations?: number[];
+            })
+          : null;
+
+      const resolvedWorkflowVariant =
+        validatedPlan.workflow_variant ?? existingPlan?.workflow_variant;
+      const resolvedContentTemplate =
+        validatedPlan.content_template ?? existingPlan?.content_template;
+      const resolvedVideoMode =
+        ('video_mode' in validatedPlan
+          ? (validatedPlan as { video_mode?: RefVideoMode }).video_mode
+          : undefined) ?? existingPlan?.video_mode;
+      const resolvedSceneDialogue =
+        ('scene_dialogue' in validatedPlan
+          ? (
+              validatedPlan as {
+                scene_dialogue?: Array<
+                  Array<{ speaker: string; line: string }>
+                >;
+              }
+            ).scene_dialogue
+          : undefined) ?? existingPlan?.scene_dialogue;
+
+      const resolvedSceneDurations =
+        ('scene_durations' in validatedPlan
+          ? (validatedPlan as { scene_durations?: number[] }).scene_durations
+          : undefined) ?? existingPlan?.scene_durations;
+
+      // Kling generates native dialogue audio from prompts — no scene_dialogue needed.
+      // Only WAN requires scene_dialogue for dialogue_scene mode.
+      const isKlingModel =
+        storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro';
+      if (resolvedVideoMode === 'dialogue_scene' && !isKlingModel) {
+        if (
+          !Array.isArray(resolvedSceneDialogue) ||
+          resolvedSceneDialogue.length !== validatedPlan.scene_prompts.length
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                'dialogue_scene mode requires scene_dialogue with one entry per scene',
+            },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (!Array.isArray(validatedPlan.scene_first_frame_prompts)) {
+        const existingPrompts = existingPlan?.scene_first_frame_prompts;
+        const fallbackPrompts = validatedPlan.scene_prompts.map((prompt) =>
+          Array.isArray(prompt)
+            ? String(prompt[0] ?? '').trim()
+            : String(prompt).trim()
+        );
+
+        normalizedPlan = {
+          ...validatedPlan,
+          scene_first_frame_prompts:
+            Array.isArray(existingPrompts) &&
+            existingPrompts.length === validatedPlan.scene_prompts.length
+              ? existingPrompts
+              : fallbackPrompts,
+          ...(resolvedWorkflowVariant
+            ? { workflow_variant: resolvedWorkflowVariant }
+            : {}),
+          ...(resolvedContentTemplate
+            ? { content_template: resolvedContentTemplate }
+            : {}),
+          ...(resolvedVideoMode ? { video_mode: resolvedVideoMode } : {}),
+          ...(resolvedSceneDialogue
+            ? { scene_dialogue: resolvedSceneDialogue }
+            : {}),
+          ...(resolvedSceneDurations
+            ? { scene_durations: resolvedSceneDurations }
+            : {}),
+        };
+      } else {
+        normalizedPlan = {
+          ...validatedPlan,
+          ...(resolvedWorkflowVariant
+            ? { workflow_variant: resolvedWorkflowVariant }
+            : {}),
+          ...(resolvedContentTemplate
+            ? { content_template: resolvedContentTemplate }
+            : {}),
+          ...(resolvedVideoMode ? { video_mode: resolvedVideoMode } : {}),
+          ...(resolvedSceneDialogue
+            ? { scene_dialogue: resolvedSceneDialogue }
+            : {}),
+          ...(resolvedSceneDurations
+            ? { scene_durations: resolvedSceneDurations }
+            : {}),
+        };
+      }
     } else {
       const planValidation = i2vPlanSchema.safeParse(plan);
       if (!planValidation.success) {
@@ -789,19 +1347,24 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
+      const validatedPlan = planValidation.data;
+
       // Validate grid constraint: rows must equal cols or cols + 1
-      if (plan.rows !== plan.cols && plan.rows !== plan.cols + 1) {
+      if (
+        validatedPlan.rows !== validatedPlan.cols &&
+        validatedPlan.rows !== validatedPlan.cols + 1
+      ) {
         return NextResponse.json(
           {
-            error: `Invalid grid: ${plan.rows}x${plan.cols}. rows must equal cols or cols + 1.`,
+            error: `Invalid grid: ${validatedPlan.rows}x${validatedPlan.cols}. rows must equal cols or cols + 1.`,
           },
           { status: 400 }
         );
       }
 
       // Validate array lengths match grid dimensions
-      const expectedScenes = plan.rows * plan.cols;
-      const { voiceover_list, visual_flow } = plan;
+      const expectedScenes = validatedPlan.rows * validatedPlan.cols;
+      const { voiceover_list, visual_flow } = validatedPlan;
       const langArrays = Object.values(voiceover_list) as string[][];
       if (
         langArrays.length === 0 ||
@@ -810,16 +1373,33 @@ export async function PATCH(req: NextRequest) {
       ) {
         return NextResponse.json(
           {
-            error: `Scene count mismatch: grid is ${plan.rows}x${plan.cols}=${expectedScenes} but voiceover arrays don't match`,
+            error: `Scene count mismatch: grid is ${validatedPlan.rows}x${validatedPlan.cols}=${expectedScenes} but voiceover arrays don't match`,
           },
           { status: 400 }
         );
       }
+
+      const existingPlan =
+        storyboard.plan && typeof storyboard.plan === 'object'
+          ? (storyboard.plan as {
+              content_template?: StoryboardContentTemplate;
+            })
+          : null;
+
+      const resolvedContentTemplate =
+        validatedPlan.content_template ?? existingPlan?.content_template;
+
+      normalizedPlan = {
+        ...validatedPlan,
+        ...(resolvedContentTemplate
+          ? { content_template: resolvedContentTemplate }
+          : {}),
+      };
     }
 
     const { error: updateError } = await supabase
       .from('storyboards')
-      .update({ plan })
+      .update({ plan: normalizedPlan })
       .eq('id', storyboardId);
 
     if (updateError) {

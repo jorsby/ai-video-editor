@@ -23,6 +23,7 @@ import type {
   VideoModel,
   KlingO3RefPlan,
   Wan26FlashRefPlan,
+  SceneDialogueLine,
 } from '@/lib/supabase/workflow-service';
 import { getLanguageName } from '@/lib/constants/languages';
 
@@ -49,6 +50,32 @@ function isKlingPlan(plan: RefPlan): plan is KlingO3RefPlan {
 
 function isWanPlan(plan: RefPlan): plan is Wan26FlashRefPlan {
   return 'scene_multi_shots' in plan || 'object_names' in plan;
+}
+
+function serializeSceneDialogue(
+  lines: SceneDialogueLine[] | undefined
+): string {
+  if (!Array.isArray(lines) || lines.length === 0) return '';
+  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join('\n');
+}
+
+function parseSceneDialogue(value: string): SceneDialogueLine[] {
+  return value
+    .split('\n')
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const colon = line.indexOf(':');
+      if (colon <= 0) {
+        return { speaker: 'Narrator', line };
+      }
+
+      const speaker = line.slice(0, colon).trim();
+      const text = line.slice(colon + 1).trim();
+      if (!speaker || !text) return null;
+      return { speaker, line: text };
+    })
+    .filter((line): line is SceneDialogueLine => line !== null);
 }
 
 export function DraftPlanEditor({
@@ -158,6 +185,42 @@ export function DraftPlanEditor({
         : []))
     : [];
 
+  const refVideoMode =
+    refPlan && 'video_mode' in refPlan
+      ? (refPlan.video_mode ?? 'narrative')
+      : 'narrative';
+  const isDialogueMode =
+    ref && isWanPlan(refPlan as RefPlan) && refVideoMode === 'dialogue_scene';
+
+  const handleSceneDialogueChange = (index: number, value: string) => {
+    if (!ref || !isWanPlan(plan as RefPlan)) return;
+
+    const wanPlan = plan as Wan26FlashRefPlan;
+    const newSceneDialogue = Array.from(
+      { length: sceneCount },
+      (_, i) => wanPlan.scene_dialogue?.[i] ?? []
+    );
+
+    const parsedLines = parseSceneDialogue(value).slice(0, 3);
+    newSceneDialogue[index] = parsedLines;
+
+    const sourceLanguage = Object.keys(wanPlan.voiceover_list)[0] ?? 'en';
+    const nextVoiceovers = {
+      ...wanPlan.voiceover_list,
+      [sourceLanguage]: [...(wanPlan.voiceover_list[sourceLanguage] ?? [])],
+    };
+
+    nextVoiceovers[sourceLanguage][index] = parsedLines
+      .map((line) => `${line.speaker}: ${line.line}`)
+      .join(' ');
+
+    onPlanChange?.({
+      ...wanPlan,
+      scene_dialogue: newSceneDialogue,
+      voiceover_list: nextVoiceovers,
+    });
+  };
+
   // --- Render ---
   return (
     <div className="flex flex-col h-full">
@@ -177,6 +240,11 @@ export function DraftPlanEditor({
                   : videoModel === 'klingo3' || videoModel === 'klingo3pro'
                     ? 'Kling O3'
                     : 'WAN 2.6'}
+              </span>
+            )}
+            {ref && isWanPlan(refPlan as RefPlan) && (
+              <span className="text-xs px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded">
+                {isDialogueMode ? 'Dialogue Scene' : 'Narrative'}
               </span>
             )}
           </div>
@@ -519,6 +587,33 @@ export function DraftPlanEditor({
                               </span>
                             </label>
                           )}
+                        </div>
+                      )}
+
+                      {isDialogueMode && (
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            Dialogue (Speaker: line)
+                          </label>
+                          <Textarea
+                            value={serializeSceneDialogue(
+                              (refPlan as Wan26FlashRefPlan).scene_dialogue?.[
+                                index
+                              ]
+                            )}
+                            onChange={(e) =>
+                              handleSceneDialogueChange(index, e.target.value)
+                            }
+                            readOnly={readOnly}
+                            className="text-xs min-h-[72px]"
+                            placeholder={
+                              'Mother: We only take what we need.\nBoy: Okay, mom.'
+                            }
+                          />
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            V1 uses visual dialogue + separate TTS track (no
+                            lip-sync).
+                          </p>
                         </div>
                       )}
 
