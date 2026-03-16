@@ -130,9 +130,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
     // Build grid prompt
+    // For character grids, skip genre/tone — they make portraits too dark/moody
+    // Character reference sheets should be clean and well-lit
     const stylePrefix: string[] = [];
-    if (series.genre) stylePrefix.push(`${series.genre} genre`);
-    if (series.tone) stylePrefix.push(`${series.tone} tone`);
+    if (type !== 'character') {
+      if (series.genre) stylePrefix.push(`${series.genre} genre`);
+      if (series.tone) stylePrefix.push(`${series.tone} tone`);
+    }
 
     const positionLabels =
       count <= 2
