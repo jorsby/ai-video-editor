@@ -1921,6 +1921,179 @@ async function handleSeriesAssetImage(
   }
 }
 
+// ── Series Grid Image Handler ─────────────────────────────────────────
+
+async function handleSeriesGridImage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  falPayload: FalWebhookPayload,
+  params: URLSearchParams,
+  log: Logger
+): Promise<Response> {
+  const variantIdsStr = params.get('variant_ids');
+  const colsStr = params.get('cols');
+  const rowsStr = params.get('rows');
+
+  if (!variantIdsStr || !colsStr || !rowsStr) {
+    log.error('Missing grid params for SeriesGridImage');
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing grid params' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  const variantIds = variantIdsStr.split(',').filter(Boolean);
+  const cols = Number.parseInt(colsStr, 10);
+  const rows = Number.parseInt(rowsStr, 10);
+
+  log.setContext({
+    step: 'SeriesGridImage',
+    variant_count: variantIds.length,
+    grid: `${cols}x${rows}`,
+  });
+
+  if (falPayload.status === 'ERROR') {
+    log.error('fal.ai returned error', { error: falPayload.error });
+    return new Response(
+      JSON.stringify({ success: false, error: falPayload.error }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  const images = getImages(falPayload);
+  const imageUrl = images?.[0]?.url;
+
+  if (!imageUrl) {
+    log.error('No image URL in fal.ai response');
+    return new Response(
+      JSON.stringify({ success: false, error: 'No image in response' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+
+  try {
+    // Download the grid image
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+
+    // Get actual image dimensions
+    const metadata = await sharp(imgBuffer).metadata();
+    const imgWidth = metadata.width ?? cols * 1024;
+    const imgHeight = metadata.height ?? rows * 1024;
+    const cellWidth = Math.floor(imgWidth / cols);
+    const cellHeight = Math.floor(imgHeight / rows);
+
+    log.info('Grid image downloaded', {
+      size: `${imgWidth}x${imgHeight}`,
+      cell: `${cellWidth}x${cellHeight}`,
+    });
+
+    const results: Array<{
+      variant_id: string;
+      url: string;
+      success: boolean;
+    }> = [];
+
+    // Crop each cell and upload
+    for (let idx = 0; idx < variantIds.length; idx++) {
+      const variantId = variantIds[idx];
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const left = col * cellWidth;
+      const top = row * cellHeight;
+
+      try {
+        // Crop cell from grid
+        const cellBuffer = await sharp(imgBuffer)
+          .extract({ left, top, width: cellWidth, height: cellHeight })
+          .jpeg({ quality: 95 })
+          .toBuffer();
+
+        // Upload to storage
+        const storagePath = `generated/${variantId}/${Date.now()}_grid_${idx}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('series-assets')
+          .upload(storagePath, cellBuffer, {
+            contentType: 'image/jpeg',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          log.error(`Upload failed for variant ${idx}`, {
+            variant_id: variantId,
+            error: uploadError.message,
+          });
+          results.push({ variant_id: variantId, url: '', success: false });
+          continue;
+        }
+
+        // Get public URL
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+
+        // Insert DB record
+        const { error: dbError } = await supabase
+          .from('series_asset_variant_images')
+          .insert({
+            variant_id: variantId,
+            angle: 'front',
+            kind: 'frontal',
+            url: publicUrl,
+            storage_path: storagePath,
+            source: 'generated',
+            metadata: {
+              fal_request_id: falPayload.request_id ?? null,
+              grid_position: { row, col, index: idx },
+            },
+          });
+
+        if (dbError) {
+          log.error(`DB insert failed for variant ${idx}`, {
+            variant_id: variantId,
+            error: dbError.message,
+          });
+          results.push({
+            variant_id: variantId,
+            url: publicUrl,
+            success: false,
+          });
+          continue;
+        }
+
+        results.push({ variant_id: variantId, url: publicUrl, success: true });
+        log.info(`Variant ${idx} saved`, { variant_id: variantId });
+      } catch (cropErr) {
+        log.error(`Crop/upload failed for variant ${idx}`, {
+          variant_id: variantId,
+          error: cropErr instanceof Error ? cropErr.message : String(cropErr),
+        });
+        results.push({ variant_id: variantId, url: '', success: false });
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    log.summary('success', {
+      total: variantIds.length,
+      succeeded: successCount,
+      results,
+    });
+
+    return new Response(JSON.stringify({ success: true, results }), {
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  } catch (err) {
+    log.error('SeriesGridImage exception', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return new Response(
+      JSON.stringify({ success: false, error: 'Internal error' }),
+      { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+    );
+  }
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -1984,6 +2157,8 @@ export async function POST(req: NextRequest) {
         return await handleGenerateSFX(supabase, falPayload, params, log);
       case 'SeriesAssetImage':
         return await handleSeriesAssetImage(supabase, falPayload, params, log);
+      case 'SeriesGridImage':
+        return await handleSeriesGridImage(supabase, falPayload, params, log);
       default:
         log.error('Unknown step', { step });
         return new Response(
