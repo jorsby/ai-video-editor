@@ -38,6 +38,31 @@ import type {
   SeriesEpisodeWithVariants,
 } from '@/lib/supabase/series-service';
 
+// ── Image lightbox ─────────────────────────────────────────────────────────────
+
+function ImageLightbox({
+  url,
+  alt,
+  onClose,
+}: {
+  url: string;
+  alt: string;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl w-[95vw] p-2 bg-black/95 border-none">
+        {/* biome-ignore lint/a11y/useAltText: lightbox */}
+        <img
+          src={url}
+          alt={alt}
+          className="w-full h-auto max-h-[85vh] object-contain rounded"
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Asset type config ──────────────────────────────────────────────────────────
 
 const ASSET_TYPES: {
@@ -58,12 +83,14 @@ function VariantCard({
   assetId,
   onDelete,
   onImageUploaded,
+  onImageClick,
 }: {
   variant: SeriesAssetVariantWithImages;
   seriesId: string;
   assetId: string;
   onDelete: () => void;
   onImageUploaded: () => void;
+  onImageClick: (url: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -144,11 +171,17 @@ function VariantCard({
             {variant.series_asset_variant_images.map((img) => (
               <div key={img.id} className="relative group w-20 h-20">
                 {img.url ? (
-                  // biome-ignore lint/a11y/useAltText: thumbnail
-                  <img
-                    src={img.url}
-                    className="w-full h-full object-cover rounded border border-border/50"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => img.url && onImageClick(img.url)}
+                    className="w-full h-full cursor-pointer"
+                  >
+                    {/* biome-ignore lint/a11y/useAltText: thumbnail */}
+                    <img
+                      src={img.url}
+                      className="w-full h-full object-cover rounded border border-border/50 hover:border-primary/50 transition-colors"
+                    />
+                  </button>
                 ) : (
                   <div className="w-full h-full bg-muted rounded border border-border/50" />
                 )}
@@ -202,6 +235,7 @@ function AssetCard({
   const [variantDesc, setVariantDesc] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const handleAddVariant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,11 +277,20 @@ function AssetCard({
           (v) => v.series_asset_variant_images ?? []
         )?.[0];
         return firstImage?.url ? (
-          // biome-ignore lint/a11y/useAltText: asset hero
-          <img src={firstImage.url} className="w-full h-40 object-cover" />
+          <button
+            type="button"
+            onClick={() => firstImage.url && setLightboxUrl(firstImage.url)}
+            className="w-full aspect-square overflow-hidden cursor-pointer"
+          >
+            {/* biome-ignore lint/a11y/useAltText: asset hero */}
+            <img
+              src={firstImage.url}
+              className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+            />
+          </button>
         ) : (
-          <div className="w-full h-24 bg-muted/30 flex items-center justify-center">
-            <span className="text-2xl opacity-20">
+          <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
+            <span className="text-4xl opacity-20">
               {asset.type === 'character'
                 ? '👤'
                 : asset.type === 'location'
@@ -287,6 +330,7 @@ function AssetCard({
               assetId={asset.id}
               onDelete={() => handleDeleteVariant(v.id)}
               onImageUploaded={onRefresh}
+              onImageClick={setLightboxUrl}
             />
           ))}
         </div>
@@ -346,6 +390,14 @@ function AssetCard({
           </Button>
         )}
       </div>
+
+      {lightboxUrl && (
+        <ImageLightbox
+          url={lightboxUrl}
+          alt={asset.name}
+          onClose={() => setLightboxUrl(null)}
+        />
+      )}
     </div>
   );
 }
