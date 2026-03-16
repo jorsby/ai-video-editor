@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Clapperboard, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Clapperboard, Trash2 } from 'lucide-react';
 import { CreateSeriesDialog } from './create-series-dialog';
 import { SeriesDetailPage } from './series-detail-page';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -17,20 +16,15 @@ import type {
 
 // ── Series card ────────────────────────────────────────────────────────────────
 
-interface SeriesWithStatus extends Series {
-  plan_status?: string;
-}
-
 function SeriesCard({
   series,
   onClick,
   onDelete,
 }: {
-  series: SeriesWithStatus;
+  series: Series;
   onClick: () => void;
   onDelete: (id: string) => void;
 }) {
-  const isDraft = !series.plan_status || series.plan_status === 'draft';
   const [showConfirm, setShowConfirm] = useState(false);
 
   return (
@@ -40,12 +34,6 @@ function SeriesCard({
         onClick={onClick}
         className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative"
       >
-        {isDraft && (
-          <div className="absolute top-3 right-3 flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
-            <Pencil className="w-2.5 h-2.5" />
-            Planning
-          </div>
-        )}
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
             <h3 className="font-semibold text-sm group-hover:text-primary transition-colors pr-16">
@@ -102,8 +90,7 @@ function SeriesCard({
 // ── Main content ───────────────────────────────────────────────────────────────
 
 export function SeriesContent() {
-  const router = useRouter();
-  const [seriesList, setSeriesList] = useState<SeriesWithStatus[]>([]);
+  const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -134,14 +121,7 @@ export function SeriesContent() {
     fetchSeries();
   }, [fetchSeries]);
 
-  const openDetail = async (s: SeriesWithStatus) => {
-    // Draft series → go to planning page
-    if (!s.plan_status || s.plan_status === 'draft') {
-      router.push(`/series/${s.id}/plan`);
-      return;
-    }
-
-    // Finalized series → load detail inline
+  const openDetail = async (s: Series) => {
     setLoadingDetail(true);
     try {
       const [seriesRes, episodesRes] = await Promise.all([
@@ -164,14 +144,14 @@ export function SeriesContent() {
 
   const refreshDetail = async () => {
     if (!detailSeries) return;
-    await openDetail(detailSeries as SeriesWithStatus);
+    await openDetail(detailSeries as Series);
     await fetchSeries();
   };
 
   const handleCreated = (newSeries: Series) => {
     setShowCreateDialog(false);
-    // Redirect to planning page for the new series
-    router.push(`/series/${newSeries.id}/plan`);
+    // Open the new series detail view
+    openDetail(newSeries);
   };
 
   const handleDeleteSeries = async (id: string) => {
