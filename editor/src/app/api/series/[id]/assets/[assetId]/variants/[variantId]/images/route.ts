@@ -44,6 +44,34 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
+    const { data: variant } = await dbClient
+      .from('series_asset_variants')
+      .select('*')
+      .eq('id', variantId)
+      .single();
+
+    if (variant?.is_finalized) {
+      return NextResponse.json(
+        { error: 'Variant is finalized and cannot be modified' },
+        { status: 409 }
+      );
+    }
+
+    const { count: usageCount } = await dbClient
+      .from('episode_asset_variants')
+      .select('*', { count: 'exact', head: true })
+      .eq('variant_id', variantId);
+
+    if ((usageCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Variant is already used in one or more episodes and cannot be modified',
+        },
+        { status: 409 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const angle = (formData.get('angle') as string) || 'front';
@@ -72,15 +100,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const { data: signedData } = await dbClient.storage
-      .from('series-assets')
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
+    const {
+      data: { publicUrl },
+    } = dbClient.storage.from('series-assets').getPublicUrl(storagePath);
 
     const image = await addVariantImage(dbClient, {
       variant_id: variantId,
       angle: angle as Parameters<typeof addVariantImage>[1]['angle'],
       kind: kind as Parameters<typeof addVariantImage>[1]['kind'],
-      url: signedData?.signedUrl ?? storagePath,
+      url: publicUrl ?? storagePath,
       storage_path: storagePath,
       source: 'upload',
     });
@@ -120,6 +148,34 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    }
+
+    const { data: variant } = await dbClient
+      .from('series_asset_variants')
+      .select('*')
+      .eq('id', variantId)
+      .single();
+
+    if (variant?.is_finalized) {
+      return NextResponse.json(
+        { error: 'Variant is finalized and cannot be modified' },
+        { status: 409 }
+      );
+    }
+
+    const { count: usageCount } = await dbClient
+      .from('episode_asset_variants')
+      .select('*', { count: 'exact', head: true })
+      .eq('variant_id', variantId);
+
+    if ((usageCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Variant is already used in one or more episodes and cannot be modified',
+        },
+        { status: 409 }
+      );
     }
 
     const { searchParams } = new URL(req.url);

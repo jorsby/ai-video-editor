@@ -66,13 +66,35 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: variant } = await dbClient
       .from('series_asset_variants')
-      .select('label, description')
+      .select('*')
       .eq('id', variantId)
       .eq('asset_id', assetId)
       .single();
 
     if (!variant) {
       return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
+    }
+
+    if (variant.is_finalized) {
+      return NextResponse.json(
+        { error: 'Variant is finalized and cannot be regenerated' },
+        { status: 409 }
+      );
+    }
+
+    const { count: usageCount } = await dbClient
+      .from('episode_asset_variants')
+      .select('*', { count: 'exact', head: true })
+      .eq('variant_id', variantId);
+
+    if ((usageCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Variant is already used in one or more episodes and cannot be regenerated',
+        },
+        { status: 409 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));

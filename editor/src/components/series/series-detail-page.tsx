@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,9 @@ import {
   Check,
   X,
   ExternalLink,
+  Lock,
+  RotateCcw,
+  WandSparkles,
 } from 'lucide-react';
 import type {
   SeriesWithAssets,
@@ -41,24 +44,205 @@ import type {
 
 // ── Image lightbox ─────────────────────────────────────────────────────────────
 
-function ImageLightbox({
-  url,
-  alt,
-  onClose,
-}: {
+type LightboxState = {
   url: string;
   alt: string;
+  prompt: string;
+  seriesId: string;
+  assetId: string;
+  variantId: string;
+  isFinalized: boolean;
+};
+
+function ImageLightbox({
+  state,
+  onClose,
+  onDone,
+}: {
+  state: LightboxState;
   onClose: () => void;
+  onDone: () => void;
 }) {
+  const [promptDraft, setPromptDraft] = useState(state.prompt || '');
+  const [editInstruction, setEditInstruction] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isFinalized, setIsFinalized] = useState(state.isFinalized);
+
+  useEffect(() => {
+    setPromptDraft(state.prompt || '');
+    setEditInstruction('');
+    setMessage('');
+    setIsFinalized(state.isFinalized);
+  }, [state]);
+
+  const callJson = async (url: string, init: RequestInit) => {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok)
+      throw new Error(data?.error || `Request failed (${res.status})`);
+    return data;
+  };
+
+  const handleRegenerate = async () => {
+    if (isFinalized) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await callJson(
+        `/api/series/${state.seriesId}/assets/${state.assetId}/variants/${state.variantId}/regenerate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ prompt: promptDraft.trim() || undefined }),
+        }
+      );
+      setMessage('Regeneration started. Image will update automatically.');
+      onDone();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Regenerate failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEditImage = async () => {
+    if (isFinalized) return;
+    if (!editInstruction.trim()) {
+      setMessage('Write an edit instruction first.');
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    try {
+      await callJson(
+        `/api/series/${state.seriesId}/assets/${state.assetId}/variants/${state.variantId}/edit-image`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            prompt: editInstruction.trim(),
+            model: 'banana',
+          }),
+        }
+      );
+      setMessage('Edit started. Image will update automatically.');
+      setEditInstruction('');
+      onDone();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Edit failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (isFinalized) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await callJson(
+        `/api/series/${state.seriesId}/assets/${state.assetId}/variants/${state.variantId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ is_finalized: true }),
+        }
+      );
+      setIsFinalized(true);
+      setMessage('Variant finalized and locked.');
+      onDone();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : 'Finalize update failed'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl w-[95vw] p-2 bg-black/95 border-none">
-        {/* biome-ignore lint/a11y/useAltText: lightbox */}
-        <img
-          src={url}
-          alt={alt}
-          className="w-full h-auto max-h-[85vh] object-contain rounded"
-        />
+      <DialogContent className="max-w-4xl w-[95vw] p-3 sm:p-4 bg-black/95 border-none">
+        <div className="space-y-3">
+          {/* biome-ignore lint/a11y/useAltText: lightbox */}
+          <img
+            src={state.url}
+            alt={state.alt}
+            className="w-full h-auto max-h-[65vh] object-contain rounded"
+          />
+
+          <div className="bg-background/90 rounded p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Generation prompt
+              </p>
+              <Badge variant={isFinalized ? 'secondary' : 'outline'}>
+                {isFinalized ? 'Finalized (locked)' : 'Editable'}
+              </Badge>
+            </div>
+
+            <Textarea
+              value={promptDraft}
+              onChange={(e) => setPromptDraft(e.target.value)}
+              placeholder="Prompt used to generate this image"
+              className="min-h-[96px] text-xs"
+              disabled={isFinalized || busy}
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleRegenerate}
+                disabled={busy || isFinalized}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                Regenerate
+              </Button>
+
+              {!isFinalized && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleFinalize}
+                  disabled={busy}
+                >
+                  <Lock className="w-3.5 h-3.5 mr-1" />
+                  Finalize
+                </Button>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-border/50 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Edit existing image (variation via edit)
+              </p>
+              <Textarea
+                value={editInstruction}
+                onChange={(e) => setEditInstruction(e.target.value)}
+                placeholder="e.g. Add engraved text '4A' on the key card"
+                className="min-h-[72px] text-xs"
+                disabled={isFinalized || busy}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleEditImage}
+                disabled={busy || isFinalized}
+              >
+                <WandSparkles className="w-3.5 h-3.5 mr-1" />
+                Apply Edit
+              </Button>
+            </div>
+
+            {message && (
+              <p className="text-xs text-muted-foreground">{message}</p>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -85,16 +269,56 @@ function VariantCard({
   onDelete,
   onImageUploaded,
   onImageClick,
+  variantInUse,
 }: {
   variant: SeriesAssetVariantWithImages;
   seriesId: string;
   assetId: string;
   onDelete: () => void;
   onImageUploaded: () => void;
-  onImageClick: (url: string) => void;
+  onImageClick: (image: {
+    url: string;
+    prompt: string;
+    variantId: string;
+    isFinalized: boolean;
+  }) => void;
+  variantInUse: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const [editingImage, setEditingImage] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [editInstruction, setEditInstruction] = useState('');
+
+  const latestImage = useMemo(() => {
+    if (!variant.series_asset_variant_images?.length) return null;
+    return [...variant.series_asset_variant_images].sort((a, b) =>
+      (b.created_at ?? '').localeCompare(a.created_at ?? '')
+    )[0];
+  }, [variant.series_asset_variant_images]);
+
+  const latestPrompt =
+    typeof latestImage?.metadata?.prompt === 'string'
+      ? String(latestImage.metadata.prompt)
+      : '';
+
+  const latestModel =
+    typeof latestImage?.metadata?.model === 'string'
+      ? String(latestImage.metadata.model)
+      : '';
+
+  useEffect(() => {
+    setPromptDraft(latestPrompt);
+  }, [latestPrompt]);
+
+  const isLocked = variant.is_finalized || variantInUse;
+  const lockReason = variant.is_finalized
+    ? 'Finalized variant — changes are locked'
+    : variantInUse
+      ? 'Used in an episode — changes are locked'
+      : null;
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -124,18 +348,97 @@ function VariantCard({
     onImageUploaded();
   };
 
+  const handleRegenerateFromPrompt = async () => {
+    if (!promptDraft.trim() || isLocked) return;
+    setSavingPrompt(true);
+    try {
+      await fetch(
+        `/api/series/${seriesId}/assets/${assetId}/variants/${variant.id}/regenerate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: promptDraft.trim() }),
+        }
+      );
+      onImageUploaded();
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
+  const handleEditImage = async () => {
+    if (!editInstruction.trim() || isLocked) return;
+    setEditingImage(true);
+    try {
+      await fetch(
+        `/api/series/${seriesId}/assets/${assetId}/variants/${variant.id}/edit-image`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: editInstruction.trim(),
+            model: 'banana',
+          }),
+        }
+      );
+      setEditInstruction('');
+      onImageUploaded();
+    } finally {
+      setEditingImage(false);
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (variant.is_finalized) return;
+    setIsFinalizing(true);
+    try {
+      await fetch(
+        `/api/series/${seriesId}/assets/${assetId}/variants/${variant.id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_finalized: true }),
+        }
+      );
+      onImageUploaded();
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium">{variant.label}</span>
           {variant.is_default && (
             <Badge variant="secondary" className="text-xs">
               Default
             </Badge>
           )}
+          {variant.is_finalized && (
+            <Badge variant="outline" className="text-xs border-emerald-500/40">
+              Finalized
+            </Badge>
+          )}
+          {variantInUse && !variant.is_finalized && (
+            <Badge variant="outline" className="text-xs">
+              In Use
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1">
+          {!variant.is_finalized && !variantInUse && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={handleFinalize}
+              disabled={isFinalizing}
+            >
+              {isFinalizing ? '...' : 'Finalize'}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -153,6 +456,7 @@ function VariantCard({
             size="sm"
             className="h-9 w-9 sm:h-7 sm:w-7 p-0 text-destructive hover:text-destructive"
             onClick={onDelete}
+            disabled={isLocked}
           >
             <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </Button>
@@ -174,7 +478,18 @@ function VariantCard({
                 {img.url ? (
                   <button
                     type="button"
-                    onClick={() => img.url && onImageClick(img.url)}
+                    onClick={() =>
+                      img.url &&
+                      onImageClick({
+                        url: img.url,
+                        prompt:
+                          typeof img.metadata?.prompt === 'string'
+                            ? String(img.metadata.prompt)
+                            : '',
+                        variantId: variant.id,
+                        isFinalized: variant.is_finalized || variantInUse,
+                      })
+                    }
                     className="w-full h-full cursor-pointer"
                   >
                     {/* biome-ignore lint/a11y/useAltText: thumbnail */}
@@ -189,7 +504,8 @@ function VariantCard({
                 <button
                   type="button"
                   onClick={() => handleDeleteImage(img.id, img.storage_path)}
-                  className="absolute -top-1 -right-1 w-6 h-6 sm:w-5 sm:h-5 bg-destructive text-destructive-foreground rounded-full flex md:hidden md:group-hover:flex items-center justify-center text-xs"
+                  className="absolute -top-1 -right-1 w-6 h-6 sm:w-5 sm:h-5 bg-destructive text-destructive-foreground rounded-full flex md:hidden md:group-hover:flex items-center justify-center text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={isLocked}
                 >
                   ×
                 </button>
@@ -197,7 +513,13 @@ function VariantCard({
             ))}
 
             {/* Upload button */}
-            <label className="w-16 h-16 border-2 border-dashed border-border/50 rounded flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+            <label
+              className={`w-16 h-16 border-2 border-dashed border-border/50 rounded flex items-center justify-center transition-colors ${
+                isLocked
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'cursor-pointer hover:border-primary/50'
+              }`}
+            >
               {uploading ? (
                 <span className="text-xs text-muted-foreground">...</span>
               ) : (
@@ -208,9 +530,61 @@ function VariantCard({
                 accept="image/*"
                 className="hidden"
                 onChange={handleUpload}
-                disabled={uploading}
+                disabled={uploading || isLocked}
               />
             </label>
+          </div>
+
+          {lockReason && (
+            <p className="text-[11px] text-amber-500/90 border border-amber-500/20 rounded px-2 py-1 bg-amber-500/5">
+              {lockReason}
+            </p>
+          )}
+
+          <div className="space-y-2 pt-1 border-t border-border/40">
+            <p className="text-xs font-medium">Generation Prompt</p>
+            <Textarea
+              value={promptDraft}
+              onChange={(e) => setPromptDraft(e.target.value)}
+              placeholder="No prompt metadata found yet. Add a prompt and regenerate."
+              rows={3}
+              className="text-xs"
+              disabled={isLocked}
+            />
+            {latestModel && (
+              <p className="text-[11px] text-muted-foreground">
+                Model: {latestModel}
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={handleRegenerateFromPrompt}
+              disabled={savingPrompt || isLocked || !promptDraft.trim()}
+            >
+              {savingPrompt ? 'Regenerating...' : 'Regenerate from Prompt'}
+            </Button>
+          </div>
+
+          <div className="space-y-2 pt-1 border-t border-border/40">
+            <p className="text-xs font-medium">Create Variation (Edit-only)</p>
+            <Input
+              placeholder="Edit instruction (e.g. add a red scarf, warmer lighting)"
+              value={editInstruction}
+              onChange={(e) => setEditInstruction(e.target.value)}
+              disabled={isLocked}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={handleEditImage}
+              disabled={editingImage || isLocked || !editInstruction.trim()}
+            >
+              {editingImage ? 'Applying Edit...' : 'Apply Edit'}
+            </Button>
           </div>
         </div>
       )}
@@ -225,18 +599,22 @@ function AssetCard({
   seriesId,
   onDelete,
   onRefresh,
+  usedVariantIds,
 }: {
   asset: SeriesAssetWithVariants;
   seriesId: string;
   onDelete: () => void;
   onRefresh: () => void;
+  usedVariantIds: Set<string>;
 }) {
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [variantLabel, setVariantLabel] = useState('');
   const [variantDesc, setVariantDesc] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxState, setLightboxState] = useState<LightboxState | null>(
+    null
+  );
 
   const handleAddVariant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,13 +652,33 @@ function AssetCard({
     <div className="border border-border/50 rounded-xl overflow-hidden space-y-0">
       {/* Hero image from first variant's first image */}
       {(() => {
-        const firstImage = asset.series_asset_variants?.flatMap(
-          (v) => v.series_asset_variant_images ?? []
-        )?.[0];
+        const firstVariantWithImage = asset.series_asset_variants?.find(
+          (v) => (v.series_asset_variant_images?.length ?? 0) > 0
+        );
+        const firstImage =
+          firstVariantWithImage?.series_asset_variant_images?.[0];
+
         return firstImage?.url ? (
           <button
             type="button"
-            onClick={() => firstImage.url && setLightboxUrl(firstImage.url)}
+            onClick={() =>
+              firstImage.url &&
+              firstVariantWithImage &&
+              setLightboxState({
+                url: firstImage.url,
+                alt: asset.name,
+                prompt:
+                  typeof firstImage.metadata?.prompt === 'string'
+                    ? String(firstImage.metadata.prompt)
+                    : '',
+                seriesId,
+                assetId: asset.id,
+                variantId: firstVariantWithImage.id,
+                isFinalized:
+                  firstVariantWithImage.is_finalized ||
+                  usedVariantIds.has(firstVariantWithImage.id),
+              })
+            }
             className="w-full aspect-square overflow-hidden cursor-pointer"
           >
             {/* biome-ignore lint/a11y/useAltText: asset hero */}
@@ -334,7 +732,18 @@ function AssetCard({
               assetId={asset.id}
               onDelete={() => handleDeleteVariant(v.id)}
               onImageUploaded={onRefresh}
-              onImageClick={setLightboxUrl}
+              onImageClick={(image) =>
+                setLightboxState({
+                  url: image.url,
+                  alt: asset.name,
+                  prompt: image.prompt,
+                  seriesId,
+                  assetId: asset.id,
+                  variantId: image.variantId,
+                  isFinalized: image.isFinalized,
+                })
+              }
+              variantInUse={usedVariantIds.has(v.id)}
             />
           ))}
         </div>
@@ -395,11 +804,11 @@ function AssetCard({
         )}
       </div>
 
-      {lightboxUrl && (
+      {lightboxState && (
         <ImageLightbox
-          url={lightboxUrl}
-          alt={asset.name}
-          onClose={() => setLightboxUrl(null)}
+          state={lightboxState}
+          onClose={() => setLightboxState(null)}
+          onDone={onRefresh}
         />
       )}
     </div>
@@ -614,6 +1023,16 @@ export function SeriesDetailPage({
     onRefresh();
   };
 
+  const usedVariantIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ep of episodes) {
+      for (const ev of ep.episode_asset_variants ?? []) {
+        if (ev.variant_id) ids.add(ev.variant_id);
+      }
+    }
+    return ids;
+  }, [episodes]);
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Back + title */}
@@ -769,6 +1188,7 @@ export function SeriesDetailPage({
                         seriesId={series.id}
                         onDelete={() => handleDeleteAsset(asset.id)}
                         onRefresh={onRefresh}
+                        usedVariantIds={usedVariantIds}
                       />
                     ))}
                   </div>

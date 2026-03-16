@@ -48,6 +48,8 @@ export interface SeriesAssetVariant {
   label: string;
   description: string | null;
   is_default: boolean;
+  is_finalized: boolean;
+  finalized_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -398,6 +400,7 @@ export async function createAssetVariant(
     label: string;
     description?: string;
     is_default?: boolean;
+    is_finalized?: boolean;
   }
 ): Promise<SeriesAssetVariant> {
   const { data, error } = await supabase
@@ -407,6 +410,7 @@ export async function createAssetVariant(
       label: input.label,
       description: input.description ?? null,
       is_default: input.is_default ?? false,
+      is_finalized: input.is_finalized ?? false,
     })
     .select()
     .single();
@@ -423,6 +427,8 @@ export async function updateAssetVariant(
     label?: string;
     description?: string | null;
     is_default?: boolean;
+    is_finalized?: boolean;
+    finalized_at?: string | null;
   }
 ): Promise<SeriesAssetVariant> {
   const { data, error } = await supabase

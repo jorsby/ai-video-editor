@@ -55,6 +55,24 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (body.is_default !== undefined)
       updates.is_default = Boolean(body.is_default);
 
+    if (body.is_finalized !== undefined) {
+      const { data: currentVariant } = await dbClient
+        .from('series_asset_variants')
+        .select('*')
+        .eq('id', variantId)
+        .single();
+
+      const requestedFinalized = Boolean(body.is_finalized);
+      if (currentVariant?.is_finalized && !requestedFinalized) {
+        return NextResponse.json(
+          { error: 'Finalized variants cannot be unfinalized' },
+          { status: 409 }
+        );
+      }
+
+      updates.is_finalized = requestedFinalized;
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
         { error: 'No fields to update' },
@@ -76,7 +94,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 // DELETE /api/series/[id]/assets/[assetId]/variants/[variantId]
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const { id, variantId } = await context.params;
+    const { id, assetId, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
       data: { user: sessionUser },
@@ -97,6 +115,35 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    }
+
+    const { data: variant } = await dbClient
+      .from('series_asset_variants')
+      .select('*')
+      .eq('id', variantId)
+      .eq('asset_id', assetId)
+      .single();
+
+    if (variant?.is_finalized) {
+      return NextResponse.json(
+        { error: 'Variant is finalized and cannot be deleted' },
+        { status: 409 }
+      );
+    }
+
+    const { count: usageCount } = await dbClient
+      .from('episode_asset_variants')
+      .select('*', { count: 'exact', head: true })
+      .eq('variant_id', variantId);
+
+    if ((usageCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Variant is already used in one or more episodes and cannot be deleted',
+        },
+        { status: 409 }
+      );
     }
 
     await deleteAssetVariant(dbClient, variantId);

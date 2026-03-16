@@ -253,13 +253,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: variants } = (await dbClient
       .from('series_asset_variants')
-      .select('id, asset_id, label, description')
+      .select('id, asset_id, label, description, is_finalized')
       .in('id', variantIds)) as {
       data: Array<{
         id: string;
         asset_id: string;
         label: string;
         description: string | null;
+        is_finalized: boolean;
       }> | null;
     };
 
@@ -274,6 +275,35 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { error: 'One or more variants not found' },
         { status: 404 }
+      );
+    }
+
+    const finalizedVariantIds = variants
+      .filter((v) => v.is_finalized)
+      .map((v) => v.id);
+    if (finalizedVariantIds.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'One or more variants are finalized and cannot be regenerated',
+          variant_ids: finalizedVariantIds,
+        },
+        { status: 409 }
+      );
+    }
+
+    const { data: usedVariants } = await dbClient
+      .from('episode_asset_variants')
+      .select('variant_id')
+      .in('variant_id', variantIds)
+      .limit(1);
+
+    if ((usedVariants?.length ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'One or more variants are already used in episodes and cannot be regenerated',
+        },
+        { status: 409 }
       );
     }
 
