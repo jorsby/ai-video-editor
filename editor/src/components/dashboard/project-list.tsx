@@ -53,6 +53,7 @@ export function ProjectList({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -71,13 +72,7 @@ export function ProjectList({
     setSelectedIds(new Set());
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    const confirmed = window.confirm(
-      `Delete ${selectedIds.size} project(s)? This cannot be undone.`
-    );
-    if (!confirmed) return;
-
+  const doBulkDelete = async () => {
     setBulkDeleting(true);
     const ids = [...selectedIds];
     for (let i = 0; i < ids.length; i++) {
@@ -86,7 +81,6 @@ export function ProjectList({
           method: 'DELETE',
         });
         if (res.ok) onDeleteProject(ids[i]);
-        // Small delay between deletes to avoid overwhelming the UI
         if (i < ids.length - 1) await new Promise((r) => setTimeout(r, 200));
       } catch {
         // continue
@@ -94,6 +88,7 @@ export function ProjectList({
     }
     setSelectedIds(new Set());
     setSelectMode(false);
+    setShowBulkDeleteConfirm(false);
     setBulkDeleting(false);
   };
 
@@ -211,12 +206,12 @@ export function ProjectList({
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleBulkDelete}
+                onClick={() => setShowBulkDeleteConfirm(true)}
                 disabled={selectedIds.size === 0 || bulkDeleting}
                 className="gap-1 text-xs"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                {bulkDeleting ? 'Deleting...' : 'Delete'}
+                {bulkDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
               </Button>
               <Button
                 variant="ghost"
@@ -316,6 +311,15 @@ export function ProjectList({
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={showBulkDeleteConfirm}
+        onOpenChange={setShowBulkDeleteConfirm}
+        title={`Delete ${selectedIds.size} project(s)?`}
+        description="This will permanently delete the selected projects and all their assets. This cannot be undone."
+        confirmLabel={bulkDeleting ? 'Deleting...' : 'Delete All'}
+        onConfirm={doBulkDelete}
+      />
     </div>
   );
 }
