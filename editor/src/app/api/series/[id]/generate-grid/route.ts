@@ -196,7 +196,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         prompt,
         num_images: 1,
         resolution: '2K',
-        aspect_ratio: '1:1',
+        aspect_ratio: cols === rows ? '1:1' : cols > rows ? '16:9' : '9:16',
         output_format: 'jpeg',
         safety_tolerance: '6',
       }),
