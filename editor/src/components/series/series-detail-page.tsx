@@ -12,6 +12,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -182,6 +183,12 @@ function ImageLightbox({
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-4xl w-[95vw] p-3 sm:p-4 bg-black/95 border-none">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{state.alt}</DialogTitle>
+          <DialogDescription>
+            Inspect, regenerate, finalize, or edit this generated asset image.
+          </DialogDescription>
+        </DialogHeader>
         <div className="space-y-3">
           {/* biome-ignore lint/a11y/useAltText: lightbox */}
           <img
@@ -1240,6 +1247,9 @@ export function SeriesDetailPage({
             <DialogTitle>
               Add {assetType.charAt(0).toUpperCase() + assetType.slice(1)}
             </DialogTitle>
+            <DialogDescription>
+              Create a new {assetType} and add its first default variant.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddAsset} className="space-y-3">
             <Input
@@ -1274,6 +1284,9 @@ export function SeriesDetailPage({
         <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add Episode</DialogTitle>
+            <DialogDescription>
+              Link an existing project to this series as a new episode.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddEpisode} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -1327,6 +1340,9 @@ export function SeriesDetailPage({
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{series.name} — Series Bible</DialogTitle>
+            <DialogDescription>
+              Reference document for tone, world, and story direction.
+            </DialogDescription>
           </DialogHeader>
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">

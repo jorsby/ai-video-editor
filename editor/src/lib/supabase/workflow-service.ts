@@ -84,6 +84,8 @@ export interface SkyReelsRefPlan extends RefPlanBase {
 
 export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan | SkyReelsRefPlan;
 
+export type StoryboardInputType = 'voiceover_script' | 'cinematic_flow';
+
 export interface Storyboard {
   id: string;
   project_id: string;
@@ -94,6 +96,10 @@ export interface Storyboard {
   plan_status: PlanStatus;
   mode: StoryboardMode;
   model: VideoModel | null;
+  title: string | null;
+  input_type: StoryboardInputType;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export type GridImageType = 'scene' | 'objects' | 'backgrounds';
@@ -517,6 +523,10 @@ export interface StoryboardRow {
   plan: Record<string, unknown> | null;
   mode: StoryboardMode;
   model: VideoModel | null;
+  title: string | null;
+  input_type: StoryboardInputType;
+  is_active: boolean;
+  sort_order: number;
   [key: string]: unknown;
 }
 

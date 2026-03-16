@@ -29,10 +29,17 @@ function SeriesCard({
 
   return (
     <>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onClick}
-        className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative cursor-pointer"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
@@ -74,7 +81,7 @@ function SeriesCard({
             <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
           </button>
         </div>
-      </button>
+      </div>
       <ConfirmDialog
         open={showConfirm}
         onOpenChange={setShowConfirm}
