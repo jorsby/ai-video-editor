@@ -834,11 +834,28 @@ function EpisodeRow({
   episode,
   seriesId,
   onDelete,
+  onRefresh,
 }: {
   episode: SeriesEpisodeWithVariants;
   seriesId: string;
   onDelete: () => void;
+  onRefresh: () => void;
 }) {
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateStoryboard = async () => {
+    setCreating(true);
+    try {
+      await fetch(
+        `/api/series/${seriesId}/episodes/${episode.id}/create-project`,
+        { method: 'POST' }
+      );
+      onRefresh();
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 border border-border/50 rounded-lg">
       <div className="flex items-center gap-3 min-w-0">
@@ -857,7 +874,7 @@ function EpisodeRow({
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {episode.project_id && (
+        {episode.project_id ? (
           <Link href={`/editor/${episode.project_id}`}>
             <Button
               variant="outline"
@@ -869,6 +886,20 @@ function EpisodeRow({
               <span className="sm:hidden">Open</span>
             </Button>
           </Link>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 sm:h-7 gap-1.5 text-xs"
+            onClick={handleCreateStoryboard}
+            disabled={creating}
+          >
+            <WandSparkles className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">
+              {creating ? 'Creating…' : 'Create Storyboard'}
+            </span>
+            <span className="sm:hidden">{creating ? '…' : 'Create'}</span>
+          </Button>
         )}
         <Button
           variant="ghost"
@@ -908,7 +939,6 @@ export function SeriesDetailPage({
   const [episodeNumber, setEpisodeNumber] = useState('');
   const [episodeTitle, setEpisodeTitle] = useState('');
   const [episodeSynopsis, setEpisodeSynopsis] = useState('');
-  const [projectId, setProjectId] = useState('');
   const [savingEpisode, setSavingEpisode] = useState(false);
 
   const [showBibleDialog, setShowBibleDialog] = useState(false);
@@ -1005,20 +1035,18 @@ export function SeriesDetailPage({
 
   const handleAddEpisode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectId.trim() || !episodeNumber) return;
+    if (!episodeNumber) return;
     setSavingEpisode(true);
     try {
       await fetch(`/api/series/${series.id}/episodes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project_id: projectId.trim(),
           episode_number: Number(episodeNumber),
           title: episodeTitle.trim() || undefined,
           synopsis: episodeSynopsis.trim() || undefined,
         }),
       });
-      setProjectId('');
       setEpisodeNumber('');
       setEpisodeTitle('');
       setEpisodeSynopsis('');
@@ -1223,7 +1251,8 @@ export function SeriesDetailPage({
 
           {episodes.length === 0 ? (
             <p className="text-sm text-muted-foreground/60 py-4">
-              No episodes yet. Add a project as an episode to get started.
+              No episodes yet. Add episodes, then use &quot;Create
+              Storyboard&quot; to open them in the editor.
             </p>
           ) : (
             <div className="space-y-2">
@@ -1233,6 +1262,7 @@ export function SeriesDetailPage({
                   episode={ep}
                   seriesId={series.id}
                   onDelete={() => handleDeleteEpisode(ep.id)}
+                  onRefresh={onRefresh}
                 />
               ))}
             </div>
@@ -1285,7 +1315,8 @@ export function SeriesDetailPage({
           <DialogHeader>
             <DialogTitle>Add Episode</DialogTitle>
             <DialogDescription>
-              Link an existing project to this series as a new episode.
+              Add an episode to this series. Use &quot;Create Storyboard&quot;
+              on the episode row to set it up in the editor.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddEpisode} className="space-y-3">
@@ -1304,12 +1335,6 @@ export function SeriesDetailPage({
                 onChange={(e) => setEpisodeTitle(e.target.value)}
               />
             </div>
-            <Input
-              placeholder="Project ID (paste from URL)"
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              required
-            />
             <Textarea
               placeholder="Synopsis (optional)"
               value={episodeSynopsis}
@@ -1324,10 +1349,7 @@ export function SeriesDetailPage({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={savingEpisode || !projectId.trim() || !episodeNumber}
-              >
+              <Button type="submit" disabled={savingEpisode || !episodeNumber}>
                 {savingEpisode ? 'Adding...' : 'Add Episode'}
               </Button>
             </DialogFooter>

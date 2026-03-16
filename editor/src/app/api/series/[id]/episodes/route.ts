@@ -76,9 +76,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const body = await req.json();
     const { project_id, episode_number, title, synopsis } = body;
 
-    if (!project_id || typeof project_id !== 'string') {
+    // project_id is optional — episodes can be created without a project and
+    // get linked to the shared series project via POST .../create-project later.
+    if (project_id !== undefined && typeof project_id !== 'string') {
       return NextResponse.json(
-        { error: 'project_id is required' },
+        { error: 'project_id must be a string' },
         { status: 400 }
       );
     }
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const episode = await createEpisode(dbClient, id, {
-      project_id,
+      project_id: project_id?.trim() || undefined,
       episode_number,
       title: title?.trim() || undefined,
       synopsis: synopsis?.trim() || undefined,

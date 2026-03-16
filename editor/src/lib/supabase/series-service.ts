@@ -527,7 +527,7 @@ export async function createEpisode(
   supabase: SupabaseClient,
   seriesId: string,
   input: {
-    project_id: string;
+    project_id?: string;
     episode_number: number;
     title?: string;
     synopsis?: string;
@@ -537,7 +537,7 @@ export async function createEpisode(
     .from('series_episodes')
     .insert({
       series_id: seriesId,
-      project_id: input.project_id,
+      project_id: input.project_id ?? null,
       episode_number: input.episode_number,
       title: input.title ?? null,
       synopsis: input.synopsis ?? null,
