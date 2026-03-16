@@ -161,6 +161,19 @@ export async function PATCH(req: NextRequest) {
       updateData.name = name.trim();
     }
 
+    if (body.settings !== undefined && typeof body.settings === 'object') {
+      // Merge settings with existing
+      const { data: existing } = await dbClient
+        .from('projects')
+        .select('settings')
+        .eq('id', id)
+        .single();
+      updateData.settings = {
+        ...(existing?.settings ?? {}),
+        ...body.settings,
+      };
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
         { error: 'No update fields provided' },
