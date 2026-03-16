@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   addVariantImage,
   deleteVariantImage,
@@ -22,8 +23,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { id, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -93,8 +101,15 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const { id, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

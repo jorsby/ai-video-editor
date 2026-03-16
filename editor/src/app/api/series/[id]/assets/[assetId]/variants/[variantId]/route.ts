@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   deleteAssetVariant,
   getSeries,
@@ -16,14 +18,22 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -52,7 +62,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const variant = await updateAssetVariant(supabase, variantId, updates);
+    const variant = await updateAssetVariant(dbClient, variantId, updates);
     return NextResponse.json({ variant });
   } catch (error) {
     console.error('Update asset variant error:', error);
@@ -64,24 +74,32 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/series/[id]/assets/[assetId]/variants/[variantId]
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    await deleteAssetVariant(supabase, variantId);
+    await deleteAssetVariant(dbClient, variantId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete asset variant error:', error);

@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   deleteSeriesAsset,
   getSeries,
@@ -14,14 +16,22 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const { id, assetId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -53,7 +63,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const asset = await updateSeriesAsset(supabase, assetId, updates);
+    const asset = await updateSeriesAsset(dbClient, assetId, updates);
     return NextResponse.json({ asset });
   } catch (error) {
     console.error('Update series asset error:', error);
@@ -65,24 +75,32 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/series/[id]/assets/[assetId] — delete asset (cascades to variants)
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id, assetId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    await deleteSeriesAsset(supabase, assetId);
+    await deleteSeriesAsset(dbClient, assetId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete series asset error:', error);

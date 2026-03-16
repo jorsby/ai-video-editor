@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { validateApiKey } from '@/lib/auth/api-key';
 import {
   createAssetVariant,
   getSeries,
@@ -9,24 +11,32 @@ import { type NextRequest, NextResponse } from 'next/server';
 type RouteContext = { params: Promise<{ id: string; assetId: string }> };
 
 // GET /api/series/[id]/assets/[assetId]/variants
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { id, assetId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    const variants = await listAssetVariants(supabase, assetId);
+    const variants = await listAssetVariants(dbClient, assetId);
     return NextResponse.json({ variants });
   } catch (error) {
     console.error('List asset variants error:', error);
@@ -43,14 +53,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { id, assetId } = await context.params;
     const supabase = await createClient('studio');
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await supabase.auth.getUser();
+
+    const apiKeyResult = !sessionUser ? validateApiKey(req) : { valid: false };
+    const user =
+      sessionUser ??
+      (apiKeyResult.valid && apiKeyResult.userId
+        ? { id: apiKeyResult.userId }
+        : null);
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const series = await getSeries(supabase, id, user.id);
+    const dbClient = sessionUser ? supabase : createServiceClient('studio');
+    const series = await getSeries(dbClient, id, user.id);
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
@@ -62,7 +80,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Label is required' }, { status: 400 });
     }
 
-    const variant = await createAssetVariant(supabase, assetId, {
+    const variant = await createAssetVariant(dbClient, assetId, {
       label: label.trim(),
       description: description?.trim() || undefined,
       is_default: Boolean(is_default),
