@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { createClient as createBrowserClient } from '@/lib/supabase/client';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -490,42 +490,25 @@ export function SeriesDetailPage({
   const [savingEpisode, setSavingEpisode] = useState(false);
 
   const [showBibleDialog, setShowBibleDialog] = useState(false);
-  const [generatingCount, setGeneratingCount] = useState(0);
 
-  // ── Realtime: auto-refresh when webhook writes new images ────────────────
+  // ── Auto-refresh: poll for new images while assets are missing images ─────
   useEffect(() => {
-    const client = createBrowserClient('studio');
+    const assetsWithoutImages = series.series_assets?.filter((a) => {
+      const images = a.series_asset_variants?.flatMap(
+        (v) => v.series_asset_variant_images ?? []
+      );
+      return !images?.length;
+    });
 
-    // Get all variant IDs for this series
-    const variantIds =
-      series.series_assets
-        ?.flatMap((a) => a.series_asset_variants ?? [])
-        .map((v) => v.id) ?? [];
+    // Only poll if there are assets without images (likely generating)
+    if (!assetsWithoutImages?.length) return;
 
-    if (variantIds.length === 0) return;
+    const interval = setInterval(() => {
+      onRefresh();
+    }, 10_000); // Poll every 10s
 
-    const channel = client
-      .channel(`series-images-${series.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'studio',
-          table: 'series_asset_variant_images',
-        },
-        (payload) => {
-          // Only refresh if the new image belongs to one of our variants
-          if (variantIds.includes(payload.new?.variant_id)) {
-            onRefresh();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      client.removeChannel(channel);
-    };
-  }, [series.id, series.series_assets, onRefresh]);
+    return () => clearInterval(interval);
+  }, [series.series_assets, onRefresh]);
 
   // ── Edit series state ──────────────────────────────────────────────────────
   const [isEditing, setIsEditing] = useState(false);
