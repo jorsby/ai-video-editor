@@ -1,22 +1,55 @@
-/**
- * POST /api/v2/storyboard/create
- *
- * Creates a storyboard from an agent-provided plan.
- * No LLM call — the agent IS the LLM; the plan is accepted verbatim.
- *
- * Body: {
- *   project_id: string,
- *   episode_id?: string,   // optional, links series_episodes.storyboard_id
- *   title?: string,
- *   mode?: string,         // default "narrative" (stored in storyboard.voiceover field)
- *   plan: { ... }          // KlingO3 plan shape
- * }
- *
- * Response: { storyboard_id, status: "draft" }
- */
 import { type NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 import { createServiceClient } from '@/lib/supabase/admin';
+
+const createStoryboardBodySchema = z.object({
+  project_id: z.string().min(1),
+  episode_id: z.string().min(1).optional(),
+  title: z.string().trim().min(1).optional(),
+  mode: z.enum(['narrative', 'cinematic']),
+  plan: klingO3PlanSchema,
+});
+
+function validatePlanConsistency(plan: z.infer<typeof klingO3PlanSchema>) {
+  const sceneCount = plan.scene_prompts.length;
+
+  if (plan.objects.length !== plan.objects_rows * plan.objects_cols) {
+    return 'plan.objects length must equal objects_rows * objects_cols';
+  }
+
+  if (plan.background_names.length !== plan.bg_rows * plan.bg_cols) {
+    return 'plan.background_names length must equal bg_rows * bg_cols';
+  }
+
+  if (plan.scene_bg_indices.length !== sceneCount) {
+    return 'plan.scene_bg_indices length must equal scene_prompts length';
+  }
+
+  if (plan.scene_object_indices.length !== sceneCount) {
+    return 'plan.scene_object_indices length must equal scene_prompts length';
+  }
+
+  if (
+    plan.scene_first_frame_prompts &&
+    plan.scene_first_frame_prompts.length !== sceneCount
+  ) {
+    return 'plan.scene_first_frame_prompts length must equal scene_prompts length';
+  }
+
+  if (plan.scene_durations && plan.scene_durations.length !== sceneCount) {
+    return 'plan.scene_durations length must equal scene_prompts length';
+  }
+
+  for (const [lang, lines] of Object.entries(plan.voiceover_list)) {
+    if (lines.length !== sceneCount) {
+      return `plan.voiceover_list.${lang} length must equal scene_prompts length`;
+    }
+  }
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,65 +58,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    const parsed = createStoryboardBodySchema.safeParse(body);
 
-    const projectId =
-      typeof body?.project_id === 'string' ? body.project_id.trim() : '';
-    const episodeId =
-      typeof body?.episode_id === 'string' ? body.episode_id.trim() : null;
-    const title = typeof body?.title === 'string' ? body.title.trim() : null;
-    const mode =
-      typeof body?.mode === 'string' ? body.mode.trim() : 'narrative';
-    const plan = body?.plan;
-
-    if (!projectId) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'project_id is required' },
+        { error: parsed.error.issues[0]?.message ?? 'Invalid request body' },
         { status: 400 }
       );
     }
 
-    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
-      return NextResponse.json(
-        { error: 'plan is required and must be an object' },
-        { status: 400 }
-      );
-    }
+    const { project_id, episode_id, title, mode, plan } = parsed.data;
 
-    // Verify plan has the minimum required shape for a ref_to_video / klingo3 storyboard
-    const requiredPlanFields = [
-      'objects_rows',
-      'objects_cols',
-      'objects_grid_prompt',
-      'objects',
-      'bg_rows',
-      'bg_cols',
-      'backgrounds_grid_prompt',
-      'background_names',
-      'scene_prompts',
-      'scene_bg_indices',
-      'scene_object_indices',
-      'voiceover_list',
-    ];
-    const missing = requiredPlanFields.filter(
-      (f) => !(f in (plan as Record<string, unknown>))
-    );
-    if (missing.length > 0) {
-      return NextResponse.json(
-        {
-          error: `plan is missing required fields: ${missing.join(', ')}`,
-        },
-        { status: 400 }
-      );
+    const consistencyError = validatePlanConsistency(plan);
+    if (consistencyError) {
+      return NextResponse.json({ error: consistencyError }, { status: 400 });
     }
 
     const db = createServiceClient('studio');
 
-    // Verify project ownership
     const { data: project, error: projectError } = await db
       .from('projects')
       .select('id')
-      .eq('id', projectId)
+      .eq('id', project_id)
       .eq('user_id', user.id)
       .single();
 
@@ -91,56 +88,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Determine sort_order (append after existing storyboards)
     const { data: maxSort } = await db
       .from('storyboards')
       .select('sort_order')
-      .eq('project_id', projectId)
+      .eq('project_id', project_id)
       .order('sort_order', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     const nextSort = (maxSort?.sort_order ?? -1) + 1;
 
-    // Normalize voiceover_list – the existing system expects
-    // { en: ["...", "..."] } or just an array (we wrap it as "en")
-    const rawVoiceover = (plan as Record<string, unknown>).voiceover_list;
-    let voiceoverList: Record<string, string[]>;
-    if (Array.isArray(rawVoiceover)) {
-      voiceoverList = { en: rawVoiceover as string[] };
-    } else if (
-      rawVoiceover &&
-      typeof rawVoiceover === 'object' &&
-      !Array.isArray(rawVoiceover)
-    ) {
-      voiceoverList = rawVoiceover as Record<string, string[]>;
-    } else {
-      voiceoverList = { en: [] };
-    }
-
-    // Build the full plan object as expected by existing approve-ref-grid logic
-    const normalizedPlan = {
-      ...(plan as Record<string, unknown>),
-      voiceover_list: voiceoverList,
+    const planWithMode = {
+      ...plan,
+      agent_mode: mode,
+      video_mode:
+        plan.video_mode ??
+        (mode === 'cinematic' ? 'dialogue_scene' : 'narrative'),
     };
 
-    // Build a short voiceover text from the first language for the storyboard.voiceover field
-    const firstLang = Object.keys(voiceoverList)[0] ?? 'en';
-    const voiceoverText = (voiceoverList[firstLang] ?? []).join('\n');
+    const firstVoiceoverLanguage = Object.keys(plan.voiceover_list)[0] ?? 'en';
+    const voiceoverText = (
+      plan.voiceover_list[firstVoiceoverLanguage] ?? []
+    ).join('\n');
 
     const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
       .insert({
-        project_id: projectId,
-        title,
-        plan: normalizedPlan,
+        project_id,
+        title: title ?? null,
+        plan: planWithMode,
         plan_status: 'draft',
         mode: 'ref_to_video',
         model: 'klingo3',
         voiceover: voiceoverText,
-        is_active: nextSort === 0,
+        input_type:
+          mode === 'cinematic' ? 'cinematic_flow' : 'voiceover_script',
         sort_order: nextSort,
-        input_type: 'voiceover_script',
+        is_active: nextSort === 0,
       })
       .select('id')
       .single();
@@ -158,18 +142,44 @@ export async function POST(req: NextRequest) {
 
     const storyboardId = storyboard.id as string;
 
-    // If an episode_id was provided, link the storyboard to it
-    if (episodeId) {
-      const { error: episodeLinkError } = await db
+    if (episode_id) {
+      const { data: episode, error: episodeError } = await db
+        .from('series_episodes')
+        .select('id, series_id')
+        .eq('id', episode_id)
+        .maybeSingle();
+
+      if (episodeError || !episode) {
+        return NextResponse.json(
+          { error: 'Episode not found' },
+          { status: 404 }
+        );
+      }
+
+      const { data: ownedSeries, error: ownedSeriesError } = await db
+        .from('series')
+        .select('id')
+        .eq('id', episode.series_id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (ownedSeriesError || !ownedSeries) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      }
+
+      const { error: linkError } = await db
         .from('series_episodes')
         .update({ storyboard_id: storyboardId })
-        .eq('id', episodeId);
+        .eq('id', episode_id);
 
-      if (episodeLinkError) {
-        // Non-fatal — storyboard is created; caller can relink manually
-        console.warn(
-          '[v2/storyboard/create] Failed to link episode to storyboard:',
-          episodeLinkError.message
+      if (linkError) {
+        console.error(
+          '[v2/storyboard/create] Failed to link episode:',
+          linkError
+        );
+        return NextResponse.json(
+          { error: 'Failed to link storyboard to episode' },
+          { status: 500 }
         );
       }
     }
