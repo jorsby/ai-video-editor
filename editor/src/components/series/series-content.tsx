@@ -64,7 +64,7 @@ function SeriesCard({
           </p>
           <button
             type="button"
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            className="md:opacity-0 md:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
             onClick={(e) => {
               e.stopPropagation();
               setShowConfirm(true);

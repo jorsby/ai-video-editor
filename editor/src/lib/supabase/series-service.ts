@@ -110,17 +110,15 @@ export interface SeriesEpisodeWithVariants extends SeriesEpisode {
 type SupabaseClient = any;
 
 const SERIES_ASSETS_BUCKET = 'series-assets';
-const SERIES_ASSET_SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 year
 
-function needsSignedSeriesAssetUrl(url: string | null): boolean {
+function needsPublicSeriesAssetUrl(url: string | null): boolean {
   if (!url) return true;
 
-  // Legacy rows stored public URLs even though the bucket is private.
-  if (url.includes('/object/public/series-assets/')) return true;
-
-  // Fallback rows may store raw storage paths (e.g. "generated/..."),
-  // which need to be converted to signed URLs at read time.
+  // Raw storage paths (e.g. "generated/...") need to be resolved
   if (!/^https?:\/\//i.test(url)) return true;
+
+  // Signed URLs should be replaced with public URLs (bucket is public)
+  if (url.includes('/object/sign/series-assets/')) return true;
 
   return false;
 }
@@ -139,26 +137,21 @@ async function hydrateSeriesAssetImageUrls(
             variant.series_asset_variant_images.map(async (img) => {
               if (
                 !img.storage_path ||
-                !needsSignedSeriesAssetUrl(img.url ?? null)
+                !needsPublicSeriesAssetUrl(img.url ?? null)
               ) {
                 return img;
               }
 
-              const { data: signedData, error: signedError } =
-                await supabase.storage
-                  .from(SERIES_ASSETS_BUCKET)
-                  .createSignedUrl(
-                    img.storage_path,
-                    SERIES_ASSET_SIGNED_URL_TTL_SECONDS
-                  );
-
-              if (signedError || !signedData?.signedUrl) {
-                return img;
-              }
+              // Bucket is public — use public URL (no signing, no expiry, works everywhere)
+              const {
+                data: { publicUrl },
+              } = supabase.storage
+                .from(SERIES_ASSETS_BUCKET)
+                .getPublicUrl(img.storage_path);
 
               return {
                 ...img,
-                url: signedData.signedUrl,
+                url: publicUrl,
               };
             })
           ),

@@ -270,7 +270,7 @@ function AssetCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+            className="h-10 w-10 sm:h-7 sm:w-7 p-0 text-destructive hover:text-destructive"
             onClick={onDelete}
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -391,7 +391,7 @@ function EpisodeRow({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          className="h-10 w-10 sm:h-7 sm:w-7 p-0 text-destructive hover:text-destructive"
           onClick={onDelete}
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -546,7 +546,7 @@ export function SeriesDetailPage({
         {isEditing ? (
           /* ── Edit mode ── */
           <div className="flex-1 space-y-3">
-            <div className="flex items-center gap-2">
+            <div className="space-y-2 sm:space-y-0">
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
@@ -554,18 +554,20 @@ export function SeriesDetailPage({
                 placeholder="Series name"
                 autoFocus
               />
-              <Button
-                size="sm"
-                onClick={saveEdit}
-                disabled={savingEdit || !editName.trim()}
-              >
-                <Check className="w-3.5 h-3.5 mr-1" />
-                {savingEdit ? 'Saving...' : 'Save'}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={cancelEdit}>
-                <X className="w-3.5 h-3.5 mr-1" />
-                Cancel
-              </Button>
+              <div className="flex items-center gap-2 mt-2">
+                <Button
+                  size="sm"
+                  onClick={saveEdit}
+                  disabled={savingEdit || !editName.trim()}
+                >
+                  <Check className="w-3.5 h-3.5 mr-1" />
+                  {savingEdit ? 'Saving...' : 'Save'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={cancelEdit}>
+                  <X className="w-3.5 h-3.5 mr-1" />
+                  Cancel
+                </Button>
+              </div>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:max-w-lg">
               <Input
@@ -599,7 +601,7 @@ export function SeriesDetailPage({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                className="h-10 w-10 sm:h-7 sm:w-7 p-0 text-muted-foreground hover:text-foreground"
                 onClick={startEdit}
                 title="Edit series info"
               >
@@ -723,7 +725,7 @@ export function SeriesDetailPage({
 
       {/* Add Asset Dialog */}
       <Dialog open={showAddAsset} onOpenChange={setShowAddAsset}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               Add {assetType.charAt(0).toUpperCase() + assetType.slice(1)}
@@ -759,7 +761,7 @@ export function SeriesDetailPage({
 
       {/* Add Episode Dialog */}
       <Dialog open={showAddEpisode} onOpenChange={setShowAddEpisode}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add Episode</DialogTitle>
           </DialogHeader>

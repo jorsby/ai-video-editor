@@ -187,10 +187,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       body: JSON.stringify({
         prompt,
-        width: gridWidth,
-        height: gridHeight,
+        image_size: { width: gridWidth, height: gridHeight },
         num_images: 1,
-        enable_safety_checker: false,
         safety_tolerance: '5',
       }),
     });
