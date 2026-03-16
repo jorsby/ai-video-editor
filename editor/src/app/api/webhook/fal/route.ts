@@ -2009,6 +2009,27 @@ async function handleSeriesGridImage(
       const top = row * cellHeight;
 
       try {
+        // Delete old images for this variant before inserting new ones
+        const { data: oldImages } = await supabase
+          .from('series_asset_variant_images')
+          .select('id, storage_path')
+          .eq('variant_id', variantId);
+        if (oldImages?.length) {
+          const oldPaths = oldImages
+            .map((img: { storage_path?: string }) => img.storage_path)
+            .filter(Boolean);
+          if (oldPaths.length) {
+            await supabase.storage.from('series-assets').remove(oldPaths);
+          }
+          await supabase
+            .from('series_asset_variant_images')
+            .delete()
+            .eq('variant_id', variantId);
+          log.info(
+            `Deleted ${oldImages.length} old image(s) for variant ${idx}`
+          );
+        }
+
         // Crop cell from grid
         const cellBuffer = await sharp(imgBuffer)
           .extract({ left, top, width: cellWidth, height: cellHeight })
@@ -2033,11 +2054,11 @@ async function handleSeriesGridImage(
           continue;
         }
 
-        // Get signed URL (private bucket)
-        const { data: signedData } = await supabase.storage
-          .from('series-assets')
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
-        const imageUrl = signedData?.signedUrl ?? storagePath;
+        // Public URL (bucket is public — no signing needed)
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
+        const imageUrl = publicUrl;
 
         // Insert DB record
         const { error: dbError } = await supabase
