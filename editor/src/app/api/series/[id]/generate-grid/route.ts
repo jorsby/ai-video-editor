@@ -39,13 +39,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json();
     const { type, items } = body as {
-      type: 'character' | 'location';
+      type: 'character' | 'location' | 'prop';
       items: Array<{ asset_id: string; variant_id: string }>;
     };
 
-    if (!type || !['character', 'location'].includes(type)) {
+    if (!type || !['character', 'location', 'prop'].includes(type)) {
       return NextResponse.json(
-        { error: 'type must be "character" or "location"' },
+        { error: 'type must be "character", "location", or "prop"' },
         { status: 400 }
       );
     }
@@ -130,10 +130,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
     // Build grid prompt
-    // For character grids, skip genre/tone — they make portraits too dark/moody
-    // Character reference sheets should be clean and well-lit
+    // For character/prop grids, skip genre/tone — they make images too dark/moody
+    // Reference sheets should be clean and well-lit
     const stylePrefix: string[] = [];
-    if (type !== 'character') {
+    if (type === 'location') {
       if (series.genre) stylePrefix.push(`${series.genre} genre`);
       if (series.tone) stylePrefix.push(`${series.tone} tone`);
     }
@@ -146,20 +146,28 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const itemDescriptions = items.map((item, idx) => {
       const asset = assetMap.get(item.asset_id);
       const variant = variantMap.get(item.variant_id);
-      // Use generic labels instead of asset names to prevent Flux from
+      // Use generic labels instead of asset names to prevent model from
       // rendering names as text in the image
       const label =
-        type === 'character' ? `Person ${idx + 1}` : `Scene ${idx + 1}`;
+        type === 'character'
+          ? `Person ${idx + 1}`
+          : type === 'prop'
+            ? `Object ${idx + 1}`
+            : `Scene ${idx + 1}`;
       const desc = [asset?.description, variant?.description]
         .filter(Boolean)
         .join(', ');
       return `${positionLabels[idx]}: ${label}${desc ? ` — ${desc}` : ''}`;
     });
 
-    const typeSuffix =
-      type === 'character'
-        ? 'Each person shown full body, front-facing, well-lit, neutral background, consistent art style across all panels, high detail character reference sheet'
-        : 'Each location shown as wide establishing shot, consistent art style across all panels, cinematic composition, atmospheric lighting';
+    const typeSuffixes: Record<string, string> = {
+      character:
+        'Each person shown full body, front-facing, well-lit, neutral background, consistent art style across all panels, high detail character reference sheet',
+      location:
+        'Each location shown as wide establishing shot, consistent art style across all panels, cinematic composition, atmospheric lighting',
+      prop: 'Each object shown as a clean product shot, front-facing, well-lit, studio lighting, white or neutral background, consistent style across all panels, high detail',
+    };
+    const typeSuffix = typeSuffixes[type];
 
     const prompt = [
       `A ${cols}x${rows} grid image with clear dividing lines between panels`,

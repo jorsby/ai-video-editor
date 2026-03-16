@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { createClient as createBrowserClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -289,13 +290,16 @@ function AssetCard({
             />
           </button>
         ) : (
-          <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
+          <div className="w-full aspect-square bg-muted/30 flex flex-col items-center justify-center gap-2">
             <span className="text-4xl opacity-20">
               {asset.type === 'character'
                 ? '👤'
                 : asset.type === 'location'
                   ? '🏠'
                   : '📦'}
+            </span>
+            <span className="text-xs text-muted-foreground animate-pulse">
+              No image yet
             </span>
           </div>
         );
@@ -486,6 +490,42 @@ export function SeriesDetailPage({
   const [savingEpisode, setSavingEpisode] = useState(false);
 
   const [showBibleDialog, setShowBibleDialog] = useState(false);
+  const [generatingCount, setGeneratingCount] = useState(0);
+
+  // ── Realtime: auto-refresh when webhook writes new images ────────────────
+  useEffect(() => {
+    const client = createBrowserClient('studio');
+
+    // Get all variant IDs for this series
+    const variantIds =
+      series.series_assets
+        ?.flatMap((a) => a.series_asset_variants ?? [])
+        .map((v) => v.id) ?? [];
+
+    if (variantIds.length === 0) return;
+
+    const channel = client
+      .channel(`series-images-${series.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'studio',
+          table: 'series_asset_variant_images',
+        },
+        (payload) => {
+          // Only refresh if the new image belongs to one of our variants
+          if (variantIds.includes(payload.new?.variant_id)) {
+            onRefresh();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [series.id, series.series_assets, onRefresh]);
 
   // ── Edit series state ──────────────────────────────────────────────────────
   const [isEditing, setIsEditing] = useState(false);
