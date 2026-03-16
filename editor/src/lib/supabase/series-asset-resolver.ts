@@ -45,6 +45,36 @@ function normalizeName(name: string): string {
 }
 
 /**
+ * Extract alternate names from parenthesized or slash-separated parts.
+ * "Hotel Room (Room 4B)" → ["room 4b"]
+ * "The Receptionist / The Watcher" → ["watcher"]
+ */
+function extractAltNames(name: string): string[] {
+  const alts: string[] = [];
+  // Parenthesized: "Hotel Room (Room 4B)" → "Room 4B"
+  const parenMatch = name.match(/\(([^)]+)\)/);
+  if (parenMatch) {
+    const alt = parenMatch[1]
+      .toLowerCase()
+      .trim()
+      .replace(/^the\s+/i, '');
+    if (alt.length > 1) alts.push(alt);
+  }
+  // Slash-separated: "A / B" → "B"
+  const slashParts = name.split('/');
+  if (slashParts.length > 1) {
+    for (let i = 1; i < slashParts.length; i++) {
+      const alt = slashParts[i]
+        .toLowerCase()
+        .trim()
+        .replace(/^the\s+/i, '');
+      if (alt.length > 1) alts.push(alt);
+    }
+  }
+  return alts;
+}
+
+/**
  * Resolve a single image URL from a variant_image row.
  * If the url field is already an https URL (and not a signed URL), use it directly.
  * Otherwise derive a public URL from the storage_path.
@@ -199,14 +229,21 @@ export async function resolveSeriesAssetsForProject(
     if (!url) continue; // Skip assets with no resolved image
 
     const normalizedName = normalizeName(asset.name as string);
+    const altNames = extractAltNames(asset.name as string);
     const entry: SeriesAssetEntry = { url, assetName: asset.name as string };
 
-    if (asset.type === 'character') {
-      characters.set(normalizedName, entry);
-    } else if (asset.type === 'location') {
-      locations.set(normalizedName, entry);
-    } else if (asset.type === 'prop') {
-      props.set(normalizedName, entry);
+    const targetMap =
+      asset.type === 'character'
+        ? characters
+        : asset.type === 'location'
+          ? locations
+          : props;
+
+    targetMap.set(normalizedName, entry);
+    for (const alt of altNames) {
+      if (!targetMap.has(alt)) {
+        targetMap.set(alt, entry);
+      }
     }
   }
 
