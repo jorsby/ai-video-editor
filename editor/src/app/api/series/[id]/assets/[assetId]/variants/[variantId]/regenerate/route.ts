@@ -5,7 +5,13 @@ import { getSeries } from '@/lib/supabase/series-service';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const FAL_KEY = process.env.FAL_KEY!;
-const FAL_MODEL = 'fal-ai/nano-banana-2';
+
+const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
+  'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
+  'flux-pro': { endpoint: 'fal-ai/flux-pro/v1.1', useImageSize: true },
+  'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
+};
+const DEFAULT_MODEL = 'nano-banana-2';
 
 type RouteContext = {
   params: Promise<{ id: string; assetId: string; variantId: string }>;
@@ -113,8 +119,24 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('variant_id', variantId);
 
     // Submit to fal.ai
-    const falUrl = new URL(`https://queue.fal.run/${FAL_MODEL}`);
+    const modelKey =
+      body.model && MODELS[body.model] ? body.model : DEFAULT_MODEL;
+    const modelConfig = MODELS[modelKey];
+    const res = body.resolution ?? '2K';
+    const aspectRatio = asset.type === 'character' ? '3:4' : '16:9';
+
+    const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
     falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
+
+    // Models use different size params
+    const sizeParams = modelConfig.useImageSize
+      ? {
+          image_size: {
+            width: aspectRatio === '3:4' ? 768 : 1024,
+            height: aspectRatio === '3:4' ? 1024 : 768,
+          },
+        }
+      : { resolution: res, aspect_ratio: aspectRatio };
 
     const falRes = await fetch(falUrl.toString(), {
       method: 'POST',
@@ -125,8 +147,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body: JSON.stringify({
         prompt,
         num_images: 1,
-        resolution: body.resolution ?? '2K',
-        aspect_ratio: asset.type === 'character' ? '3:4' : '16:9',
+        ...sizeParams,
         output_format: 'jpeg',
         safety_tolerance: '6',
       }),
@@ -145,7 +166,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     return NextResponse.json({
       request_id: falData.request_id,
-      model: FAL_MODEL,
+      model: modelKey,
+      endpoint: modelConfig.endpoint,
       variant_id: variantId,
       prompt,
     });

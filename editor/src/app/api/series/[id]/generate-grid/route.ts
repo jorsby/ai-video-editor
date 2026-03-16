@@ -410,6 +410,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     console.log('[SeriesGrid] Submitted', {
       request_id: requestId,
+      model: modelKey,
+      endpoint: modelConfig.endpoint,
       type,
       items: count,
       grid: `${cols}x${rows}`,
@@ -440,7 +442,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             jobs: [
               {
                 request_id: requestId,
-                model: 'fal-ai/nano-banana-2',
+                model: modelConfig.endpoint,
                 type: 'grid',
                 variant_ids: variantIds,
                 cols,
@@ -473,6 +475,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       variant_ids: variantIds,
       config: {
         type,
+        model: modelKey,
+        endpoint: modelConfig.endpoint,
         allow_text: !!allow_text,
         skip_genre: shouldSkipGenre,
         resolution_requested: resolution,
