@@ -1856,6 +1856,33 @@ async function handleSeriesAssetImage(
   }
 
   try {
+    const requestId = falPayload.request_id ?? null;
+
+    // Lookup prompt for this request
+    const { data: job } = await supabase
+      .from('series_generation_jobs')
+      .select('prompt, model')
+      .eq('request_id', requestId)
+      .maybeSingle();
+
+    // Delete old images for this variant
+    const { data: oldImages } = await supabase
+      .from('series_asset_variant_images')
+      .select('id, storage_path')
+      .eq('variant_id', variantId);
+    if (oldImages?.length) {
+      const oldPaths = oldImages
+        .map((img: { storage_path?: string }) => img.storage_path)
+        .filter(Boolean);
+      if (oldPaths.length) {
+        await supabase.storage.from('series-assets').remove(oldPaths);
+      }
+      await supabase
+        .from('series_asset_variant_images')
+        .delete()
+        .eq('variant_id', variantId);
+    }
+
     // Download image from fal.ai
     const imgRes = await fetch(imageUrl);
     if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
@@ -1879,11 +1906,11 @@ async function handleSeriesAssetImage(
       );
     }
 
-    // Get signed URL (private bucket)
-    const { data: signedData } = await supabase.storage
-      .from('series-assets')
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 365); // 1 year
-    const signedImageUrl = signedData?.signedUrl ?? storagePath;
+    // Public URL (bucket is public)
+    const {
+      data: { publicUrl },
+    } = await supabase.storage.from('series-assets').getPublicUrl(storagePath);
+    const signedImageUrl = publicUrl;
 
     // Create series_asset_variant_images record
     const { error: dbError } = await supabase
@@ -1895,7 +1922,11 @@ async function handleSeriesAssetImage(
         url: signedImageUrl,
         storage_path: storagePath,
         source: 'generated',
-        metadata: { fal_request_id: falPayload.request_id ?? null },
+        metadata: {
+          fal_request_id: falPayload.request_id ?? null,
+          prompt: job?.prompt ?? null,
+          model: job?.model ?? null,
+        },
       });
 
     if (dbError) {
@@ -1956,6 +1987,13 @@ async function handleSeriesGridImage(
     variant_count: variantIds.length,
     grid: `${cols}x${rows}`,
   });
+
+  const requestId = falPayload.request_id ?? null;
+  const { data: job } = await supabase
+    .from('series_generation_jobs')
+    .select('prompt, model')
+    .eq('request_id', requestId)
+    .maybeSingle();
 
   if (falPayload.status === 'ERROR') {
     log.error('fal.ai returned error', { error: falPayload.error });
@@ -2073,6 +2111,8 @@ async function handleSeriesGridImage(
             metadata: {
               fal_request_id: falPayload.request_id ?? null,
               grid_position: { row, col, index: idx },
+              prompt: job?.prompt ?? null,
+              model: job?.model ?? null,
             },
           });
 

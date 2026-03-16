@@ -424,6 +424,27 @@ export async function POST(req: NextRequest, context: RouteContext) {
       skip_genre: shouldSkipGenre,
     });
 
+    // Store prompt + config for webhook to attach later
+    await dbClient.from('series_generation_jobs').insert({
+      series_id: id,
+      request_id: requestId,
+      type: 'grid',
+      prompt,
+      model: modelKey,
+      config: {
+        type,
+        items,
+        cols,
+        rows,
+        cell_ratio: cellRatio,
+        resolution_requested: resolution,
+        resolution_used: resolutionUsed,
+        allow_text: !!allow_text,
+        skip_genre: shouldSkipGenre,
+        custom_suffix: custom_suffix ?? null,
+      },
+    });
+
     // ── Background polling fallback ─────────────────────────────────────────
     // Fire a delayed poll after 60s in case the webhook doesn't land.
     // Uses waitUntil-style fire-and-forget via setTimeout in the runtime.

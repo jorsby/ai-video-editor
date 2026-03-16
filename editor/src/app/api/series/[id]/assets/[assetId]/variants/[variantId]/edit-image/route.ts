@@ -169,6 +169,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       resolution,
     });
 
+    await dbClient.from('series_generation_jobs').insert({
+      series_id: seriesId,
+      request_id: requestId,
+      type: 'edit',
+      prompt,
+      model,
+      config: {
+        asset_id: assetId,
+        variant_id: variantId,
+        resolution,
+        source_url: sourceUrl,
+      },
+    });
+
     // Background poll fallback at 60s
     const pollUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/series/${seriesId}/poll-images`;
     const authHeader = req.headers.get('authorization') ?? '';

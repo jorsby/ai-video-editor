@@ -164,6 +164,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const falData = await falRes.json();
 
+    await dbClient.from('series_generation_jobs').insert({
+      series_id: seriesId,
+      request_id: falData.request_id,
+      type: 'single',
+      prompt,
+      model: modelKey,
+      config: {
+        asset_id: assetId,
+        variant_id: variantId,
+        resolution: res,
+        aspect_ratio: aspectRatio,
+      },
+    });
+
     return NextResponse.json({
       request_id: falData.request_id,
       model: modelKey,
