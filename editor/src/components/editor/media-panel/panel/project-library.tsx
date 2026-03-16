@@ -157,18 +157,39 @@ export default function PanelProjectLibrary() {
       setError(null);
       try {
         // Check if this project belongs to a series episode
+        // First try project settings
         const projRes = await fetch(`/api/projects/${projectId}`);
-        if (!projRes.ok) {
-          setError('Project not found');
-          setLoading(false);
-          return;
+        let seriesId: string | undefined;
+
+        if (projRes.ok) {
+          const projData = await projRes.json();
+          const settings = projData?.project?.settings as Record<
+            string,
+            unknown
+          > | null;
+          seriesId = settings?.series_id as string | undefined;
         }
-        const projData = await projRes.json();
-        const settings = projData?.project?.settings as Record<
-          string,
-          unknown
-        > | null;
-        const seriesId = settings?.series_id as string | undefined;
+
+        // Fallback: check series_episodes table for this project
+        if (!seriesId) {
+          const seriesRes = await fetch('/api/series');
+          if (seriesRes.ok) {
+            const seriesData = await seriesRes.json();
+            for (const s of seriesData.series ?? []) {
+              const epRes = await fetch(`/api/series/${s.id}/episodes`);
+              if (epRes.ok) {
+                const epData = await epRes.json();
+                const match = (epData.episodes ?? []).find(
+                  (ep: { project_id: string }) => ep.project_id === projectId
+                );
+                if (match) {
+                  seriesId = s.id;
+                  break;
+                }
+              }
+            }
+          }
+        }
 
         if (!seriesId) {
           // Standalone project — no series
