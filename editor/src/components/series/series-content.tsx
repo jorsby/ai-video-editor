@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Clapperboard, Pencil } from 'lucide-react';
+import { Plus, Search, Clapperboard, Pencil, Trash2 } from 'lucide-react';
 import { CreateSeriesDialog } from './create-series-dialog';
 import { SeriesDetailPage } from './series-detail-page';
 import type {
@@ -23,9 +23,11 @@ interface SeriesWithStatus extends Series {
 function SeriesCard({
   series,
   onClick,
+  onDelete,
 }: {
   series: SeriesWithStatus;
   onClick: () => void;
+  onDelete: (id: string) => void;
 }) {
   const isDraft = !series.plan_status || series.plan_status === 'draft';
   return (
@@ -64,9 +66,26 @@ function SeriesCard({
           {series.bible}
         </p>
       )}
-      <p className="text-xs text-muted-foreground/50 mt-3">
-        {new Date(series.updated_at).toLocaleDateString()}
-      </p>
+      <div className="flex items-center justify-between mt-3">
+        <p className="text-xs text-muted-foreground/50">
+          {new Date(series.updated_at).toLocaleDateString()}
+        </p>
+        <button
+          type="button"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (
+              window.confirm(`Delete "${series.name}"? This cannot be undone.`)
+            ) {
+              onDelete(series.id);
+            }
+          }}
+          title="Delete series"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </button>
   );
 }
@@ -144,6 +163,16 @@ export function SeriesContent() {
     setShowCreateDialog(false);
     // Redirect to planning page for the new series
     router.push(`/series/${newSeries.id}/plan`);
+  };
+
+  const handleDeleteSeries = async (id: string) => {
+    try {
+      const res = await fetch(`/api/series/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete');
+      setSeriesList((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error('Delete series error:', err);
+    }
   };
 
   const filtered = searchQuery
@@ -235,7 +264,12 @@ export function SeriesContent() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filtered.map((s) => (
-            <SeriesCard key={s.id} series={s} onClick={() => openDetail(s)} />
+            <SeriesCard
+              key={s.id}
+              series={s}
+              onClick={() => openDetail(s)}
+              onDelete={handleDeleteSeries}
+            />
           ))}
         </div>
       )}
