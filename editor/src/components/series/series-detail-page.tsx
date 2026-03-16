@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -24,6 +25,10 @@ import {
   Package,
   Users,
   Upload,
+  Pencil,
+  Check,
+  X,
+  ExternalLink,
 } from 'lucide-react';
 import type {
   SeriesWithAssets,
@@ -351,14 +356,24 @@ function EpisodeRow({
           )}
         </div>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-        onClick={onDelete}
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </Button>
+      <div className="flex items-center gap-2">
+        {episode.project_id && (
+          <Link href={`/editor/${episode.project_id}`}>
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in Editor
+            </Button>
+          </Link>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -392,6 +407,47 @@ export function SeriesDetailPage({
   const [savingEpisode, setSavingEpisode] = useState(false);
 
   const [showBibleDialog, setShowBibleDialog] = useState(false);
+
+  // ── Edit series state ──────────────────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(series.name);
+  const [editGenre, setEditGenre] = useState(series.genre ?? '');
+  const [editTone, setEditTone] = useState(series.tone ?? '');
+  const [editBible, setEditBible] = useState(series.bible ?? '');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEdit = () => {
+    setEditName(series.name);
+    setEditGenre(series.genre ?? '');
+    setEditTone(series.tone ?? '');
+    setEditBible(series.bible ?? '');
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const saveEdit = async () => {
+    if (!editName.trim()) return;
+    setSavingEdit(true);
+    try {
+      await fetch(`/api/series/${series.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          genre: editGenre.trim() || null,
+          tone: editTone.trim() || null,
+          bible: editBible.trim() || null,
+        }),
+      });
+      setIsEditing(false);
+      onRefresh();
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,35 +515,99 @@ export function SeriesDetailPage({
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Back + title */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={onBack}>
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="sm" onClick={onBack} className="mt-1">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{series.name}</h1>
-          <div className="flex items-center gap-2 mt-0.5">
-            {series.genre && (
-              <Badge variant="secondary" className="text-xs">
-                {series.genre}
-              </Badge>
-            )}
-            {series.tone && (
-              <Badge variant="outline" className="text-xs">
-                {series.tone}
-              </Badge>
+
+        {isEditing ? (
+          /* ── Edit mode ── */
+          <div className="flex-1 space-y-3">
+            <div className="flex items-center gap-2">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="text-xl font-bold h-10 max-w-sm"
+                placeholder="Series name"
+                autoFocus
+              />
+              <Button
+                size="sm"
+                onClick={saveEdit}
+                disabled={savingEdit || !editName.trim()}
+              >
+                <Check className="w-3.5 h-3.5 mr-1" />
+                {savingEdit ? 'Saving...' : 'Save'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={cancelEdit}>
+                <X className="w-3.5 h-3.5 mr-1" />
+                Cancel
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 max-w-lg">
+              <Input
+                value={editGenre}
+                onChange={(e) => setEditGenre(e.target.value)}
+                placeholder="Genre (e.g. Drama)"
+                className="h-8 text-xs"
+              />
+              <Input
+                value={editTone}
+                onChange={(e) => setEditTone(e.target.value)}
+                placeholder="Tone (e.g. Dark comedy)"
+                className="h-8 text-xs"
+              />
+            </div>
+            <Textarea
+              value={editBible}
+              onChange={(e) => setEditBible(e.target.value)}
+              placeholder="Series bible (optional)"
+              rows={4}
+              className="max-w-lg text-xs"
+            />
+          </div>
+        ) : (
+          /* ── View mode ── */
+          <div className="flex-1 flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight">
+                  {series.name}
+                </h1>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={startEdit}
+                  title="Edit series info"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                {series.genre && (
+                  <Badge variant="secondary" className="text-xs">
+                    {series.genre}
+                  </Badge>
+                )}
+                {series.tone && (
+                  <Badge variant="outline" className="text-xs">
+                    {series.tone}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            {series.bible && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBibleDialog(true)}
+              >
+                <Clapperboard className="w-4 h-4 mr-1.5" />
+                Series Bible
+              </Button>
             )}
           </div>
-        </div>
-        {series.bible && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            onClick={() => setShowBibleDialog(true)}
-          >
-            <Clapperboard className="w-4 h-4 mr-1.5" />
-            Series Bible
-          </Button>
         )}
       </div>
 

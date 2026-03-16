@@ -1,11 +1,21 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  ArrowLeft,
   ChevronDown,
   ChevronUp,
   Send,
@@ -16,6 +26,7 @@ import {
   Clapperboard,
   BookOpen,
   CheckCircle2,
+  Settings,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -63,6 +74,8 @@ interface ChatMessage {
 interface Props {
   seriesId: string;
   seriesName: string;
+  seriesGenre?: string | null;
+  seriesTone?: string | null;
   initialMessages: ChatMessage[];
   initialPlan: SeriesPlan | null;
 }
@@ -323,6 +336,8 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
 export function SeriesPlanningView({
   seriesId,
   seriesName,
+  seriesGenre,
+  seriesTone,
   initialMessages,
   initialPlan,
 }: Props) {
@@ -336,6 +351,45 @@ export function SeriesPlanningView({
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Edit series meta state ─────────────────────────────────────────────────
+  const [currentName, setCurrentName] = useState(seriesName);
+  const [currentGenre, setCurrentGenre] = useState(seriesGenre ?? '');
+  const [currentTone, setCurrentTone] = useState(seriesTone ?? '');
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editName, setEditName] = useState(seriesName);
+  const [editGenre, setEditGenre] = useState(seriesGenre ?? '');
+  const [editTone, setEditTone] = useState(seriesTone ?? '');
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  const openEditDialog = () => {
+    setEditName(currentName);
+    setEditGenre(currentGenre);
+    setEditTone(currentTone);
+    setShowEditDialog(true);
+  };
+
+  const saveMeta = async () => {
+    if (!editName.trim()) return;
+    setSavingMeta(true);
+    try {
+      await fetch(`/api/series/${seriesId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          genre: editGenre.trim() || null,
+          tone: editTone.trim() || null,
+        }),
+      });
+      setCurrentName(editName.trim());
+      setCurrentGenre(editGenre.trim());
+      setCurrentTone(editTone.trim());
+      setShowEditDialog(false);
+    } finally {
+      setSavingMeta(false);
+    }
+  };
 
   const canFinalize =
     (plan?.characters?.length ?? 0) >= 1 && (plan?.episodes?.length ?? 0) >= 1;
@@ -436,6 +490,38 @@ export function SeriesPlanningView({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Top bar: back + series title */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-border/50 shrink-0">
+        <Link href="/series">
+          <Button variant="ghost" size="sm" className="gap-1.5">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Series
+          </Button>
+        </Link>
+        <div className="flex items-center gap-2 ml-2">
+          <span className="text-sm font-semibold">{currentName}</span>
+          {currentGenre && (
+            <Badge variant="secondary" className="text-xs">
+              {currentGenre}
+            </Badge>
+          )}
+          {currentTone && (
+            <Badge variant="outline" className="text-xs">
+              {currentTone}
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+            onClick={openEditDialog}
+            title="Edit series settings"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
       {/* Split view */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Chat */}
@@ -500,7 +586,7 @@ export function SeriesPlanningView({
         {/* Right: Live Plan */}
         <div className="w-1/2 overflow-hidden flex flex-col">
           <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between shrink-0">
-            <h2 className="text-sm font-semibold">{seriesName} — Live Plan</h2>
+            <h2 className="text-sm font-semibold">{currentName} — Live Plan</h2>
             {plan && (
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 {(plan.characters?.length ?? 0) > 0 && (
@@ -523,6 +609,44 @@ export function SeriesPlanningView({
           </div>
         </div>
       </div>
+
+      {/* Edit Series Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Series</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Series name"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              autoFocus
+            />
+            <Input
+              placeholder="Genre (e.g. Drama)"
+              value={editGenre}
+              onChange={(e) => setEditGenre(e.target.value)}
+            />
+            <Input
+              placeholder="Tone (e.g. Dark comedy)"
+              value={editTone}
+              onChange={(e) => setEditTone(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={saveMeta}
+              disabled={savingMeta || !editName.trim()}
+            >
+              {savingMeta ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bottom bar: Finalize */}
       <div className="px-6 py-3 border-t border-border/50 bg-background/80 backdrop-blur-sm flex items-center justify-between shrink-0">

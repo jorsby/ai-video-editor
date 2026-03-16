@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Clapperboard, Pencil, Trash2 } from 'lucide-react';
 import { CreateSeriesDialog } from './create-series-dialog';
 import { SeriesDetailPage } from './series-detail-page';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type {
   Series,
   SeriesWithAssets,
@@ -30,63 +31,71 @@ function SeriesCard({
   onDelete: (id: string) => void;
 }) {
   const isDraft = !series.plan_status || series.plan_status === 'draft';
+  const [showConfirm, setShowConfirm] = useState(false);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative"
-    >
-      {isDraft && (
-        <div className="absolute top-3 right-3 flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
-          <Pencil className="w-2.5 h-2.5" />
-          Planning
-        </div>
-      )}
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1">
-          <h3 className="font-semibold text-sm group-hover:text-primary transition-colors pr-16">
-            {series.name}
-          </h3>
-          <div className="flex flex-wrap gap-1.5">
-            {series.genre && (
-              <Badge variant="secondary" className="text-xs font-normal">
-                {series.genre}
-              </Badge>
-            )}
-            {series.tone && (
-              <Badge variant="outline" className="text-xs font-normal">
-                {series.tone}
-              </Badge>
-            )}
+    <>
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-left w-full border border-border/50 rounded-xl p-5 hover:border-primary/40 hover:bg-muted/30 transition-all group relative"
+      >
+        {isDraft && (
+          <div className="absolute top-3 right-3 flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
+            <Pencil className="w-2.5 h-2.5" />
+            Planning
+          </div>
+        )}
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm group-hover:text-primary transition-colors pr-16">
+              {series.name}
+            </h3>
+            <div className="flex flex-wrap gap-1.5">
+              {series.genre && (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {series.genre}
+                </Badge>
+              )}
+              {series.tone && (
+                <Badge variant="outline" className="text-xs font-normal">
+                  {series.tone}
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-      {series.bible && (
-        <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-          {series.bible}
-        </p>
-      )}
-      <div className="flex items-center justify-between mt-3">
-        <p className="text-xs text-muted-foreground/50">
-          {new Date(series.updated_at).toLocaleDateString()}
-        </p>
-        <button
-          type="button"
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (
-              window.confirm(`Delete "${series.name}"? This cannot be undone.`)
-            ) {
-              onDelete(series.id);
-            }
-          }}
-          title="Delete series"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </button>
+        {series.bible && (
+          <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+            {series.bible}
+          </p>
+        )}
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-xs text-muted-foreground/50">
+            {new Date(series.updated_at).toLocaleDateString()}
+          </p>
+          <button
+            type="button"
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowConfirm(true);
+            }}
+            title="Delete series"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </button>
+      <ConfirmDialog
+        open={showConfirm}
+        onOpenChange={setShowConfirm}
+        title={`Delete "${series.name}"?`}
+        description="This will permanently delete the series and all its assets. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => onDelete(series.id)}
+      />
+    </>
   );
 }
 

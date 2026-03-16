@@ -65,6 +65,8 @@ export default async function SeriesPlanPage({ params }: Props) {
         <SeriesPlanningView
           seriesId={series.id}
           seriesName={series.name}
+          seriesGenre={series.genre}
+          seriesTone={series.tone}
           initialMessages={
             Array.isArray(series.onboarding_messages)
               ? series.onboarding_messages
