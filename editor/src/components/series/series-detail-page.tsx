@@ -155,7 +155,7 @@ function VariantCard({
                 <button
                   type="button"
                   onClick={() => handleDeleteImage(img.id, img.storage_path)}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground rounded-full items-center justify-center text-xs hidden group-hover:flex"
+                  className="absolute -top-1 -right-1 w-5 h-5 sm:w-4 sm:h-4 bg-destructive text-destructive-foreground rounded-full flex sm:hidden sm:group-hover:flex items-center justify-center text-xs"
                 >
                   ×
                 </button>
@@ -362,28 +362,29 @@ function EpisodeRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 border border-border/50 rounded-lg">
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-mono text-muted-foreground w-8">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 border border-border/50 rounded-lg">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-xs font-mono text-muted-foreground shrink-0">
           Ep {episode.episode_number}
         </span>
-        <div>
-          <p className="text-sm font-medium">
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">
             {episode.title ?? `Episode ${episode.episode_number}`}
           </p>
           {episode.synopsis && (
-            <p className="text-xs text-muted-foreground truncate max-w-xs">
+            <p className="text-xs text-muted-foreground truncate">
               {episode.synopsis}
             </p>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         {episode.project_id && (
           <Link href={`/editor/${episode.project_id}`}>
             <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
               <ExternalLink className="w-3.5 h-3.5" />
-              Open in Editor
+              <span className="hidden sm:inline">Open in Editor</span>
+              <span className="sm:hidden">Open</span>
             </Button>
           </Link>
         )}
@@ -549,7 +550,7 @@ export function SeriesDetailPage({
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="text-xl font-bold h-10 max-w-sm"
+                className="text-xl font-bold h-10 w-full sm:max-w-sm"
                 placeholder="Series name"
                 autoFocus
               />
@@ -566,7 +567,7 @@ export function SeriesDetailPage({
                 Cancel
               </Button>
             </div>
-            <div className="flex items-center gap-2 max-w-lg">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:max-w-lg">
               <Input
                 value={editGenre}
                 onChange={(e) => setEditGenre(e.target.value)}
@@ -585,50 +586,49 @@ export function SeriesDetailPage({
               onChange={(e) => setEditBible(e.target.value)}
               placeholder="Series bible (optional)"
               rows={4}
-              className="max-w-lg text-xs"
+              className="w-full sm:max-w-lg text-xs"
             />
           </div>
         ) : (
           /* ── View mode ── */
-          <div className="flex-1 flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight">
-                  {series.name}
-                </h1>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  onClick={startEdit}
-                  title="Edit series info"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                {series.genre && (
-                  <Badge variant="secondary" className="text-xs">
-                    {series.genre}
-                  </Badge>
-                )}
-                {series.tone && (
-                  <Badge variant="outline" className="text-xs">
-                    {series.tone}
-                  </Badge>
-                )}
-              </div>
-            </div>
-            {series.bible && (
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+                {series.name}
+              </h1>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setShowBibleDialog(true)}
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                onClick={startEdit}
+                title="Edit series info"
               >
-                <Clapperboard className="w-4 h-4 mr-1.5" />
-                Series Bible
+                <Pencil className="w-3.5 h-3.5" />
               </Button>
-            )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {series.genre && (
+                <Badge variant="secondary" className="text-xs">
+                  {series.genre}
+                </Badge>
+              )}
+              {series.tone && (
+                <Badge variant="outline" className="text-xs">
+                  {series.tone}
+                </Badge>
+              )}
+              {series.bible && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setShowBibleDialog(true)}
+                >
+                  <Clapperboard className="w-3.5 h-3.5 mr-1" />
+                  Bible
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>

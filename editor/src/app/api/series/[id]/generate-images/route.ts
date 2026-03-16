@@ -7,27 +7,27 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 const ASSET_IMAGE_CONFIG = {
   character: {
-    width: 1024,
-    height: 1024,
+    resolution: '1K',
+    aspect_ratio: '1:1',
     suffix:
       'Full body, front-facing, neutral solid background, character reference sheet, high detail, consistent design',
   },
   location: {
-    width: 1024,
-    height: 1024,
+    resolution: '1K',
+    aspect_ratio: '16:9',
     suffix:
       'Wide establishing shot, cinematic composition, atmospheric lighting',
   },
   prop: {
-    width: 512,
-    height: 512,
+    resolution: '1K',
+    aspect_ratio: '1:1',
     suffix:
       'Product shot, clean white background, high detail, studio lighting',
   },
 } as const;
 
 // fal.ai image generation endpoint
-const FAL_IMAGE_ENDPOINT = 'fal-ai/flux-pro/v1.1';
+const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
 
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           ? series.bible
           : null);
       if (bibleText) {
-        promptParts.push(`visual style: ${bibleText.substring(0, 500)}`);
+        promptParts.push(`visual style: ${bibleText}`);
       }
 
       // Asset-specific info
@@ -150,11 +150,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       body: JSON.stringify({
         prompt,
-        width: config.width,
-        height: config.height,
         num_images: 1,
-        enable_safety_checker: false,
-        safety_tolerance: '5',
+        resolution: config.resolution,
+        aspect_ratio: config.aspect_ratio,
+        output_format: 'jpeg',
+        safety_tolerance: '6',
       }),
     });
 
@@ -170,7 +170,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const falData = await falRes.json();
     const requestId = falData.request_id;
 
-    return NextResponse.json({ request_id: requestId, prompt });
+    return NextResponse.json({
+      request_id: requestId,
+      prompt,
+      model: FAL_IMAGE_ENDPOINT,
+      provider: 'banana',
+      resolution: config.resolution,
+      aspect_ratio: config.aspect_ratio,
+      custom_prompt:
+        typeof customPrompt === 'string' && customPrompt.trim().length > 0,
+    });
   } catch (error) {
     console.error('Generate series asset image error:', error);
     return NextResponse.json(
