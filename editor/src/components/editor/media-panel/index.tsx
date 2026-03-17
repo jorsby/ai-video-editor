@@ -15,7 +15,7 @@ import PanelVoiceovers from './panel/voiceovers';
 import PanelSFX from './panel/sfx';
 import PanelStoryboard from './panel/storyboard';
 import SeriesAssetsPanel from './panel/series-assets-panel';
-// Library tab removed — Assets tab replaces it
+import SeriesRoadmapPanel from './panel/series-roadmap-panel';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -39,6 +39,7 @@ const viewMap: Record<Tab, React.ReactNode> = {
   assistant: <Assistant />,
   storyboard: <PanelStoryboard />,
   assets: <SeriesAssetsPanel />,
+  roadmap: <SeriesRoadmapPanel />,
   renders: <PanelRenders />,
 };
 

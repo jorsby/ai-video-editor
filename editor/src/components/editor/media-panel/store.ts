@@ -14,6 +14,7 @@ import {
   IconLayoutGrid,
   IconDeviceTv,
   IconPackage,
+  IconMovie,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -30,20 +31,25 @@ export type Tab =
   | 'sfx'
   | 'transitions'
   | 'assistant'
-  | 'storyboard'
   | 'assets'
+  | 'scenes'
+  | 'storyboard'
   | 'renders';
 
 export const tabs: {
   [key in Tab]: { icon: React.FC<IconProps>; label: string };
 } = {
-  storyboard: {
-    icon: IconLayoutGrid,
-    label: 'Storyboard',
-  },
   assets: {
     icon: IconPackage,
     label: 'Assets',
+  },
+  scenes: {
+    icon: IconMovie,
+    label: 'Scenes',
+  },
+  storyboard: {
+    icon: IconLayoutGrid,
+    label: 'Storyboard',
   },
   renders: {
     icon: IconDeviceTv,
