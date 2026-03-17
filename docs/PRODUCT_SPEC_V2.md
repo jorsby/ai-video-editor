@@ -262,11 +262,92 @@ Series style is per-project and ensures visual consistency.
 
 ---
 
+## Agent Review Pipeline
+
+Tokens are cheap. Video generation is expensive. The agent reviews at every step to catch problems BEFORE spending money on video.
+
+```
+Grid generated → AGENT REVIEWS (vision) → if bad, regenerate → if good, split
+     ↓
+Split images → AGENT REVIEWS (vision) → verify all cells clean, correct count
+     ↓
+Scene plan created → AGENT REVIEWS (consistency) → verify refs match assets
+     ↓
+TTS generated → AGENT REVIEWS (listen) → verify audio quality
+     ↓
+Video estimate → USER APPROVES (cost gate)
+     ↓
+Video generated → AGENT + USER REVIEW → if bad, regenerate specific scene
+```
+
+**Rules:**
+- Agent can regenerate images/grids/TTS without asking (cheap operations)
+- Agent MUST show video cost estimate and wait for user approval
+- If video generation produces bad output, agent can re-roll individual scenes (user approves the re-roll cost)
+- One bad scene does NOT block other scenes — composite can work with partial results
+
+---
+
+## Asset Descriptions (for Agent Context)
+
+Every series asset MUST have a rich description so the agent knows when and how to use it:
+
+```typescript
+interface SeriesAsset {
+  id: string;
+  type: "character" | "location" | "prop";
+  name: string;
+  description: string;        // visual description for image generation
+  usage_notes: string;        // when/how to use this asset in scenes
+  tags: string[];             // searchable tags (e.g. "main_cast", "night_scene")
+  reference_image_url: string | null;
+  variants: Array<{
+    id: string;
+    label: string;            // "Night version", "Injured", "Rain-soaked"
+    description: string;      // what changed from default
+    usage_notes: string;      // "Use from EP3-Scene5 onwards until EP5"
+    image_url: string | null;
+  }>;
+}
+```
+
+The agent uses `description` for generation and `usage_notes` + `tags` for scene planning decisions.
+
+---
+
+## Custom Asset Upload
+
+Users can upload their own images as assets (not only AI-generated):
+- Upload custom character photo → becomes a reference image
+- Upload location photo → becomes a background reference  
+- Upload prop image → becomes a prop reference
+
+This is critical because some assets can't be AI-generated (real person's face, specific real location, branded product).
+
+---
+
+## Error Handling & Retry
+
+| Step | On Failure | Retry Limit | Approver |
+|------|-----------|-------------|----------|
+| Grid generation | Auto-retry once, then alert user | 2 attempts | Agent |
+| Grid split | Agent reviews visually, re-generate if malformed | 2 attempts | Agent |
+| TTS generation | Auto-retry | 3 attempts | Agent |
+| Video generation | Alert user, offer per-scene re-roll | User decides | User |
+| Composite | Partial composite (skip failed scenes), alert user | 1 attempt | Agent |
+
+**Per-scene independence:** Every scene tracks its own status. A failed scene does not block other scenes from generating or compositing.
+
+---
+
 ## Future (Not Now)
 
 - Multi-language voiceover + translation
+- Multi-platform publishing (socialpost integration)
 - Cinematic mode (native Kling audio)
 - Per-user agent memory (SaaS multi-tenant)
 - Music/SFX layer
-- Automated quality checking (vision model validates grids before split)
+- Storyboard versioning / undo
+- Asset management UI for manual users
+- In-editor chat interface for user onboarding
 - Episode continuity tracking (what happened in previous episodes)
