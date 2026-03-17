@@ -141,6 +141,7 @@ The `style` object gets serialized into a style suffix appended to ALL prompts (
 
 ```typescript
 interface ScenePlan {
+  previous_episode_summary?: string;  // context from prior episode for continuity
   scenes: Array<{
     // Asset references (IDs from series assets)
     characters: string[];           // asset IDs
@@ -152,7 +153,11 @@ interface ScenePlan {
     // Generation
     prompt: string;                 // Kling O3 scene prompt with @Element/@Image refs
     voiceover: string;              // single language, one string per scene
-    duration: number;               // seconds (3-15)
+    duration: number;               // seconds — auto-rounded to 5/10/15 buckets
+    
+    // Creative direction
+    pacing?: "slow_tension" | "medium" | "quick_reveal" | "frantic";
+    transition_hint?: string;       // e.g. "Elena is already seated inside"
   }>;
 }
 ```
@@ -285,6 +290,23 @@ Video generated → AGENT + USER REVIEW → if bad, regenerate specific scene
 - Agent MUST show video cost estimate and wait for user approval
 - If video generation produces bad output, agent can re-roll individual scenes (user approves the re-roll cost)
 - One bad scene does NOT block other scenes — composite can work with partial results
+
+**Grid split validation — two-phase:**
+1. **Programmatic check FIRST** — verify cell dimensions (2048×2048 for 2×2 at 4K, ~1365×1365 for 3×3). If wrong, regenerate immediately without spending tokens on vision.
+2. **Vision review SECOND** — catches quality issues (wrong character, bad pose, style mismatch).
+
+**Duration optimization:**
+- Kling O3 prices per 5s bucket. A 7s scene costs the same as 10s.
+- Agent MUST round UP to 5/10/15s increments and use extra seconds for better pacing.
+
+**Voiceover ↔ duration sync:**
+- Scene duration MUST be ≥ TTS audio duration. Agent auto-adjusts.
+- If voiceover is 12s but scene was set to 8s → scene duration becomes 15s (next 5s bucket).
+- If voiceover is too long for one scene → agent splits the voiceover across scenes.
+
+**Partial composite UX:**
+- Editor shows red/green status per scene in the storyboard view.
+- User chooses: composite without failed scenes (jump cut), re-roll failed scenes, or wait.
 
 ---
 
