@@ -50,7 +50,7 @@ export default function ScenesPanel() {
     if (!storyboardId) return;
 
     setSelectedStoryboardId(storyboardId);
-    setActiveTab('storyboard');
+    setActiveTab('roadmap');
   };
 
   if (isLoading) {
