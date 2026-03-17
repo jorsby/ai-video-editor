@@ -295,14 +295,23 @@ Video generated → AGENT + USER REVIEW → if bad, regenerate specific scene
 1. **Programmatic check FIRST** — verify cell dimensions (2048×2048 for 2×2 at 4K, ~1365×1365 for 3×3). If wrong, regenerate immediately without spending tokens on vision.
 2. **Vision review SECOND** — catches quality issues (wrong character, bad pose, style mismatch).
 
-**Duration optimization:**
-- Kling O3 prices per 5s bucket. A 7s scene costs the same as 10s.
-- Agent MUST round UP to 5/10/15s increments and use extra seconds for better pacing.
+**Duration:**
+- Kling O3 supports 3-15 seconds, in 1-second increments. Full flexibility.
+- Pricing is per 5s bucket ($0.112/5s with audio). A 7s scene costs same as 10s — agent optimizes pacing to use the full bucket when possible.
 
-**Voiceover ↔ duration sync:**
-- Scene duration MUST be ≥ TTS audio duration. Agent auto-adjusts.
-- If voiceover is 12s but scene was set to 8s → scene duration becomes 15s (next 5s bucket).
-- If voiceover is too long for one scene → agent splits the voiceover across scenes.
+**Narrative mode — TTS-first flow:**
+- Generate TTS voiceover FIRST
+- Set scene duration = TTS audio length + 1-2s buffer
+- This eliminates timing mismatches and avoids regeneration
+
+**Cinematic mode — duration-first flow:**
+- Set scene duration based on dialogue/action needs
+- Kling O3 generates native audio to fit
+
+**Background is MANDATORY:**
+- Every scene MUST have a background reference. Backgrounds ensure location consistency.
+- If hitting the 4-element limit: reduce characters/props, NEVER drop the background.
+- Example: 3 characters + 1 background = valid. 4 characters + 0 background = INVALID.
 
 **Partial composite UX:**
 - Editor shows red/green status per scene in the storyboard view.
