@@ -38,6 +38,7 @@ interface DraftPlanEditorProps {
   isApproving?: boolean;
   error?: string | null;
   readOnly?: boolean;
+  hideAssetSections?: boolean;
 }
 
 function isRefPlan(plan: StoryboardPlan | RefPlan): plan is RefPlan {
@@ -89,6 +90,7 @@ export function DraftPlanEditor({
   isApproving,
   error,
   readOnly,
+  hideAssetSections = false,
 }: DraftPlanEditorProps) {
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [isGridPromptOpen, setIsGridPromptOpen] = useState(false);
@@ -267,45 +269,47 @@ export function DraftPlanEditor({
           )}
 
           {/* Objects Grid Prompt (ref) / Grid Image Prompt (i2v) */}
-          <Collapsible
-            open={isGridPromptOpen}
-            onOpenChange={setIsGridPromptOpen}
-          >
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
-              >
-                {ref ? 'Objects Grid Prompt' : 'Grid Image Prompt'}
-                {isGridPromptOpen ? (
-                  <IconChevronUp className="size-3" />
-                ) : (
-                  <IconChevronDown className="size-3" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <Textarea
-                value={
-                  ref
-                    ? (plan as RefPlan).objects_grid_prompt
-                    : (plan as StoryboardPlan).grid_image_prompt
-                }
-                onChange={(e) => handleGridPromptChange(e.target.value)}
-                readOnly={readOnly}
-                className="text-xs min-h-[100px] mt-1"
-                placeholder={
-                  ref
-                    ? 'Objects grid image prompt...'
-                    : 'Grid image generation prompt...'
-                }
-              />
-            </CollapsibleContent>
-          </Collapsible>
+          {(!ref || !hideAssetSections) && (
+            <Collapsible
+              open={isGridPromptOpen}
+              onOpenChange={setIsGridPromptOpen}
+            >
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {ref ? 'Objects Grid Prompt' : 'Grid Image Prompt'}
+                  {isGridPromptOpen ? (
+                    <IconChevronUp className="size-3" />
+                  ) : (
+                    <IconChevronDown className="size-3" />
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <Textarea
+                  value={
+                    ref
+                      ? (plan as RefPlan).objects_grid_prompt
+                      : (plan as StoryboardPlan).grid_image_prompt
+                  }
+                  onChange={(e) => handleGridPromptChange(e.target.value)}
+                  readOnly={readOnly}
+                  className="text-xs min-h-[100px] mt-1"
+                  placeholder={
+                    ref
+                      ? 'Objects grid image prompt...'
+                      : 'Grid image generation prompt...'
+                  }
+                />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           {/* Backgrounds Grid Prompt (ref only) */}
-          {ref && (
+          {ref && !hideAssetSections && (
             <Collapsible
               open={isBgGridPromptOpen}
               onOpenChange={setIsBgGridPromptOpen}
@@ -337,7 +341,7 @@ export function DraftPlanEditor({
           )}
 
           {/* Objects List (ref only) */}
-          {ref && (
+          {ref && !hideAssetSections && (
             <Collapsible open={isObjectsOpen} onOpenChange={setIsObjectsOpen}>
               <CollapsibleTrigger asChild>
                 <Button
@@ -374,8 +378,8 @@ export function DraftPlanEditor({
             </Collapsible>
           )}
 
-          {/* Backgrounds List (ref only) */}
-          {ref && (
+          {/* Backgrounds List (ref only) — moved to Assets tab */}
+          {ref && !hideAssetSections && (
             <Collapsible open={isBgNamesOpen} onOpenChange={setIsBgNamesOpen}>
               <CollapsibleTrigger asChild>
                 <Button

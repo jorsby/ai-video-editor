@@ -20,11 +20,13 @@ export type SeriesAssetType = 'character' | 'location' | 'prop';
 export interface Series {
   id: string;
   user_id: string;
+  project_id: string | null;
   name: string;
   genre: string | null;
   tone: string | null;
   bible: string | null;
   visual_style: Record<string, unknown>;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -268,6 +270,7 @@ export async function updateSeries(
     tone?: string | null;
     bible?: string | null;
     visual_style?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
   }
 ): Promise<Series> {
   const { data, error } = await supabase

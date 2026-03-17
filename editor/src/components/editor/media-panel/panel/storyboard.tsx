@@ -134,6 +134,34 @@ function getStoryboardModeLabel(storyboard: Storyboard): string {
   return '[Ref]';
 }
 
+function pickPreferredStoryboard(storyboards: Storyboard[]): Storyboard | null {
+  if (storyboards.length === 0) return null;
+
+  const approved = storyboards.find((sb) => sb.plan_status === 'approved');
+  if (approved) return approved;
+
+  const nonDraft = storyboards.find((sb) => sb.plan_status !== 'draft');
+  if (nonDraft) return nonDraft;
+
+  return storyboards[0];
+}
+
+function getStatusBadgeClasses(status: Storyboard['plan_status']) {
+  if (status === 'approved') {
+    return 'bg-green-500/10 text-green-400 border-green-500/30';
+  }
+
+  if (status === 'draft') {
+    return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+  }
+
+  if (status === 'failed') {
+    return 'bg-red-500/10 text-red-400 border-red-500/30';
+  }
+
+  return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+}
+
 interface StoryboardResponse {
   rows: number;
   cols: number;
@@ -217,36 +245,42 @@ export default function PanelStoryboard() {
       const data = await getStoryboardsForProject(projectId);
       setStoryboards(data);
 
-      // Approved storyboards = everything except drafts
-      const approvedStoryboards = data.filter(
-        (sb) => sb.plan_status !== 'draft'
-      );
+      const preferredStoryboard = pickPreferredStoryboard(data);
+      const currentStillExists = selectedStoryboardId
+        ? data.some((sb) => sb.id === selectedStoryboardId)
+        : false;
 
-      // Auto-select most recent approved storyboard if exists
-      if (approvedStoryboards.length > 0) {
-        setSelectedStoryboardId(approvedStoryboards[0].id);
+      if (!currentStillExists) {
+        setSelectedStoryboardId(preferredStoryboard?.id ?? null);
       }
 
-      // Check for existing draft
-      const draft = await getDraftStoryboard(projectId);
+      const inlineDraft = data.find((sb) => sb.plan_status === 'draft');
+      const fallbackDraft = inlineDraft
+        ? null
+        : await getDraftStoryboard(projectId);
+      const draft = inlineDraft ?? fallbackDraft;
+
       if (draft?.plan) {
-        // Store draft state so user can resume later
         setDraftPlan(draft.plan);
         setDraftStoryboardId(draft.id);
         setDraftMode(draft.mode || 'image_to_video');
         setDraftVideoModel(draft.model || null);
 
-        // Only auto-enter draft mode when no approved storyboards exist.
-        // Otherwise default to viewing the most recent approved one —
-        // the user can still access the draft via "New Storyboard".
-        if (approvedStoryboards.length === 0) {
+        const nonDraftStoryboards = data.filter(
+          (sb) => sb.plan_status !== 'draft'
+        );
+        if (nonDraftStoryboards.length === 0) {
           setViewMode('draft');
           return;
         }
+      } else {
+        setDraftPlan(null);
+        setDraftStoryboardId(null);
+        setDraftMode('image_to_video');
+        setDraftVideoModel(null);
       }
 
-      // Set view mode based on storyboard existence
-      if (approvedStoryboards.length > 0) {
+      if (preferredStoryboard) {
         setViewMode('view');
       } else {
         setViewMode('create');
@@ -254,16 +288,22 @@ export default function PanelStoryboard() {
     };
 
     loadStoryboards();
-  }, [projectId]);
+  }, [projectId, selectedStoryboardId]);
 
   const refreshStoryboardsAfterCreate = async () => {
     if (!projectId) return;
     const newStoryboards = await getStoryboardsForProject(projectId);
     setStoryboards(newStoryboards);
-    if (newStoryboards.length > 0) {
-      setSelectedStoryboardId(newStoryboards[0].id);
+
+    const preferredStoryboard = pickPreferredStoryboard(newStoryboards);
+    if (preferredStoryboard) {
+      setSelectedStoryboardId(preferredStoryboard.id);
       setViewMode('view');
+      return;
     }
+
+    setSelectedStoryboardId(null);
+    setViewMode('create');
   };
 
   const handleDeleteStoryboard = async () => {
@@ -294,8 +334,9 @@ export default function PanelStoryboard() {
       setStoryboards(updatedStoryboards);
 
       // Select next storyboard or switch to create mode
-      if (updatedStoryboards.length > 0) {
-        setSelectedStoryboardId(updatedStoryboards[0].id);
+      const preferredStoryboard = pickPreferredStoryboard(updatedStoryboards);
+      if (preferredStoryboard) {
+        setSelectedStoryboardId(preferredStoryboard.id);
         setViewMode('view');
       } else {
         setSelectedStoryboardId(null);
@@ -559,26 +600,43 @@ export default function PanelStoryboard() {
           <Select
             value={selectedStoryboardId || ''}
             onValueChange={(value) => {
+              const selected = storyboards.find((sb) => sb.id === value);
               setSelectedStoryboardId(value);
+
+              if (selected?.plan_status === 'draft' && selected.plan) {
+                setDraftPlan(selected.plan);
+                setDraftStoryboardId(selected.id);
+                setDraftMode(selected.mode || 'image_to_video');
+                setDraftVideoModel(selected.model || null);
+                setViewMode('draft');
+                return;
+              }
+
               setViewMode('view');
             }}
-            disabled={
-              storyboards.filter((sb) => sb.plan_status !== 'draft').length ===
-              0
-            }
+            disabled={storyboards.length === 0}
           >
             <SelectTrigger className="flex-1 h-8 text-xs">
               <SelectValue placeholder="No storyboards yet" />
             </SelectTrigger>
             <SelectContent>
-              {storyboards
-                .filter((sb) => sb.plan_status !== 'draft')
-                .map((sb) => (
-                  <SelectItem key={sb.id} value={sb.id}>
-                    {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
-                    {getStoryboardModeLabel(sb)}
-                  </SelectItem>
-                ))}
+              {storyboards.map((sb) => (
+                <SelectItem key={sb.id} value={sb.id}>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">
+                      {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
+                      {getStoryboardModeLabel(sb)}
+                    </span>
+                    <span
+                      className={`text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border ${getStatusBadgeClasses(
+                        sb.plan_status
+                      )}`}
+                    >
+                      {sb.plan_status ?? 'unknown'}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -675,11 +733,11 @@ export default function PanelStoryboard() {
                 type="button"
                 className="w-full mb-2 px-2 py-1 text-[10px] text-muted-foreground bg-muted/30 border border-border/50 rounded hover:bg-muted/50 transition-colors text-left"
                 onClick={() => {
-                  const approved = storyboards.find(
-                    (sb) => sb.plan_status !== 'draft'
+                  const preferred = pickPreferredStoryboard(
+                    storyboards.filter((sb) => sb.plan_status !== 'draft')
                   );
-                  if (approved) {
-                    setSelectedStoryboardId(approved.id);
+                  if (preferred) {
+                    setSelectedStoryboardId(preferred.id);
                     setViewMode('view');
                   }
                 }}
@@ -697,6 +755,7 @@ export default function PanelStoryboard() {
               onCancel={handleCancelDraft}
               isApproving={isApprovingDraft}
               error={draftError}
+              hideAssetSections
             />
           </>
         )}
@@ -732,6 +791,7 @@ export default function PanelStoryboard() {
                 mode={selectedStoryboard.mode || 'image_to_video'}
                 videoModel={selectedStoryboard.model}
                 readOnly
+                hideAssetSections
               />
             </CollapsibleContent>
           </Collapsible>

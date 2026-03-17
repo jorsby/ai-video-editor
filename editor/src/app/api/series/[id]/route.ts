@@ -10,6 +10,75 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseSeriesUpdates(body: Record<string, unknown>) {
+  const updates: Record<string, unknown> = {};
+
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || body.name.trim().length === 0) {
+      return {
+        error: NextResponse.json(
+          { error: 'Name cannot be empty' },
+          { status: 400 }
+        ),
+      };
+    }
+    updates.name = body.name.trim();
+  }
+
+  if (body.genre !== undefined) {
+    updates.genre = typeof body.genre === 'string' ? body.genre.trim() : null;
+  }
+
+  if (body.tone !== undefined) {
+    updates.tone = typeof body.tone === 'string' ? body.tone.trim() : null;
+  }
+
+  if (body.bible !== undefined) {
+    updates.bible = body.bible || null;
+  }
+
+  if (body.visual_style !== undefined) {
+    if (body.visual_style !== null && !isRecord(body.visual_style)) {
+      return {
+        error: NextResponse.json(
+          { error: 'visual_style must be an object' },
+          { status: 400 }
+        ),
+      };
+    }
+
+    updates.visual_style = body.visual_style ?? {};
+  }
+
+  if (body.metadata !== undefined) {
+    if (body.metadata !== null && !isRecord(body.metadata)) {
+      return {
+        error: NextResponse.json(
+          { error: 'metadata must be an object' },
+          { status: 400 }
+        ),
+      };
+    }
+
+    updates.metadata = body.metadata ?? {};
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return {
+      error: NextResponse.json(
+        { error: 'No fields to update' },
+        { status: 400 }
+      ),
+    };
+  }
+
+  return { updates };
+}
+
 // GET /api/series/[id] — get series with all assets/variants
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
@@ -47,8 +116,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   }
 }
 
-// PUT /api/series/[id] — update series
-export async function PUT(req: NextRequest, context: RouteContext) {
+async function updateSeriesHandler(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const supabase = await createClient('studio');
@@ -67,33 +135,15 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await req.json();
-    const updates: Record<string, unknown> = {};
+    const body = (await req.json()) as Record<string, unknown>;
+    const parsed = parseSeriesUpdates(body);
 
-    if (body.name !== undefined) {
-      if (typeof body.name !== 'string' || body.name.trim().length === 0) {
-        return NextResponse.json(
-          { error: 'Name cannot be empty' },
-          { status: 400 }
-        );
-      }
-      updates.name = body.name.trim();
-    }
-    if (body.genre !== undefined) updates.genre = body.genre?.trim() || null;
-    if (body.tone !== undefined) updates.tone = body.tone?.trim() || null;
-    if (body.bible !== undefined) updates.bible = body.bible || null;
-    if (body.visual_style !== undefined)
-      updates.visual_style = body.visual_style;
-
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json(
-        { error: 'No fields to update' },
-        { status: 400 }
-      );
+    if ('error' in parsed) {
+      return parsed.error;
     }
 
     const dbClient = sessionUser ? supabase : createServiceClient('studio');
-    const series = await updateSeries(dbClient, id, user.id, updates);
+    const series = await updateSeries(dbClient, id, user.id, parsed.updates);
     return NextResponse.json({ series });
   } catch (error) {
     console.error('Update series error:', error);
@@ -102,6 +152,16 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       { status: 500 }
     );
   }
+}
+
+// PUT /api/series/[id] — update series
+export async function PUT(req: NextRequest, context: RouteContext) {
+  return updateSeriesHandler(req, context);
+}
+
+// PATCH /api/series/[id] — partial update series (metadata, prompts, etc.)
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  return updateSeriesHandler(req, context);
 }
 
 // DELETE /api/series/[id] — delete series (cascades to all assets/episodes)

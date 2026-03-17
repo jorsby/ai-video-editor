@@ -14,8 +14,8 @@ import { useProjectId } from '@/contexts/project-context';
 import { type SeriesAsset, useSeriesAssets } from '@/hooks/use-series-assets';
 import {
   IconChevronDown,
-  IconChevronUp,
   IconChevronRight,
+  IconChevronUp,
   IconLayoutGrid,
   IconLoader2,
   IconMapPin,
@@ -32,26 +32,19 @@ const SECTION_CONFIG: Record<
   {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
-    defaultGridPrompt: string;
   }
 > = {
   character: {
     label: 'Characters',
     icon: IconUsers,
-    defaultGridPrompt:
-      'Photorealistic cinematic style with natural skin texture. Each cell shows one character on a neutral white background, front-facing, full body visible from head to shoes. Each character must show their complete outfit clearly visible.',
   },
   location: {
     label: 'Locations',
     icon: IconMapPin,
-    defaultGridPrompt:
-      'Photorealistic cinematic style. Each cell shows one empty environment/location with no people, with varied cinematic camera angles. Locations should feel lived-in and atmospheric with natural lighting and environmental details.',
   },
   prop: {
     label: 'Props',
     icon: IconPackage,
-    defaultGridPrompt:
-      'Product photography style. Each cell shows one object/prop on a clean neutral background. Centered composition, studio lighting, high detail.',
   },
 };
 
@@ -86,7 +79,7 @@ function AssetCard({ asset }: { asset: SeriesAsset }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="text-xs font-medium truncate">{asset.name}</p>
-                {asset.variants.some((v) => v.isFinalized) && (
+                {asset.variants.some((variant) => variant.isFinalized) && (
                   <Badge
                     variant="outline"
                     className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 shrink-0"
@@ -116,22 +109,24 @@ function AssetCard({ asset }: { asset: SeriesAsset }) {
           </p>
           {asset.variants.length > 0 && (
             <div className="space-y-1">
-              {asset.variants.map((v) => (
+              {asset.variants.map((variant) => (
                 <div
-                  key={v.id}
+                  key={variant.id}
                   className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
                 >
-                  {v.imageUrl ? (
+                  {variant.imageUrl ? (
                     <img
-                      src={v.imageUrl}
-                      alt={v.label}
+                      src={variant.imageUrl}
+                      alt={variant.label}
                       className="size-6 rounded object-cover border border-border/30 shrink-0"
                     />
                   ) : (
                     <div className="size-6 rounded bg-muted/30 shrink-0" />
                   )}
-                  <span className="text-[10px] flex-1 truncate">{v.label}</span>
-                  {v.isDefault && (
+                  <span className="text-[10px] flex-1 truncate">
+                    {variant.label}
+                  </span>
+                  {variant.isDefault && (
                     <Badge
                       variant="secondary"
                       className="text-[7px] px-1 py-0 h-3"
@@ -139,7 +134,7 @@ function AssetCard({ asset }: { asset: SeriesAsset }) {
                       Default
                     </Badge>
                   )}
-                  {v.isFinalized && (
+                  {variant.isFinalized && (
                     <Badge
                       variant="outline"
                       className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
@@ -160,155 +155,114 @@ function AssetCard({ asset }: { asset: SeriesAsset }) {
 function AssetSection({
   type,
   assets,
-  seriesId,
-  onRefresh,
+  gridPrompt,
+  onGridPromptChange,
+  onSavePrompt,
+  onGenerateGrid,
+  savingPrompt,
+  generating,
 }: {
   type: AssetType;
   assets: SeriesAsset[];
-  seriesId: string;
-  onRefresh: () => void;
+  gridPrompt: string;
+  onGridPromptChange: (value: string) => void;
+  onSavePrompt: () => Promise<void>;
+  onGenerateGrid: () => Promise<void>;
+  savingPrompt: boolean;
+  generating: boolean;
 }) {
   const config = SECTION_CONFIG[type];
   const [isOpen, setIsOpen] = useState(true);
-  const [showGridPrompt, setShowGridPrompt] = useState(false);
-  const [gridPrompt, setGridPrompt] = useState(config.defaultGridPrompt);
-  const [generating, setGenerating] = useState(false);
-
-  const handleGenerateGrid = async () => {
-    if (assets.length < 2) {
-      toast.error(
-        `Need at least 2 ${config.label.toLowerCase()} to generate a grid`
-      );
-      return;
-    }
-
-    const hasFinalized = assets.some((a) =>
-      a.variants.some((v) => v.isFinalized)
-    );
-    if (hasFinalized) {
-      toast.error('Cannot regenerate — some assets are finalized');
-      return;
-    }
-
-    const gridSize =
-      assets.length <= 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 3 };
-    const items = assets.slice(0, gridSize.cols * gridSize.rows).map((a) => ({
-      asset_id: a.id,
-      variant_id: a.variants.find((v) => v.isDefault)?.id ?? a.variants[0]?.id,
-    }));
-
-    if (items.some((i) => !i.variant_id)) {
-      toast.error('Some assets are missing variants');
-      return;
-    }
-
-    setGenerating(true);
-    try {
-      const res = await fetch(`/api/series/${seriesId}/generate-grid`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          items,
-          grid: {
-            cols: gridSize.cols,
-            rows: gridSize.rows,
-            cell_ratio: '1:1',
-            resolution: '4K',
-          },
-          custom_suffix: gridPrompt,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Grid generation failed');
-      }
-
-      toast.success(`${config.label} grid generation started`);
-      // Poll will handle the rest
-      setTimeout(onRefresh, 60000);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Grid generation failed'
-      );
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const [isGridPromptOpen, setIsGridPromptOpen] = useState(false);
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="w-full flex items-center gap-2 px-1 py-1 rounded-sm hover:bg-muted/20 transition-colors text-left"
+      <div className="flex items-center gap-2">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex-1 flex items-center gap-2 px-1 py-1 rounded-sm hover:bg-muted/20 transition-colors text-left"
+          >
+            {isOpen ? (
+              <IconChevronDown className="size-3.5 text-muted-foreground" />
+            ) : (
+              <IconChevronRight className="size-3.5 text-muted-foreground" />
+            )}
+            <config.icon className="size-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium">{config.label}</span>
+            <span className="text-[10px] text-muted-foreground">
+              ({assets.length})
+            </span>
+          </button>
+        </CollapsibleTrigger>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-[10px] gap-1 px-2"
+          onClick={onGenerateGrid}
+          disabled={generating || assets.length < 2}
         >
-          {isOpen ? (
-            <IconChevronDown className="size-3.5 text-muted-foreground" />
+          {generating ? (
+            <IconLoader2 className="size-3 animate-spin" />
           ) : (
-            <IconChevronRight className="size-3.5 text-muted-foreground" />
+            <IconRefresh className="size-3" />
           )}
-          <config.icon className="size-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium">{config.label}</span>
-          <span className="text-[10px] text-muted-foreground">
-            ({assets.length})
-          </span>
-        </button>
-      </CollapsibleTrigger>
+          Generate Grid
+        </Button>
+      </div>
 
       <CollapsibleContent>
         <div className="pl-5 pr-1 space-y-1.5">
+          <Collapsible
+            open={isGridPromptOpen}
+            onOpenChange={setIsGridPromptOpen}
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center gap-1 px-1 py-1 text-[10px] text-muted-foreground hover:text-foreground rounded-sm hover:bg-muted/20 transition-colors"
+              >
+                {isGridPromptOpen ? (
+                  <IconChevronDown className="size-3" />
+                ) : (
+                  <IconChevronRight className="size-3" />
+                )}
+                <IconLayoutGrid className="size-3" />
+                Grid Prompt
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-1.5 pl-2">
+                <Textarea
+                  value={gridPrompt}
+                  onChange={(event) => onGridPromptChange(event.target.value)}
+                  rows={4}
+                  className="text-[10px] min-h-[80px]"
+                  placeholder={`Grid prompt for ${config.label.toLowerCase()}...`}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 text-[10px] gap-1"
+                  onClick={onSavePrompt}
+                  disabled={savingPrompt}
+                >
+                  {savingPrompt ? (
+                    <IconLoader2 className="size-3 animate-spin" />
+                  ) : null}
+                  Save Prompt
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
           {assets.length === 0 ? (
             <p className="text-[10px] text-muted-foreground/70 pb-1">
               No {config.label.toLowerCase()} yet.
             </p>
           ) : (
-            <>
-              {assets.map((asset) => (
-                <AssetCard key={asset.id} asset={asset} />
-              ))}
-
-              {/* Grid generation controls */}
-              <div className="pt-1 space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowGridPrompt(!showGridPrompt)}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <IconLayoutGrid className="size-3" />
-                  {showGridPrompt ? 'Hide' : 'Grid'} Prompt
-                </button>
-
-                {showGridPrompt && (
-                  <div className="space-y-1.5">
-                    <Textarea
-                      value={gridPrompt}
-                      onChange={(e) => setGridPrompt(e.target.value)}
-                      rows={3}
-                      className="text-[10px] min-h-[60px]"
-                      placeholder={`Grid prompt for ${config.label.toLowerCase()}...`}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full h-7 text-[10px] gap-1"
-                      onClick={handleGenerateGrid}
-                      disabled={generating || assets.length < 2}
-                    >
-                      {generating ? (
-                        <IconLoader2 className="size-3 animate-spin" />
-                      ) : (
-                        <IconRefresh className="size-3" />
-                      )}
-                      {generating
-                        ? 'Generating...'
-                        : `Generate ${assets.length <= 4 ? '2×2' : '3×3'} Grid`}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </>
+            assets.map((asset) => <AssetCard key={asset.id} asset={asset} />)
           )}
         </div>
       </CollapsibleContent>
@@ -318,8 +272,18 @@ function AssetSection({
 
 export default function SeriesAssetsPanel() {
   const projectId = useProjectId();
-  const { isLoading, error, assets, seriesId, refresh } =
-    useSeriesAssets(projectId);
+  const {
+    isLoading,
+    error,
+    assets,
+    seriesId,
+    gridPrompts,
+    isSavingPrompt,
+    isGeneratingGrid,
+    setGridPrompt,
+    saveGridPrompt,
+    generateGrid,
+  } = useSeriesAssets(projectId);
 
   const groupedAssets = useMemo(() => {
     return {
@@ -368,8 +332,30 @@ export default function SeriesAssetsPanel() {
             key={type}
             type={type}
             assets={groupedAssets[type]}
-            seriesId={seriesId}
-            onRefresh={refresh}
+            gridPrompt={gridPrompts[type]}
+            onGridPromptChange={(value) => setGridPrompt(type, value)}
+            onSavePrompt={async () => {
+              const result = await saveGridPrompt(type);
+              if (!result.ok) {
+                toast.error(result.error ?? 'Failed to save prompt');
+                return;
+              }
+
+              toast.success(`${SECTION_CONFIG[type].label} prompt saved`);
+            }}
+            onGenerateGrid={async () => {
+              const result = await generateGrid(type);
+              if (!result.ok) {
+                toast.error(result.error ?? 'Failed to generate grid');
+                return;
+              }
+
+              toast.success(
+                `${SECTION_CONFIG[type].label} grid generation started`
+              );
+            }}
+            savingPrompt={isSavingPrompt[type]}
+            generating={isGeneratingGrid[type]}
           />
         ))}
       </div>
