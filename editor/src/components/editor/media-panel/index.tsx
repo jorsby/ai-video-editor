@@ -15,7 +15,7 @@ import PanelVoiceovers from './panel/voiceovers';
 import PanelSFX from './panel/sfx';
 import PanelStoryboard from './panel/storyboard';
 import SeriesAssetsPanel from './panel/series-assets-panel';
-import SeriesRoadmapPanel from './panel/series-roadmap-panel';
+import ScenesPanel from './panel/scenes-panel';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -37,9 +37,9 @@ const viewMap: Record<Tab, React.ReactNode> = {
   transitions: <PanelTransition />,
   effects: <PanelEffect />,
   assistant: <Assistant />,
-  storyboard: <PanelStoryboard />,
   assets: <SeriesAssetsPanel />,
-  roadmap: <SeriesRoadmapPanel />,
+  scenes: <ScenesPanel />,
+  storyboard: <PanelStoryboard />,
   renders: <PanelRenders />,
 };
 

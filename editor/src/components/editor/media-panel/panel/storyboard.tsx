@@ -37,6 +37,7 @@ import type { LanguageCode } from '@/lib/constants/languages';
 import { useLanguageStore } from '@/stores/language-store';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { useMediaPanelStore } from '../store';
 import { toast } from 'sonner';
 import {
   getDraftStoryboard,
@@ -185,6 +186,12 @@ const formatDate = (dateStr: string) => {
 export default function PanelStoryboard() {
   const projectId = useProjectId();
   const { confirm } = useDeleteConfirmation();
+  const selectedStoryboardIdFromStore = useMediaPanelStore(
+    (state) => state.selectedStoryboardId
+  );
+  const setSelectedStoryboardIdInStore = useMediaPanelStore(
+    (state) => state.setSelectedStoryboardId
+  );
 
   // Storyboard navigation state
   const [viewMode, setViewMode] = useState<ViewMode>('create');
@@ -289,6 +296,29 @@ export default function PanelStoryboard() {
 
     loadStoryboards();
   }, [projectId, selectedStoryboardId]);
+
+  useEffect(() => {
+    if (!selectedStoryboardIdFromStore) return;
+
+    const existsInCurrentList = storyboards.some(
+      (storyboard) => storyboard.id === selectedStoryboardIdFromStore
+    );
+
+    if (!existsInCurrentList) {
+      if (storyboards.length > 0) {
+        setSelectedStoryboardIdInStore(null);
+      }
+      return;
+    }
+
+    setSelectedStoryboardId(selectedStoryboardIdFromStore);
+    setViewMode('view');
+    setSelectedStoryboardIdInStore(null);
+  }, [
+    selectedStoryboardIdFromStore,
+    setSelectedStoryboardIdInStore,
+    storyboards,
+  ]);
 
   const refreshStoryboardsAfterCreate = async () => {
     if (!projectId) return;

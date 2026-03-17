@@ -11,7 +11,6 @@ import {
   IconPhoto,
   IconVideo,
   IconMessageCircle,
-  IconLayoutGrid,
   IconDeviceTv,
   IconPackage,
   IconMovie,
@@ -26,14 +25,12 @@ export type Tab =
   | 'text'
   | 'captions'
   | 'effects'
-  // | 'elements'
   | 'voiceovers'
   | 'sfx'
   | 'transitions'
   | 'assistant'
   | 'assets'
-  | 'scenes'
-  | 'storyboard'
+  | 'roadmap'
   | 'renders';
 
 export const tabs: {
@@ -43,13 +40,9 @@ export const tabs: {
     icon: IconPackage,
     label: 'Assets',
   },
-  scenes: {
+  roadmap: {
     icon: IconMovie,
-    label: 'Scenes',
-  },
-  storyboard: {
-    icon: IconLayoutGrid,
-    label: 'Storyboard',
+    label: 'Roadmap',
   },
   renders: {
     icon: IconDeviceTv,
@@ -71,10 +64,6 @@ export const tabs: {
     icon: IconLetterT,
     label: 'Text',
   },
-  // elements: {
-  //   icon: IconCircleSquare,
-  //   label: 'Elements',
-  // },
   captions: {
     icon: IconSubtitles,
     label: 'Captions',
@@ -111,12 +100,14 @@ interface MediaPanelStore {
   highlightMediaId: string | null;
   requestRevealMedia: (mediaId: string) => void;
   clearHighlight: () => void;
+  selectedStoryboardId: string | null;
+  setSelectedStoryboardId: (id: string | null) => void;
   showProperties: boolean;
   setShowProperties: (show: boolean) => void;
 }
 
 export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
-  activeTab: 'storyboard',
+  activeTab: 'roadmap',
   setActiveTab: (tab) => set({ activeTab: tab, showProperties: false }),
   highlightMediaId: null,
   requestRevealMedia: (mediaId) =>
@@ -126,6 +117,8 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
       showProperties: false,
     }),
   clearHighlight: () => set({ highlightMediaId: null }),
+  selectedStoryboardId: null,
+  setSelectedStoryboardId: (id) => set({ selectedStoryboardId: id }),
   showProperties: false,
   setShowProperties: (show) => set({ showProperties: show }),
 }));
