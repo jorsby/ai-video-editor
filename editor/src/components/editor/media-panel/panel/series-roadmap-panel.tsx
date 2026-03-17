@@ -29,12 +29,24 @@ interface Episode {
   status: 'planned' | 'in_progress' | 'done';
 }
 
+interface SceneObject {
+  name: string;
+  imageUrl: string | null;
+  variantId: string | null;
+}
+
+interface SceneBackground {
+  imageUrl: string | null;
+}
+
 interface StoryboardScene {
   id: string;
   order: number;
   prompt: string | null;
   video_status: string | null;
   video_url: string | null;
+  objects: SceneObject[];
+  background: SceneBackground | null;
 }
 
 interface StoryboardInfo {
@@ -59,29 +71,74 @@ const STATUS_CONFIG = {
   done: { label: 'Done', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
 } as const;
 
-function SceneRow({ scene, index }: { scene: StoryboardScene; index: number }) {
+function SceneRow({
+  scene,
+  index,
+  variantImages,
+}: {
+  scene: StoryboardScene;
+  index: number;
+  variantImages: Map<string, string>;
+}) {
   const prompt = scene.prompt || 'No prompt yet';
   const videoStatus = scene.video_status || 'pending';
 
+  // Resolve live thumbnails from variant images map
+  const objectThumbs = scene.objects.map((obj) => ({
+    name: obj.name,
+    url: obj.variantId
+      ? (variantImages.get(obj.variantId) ?? obj.imageUrl)
+      : obj.imageUrl,
+  }));
+  const bgThumb = scene.background?.imageUrl ?? null;
+
   return (
-    <div className="flex items-start gap-2 px-2 py-1.5 rounded bg-muted/10 border border-border/20">
-      <span className="text-[9px] font-mono text-muted-foreground mt-0.5 shrink-0 w-4">
-        {index + 1}
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
-          {prompt.length > 120 ? `${prompt.slice(0, 120)}...` : prompt}
-        </p>
+    <div className="space-y-1.5 px-2 py-2 rounded bg-muted/10 border border-border/20">
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-mono text-muted-foreground shrink-0 w-4">
+          {index + 1}
+        </span>
+
+        {/* Asset thumbnails */}
+        <div className="flex items-center gap-1 shrink-0">
+          {bgThumb && (
+            <img
+              src={bgThumb}
+              alt="bg"
+              className="size-6 rounded object-cover border border-border/30 opacity-70"
+              title="Background"
+            />
+          )}
+          {objectThumbs.map((obj, i) => (
+            <img
+              key={`${obj.name}-${i}`}
+              src={obj.url || ''}
+              alt={obj.name}
+              className="size-6 rounded-full object-cover border border-border/30"
+              title={obj.name}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="flex-1" />
+
+        <div className="shrink-0">
+          {videoStatus === 'success' ? (
+            <IconCheck className="size-3 text-emerald-400" />
+          ) : videoStatus === 'processing' ? (
+            <IconLoader2 className="size-3 text-amber-400 animate-spin" />
+          ) : (
+            <IconClock className="size-3 text-muted-foreground/50" />
+          )}
+        </div>
       </div>
-      <div className="shrink-0">
-        {videoStatus === 'success' ? (
-          <IconCheck className="size-3 text-emerald-400" />
-        ) : videoStatus === 'processing' ? (
-          <IconLoader2 className="size-3 text-amber-400 animate-spin" />
-        ) : (
-          <IconClock className="size-3 text-muted-foreground/50" />
-        )}
-      </div>
+
+      <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed pl-6">
+        {prompt.length > 120 ? `${prompt.slice(0, 120)}...` : prompt}
+      </p>
     </div>
   );
 }
@@ -91,11 +148,13 @@ function EpisodeCard({
   storyboard,
   isExpanded,
   onToggle,
+  variantImages,
 }: {
   episode: Episode;
   storyboard: StoryboardInfo | null;
   isExpanded: boolean;
   onToggle: () => void;
+  variantImages: Map<string, string>;
 }) {
   const statusConfig = STATUS_CONFIG[episode.status] || STATUS_CONFIG.planned;
   const sceneCount = storyboard?.scenes?.length ?? 0;
@@ -149,7 +208,12 @@ function EpisodeCard({
                 Scenes ({storyboard.scenes.length})
               </p>
               {storyboard.scenes.map((scene, i) => (
-                <SceneRow key={scene.id} scene={scene} index={i} />
+                <SceneRow
+                  key={scene.id}
+                  scene={scene}
+                  index={i}
+                  variantImages={variantImages}
+                />
               ))}
             </div>
           ) : (
@@ -168,6 +232,9 @@ export default function SeriesRoadmapPanel() {
   const [bible, setBible] = useState<string>('');
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [storyboards, setStoryboards] = useState<Map<number, StoryboardInfo>>(
+    new Map()
+  );
+  const [variantImages, setVariantImages] = useState<Map<string, string>>(
     new Map()
   );
   const [expandedEp, setExpandedEp] = useState<number | null>(1);
@@ -240,12 +307,81 @@ export default function SeriesRoadmapPanel() {
           const voiceoverList = plan?.voiceover_list;
           const scenePrompts = plan?.scene_prompts as string[] | undefined;
 
-          // Load scenes from DB
+          // Load scenes with objects and backgrounds
           const { data: scenes } = await supabase
             .from('scenes')
             .select('id, order, prompt, video_status, video_url')
             .eq('storyboard_id', sb.id)
             .order('order', { ascending: true });
+
+          // Load objects and backgrounds for each scene
+          const sceneIds = (scenes ?? []).map((s) => s.id);
+          const { data: objects } = sceneIds.length
+            ? await supabase
+                .from('objects')
+                .select(
+                  'scene_id, scene_order, name, final_url, series_asset_variant_id'
+                )
+                .in('scene_id', sceneIds)
+                .order('scene_order', { ascending: true })
+            : { data: [] };
+
+          const { data: backgrounds } = sceneIds.length
+            ? await supabase
+                .from('backgrounds')
+                .select('scene_id, final_url')
+                .in('scene_id', sceneIds)
+                .limit(sceneIds.length)
+            : { data: [] };
+
+          // Collect all variant IDs for live image resolution
+          const variantIds = (objects ?? [])
+            .map(
+              (o: { series_asset_variant_id?: string }) =>
+                o.series_asset_variant_id
+            )
+            .filter(Boolean) as string[];
+
+          if (variantIds.length > 0) {
+            const { data: variantImgs } = await supabase
+              .from('series_asset_variant_images')
+              .select('variant_id, url')
+              .in('variant_id', variantIds)
+              .order('created_at', { ascending: false });
+
+            if (variantImgs) {
+              const imgMap = new Map<string, string>();
+              for (const img of variantImgs) {
+                if (img.url && !imgMap.has(img.variant_id)) {
+                  imgMap.set(img.variant_id, img.url);
+                }
+              }
+              setVariantImages((prev) => {
+                const next = new Map(prev);
+                for (const [k, v] of imgMap) next.set(k, v);
+                return next;
+              });
+            }
+          }
+
+          // Group objects/backgrounds by scene
+          const objectsByScene = new Map<string, SceneObject[]>();
+          for (const obj of objects ?? []) {
+            const existing = objectsByScene.get(obj.scene_id) || [];
+            existing.push({
+              name: obj.name || 'Unknown',
+              imageUrl: obj.final_url,
+              variantId: obj.series_asset_variant_id || null,
+            });
+            objectsByScene.set(obj.scene_id, existing);
+          }
+
+          const bgByScene = new Map<string, string>();
+          for (const bg of backgrounds ?? []) {
+            if (bg.final_url && !bgByScene.has(bg.scene_id)) {
+              bgByScene.set(bg.scene_id, bg.final_url);
+            }
+          }
 
           const sbInfo: StoryboardInfo = {
             id: sb.id,
@@ -258,6 +394,10 @@ export default function SeriesRoadmapPanel() {
               prompt: s.prompt,
               video_status: s.video_status,
               video_url: s.video_url,
+              objects: objectsByScene.get(s.id) || [],
+              background: bgByScene.has(s.id)
+                ? { imageUrl: bgByScene.get(s.id)! }
+                : null,
             })),
           };
 
@@ -381,6 +521,7 @@ export default function SeriesRoadmapPanel() {
               onToggle={() =>
                 setExpandedEp(expandedEp === ep.number ? null : ep.number)
               }
+              variantImages={variantImages}
             />
           ))}
         </div>
