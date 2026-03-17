@@ -506,8 +506,8 @@ export function StoryboardCards({
     null
   );
   const [isScriptViewOpen, setIsScriptViewOpen] = useState(false);
-  const [isObjectsViewOpen, setIsObjectsViewOpen] = useState(true);
-  const [isAudioOpen, setIsAudioOpen] = useState(true);
+  const [isObjectsViewOpen, setIsObjectsViewOpen] = useState(false);
+  const [isAudioOpen, setIsAudioOpen] = useState(false);
   const [isVisualOpen, setIsVisualOpen] = useState(false);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [cardMinWidth, setCardMinWidth] = useState(180);
@@ -2667,6 +2667,102 @@ export function StoryboardCards({
     );
   }
 
+  const renderSceneCards = () => (
+    <>
+      <div className="flex items-center gap-2 mb-2">
+        <Slider
+          value={[cardMinWidth]}
+          onValueChange={([v]) => setCardMinWidth(v)}
+          min={120}
+          max={400}
+          step={10}
+          className="flex-1"
+        />
+      </div>
+
+      <div
+        className="grid gap-2"
+        style={{
+          gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+        }}
+      >
+        {sortedScenes.map((scene) => {
+          const wanDuration = wanDurationBySceneId.get(scene.id);
+
+          return (
+            <SceneCard
+              key={scene.id}
+              scene={scene}
+              compact
+              skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
+              isSelected={selectedSceneIds.has(scene.id)}
+              onSelectionChange={(selected) => toggleScene(scene.id, selected)}
+              playingVoiceoverId={playingVoiceoverId}
+              setPlayingVoiceoverId={setPlayingVoiceoverId}
+              onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
+              onTranslateScene={handleTranslateSceneVoiceover}
+              onReadSceneAllLanguages={
+                isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
+              }
+              onGenerateSceneVideo={handleGenerateSceneVideo}
+              onSaveVisualPrompt={handleSaveVisualPrompt}
+              onSaveVoiceoverText={handleSaveVoiceoverText}
+              promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
+              promptOverride={
+                isRefI2VMode
+                  ? (scene.first_frames?.[0]?.visual_prompt ??
+                    firstFramePromptBySceneId.get(scene.id) ??
+                    null)
+                  : undefined
+              }
+              selectedLanguage={selectedLanguage}
+              isRefMode={isRefMode}
+              isTarget={targetSceneId === scene.id}
+              onSetTarget={(id) =>
+                setTargetSceneId(targetSceneId === id ? null : id)
+              }
+              aspectRatio={storyboard?.aspect_ratio}
+              onAddVideoToTimeline={handleAddVideoToTimeline}
+              onAddVoiceoverToTimeline={handleAddVoiceoverToTimeline}
+              availableBackgrounds={
+                isRefToVideoMode ? availableBackgrounds : undefined
+              }
+              onChangeBackground={
+                isRefToVideoMode ? handleChangeBackground : undefined
+              }
+              wanDurationSeconds={
+                isWanRefDirectMode ? wanDuration?.selected : undefined
+              }
+              wanDurationSelection={
+                isWanRefDirectMode ? wanDuration?.selection : undefined
+              }
+              wanVoiceoverSeconds={
+                isWanRefDirectMode ? wanDuration?.voiceoverSeconds : undefined
+              }
+              onChangeWanDurationSelection={
+                isWanRefDirectMode
+                  ? handleWanDurationSelectionChange
+                  : undefined
+              }
+              dialogueDurationSeconds={
+                dialogueDurationBySceneId.get(scene.id)?.selected
+              }
+              dialogueDurationLlmDefault={
+                dialogueDurationBySceneId.get(scene.id)?.llmDefault
+              }
+              onChangeDialogueDuration={
+                dialogueDurationBySceneId.size > 0
+                  ? handleDialogueDurationChange
+                  : undefined
+              }
+              isDialogueMode={isDialogueMode}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+
   return (
     <div className="flex flex-col gap-3">
       {splitProgress && (
@@ -2807,6 +2903,9 @@ export function StoryboardCards({
             )}
           </div>
         )}
+
+        {/* Scene Cards */}
+        {renderSceneCards()}
 
         {/* Audio Section — hidden in dialogue mode (Kling generates native audio) */}
         {!isDialogueMode && (
@@ -3905,100 +4004,6 @@ export function StoryboardCards({
             </Collapsible>
           );
         })()}
-
-      {/* Card size slider */}
-      <div className="flex items-center gap-2 mb-2">
-        <Slider
-          value={[cardMinWidth]}
-          onValueChange={([v]) => setCardMinWidth(v)}
-          min={120}
-          max={400}
-          step={10}
-          className="flex-1"
-        />
-      </div>
-
-      {/* Scene Cards - responsive grid */}
-      <div
-        className="grid gap-2"
-        style={{
-          gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
-        }}
-      >
-        {sortedScenes.map((scene) => {
-          const wanDuration = wanDurationBySceneId.get(scene.id);
-
-          return (
-            <SceneCard
-              key={scene.id}
-              scene={scene}
-              compact
-              skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
-              isSelected={selectedSceneIds.has(scene.id)}
-              onSelectionChange={(selected) => toggleScene(scene.id, selected)}
-              playingVoiceoverId={playingVoiceoverId}
-              setPlayingVoiceoverId={setPlayingVoiceoverId}
-              onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
-              onTranslateScene={handleTranslateSceneVoiceover}
-              onReadSceneAllLanguages={
-                isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
-              }
-              onGenerateSceneVideo={handleGenerateSceneVideo}
-              onSaveVisualPrompt={handleSaveVisualPrompt}
-              onSaveVoiceoverText={handleSaveVoiceoverText}
-              promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
-              promptOverride={
-                isRefI2VMode
-                  ? (scene.first_frames?.[0]?.visual_prompt ??
-                    firstFramePromptBySceneId.get(scene.id) ??
-                    null)
-                  : undefined
-              }
-              selectedLanguage={selectedLanguage}
-              isRefMode={isRefMode}
-              isTarget={targetSceneId === scene.id}
-              onSetTarget={(id) =>
-                setTargetSceneId(targetSceneId === id ? null : id)
-              }
-              aspectRatio={storyboard?.aspect_ratio}
-              onAddVideoToTimeline={handleAddVideoToTimeline}
-              onAddVoiceoverToTimeline={handleAddVoiceoverToTimeline}
-              availableBackgrounds={
-                isRefToVideoMode ? availableBackgrounds : undefined
-              }
-              onChangeBackground={
-                isRefToVideoMode ? handleChangeBackground : undefined
-              }
-              wanDurationSeconds={
-                isWanRefDirectMode ? wanDuration?.selected : undefined
-              }
-              wanDurationSelection={
-                isWanRefDirectMode ? wanDuration?.selection : undefined
-              }
-              wanVoiceoverSeconds={
-                isWanRefDirectMode ? wanDuration?.voiceoverSeconds : undefined
-              }
-              onChangeWanDurationSelection={
-                isWanRefDirectMode
-                  ? handleWanDurationSelectionChange
-                  : undefined
-              }
-              dialogueDurationSeconds={
-                dialogueDurationBySceneId.get(scene.id)?.selected
-              }
-              dialogueDurationLlmDefault={
-                dialogueDurationBySceneId.get(scene.id)?.llmDefault
-              }
-              onChangeDialogueDuration={
-                dialogueDurationBySceneId.size > 0
-                  ? handleDialogueDurationChange
-                  : undefined
-              }
-              isDialogueMode={isDialogueMode}
-            />
-          );
-        })}
-      </div>
     </div>
   );
 }
