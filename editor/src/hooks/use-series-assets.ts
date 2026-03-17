@@ -50,6 +50,7 @@ interface UseSeriesAssetsResult {
   error: string | null;
   seriesId: string | null;
   assets: SeriesAsset[];
+  refresh: () => void;
 }
 
 function isAssetType(value: string): value is AssetType {
@@ -143,6 +144,9 @@ export function useSeriesAssets(
   const [error, setError] = useState<string | null>(null);
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [assets, setAssets] = useState<SeriesAsset[]>([]);
+
+  const [refreshCounter, setRefreshCounter] = useState(0);
+  const refresh = () => setRefreshCounter((c) => c + 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,12 +280,13 @@ export function useSeriesAssets(
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, refreshCounter]);
 
   return {
     isLoading,
     error,
     seriesId,
     assets,
+    refresh,
   };
 }
