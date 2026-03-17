@@ -726,6 +726,7 @@ export function StoryboardCards({
   // Dialogue/cinematic mode: Kling generates native audio — no TTS, no voiceover controls
   const isDialogueMode =
     isRefToVideoMode && isKlingModel && refVideoMode === 'dialogue_scene';
+  const isCinematicMode = isDialogueMode;
 
   const processingVideoCount = useMemo(
     () =>
@@ -2739,14 +2740,28 @@ export function StoryboardCards({
               onSelectionChange={(selected) => toggleScene(scene.id, selected)}
               playingVoiceoverId={playingVoiceoverId}
               setPlayingVoiceoverId={setPlayingVoiceoverId}
-              onReadScene={isNarrativeNoAudioMode ? undefined : handleReadScene}
-              onTranslateScene={handleTranslateSceneVoiceover}
+              onReadScene={
+                isNarrativeNoAudioMode || isCinematicMode
+                  ? undefined
+                  : handleReadScene
+              }
+              onTranslateScene={
+                isCinematicMode ? undefined : handleTranslateSceneVoiceover
+              }
               onReadSceneAllLanguages={
-                isNarrativeNoAudioMode ? undefined : handleReadSceneAllLanguages
+                isNarrativeNoAudioMode || isCinematicMode
+                  ? undefined
+                  : handleReadSceneAllLanguages
               }
               onGenerateSceneVideo={handleGenerateSceneVideo}
-              onSaveVisualPrompt={handleSaveVisualPrompt}
-              onSaveVoiceoverText={handleSaveVoiceoverText}
+              onSaveVisualPrompt={
+                isCinematicMode ? undefined : handleSaveVisualPrompt
+              }
+              onSaveVoiceoverText={
+                isCinematicMode ? undefined : handleSaveVoiceoverText
+              }
+              showVoiceover={!isCinematicMode}
+              showVisual={!isCinematicMode}
               promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
               promptOverride={
                 isRefI2VMode
@@ -3119,208 +3134,210 @@ export function StoryboardCards({
         )}
 
         {/* Visual Section */}
-        <Collapsible open={isVisualOpen} onOpenChange={setIsVisualOpen}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
-            >
-              <span className="flex items-center gap-1.5">
-                <IconSparkles className="size-3.5 text-purple-400" />
-                <span className="text-xs font-medium">Visual</span>
-              </span>
-              {isVisualOpen ? (
-                <IconChevronUp className="size-3 text-muted-foreground" />
-              ) : (
-                <IconChevronDown className="size-3 text-muted-foreground" />
-              )}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="px-2 py-2 flex flex-col gap-2">
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Edit Model
+        {!isCinematicMode && (
+          <Collapsible open={isVisualOpen} onOpenChange={setIsVisualOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-2 py-2 bg-secondary/20 rounded-md hover:bg-secondary/30 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <IconSparkles className="size-3.5 text-purple-400" />
+                  <span className="text-xs font-medium">Visual</span>
                 </span>
-                <Select
-                  value={outpaintModel}
-                  onValueChange={(v) =>
-                    setOutpaintModel(v as keyof typeof OUTPAINT_MODELS)
-                  }
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(
-                      Object.keys(
-                        OUTPAINT_MODELS
-                      ) as (keyof typeof OUTPAINT_MODELS)[]
-                    ).map((key) => (
-                      <SelectItem key={key} value={key}>
-                        {OUTPAINT_MODELS[key].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {isRefToVideoMode && (
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Backgrounds
-                </span>
-              )}
-              <div className="flex items-center gap-1.5">
-                {!isRefToVideoMode && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={selectedSceneIds.size === 0 || isOutpainting}
-                    onClick={handleOutpaintImages}
-                    className="h-9 text-xs flex-1"
-                  >
-                    {isOutpainting ? (
-                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                    ) : (
-                      <IconSparkles className="size-3.5 mr-1" />
-                    )}
-                    Outpaint
-                  </Button>
+                {isVisualOpen ? (
+                  <IconChevronUp className="size-3 text-muted-foreground" />
+                ) : (
+                  <IconChevronDown className="size-3 text-muted-foreground" />
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={selectedSceneIds.size === 0 || isEnhancing}
-                  onClick={
-                    isRefToVideoMode
-                      ? handleEnhanceBackgroundImages
-                      : handleEnhanceImages
-                  }
-                  className="h-9 text-xs flex-1"
-                >
-                  {isEnhancing ? (
-                    <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                  ) : (
-                    <IconSparkles className="size-3.5 mr-1" />
-                  )}
-                  Enhance
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={selectedSceneIds.size === 0}
-                  onClick={
-                    isRefToVideoMode
-                      ? handleResetBackgroundImages
-                      : handleResetImages
-                  }
-                  className="h-9 text-xs flex-1"
-                >
-                  <IconArrowBackUp className="size-3.5 mr-1" />
-                  Reset
-                </Button>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Custom Edit
-                </span>
-                <Textarea
-                  value={editPrompt}
-                  onChange={(e) => setEditPrompt(e.target.value)}
-                  placeholder="Describe how to edit the image..."
-                  className="text-xs min-h-[60px] resize-none"
-                />
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={
-                      selectedSceneIds.size === 0 ||
-                      isCustomEditing ||
-                      !editPrompt.trim()
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="px-2 py-2 flex flex-col gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Edit Model
+                  </span>
+                  <Select
+                    value={outpaintModel}
+                    onValueChange={(v) =>
+                      setOutpaintModel(v as keyof typeof OUTPAINT_MODELS)
                     }
-                    onClick={
-                      isRefToVideoMode
-                        ? handleCustomEditBackgrounds
-                        : handleCustomEdit
-                    }
-                    className="h-9 text-xs flex-1"
                   >
-                    {isCustomEditing ? (
-                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                    ) : (
-                      <IconSparkles className="size-3.5 mr-1" />
-                    )}
-                    {isRefToVideoMode ? 'Edit Backgrounds' : 'Edit'}
-                  </Button>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(
+                        Object.keys(
+                          OUTPAINT_MODELS
+                        ) as (keyof typeof OUTPAINT_MODELS)[]
+                      ).map((key) => (
+                        <SelectItem key={key} value={key}>
+                          {OUTPAINT_MODELS[key].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-              {!isRefToVideoMode && (
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      Ref to Image
-                    </span>
+                {isRefToVideoMode && (
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Backgrounds
+                  </span>
+                )}
+                <div className="flex items-center gap-1.5">
+                  {!isRefToVideoMode && (
                     <Button
                       size="sm"
-                      variant={isRefMode ? 'default' : 'ghost'}
-                      onClick={() => {
-                        setIsRefMode(!isRefMode);
-                        if (isRefMode) {
-                          setTargetSceneId(null);
-                        }
-                      }}
-                      className="h-6 text-[10px] px-2"
+                      variant="outline"
+                      disabled={selectedSceneIds.size === 0 || isOutpainting}
+                      onClick={handleOutpaintImages}
+                      className="h-9 text-xs flex-1"
                     >
-                      <IconFocusCentered className="size-3 mr-1" />
-                      {isRefMode ? 'Exit Ref Mode' : 'Enter Ref Mode'}
+                      {isOutpainting ? (
+                        <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                      ) : (
+                        <IconSparkles className="size-3.5 mr-1" />
+                      )}
+                      Outpaint
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedSceneIds.size === 0 || isEnhancing}
+                    onClick={
+                      isRefToVideoMode
+                        ? handleEnhanceBackgroundImages
+                        : handleEnhanceImages
+                    }
+                    className="h-9 text-xs flex-1"
+                  >
+                    {isEnhancing ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconSparkles className="size-3.5 mr-1" />
+                    )}
+                    Enhance
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedSceneIds.size === 0}
+                    onClick={
+                      isRefToVideoMode
+                        ? handleResetBackgroundImages
+                        : handleResetImages
+                    }
+                    className="h-9 text-xs flex-1"
+                  >
+                    <IconArrowBackUp className="size-3.5 mr-1" />
+                    Reset
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Custom Edit
+                  </span>
+                  <Textarea
+                    value={editPrompt}
+                    onChange={(e) => setEditPrompt(e.target.value)}
+                    placeholder="Describe how to edit the image..."
+                    className="text-xs min-h-[60px] resize-none"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        selectedSceneIds.size === 0 ||
+                        isCustomEditing ||
+                        !editPrompt.trim()
+                      }
+                      onClick={
+                        isRefToVideoMode
+                          ? handleCustomEditBackgrounds
+                          : handleCustomEdit
+                      }
+                      className="h-9 text-xs flex-1"
+                    >
+                      {isCustomEditing ? (
+                        <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                      ) : (
+                        <IconSparkles className="size-3.5 mr-1" />
+                      )}
+                      {isRefToVideoMode ? 'Edit Backgrounds' : 'Edit'}
                     </Button>
                   </div>
-                  {isRefMode && (
-                    <>
-                      <p className="text-[10px] text-muted-foreground">
-                        Select reference scenes with checkboxes, then click the
-                        target icon on the scene to replace.
-                      </p>
-                      {targetSceneId && (
-                        <p className="text-[10px] text-amber-400">
-                          Target: Scene{' '}
-                          {sortedScenes.findIndex(
-                            (s) => s.id === targetSceneId
-                          ) + 1}
-                        </p>
-                      )}
-                      <Textarea
-                        value={refPrompt}
-                        onChange={(e) => setRefPrompt(e.target.value)}
-                        placeholder="Describe what to generate using the reference images..."
-                        className="text-xs min-h-[60px] resize-none"
-                      />
+                </div>
+                {!isRefToVideoMode && (
+                  <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Ref to Image
+                      </span>
                       <Button
                         size="sm"
-                        variant="outline"
-                        disabled={
-                          selectedSceneIds.size === 0 ||
-                          !targetSceneId ||
-                          !refPrompt.trim() ||
-                          isRefGenerating
-                        }
-                        onClick={handleRefToImage}
-                        className="h-9 text-xs"
+                        variant={isRefMode ? 'default' : 'ghost'}
+                        onClick={() => {
+                          setIsRefMode(!isRefMode);
+                          if (isRefMode) {
+                            setTargetSceneId(null);
+                          }
+                        }}
+                        className="h-6 text-[10px] px-2"
                       >
-                        {isRefGenerating ? (
-                          <IconLoader2 className="size-3.5 animate-spin mr-1" />
-                        ) : (
-                          <IconFocusCentered className="size-3.5 mr-1" />
-                        )}
-                        Generate with References
+                        <IconFocusCentered className="size-3 mr-1" />
+                        {isRefMode ? 'Exit Ref Mode' : 'Enter Ref Mode'}
                       </Button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+                    </div>
+                    {isRefMode && (
+                      <>
+                        <p className="text-[10px] text-muted-foreground">
+                          Select reference scenes with checkboxes, then click
+                          the target icon on the scene to replace.
+                        </p>
+                        {targetSceneId && (
+                          <p className="text-[10px] text-amber-400">
+                            Target: Scene{' '}
+                            {sortedScenes.findIndex(
+                              (s) => s.id === targetSceneId
+                            ) + 1}
+                          </p>
+                        )}
+                        <Textarea
+                          value={refPrompt}
+                          onChange={(e) => setRefPrompt(e.target.value)}
+                          placeholder="Describe what to generate using the reference images..."
+                          className="text-xs min-h-[60px] resize-none"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            selectedSceneIds.size === 0 ||
+                            !targetSceneId ||
+                            !refPrompt.trim() ||
+                            isRefGenerating
+                          }
+                          onClick={handleRefToImage}
+                          className="h-9 text-xs"
+                        >
+                          {isRefGenerating ? (
+                            <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                          ) : (
+                            <IconFocusCentered className="size-3.5 mr-1" />
+                          )}
+                          Generate with References
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         {/* Apply Template Section (Quick Video mode) */}
         {isQuickVideoMode && selectedSceneIds.size > 0 && (
@@ -3813,42 +3830,44 @@ export function StoryboardCards({
         </div>
       )}
       {/* Script View - Collapsible voiceover list */}
-      <Collapsible open={isScriptViewOpen} onOpenChange={setIsScriptViewOpen}>
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <span className="flex items-center gap-1.5">
-              <IconFileText className="size-3.5" />
-              Script View
-              <span className="text-[10px] text-muted-foreground/60">
-                ({sortedScenes.length} scenes)
+      {!isCinematicMode && (
+        <Collapsible open={isScriptViewOpen} onOpenChange={setIsScriptViewOpen}>
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <span className="flex items-center gap-1.5">
+                <IconFileText className="size-3.5" />
+                Script View
+                <span className="text-[10px] text-muted-foreground/60">
+                  ({sortedScenes.length} scenes)
+                </span>
               </span>
-            </span>
-            {isScriptViewOpen ? (
-              <IconChevronUp className="size-3" />
-            ) : (
-              <IconChevronDown className="size-3" />
-            )}
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="flex flex-col gap-1 py-2 px-1 bg-secondary/10 rounded-md max-h-[400px] overflow-y-auto">
-            {sortedScenes.map((scene) => (
-              <ScriptViewRow
-                key={scene.id}
-                scene={scene}
-                playingVoiceoverId={playingVoiceoverId}
-                setPlayingVoiceoverId={setPlayingVoiceoverId}
-                onSave={handleSaveVoiceoverText}
-                selectedLanguage={selectedLanguage}
-              />
-            ))}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+              {isScriptViewOpen ? (
+                <IconChevronUp className="size-3" />
+              ) : (
+                <IconChevronDown className="size-3" />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="flex flex-col gap-1 py-2 px-1 bg-secondary/10 rounded-md max-h-[400px] overflow-y-auto">
+              {sortedScenes.map((scene) => (
+                <ScriptViewRow
+                  key={scene.id}
+                  scene={scene}
+                  playingVoiceoverId={playingVoiceoverId}
+                  setPlayingVoiceoverId={setPlayingVoiceoverId}
+                  onSave={handleSaveVoiceoverText}
+                  selectedLanguage={selectedLanguage}
+                />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       {/* Objects Gallery — ref_to_video only */}
       {isRefToVideoMode &&

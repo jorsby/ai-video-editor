@@ -243,6 +243,16 @@ export default function PanelStoryboard() {
   const selectedStoryboardRefVariant = selectedStoryboard
     ? getRefWorkflowVariant(selectedStoryboard.plan)
     : null;
+  const selectedStoryboardVideoMode =
+    selectedStoryboard?.mode === 'ref_to_video' &&
+    selectedStoryboard.plan &&
+    typeof selectedStoryboard.plan === 'object' &&
+    'video_mode' in selectedStoryboard.plan
+      ? (selectedStoryboard.plan.video_mode as RefVideoMode | undefined)
+      : undefined;
+  const isSelectedStoryboardCinematic =
+    selectedStoryboard?.mode === 'ref_to_video' &&
+    selectedStoryboardVideoMode === 'dialogue_scene';
 
   // Fetch storyboards on mount and when projectId changes
   useEffect(() => {
@@ -854,73 +864,78 @@ export default function PanelStoryboard() {
       {viewMode !== 'draft' && (
         <div className="flex-none border-t border-border/50">
           {viewMode === 'view' && selectedStoryboard ? (
-            /* View Mode - Read-only display of saved storyboard settings */
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <button className="group w-full flex items-center justify-between px-4 py-2 hover:bg-secondary/20 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Voiceover Script
-                    </span>
-                    <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
-                      {selectedStoryboard.aspect_ratio}
-                    </span>
-                    {selectedStoryboard.mode === 'ref_to_video' &&
-                      selectedStoryboardRefVariant === 'i2v_from_refs' && (
-                        <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
-                          I2V
+            isSelectedStoryboardCinematic ? (
+              <div className="px-4 py-2 text-xs text-muted-foreground">
+                Cinematic mode — no voiceover script.
+              </div>
+            ) : (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="group w-full flex items-center justify-between px-4 py-2 hover:bg-secondary/20 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Voiceover Script
+                      </span>
+                      <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
+                        {selectedStoryboard.aspect_ratio}
+                      </span>
+                      {selectedStoryboard.mode === 'ref_to_video' &&
+                        selectedStoryboardRefVariant === 'i2v_from_refs' && (
+                          <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
+                            I2V
+                          </span>
+                        )}
+                      {selectedStoryboard.mode === 'ref_to_video' &&
+                        selectedStoryboardRefVariant !== 'i2v_from_refs' && (
+                          <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
+                            Ref
+                          </span>
+                        )}
+                      {selectedStoryboard.mode === 'image_to_video' && (
+                        <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
+                          I2V Legacy
                         </span>
                       )}
-                    {selectedStoryboard.mode === 'ref_to_video' &&
-                      selectedStoryboardRefVariant !== 'i2v_from_refs' && (
-                        <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
-                          Ref
-                        </span>
-                      )}
-                    {selectedStoryboard.mode === 'image_to_video' && (
-                      <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
-                        I2V Legacy
-                      </span>
-                    )}
-                    {selectedStoryboard.mode === 'quick_video' && (
-                      <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
-                        Quick
-                      </span>
-                    )}
-                  </div>
-                  <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
-                  <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-4 pb-3">
-                  <div className="relative group/vo">
-                    <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
-                      {selectedStoryboard.voiceover || (
-                        <span className="text-muted-foreground italic">
-                          No voiceover
+                      {selectedStoryboard.mode === 'quick_video' && (
+                        <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
+                          Quick
                         </span>
                       )}
                     </div>
-                    {selectedStoryboard.voiceover && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            selectedStoryboard.voiceover!
-                          );
-                          toast.success('Copied to clipboard');
-                        }}
-                      >
-                        <IconCopy className="size-3" />
-                      </Button>
-                    )}
+                    <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
+                    <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-4 pb-3">
+                    <div className="relative group/vo">
+                      <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
+                        {selectedStoryboard.voiceover || (
+                          <span className="text-muted-foreground italic">
+                            No voiceover
+                          </span>
+                        )}
+                      </div>
+                      {selectedStoryboard.voiceover && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
+                          onClick={() => {
+                            navigator.clipboard.writeText(
+                              selectedStoryboard.voiceover!
+                            );
+                            toast.success('Copied to clipboard');
+                          }}
+                        >
+                          <IconCopy className="size-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
+                </CollapsibleContent>
+              </Collapsible>
+            )
           ) : (
             /* Create Mode - Editable form */
             <div className="p-4 flex flex-col gap-3">

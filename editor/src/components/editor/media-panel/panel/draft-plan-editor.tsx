@@ -191,8 +191,7 @@ export function DraftPlanEditor({
     refPlan && 'video_mode' in refPlan
       ? (refPlan.video_mode ?? 'narrative')
       : 'narrative';
-  const isDialogueMode =
-    ref && isWanPlan(refPlan as RefPlan) && refVideoMode === 'dialogue_scene';
+  const isDialogueMode = ref && refVideoMode === 'dialogue_scene';
 
   const handleSceneDialogueChange = (index: number, value: string) => {
     if (!ref || !isWanPlan(plan as RefPlan)) return;
@@ -622,22 +621,27 @@ export function DraftPlanEditor({
                       )}
 
                       {/* Voiceovers */}
-                      {Object.keys(plan.voiceover_list).map((lang) => (
-                        <div key={lang}>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            {getLanguageName(lang)}
-                          </label>
-                          <Textarea
-                            value={plan.voiceover_list[lang]?.[index] || ''}
-                            onChange={(e) =>
-                              handleVoiceoverChange(index, lang, e.target.value)
-                            }
-                            readOnly={readOnly}
-                            className="text-xs min-h-[60px]"
-                            placeholder={`${getLanguageName(lang)} voiceover...`}
-                          />
-                        </div>
-                      ))}
+                      {!isDialogueMode &&
+                        Object.keys(plan.voiceover_list).map((lang) => (
+                          <div key={lang}>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                              {getLanguageName(lang)}
+                            </label>
+                            <Textarea
+                              value={plan.voiceover_list[lang]?.[index] || ''}
+                              onChange={(e) =>
+                                handleVoiceoverChange(
+                                  index,
+                                  lang,
+                                  e.target.value
+                                )
+                              }
+                              readOnly={readOnly}
+                              className="text-xs min-h-[60px]"
+                              placeholder={`${getLanguageName(lang)} voiceover...`}
+                            />
+                          </div>
+                        ))}
 
                       {/* Visual Prompt (i2v only) */}
                       {!ref && (

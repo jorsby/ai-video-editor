@@ -100,6 +100,8 @@ interface SceneBackgroundOption {
 
 interface SceneCardProps {
   scene: Scene;
+  showVoiceover?: boolean;
+  showVisual?: boolean;
   onClick?: () => void;
   compact?: boolean;
   isSelected?: boolean;
@@ -419,6 +421,8 @@ interface ExpandedContentProps {
   voiceover: Voiceover | null;
   displayVoiceover: string | null | undefined;
   displayVisualPrompt: string | null | undefined;
+  showVoiceover?: boolean;
+  showVisual?: boolean;
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   sceneId: string;
@@ -459,6 +463,8 @@ function ExpandedContent({
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
   isDialogueMode: isDialogueModeExpanded,
+  showVoiceover = true,
+  showVisual = true,
 }: ExpandedContentProps) {
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
@@ -544,243 +550,258 @@ function ExpandedContent({
 
   return (
     <div className="mt-2 flex flex-col gap-2">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <IconMicrophone size={12} className="text-blue-400" />
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
-          </span>
-          {renderVoiceoverStatus()}
-          {voiceoverDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
-              {voiceoverDurationLabel}
+      {showVoiceover && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <IconMicrophone size={12} className="text-blue-400" />
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
+              {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
             </span>
-          )}
-          {isSavingVoiceover && (
-            <IconLoader2 size={10} className="animate-spin text-blue-400" />
+            {renderVoiceoverStatus()}
+            {voiceoverDurationLabel && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
+                {voiceoverDurationLabel}
+              </span>
+            )}
+            {isSavingVoiceover && (
+              <IconLoader2 size={10} className="animate-spin text-blue-400" />
+            )}
+          </div>
+          {isEditingVoiceover ? (
+            <div
+              className="pl-5 flex flex-col gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Textarea
+                autoFocus
+                value={editedVoiceover}
+                onChange={(e) => setEditedVoiceover(e.target.value)}
+                onBlur={() => {
+                  // Delay to allow button clicks to register before blur saves
+                  setTimeout(() => {
+                    if (!isReadingTts && !isTranslating && !isReadingAllTts)
+                      handleSaveVoiceover();
+                  }, 150);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsEditingVoiceover(false);
+                  }
+                }}
+                className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-blue-400/30 focus-visible:border-blue-400/50"
+                placeholder="Voiceover text..."
+              />
+              {(onReadScene || onTranslateScene || onReadSceneAllLanguages) && (
+                <div className="flex justify-end gap-1">
+                  {onTranslateScene && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsTranslating(true);
+                        onTranslateScene(sceneId, editedVoiceover).finally(
+                          () => {
+                            setIsTranslating(false);
+                          }
+                        );
+                      }}
+                    >
+                      {isTranslating ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconSwitchHorizontal size={10} className="mr-1" />
+                      )}
+                      Translate
+                    </Button>
+                  )}
+                  {onReadScene && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsReadingTts(true);
+                        onReadScene(sceneId, editedVoiceover).finally(() => {
+                          setIsReadingTts(false);
+                          setIsEditingVoiceover(false);
+                        });
+                      }}
+                    >
+                      {isReadingTts ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconMicrophone size={10} className="mr-1" />
+                      )}
+                      Read
+                    </Button>
+                  )}
+                  {onReadSceneAllLanguages && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsReadingAllTts(true);
+                        onReadSceneAllLanguages(
+                          sceneId,
+                          editedVoiceover
+                        ).finally(() => {
+                          setIsReadingAllTts(false);
+                          setIsEditingVoiceover(false);
+                        });
+                      }}
+                    >
+                      {isReadingAllTts ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconVolume size={10} className="mr-1" />
+                      )}
+                      Read ALL
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p
+              className={`text-[11px] text-foreground/80 leading-relaxed pl-5 ${onSaveVoiceoverText ? 'cursor-pointer hover:text-foreground hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVoiceoverText) return;
+                e.stopPropagation();
+                setEditedVoiceover(displayVoiceover || '');
+                setIsEditingVoiceover(true);
+              }}
+              title={onSaveVoiceoverText ? 'Click to edit' : undefined}
+            >
+              {displayVoiceover || (
+                <span className="italic text-muted-foreground">
+                  {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {isEditingVoiceover ? (
-          <div
-            className="pl-5 flex flex-col gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Textarea
-              autoFocus
-              value={editedVoiceover}
-              onChange={(e) => setEditedVoiceover(e.target.value)}
-              onBlur={() => {
-                // Delay to allow button clicks to register before blur saves
-                setTimeout(() => {
-                  if (!isReadingTts && !isTranslating && !isReadingAllTts)
-                    handleSaveVoiceover();
-                }, 150);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsEditingVoiceover(false);
-                }
-              }}
-              className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-blue-400/30 focus-visible:border-blue-400/50"
-              placeholder="Voiceover text..."
-            />
-            {(onReadScene || onTranslateScene || onReadSceneAllLanguages) && (
-              <div className="flex justify-end gap-1">
-                {onTranslateScene && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setIsTranslating(true);
-                      onTranslateScene(sceneId, editedVoiceover).finally(() => {
-                        setIsTranslating(false);
-                      });
-                    }}
-                  >
-                    {isTranslating ? (
-                      <IconLoader2 size={10} className="animate-spin mr-1" />
-                    ) : (
-                      <IconSwitchHorizontal size={10} className="mr-1" />
-                    )}
-                    Translate
-                  </Button>
-                )}
-                {onReadScene && (
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setIsReadingTts(true);
-                      onReadScene(sceneId, editedVoiceover).finally(() => {
-                        setIsReadingTts(false);
-                        setIsEditingVoiceover(false);
-                      });
-                    }}
-                  >
-                    {isReadingTts ? (
-                      <IconLoader2 size={10} className="animate-spin mr-1" />
-                    ) : (
-                      <IconMicrophone size={10} className="mr-1" />
-                    )}
-                    Read
-                  </Button>
-                )}
-                {onReadSceneAllLanguages && (
+      )}
+      {showVisual && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <IconEye size={12} className="text-purple-400" />
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
+              {promptLabel ?? 'Visual'}
+            </span>
+            {isSaving && (
+              <IconLoader2 size={10} className="animate-spin text-purple-400" />
+            )}
+          </div>
+          {isEditingPrompt ? (
+            <div
+              className="pl-5 flex flex-col gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Textarea
+                autoFocus
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    if (!isGeneratingVideo) handleSavePrompt();
+                  }, 150);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsEditingPrompt(false);
+                  }
+                }}
+                className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-purple-400/30 focus-visible:border-purple-400/50"
+                placeholder="Visual prompt..."
+              />
+              {onGenerateSceneVideo && (
+                <div className="flex justify-end">
                   <Button
                     size="sm"
                     variant="secondary"
                     className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
+                    disabled={isGeneratingVideo}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      setIsReadingAllTts(true);
-                      onReadSceneAllLanguages(sceneId, editedVoiceover).finally(
+                      setIsGeneratingVideo(true);
+                      onGenerateSceneVideo(sceneId, editedPrompt).finally(
                         () => {
-                          setIsReadingAllTts(false);
-                          setIsEditingVoiceover(false);
+                          setIsGeneratingVideo(false);
+                          setIsEditingPrompt(false);
                         }
                       );
                     }}
                   >
-                    {isReadingAllTts ? (
+                    {isGeneratingVideo ? (
                       <IconLoader2 size={10} className="animate-spin mr-1" />
                     ) : (
-                      <IconVolume size={10} className="mr-1" />
+                      <IconVideo size={10} className="mr-1" />
                     )}
-                    Read ALL
+                    Generate Video
                   </Button>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <p
-            className={`text-[11px] text-foreground/80 leading-relaxed pl-5 ${onSaveVoiceoverText ? 'cursor-pointer hover:text-foreground hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVoiceoverText) return;
-              e.stopPropagation();
-              setEditedVoiceover(displayVoiceover || '');
-              setIsEditingVoiceover(true);
-            }}
-            title={onSaveVoiceoverText ? 'Click to edit' : undefined}
-          >
-            {displayVoiceover || (
-              <span className="italic text-muted-foreground">
-                {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+                </div>
+              )}
+            </div>
+          ) : parseMultiShotPrompt(displayVisualPrompt) ? (
+            <div
+              className={`pl-5 flex flex-col gap-1 ${onSaveVisualPrompt ? 'cursor-pointer hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVisualPrompt) return;
+                e.stopPropagation();
+                setEditedPrompt(displayVisualPrompt || '');
+                setIsEditingPrompt(true);
+              }}
+              title={onSaveVisualPrompt ? 'Click to edit' : undefined}
+            >
+              <span className="text-[9px] text-cyan-500 font-medium">
+                {parseMultiShotPrompt(displayVisualPrompt)!.length}-shot
               </span>
-            )}
-          </p>
-        )}
-      </div>
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <IconEye size={12} className="text-purple-400" />
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            {promptLabel ?? 'Visual'}
-          </span>
-          {isSaving && (
-            <IconLoader2 size={10} className="animate-spin text-purple-400" />
+              {parseMultiShotPrompt(displayVisualPrompt)!.map((shot, i) => (
+                <p
+                  key={i}
+                  className="text-[11px] text-foreground/60 leading-relaxed"
+                >
+                  <span className="text-muted-foreground font-medium">
+                    {i + 1}.{' '}
+                  </span>
+                  {shot}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p
+              className={`text-[11px] text-foreground/60 leading-relaxed pl-5 ${onSaveVisualPrompt ? 'cursor-pointer hover:text-foreground/80 hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVisualPrompt) return;
+                e.stopPropagation();
+                setEditedPrompt(displayVisualPrompt || '');
+                setIsEditingPrompt(true);
+              }}
+              title={onSaveVisualPrompt ? 'Click to edit' : undefined}
+            >
+              {displayVisualPrompt || (
+                <span className="italic text-muted-foreground">
+                  No visual prompt
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {isEditingPrompt ? (
-          <div
-            className="pl-5 flex flex-col gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Textarea
-              autoFocus
-              value={editedPrompt}
-              onChange={(e) => setEditedPrompt(e.target.value)}
-              onBlur={() => {
-                setTimeout(() => {
-                  if (!isGeneratingVideo) handleSavePrompt();
-                }, 150);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsEditingPrompt(false);
-                }
-              }}
-              className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-purple-400/30 focus-visible:border-purple-400/50"
-              placeholder="Visual prompt..."
-            />
-            {onGenerateSceneVideo && (
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-6 text-[10px] px-2"
-                  disabled={isGeneratingVideo}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsGeneratingVideo(true);
-                    onGenerateSceneVideo(sceneId, editedPrompt).finally(() => {
-                      setIsGeneratingVideo(false);
-                      setIsEditingPrompt(false);
-                    });
-                  }}
-                >
-                  {isGeneratingVideo ? (
-                    <IconLoader2 size={10} className="animate-spin mr-1" />
-                  ) : (
-                    <IconVideo size={10} className="mr-1" />
-                  )}
-                  Generate Video
-                </Button>
-              </div>
-            )}
-          </div>
-        ) : parseMultiShotPrompt(displayVisualPrompt) ? (
-          <div
-            className={`pl-5 flex flex-col gap-1 ${onSaveVisualPrompt ? 'cursor-pointer hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVisualPrompt) return;
-              e.stopPropagation();
-              setEditedPrompt(displayVisualPrompt || '');
-              setIsEditingPrompt(true);
-            }}
-            title={onSaveVisualPrompt ? 'Click to edit' : undefined}
-          >
-            <span className="text-[9px] text-cyan-500 font-medium">
-              {parseMultiShotPrompt(displayVisualPrompt)!.length}-shot
-            </span>
-            {parseMultiShotPrompt(displayVisualPrompt)!.map((shot, i) => (
-              <p
-                key={i}
-                className="text-[11px] text-foreground/60 leading-relaxed"
-              >
-                <span className="text-muted-foreground font-medium">
-                  {i + 1}.{' '}
-                </span>
-                {shot}
-              </p>
-            ))}
-          </div>
-        ) : (
-          <p
-            className={`text-[11px] text-foreground/60 leading-relaxed pl-5 ${onSaveVisualPrompt ? 'cursor-pointer hover:text-foreground/80 hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVisualPrompt) return;
-              e.stopPropagation();
-              setEditedPrompt(displayVisualPrompt || '');
-              setIsEditingPrompt(true);
-            }}
-            title={onSaveVisualPrompt ? 'Click to edit' : undefined}
-          >
-            {displayVisualPrompt || (
-              <span className="italic text-muted-foreground">
-                No visual prompt
-              </span>
-            )}
-          </p>
-        )}
-      </div>
+      )}
       {/* Timeline actions */}
       {(hasVideo ||
         (voiceover?.status === 'success' && voiceover?.audio_url)) && (
@@ -803,7 +824,8 @@ function ExpandedContent({
               Video
             </Button>
           )}
-          {!isDialogueModeExpanded &&
+          {showVoiceover &&
+            !isDialogueModeExpanded &&
             voiceover?.status === 'success' &&
             voiceover?.audio_url &&
             onAddVoiceoverToTimeline && (
@@ -1002,6 +1024,8 @@ function BackgroundPicker({
 
 export function SceneCard({
   scene,
+  showVoiceover = true,
+  showVisual = true,
   isSelected,
   onSelectionChange,
   skyreelsTiming,
@@ -1408,7 +1432,7 @@ export function SceneCard({
         </div>
       )}
 
-      {!expanded && (
+      {!expanded && showVoiceover && (
         <div className="mt-2 flex items-center gap-1.5">
           <IconMicrophone size={10} className="text-blue-400 flex-shrink-0" />
           <p className="text-[10px] text-foreground/70 truncate flex-1">
@@ -1525,6 +1549,8 @@ export function SceneCard({
             voiceover={voiceover}
             displayVoiceover={displayVoiceover}
             displayVisualPrompt={displayVisualPrompt}
+            showVoiceover={showVoiceover}
+            showVisual={showVisual}
             playingVoiceoverId={playingVoiceoverId}
             setPlayingVoiceoverId={setPlayingVoiceoverId}
             sceneId={scene.id}
