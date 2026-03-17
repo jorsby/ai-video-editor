@@ -7,6 +7,7 @@ import {
   resolveForKling,
   type CharacterImage,
 } from '@/lib/supabase/character-service';
+import { resolveSeriesAssetsForProject } from '@/lib/supabase/series-asset-resolver';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
 const WEBHOOK_BASE_URL =
@@ -437,6 +438,105 @@ async function getRefVideoContext(
           if (resolved.length > 0) {
             libraryElements = resolved;
           }
+        }
+      }
+
+      // Series asset fallback: if no project_characters found, try series assets
+      if (!libraryElements && projectId) {
+        try {
+          const seriesAssetMap = await resolveSeriesAssetsForProject(
+            supabase,
+            projectId as string
+          );
+
+          if (seriesAssetMap && seriesAssetMap.characters.size > 0) {
+            // Load series_assets (character type) with variants and images for this project's series
+            const { data: seriesRow } = await supabase
+              .from('series')
+              .select('id')
+              .eq('project_id', projectId)
+              .maybeSingle();
+
+            const seriesId = seriesRow?.id;
+
+            if (seriesId) {
+              const { data: seriesCharacterAssets } = await supabase
+                .from('series_assets')
+                .select(
+                  'id, name, series_asset_variants (id, is_default, is_finalized, series_asset_variant_images (id, url, storage_path))'
+                )
+                .eq('series_id', seriesId)
+                .eq('type', 'character')
+                .order('sort_order', { ascending: true });
+
+              if (seriesCharacterAssets && seriesCharacterAssets.length > 0) {
+                const resolved: LibraryElement[] = [];
+
+                for (const asset of seriesCharacterAssets) {
+                  const variants: Array<{
+                    is_finalized: boolean;
+                    is_default: boolean;
+                    series_asset_variant_images: Array<{
+                      url: string | null;
+                      storage_path: string | null;
+                    }>;
+                  }> = asset.series_asset_variants ?? [];
+
+                  if (variants.length === 0) continue;
+
+                  // Priority: finalized → default → first with image
+                  const orderedVariants = [
+                    ...variants.filter((v) => v.is_finalized),
+                    ...variants.filter((v) => v.is_default && !v.is_finalized),
+                    ...variants.filter((v) => !v.is_finalized && !v.is_default),
+                  ];
+
+                  let frontalUrl: string | null = null;
+                  const referenceUrls: string[] = [];
+
+                  for (const variant of orderedVariants) {
+                    const images = variant.series_asset_variant_images ?? [];
+                    for (const img of images) {
+                      const url = img.url;
+                      if (!url) continue;
+                      if (!frontalUrl) {
+                        frontalUrl = url;
+                      } else if (referenceUrls.length < 3) {
+                        referenceUrls.push(url);
+                      }
+                    }
+                    if (frontalUrl && referenceUrls.length >= 3) break;
+                  }
+
+                  if (frontalUrl) {
+                    resolved.push({
+                      frontal_image_url: frontalUrl,
+                      reference_image_urls:
+                        referenceUrls.length > 0 ? referenceUrls : [frontalUrl],
+                    });
+                  }
+                }
+
+                if (resolved.length > 0) {
+                  libraryElements = resolved;
+                  log.info('Using series character assets as Kling elements', {
+                    scene_id: sceneId,
+                    series_id: seriesId,
+                    element_count: resolved.length,
+                  });
+                }
+              }
+            }
+          }
+        } catch (seriesErr) {
+          // Non-fatal: log and fall through to naive single-image elements
+          log.warn('Series asset lookup for Kling failed (non-fatal)', {
+            scene_id: sceneId,
+            error:
+              seriesErr instanceof Error
+                ? seriesErr.message
+                : String(seriesErr),
+          });
         }
       }
     }

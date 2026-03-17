@@ -1,10 +1,11 @@
 /**
  * Series Asset Resolver
  *
- * Given a project ID, checks if it belongs to a series (via series_episodes table).
- * If yes, loads all series assets (characters, locations, props) with their variant
- * images and returns maps from normalized name → { url, assetName } for matching
- * against storyboard plan objects/backgrounds.
+ * Given a project ID, resolves its series (prefers series.project_id, falls back
+ * to legacy series_episodes.project_id links). If found, loads all series assets
+ * (characters, locations, props) with their variant images and returns maps from
+ * normalized name → { url, assetName } for matching against storyboard plan
+ * objects/backgrounds.
  *
  * Matching logic:
  * - Normalize both names: lowercase, trim, remove "the ", strip text after "/" or "("
@@ -168,6 +169,46 @@ function pickBestVariantImageUrl(
   return null;
 }
 
+async function resolveSeriesIdForProject(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<string | null> {
+  // Preferred (v2): direct series → project link
+  const { data: seriesByProject, error: seriesByProjectError } = await supabase
+    .from('series')
+    .select('id')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  if (seriesByProjectError) {
+    console.warn(
+      '[series-asset-resolver] Failed to look up series by project:',
+      seriesByProjectError.message
+    );
+  }
+
+  if (seriesByProject?.id) {
+    return seriesByProject.id as string;
+  }
+
+  // Legacy fallback: episode link
+  const { data: episode, error: episodeError } = await supabase
+    .from('series_episodes')
+    .select('series_id')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  if (episodeError) {
+    console.warn(
+      '[series-asset-resolver] Failed to look up episode series link:',
+      episodeError.message
+    );
+    return null;
+  }
+
+  return episode?.series_id ?? null;
+}
+
 /**
  * Given a project ID, check if it belongs to a series and resolve all assets.
  * Returns null if the project is not part of any series, or on error.
@@ -179,24 +220,8 @@ export async function resolveSeriesAssetsForProject(
   supabase: SupabaseClient,
   projectId: string
 ): Promise<SeriesAssetMap | null> {
-  // 1. Find the episode that links this project to a series
-  const { data: episode, error: episodeError } = await supabase
-    .from('series_episodes')
-    .select('series_id')
-    .eq('project_id', projectId)
-    .maybeSingle();
-
-  if (episodeError) {
-    console.warn(
-      '[series-asset-resolver] Failed to look up episode:',
-      episodeError.message
-    );
-    return null;
-  }
-
-  if (!episode) return null; // Not part of a series
-
-  const seriesId: string = episode.series_id;
+  const seriesId = await resolveSeriesIdForProject(supabase, projectId);
+  if (!seriesId) return null;
 
   // 2. Load all series assets with their variants and images
   const { data: assets, error: assetsError } = await supabase
