@@ -99,8 +99,8 @@ const VIDEO_MODELS = [
 ] as const;
 
 const REF_VIDEO_MODE_OPTIONS = [
-  { value: 'narrative' as const, label: 'Narrative (No Audio)' },
-  { value: 'dialogue_scene' as const, label: 'Cinematic Dialogue' },
+  { value: 'narrative' as const, label: 'Narrative (Audio OFF)' },
+  { value: 'dialogue_scene' as const, label: 'Cinematic (Audio ON)' },
 ] as const;
 
 type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
@@ -133,6 +133,27 @@ function getStoryboardModeLabel(storyboard: Storyboard): string {
   if (variant === 'i2v_from_refs') return '[I2V]';
 
   return '[Ref]';
+}
+
+function getStoryboardVideoModeBadge(
+  storyboard: Storyboard
+): 'Narrative' | 'Cinematic' | null {
+  if (
+    storyboard.mode === 'ref_to_video' &&
+    storyboard.plan &&
+    typeof storyboard.plan === 'object' &&
+    'video_mode' in storyboard.plan
+  ) {
+    if (storyboard.plan.video_mode === 'dialogue_scene') {
+      return 'Cinematic';
+    }
+
+    if (storyboard.plan.video_mode === 'narrative') {
+      return 'Narrative';
+    }
+  }
+
+  return null;
 }
 
 function pickPreferredStoryboard(storyboards: Storyboard[]): Storyboard | null {
@@ -667,6 +688,11 @@ export default function PanelStoryboard() {
                       {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
                       {getStoryboardModeLabel(sb)}
                     </span>
+                    {getStoryboardVideoModeBadge(sb) && (
+                      <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border bg-purple-500/10 text-purple-400 border-purple-500/30">
+                        {getStoryboardVideoModeBadge(sb)}
+                      </span>
+                    )}
                     <span
                       className={`text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border ${getStatusBadgeClasses(
                         sb.plan_status
@@ -899,6 +925,16 @@ export default function PanelStoryboard() {
                       {selectedStoryboard.mode === 'quick_video' && (
                         <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
                           Quick
+                        </span>
+                      )}
+                      {selectedStoryboardVideoMode === 'narrative' && (
+                        <span className="text-xs px-2 py-0.5 bg-slate-500/10 text-slate-300 rounded-md">
+                          Narrative · Audio OFF
+                        </span>
+                      )}
+                      {selectedStoryboardVideoMode === 'dialogue_scene' && (
+                        <span className="text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-md">
+                          Cinematic · Audio ON
                         </span>
                       )}
                     </div>

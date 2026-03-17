@@ -2710,6 +2710,22 @@ export function StoryboardCards({
 
   const renderSceneCards = () => (
     <>
+      {/* Mode indicator */}
+      <div className="flex items-center gap-2 mb-2 px-1">
+        <span
+          className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+            isCinematicMode
+              ? 'bg-purple-500/15 text-purple-400'
+              : 'bg-blue-500/15 text-blue-400'
+          }`}
+        >
+          {isCinematicMode ? '🎬 Cinematic' : '🎙️ Narrative'}
+        </span>
+        <span className="text-[9px] text-muted-foreground">
+          {sortedScenes.length} scenes
+        </span>
+      </div>
+
       <div className="flex items-center gap-2 mb-2">
         <Slider
           value={[cardMinWidth]}
@@ -2761,7 +2777,7 @@ export function StoryboardCards({
                 isCinematicMode ? undefined : handleSaveVoiceoverText
               }
               showVoiceover={!isCinematicMode}
-              showVisual={!isCinematicMode}
+              showVisual={false}
               promptLabel={isRefI2VMode ? 'First Frame Prompt' : 'Visual'}
               promptOverride={
                 isRefI2VMode
@@ -2857,6 +2873,26 @@ export function StoryboardCards({
           <div className="text-[11px] text-blue-200/80">
             {splitProgress.stageLabel}
           </div>
+        </div>
+      )}
+
+      {/* Mode / Audio Status */}
+      {isRefToVideoMode && (
+        <div className="px-2 py-1.5 bg-secondary/20 rounded-md flex items-center gap-2 text-[10px]">
+          <span className="text-muted-foreground">Mode:</span>
+          <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30 uppercase tracking-wide">
+            {isDialogueMode ? 'Cinematic' : 'Narrative'}
+          </span>
+          <span className="text-muted-foreground">Audio:</span>
+          <span
+            className={`px-1.5 py-0.5 rounded border uppercase tracking-wide ${
+              isDialogueMode
+                ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                : 'bg-slate-500/10 text-slate-300 border-slate-500/30'
+            }`}
+          >
+            {isDialogueMode ? 'ON' : 'OFF'}
+          </span>
         </div>
       )}
 
