@@ -34,18 +34,6 @@ export default async function Dashboard() {
               <span className="ml-1.5 hidden sm:inline">Calendar</span>
             </Button>
           </Link>
-          <Link href="/characters">
-            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
-              <Users className="w-4 h-4" />
-              <span className="ml-1.5 hidden sm:inline">Characters</span>
-            </Button>
-          </Link>
-          <Link href="/series">
-            <Button variant="ghost" size="sm" className="h-10 px-2 sm:px-3">
-              <Clapperboard className="w-4 h-4" />
-              <span className="ml-1.5 hidden sm:inline">Series</span>
-            </Button>
-          </Link>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4">
