@@ -222,8 +222,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       appendStyleToScenePrompt(scenePrompt, seriesStyleSuffix)
     );
 
-    const sceneObjectMatches: Array<Array<{ url: string } | null>> = [];
-    const sceneBackgroundMatches: Array<{ url: string } | null> = [];
+    const sceneObjectMatches: Array<
+      Array<{ url: string; variantId: string } | null>
+    > = [];
+    const sceneBackgroundMatches: Array<{
+      url: string;
+      variantId: string;
+    } | null> = [];
 
     let missingObjectCount = 0;
     let missingBackgroundCount = 0;
@@ -246,7 +251,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
       const objectIndices = plan.scene_object_indices[sceneIdx] ?? [];
-      const objectMatches: Array<{ url: string } | null> = [];
+      const objectMatches: Array<{ url: string; variantId: string } | null> =
+        [];
 
       for (const gridPosition of objectIndices) {
         const objectName =
@@ -257,7 +263,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             matchSeriesAsset(seriesAssetMap, objectName, 'prop'))
           : null;
 
-        objectMatches.push(objectMatch ? { url: objectMatch.url } : null);
+        objectMatches.push(
+          objectMatch
+            ? { url: objectMatch.url, variantId: objectMatch.variantId }
+            : null
+        );
 
         if (!objectMatch) {
           missingObjectCount++;
@@ -274,7 +284,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         ? matchSeriesAsset(seriesAssetMap, bgName, 'location')
         : null;
 
-      sceneBackgroundMatches.push(bgMatch ? { url: bgMatch.url } : null);
+      sceneBackgroundMatches.push(
+        bgMatch ? { url: bgMatch.url, variantId: bgMatch.variantId } : null
+      );
 
       if (!bgMatch) {
         missingBackgroundCount++;
@@ -388,6 +400,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           description: object?.description ?? null,
           url: matchedAsset?.url ?? null,
           final_url: matchedAsset?.url ?? null,
+          series_asset_variant_id: matchedAsset?.variantId ?? null,
           status: matchedAsset ? 'success' : 'processing',
         });
 
@@ -411,6 +424,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         name: plan.background_names[bgIndex] ?? `Background ${bgIndex + 1}`,
         url: matchedBg?.url ?? null,
         final_url: matchedBg?.url ?? null,
+        series_asset_variant_id: matchedBg?.variantId ?? null,
         status: matchedBg ? 'success' : 'processing',
       });
 

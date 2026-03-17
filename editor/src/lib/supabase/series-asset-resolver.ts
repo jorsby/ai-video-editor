@@ -4,8 +4,8 @@
  * Given a project ID, resolves its series (prefers series.project_id, falls back
  * to legacy series_episodes.project_id links). If found, loads all series assets
  * (characters, locations, props) with their variant images and returns maps from
- * normalized name → { url, assetName } for matching against storyboard plan
- * objects/backgrounds.
+ * normalized name → { url, variantId, assetName } for matching against storyboard
+ * plan objects/backgrounds.
  *
  * Matching logic:
  * - Normalize both names: lowercase, trim, remove "the ", strip text after "/" or "("
@@ -22,6 +22,7 @@ const SERIES_ASSETS_BUCKET = 'series-assets';
 export interface SeriesAssetEntry {
   url: string;
   assetName: string;
+  variantId: string;
 }
 
 export interface SeriesAssetMap {
@@ -109,22 +110,26 @@ function resolveImageUrl(
  */
 function pickVariantImageUrl(
   supabase: SupabaseClient,
+  variantId: string,
   images: Array<{ url: string | null; storage_path: string | null }>
-): string | null {
+): { url: string; variantId: string } | null {
   for (const img of images) {
     const url = resolveImageUrl(supabase, img);
-    if (url) return url;
+    if (url) {
+      return { url, variantId };
+    }
   }
   return null;
 }
 
 /**
- * From a list of variants (with images), pick the best image URL.
+ * From a list of variants (with images), pick the best variant image.
  * Priority: finalized → default → first with any image
  */
-function pickBestVariantImageUrl(
+function pickBestVariantImage(
   supabase: SupabaseClient,
   variants: Array<{
+    id: string;
     is_finalized: boolean;
     is_default: boolean;
     series_asset_variant_images: Array<{
@@ -132,38 +137,41 @@ function pickBestVariantImageUrl(
       storage_path: string | null;
     }>;
   }>
-): string | null {
+): { url: string; variantId: string } | null {
   if (!variants || variants.length === 0) return null;
 
   // 1. Finalized variant with image
   for (const v of variants) {
     if (v.is_finalized) {
-      const url = pickVariantImageUrl(
+      const match = pickVariantImageUrl(
         supabase,
+        v.id,
         v.series_asset_variant_images ?? []
       );
-      if (url) return url;
+      if (match) return match;
     }
   }
 
   // 2. Default variant with image
   for (const v of variants) {
     if (v.is_default) {
-      const url = pickVariantImageUrl(
+      const match = pickVariantImageUrl(
         supabase,
+        v.id,
         v.series_asset_variant_images ?? []
       );
-      if (url) return url;
+      if (match) return match;
     }
   }
 
   // 3. First variant with any image
   for (const v of variants) {
-    const url = pickVariantImageUrl(
+    const match = pickVariantImageUrl(
       supabase,
+      v.id,
       v.series_asset_variant_images ?? []
     );
-    if (url) return url;
+    if (match) return match;
   }
 
   return null;
@@ -247,15 +255,19 @@ export async function resolveSeriesAssetsForProject(
   const props = new Map<string, SeriesAssetEntry>();
 
   for (const asset of assets) {
-    const url = pickBestVariantImageUrl(
+    const bestVariantImage = pickBestVariantImage(
       supabase,
       asset.series_asset_variants ?? []
     );
-    if (!url) continue; // Skip assets with no resolved image
+    if (!bestVariantImage) continue; // Skip assets with no resolved image
 
     const normalizedName = normalizeName(asset.name as string);
     const altNames = extractAltNames(asset.name as string);
-    const entry: SeriesAssetEntry = { url, assetName: asset.name as string };
+    const entry: SeriesAssetEntry = {
+      url: bestVariantImage.url,
+      variantId: bestVariantImage.variantId,
+      assetName: asset.name as string,
+    };
 
     const targetMap =
       asset.type === 'character'

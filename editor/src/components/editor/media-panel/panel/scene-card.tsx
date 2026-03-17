@@ -27,6 +27,10 @@ import {
   PopoverContent,
 } from '@/components/ui/popover';
 import { StatusBadge } from './status-badge';
+import {
+  resolveAssetImageUrl,
+  type AssetImageMap,
+} from '@/hooks/use-asset-image-resolver';
 import { useStudioStore } from '@/stores/studio-store';
 import {
   findCompatibleTrack,
@@ -87,6 +91,13 @@ function formatVoiceoverDuration(
   return `${seconds.toFixed(1)}s`;
 }
 
+interface SceneBackgroundOption {
+  name: string;
+  url: string;
+  final_url: string;
+  series_asset_variant_id?: string | null;
+}
+
 interface SceneCardProps {
   scene: Scene;
   onClick?: () => void;
@@ -123,10 +134,8 @@ interface SceneCardProps {
   aspectRatio?: string;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
-  availableBackgrounds?: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds?: Map<number, SceneBackgroundOption>;
+  assetImageMap?: AssetImageMap;
   onChangeBackground?: (
     sceneId: string,
     newGridPosition: number
@@ -155,10 +164,7 @@ interface SceneThumbnailProps {
   onAddToCanvas?: () => void;
   onPreviewImage?: () => void;
   aspectRatio?: string;
-  availableBackgrounds?: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds?: Map<number, SceneBackgroundOption>;
   onChangeBackground?: (gridPosition: number) => void;
 }
 
@@ -827,13 +833,19 @@ function ExpandedContent({
   );
 }
 
-function ObjectsRow({ objects }: { objects: RefObject[] }) {
+function ObjectsRow({
+  objects,
+  assetImageMap,
+}: {
+  objects: RefObject[];
+  assetImageMap: AssetImageMap;
+}) {
   const sorted = [...objects].sort((a, b) => a.scene_order - b.scene_order);
 
   return (
     <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
       {sorted.map((obj) => {
-        const imgSrc = obj.final_url ?? obj.url;
+        const imgSrc = resolveAssetImageUrl(obj, assetImageMap);
         const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
 
         return (
@@ -923,10 +935,7 @@ function BackgroundPicker({
   onSelect,
 }: {
   currentGridPosition: number;
-  availableBackgrounds: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds: Map<number, SceneBackgroundOption>;
   onSelect: (gridPosition: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1014,6 +1023,7 @@ export function SceneCard({
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
   availableBackgrounds,
+  assetImageMap = {},
   onChangeBackground,
   wanDurationSeconds,
   wanDurationSelection,
@@ -1036,7 +1046,7 @@ export function SceneCard({
       firstFrame.url ??
       firstFrame.out_padded_url ??
       null)
-    : (background?.final_url ?? background?.url ?? null);
+    : resolveAssetImageUrl(background, assetImageMap);
   const displayVoiceover = voiceover?.text;
   // For ref_to_video scenes, prefer explicit override (first-frame prompt), then multi_prompt, then scene/first-frame prompt.
   const displayVisualPrompt =
@@ -1375,7 +1385,9 @@ export function SceneCard({
       )}
 
       {/* Objects row (ref_to_video characters/items) */}
-      {scene.objects?.length > 0 && <ObjectsRow objects={scene.objects} />}
+      {scene.objects?.length > 0 && (
+        <ObjectsRow objects={scene.objects} assetImageMap={assetImageMap} />
+      )}
 
       {skyreelsTiming && (
         <div

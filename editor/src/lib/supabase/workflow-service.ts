@@ -195,6 +195,7 @@ export interface RefObject {
   description: string | null;
   url: string | null;
   final_url: string | null;
+  series_asset_variant_id?: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
@@ -220,6 +221,7 @@ export interface Background {
   grid_position: number;
   url: string | null;
   final_url: string | null;
+  series_asset_variant_id?: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;

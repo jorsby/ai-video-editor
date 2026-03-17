@@ -467,6 +467,7 @@ export async function POST(req: NextRequest) {
                 .update({
                   url: match.url,
                   final_url: match.url,
+                  series_asset_variant_id: match.variantId,
                   status: 'success',
                 })
                 .eq('grid_image_id', objectsGrid.id)
@@ -489,6 +490,7 @@ export async function POST(req: NextRequest) {
               .update({
                 url: match.url,
                 final_url: match.url,
+                series_asset_variant_id: match.variantId,
                 status: 'success',
               })
               .eq('grid_image_id', bgGrid.id)

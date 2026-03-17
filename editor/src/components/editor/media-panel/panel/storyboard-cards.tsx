@@ -44,6 +44,10 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { useWorkflow } from '@/hooks/use-workflow';
+import {
+  resolveAssetImageUrl,
+  useAssetImageResolver,
+} from '@/hooks/use-asset-image-resolver';
 import { useFalPolling } from '@/hooks/use-fal-polling';
 import { useStudioStore } from '@/stores/studio-store';
 import { useLanguageStore } from '@/stores/language-store';
@@ -661,6 +665,28 @@ export function StoryboardCards({
       : [];
 
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
+
+  const variantIds = useMemo(() => {
+    const ids: string[] = [];
+
+    for (const scene of sortedScenes) {
+      for (const obj of scene.objects ?? []) {
+        if (obj.series_asset_variant_id) {
+          ids.push(obj.series_asset_variant_id);
+        }
+      }
+
+      for (const bg of scene.backgrounds ?? []) {
+        if (bg.series_asset_variant_id) {
+          ids.push(bg.series_asset_variant_id);
+        }
+      }
+    }
+
+    return ids;
+  }, [sortedScenes]);
+
+  const assetImageMap = useAssetImageResolver(variantIds);
 
   const isRefToVideoMode = storyboard?.mode === 'ref_to_video';
   const isQuickVideoMode = storyboard?.mode === 'quick_video';
@@ -1571,29 +1597,42 @@ export function StoryboardCards({
     if (!isRefToVideoMode)
       return new Map<
         number,
-        { name: string; url: string; final_url: string }
+        {
+          name: string;
+          url: string;
+          final_url: string;
+          series_asset_variant_id?: string | null;
+        }
       >();
     const map = new Map<
       number,
-      { name: string; url: string; final_url: string }
+      {
+        name: string;
+        url: string;
+        final_url: string;
+        series_asset_variant_id?: string | null;
+      }
     >();
     for (const scene of sortedScenes) {
       for (const bg of scene.backgrounds ?? []) {
+        const resolvedBgUrl = resolveAssetImageUrl(bg, assetImageMap);
+
         if (
           bg.grid_position != null &&
-          (bg.url || bg.final_url) &&
+          resolvedBgUrl &&
           !map.has(bg.grid_position)
         ) {
           map.set(bg.grid_position, {
             name: bg.name,
-            url: bg.url ?? '',
-            final_url: bg.final_url ?? bg.url ?? '',
+            url: bg.url ?? resolvedBgUrl,
+            final_url: resolvedBgUrl,
+            series_asset_variant_id: bg.series_asset_variant_id ?? null,
           });
         }
       }
     }
     return map;
-  }, [isRefToVideoMode, sortedScenes]);
+  }, [assetImageMap, isRefToVideoMode, sortedScenes]);
 
   const handleChangeBackground = async (
     sceneId: string,
@@ -1615,6 +1654,7 @@ export function StoryboardCards({
           name: source.name,
           url: source.url,
           final_url: source.final_url,
+          series_asset_variant_id: source.series_asset_variant_id ?? null,
           image_edit_status: null,
           image_edit_error_message: null,
           image_edit_request_id: null,
@@ -2727,6 +2767,7 @@ export function StoryboardCards({
               availableBackgrounds={
                 isRefToVideoMode ? availableBackgrounds : undefined
               }
+              assetImageMap={assetImageMap}
               onChangeBackground={
                 isRefToVideoMode ? handleChangeBackground : undefined
               }
@@ -3817,12 +3858,17 @@ export function StoryboardCards({
             for (const obj of scene.objects ?? []) {
               if (!seen.has(obj.name)) {
                 seen.set(obj.name, obj);
-              } else if (
-                !seen.get(obj.name)!.final_url &&
-                !seen.get(obj.name)!.url &&
-                (obj.final_url || obj.url)
-              ) {
-                seen.set(obj.name, obj);
+              } else {
+                const existing = seen.get(obj.name);
+                const existingUrl = resolveAssetImageUrl(
+                  existing,
+                  assetImageMap
+                );
+                const candidateUrl = resolveAssetImageUrl(obj, assetImageMap);
+
+                if (!existingUrl && candidateUrl) {
+                  seen.set(obj.name, obj);
+                }
               }
             }
           }
@@ -3863,7 +3909,7 @@ export function StoryboardCards({
                   }}
                 >
                   {uniqueObjects.map((obj) => {
-                    const imageUrl = obj.final_url ?? obj.url;
+                    const imageUrl = resolveAssetImageUrl(obj, assetImageMap);
                     const isProcessing =
                       obj.status === 'processing' || obj.status === 'pending';
                     const isFailed = obj.status === 'failed';
