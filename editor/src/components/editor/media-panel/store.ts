@@ -14,6 +14,7 @@ import {
   IconDeviceTv,
   IconPackage,
   IconMovie,
+  IconLayoutList,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -31,6 +32,7 @@ export type Tab =
   | 'assistant'
   | 'assets'
   | 'roadmap'
+  | 'storyboard'
   | 'renders';
 
 export const tabs: {
@@ -43,6 +45,10 @@ export const tabs: {
   roadmap: {
     icon: IconMovie,
     label: 'Roadmap',
+  },
+  storyboard: {
+    icon: IconLayoutList,
+    label: 'Storyboard',
   },
   renders: {
     icon: IconDeviceTv,
