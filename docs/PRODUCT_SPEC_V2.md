@@ -1,0 +1,272 @@
+# Octupost Product Spec v2 — Agent-Driven Video Editor
+
+## Core Concept
+
+An AI agent creates videos through conversation. The editor is a preview + approval surface, not an input surface. Same API serves both agents and manual users.
+
+---
+
+## Two Production Modes
+
+| | Narrative | Cinematic |
+|---|---|---|
+| **Story delivery** | TTS voiceover narrates over video | Kling O3 native audio (dialogue + ambient) |
+| **Audio source** | ElevenLabs v2.5 via fal.ai | Kling O3 built-in |
+| **Scene prompt style** | Visual action + body language only. No speaking. | Dialogue cues, emotional delivery, ambient sounds |
+| **Use case** | Storytelling, explainers, series narration | Drama, dialogue-heavy scenes, trailers |
+| **Voice config** | voice_id per language in series metadata | N/A |
+
+---
+
+## Locked Models
+
+| Purpose | Model | Pricing |
+|---------|-------|---------|
+| Images | nano-banana-2 (fal.ai) | $0.08/image (1K), 1.5× for 2K, 2× for 4K |
+| Video | Kling O3 ref-to-video (fal.ai) | $0.084/5s (no audio) · $0.112/5s (with audio) |
+| TTS | ElevenLabs turbo-v2.5 (fal.ai) | ~$0.02/scene |
+| LLM | Claude (the agent itself) | Part of agent runtime |
+
+---
+
+## Architecture
+
+### Two Layers
+
+**Layer 1 — Series Assets (created once, reused forever)**
+- Characters, locations, props
+- Each has a default reference image (generated via grid)
+- Variants for lasting changes (injury, wardrobe change across episodes)
+- Short-term changes (wet, different expression) → handled by scene prompt
+
+**Layer 2 — Episode Scenes (per storyboard)**
+- References Layer 1 assets by ID
+- Scene prompt, voiceover text, duration
+- No object/background definitions inline
+
+```
+Series Assets (Layer 1)              Episode Storyboard (Layer 2)
+┌─────────────────────────┐          ┌──────────────────────────────┐
+│ Elena [ref image ✓]     │          │ Scene 1: Elena + Lobby       │
+│ Receptionist [ref ✓]    │──refs──▶ │ Scene 2: Elena + Receptionist│
+│ Room 4B [ref ✓]         │          │ Scene 3: Elena + Hallway     │
+│ Hallway [ref ✓]         │          │ voiceover, prompt, duration  │
+│ Lobby [ref ✓]           │          └──────────────────────────────┘
+└─────────────────────────┘
+```
+
+### No Per-Episode Grids
+Series asset images go directly to Kling O3 as references. Grid images are ONLY for initial asset creation at the series level.
+
+### No First-Frame Generation
+Killed. Kling O3 composes from references + prompt directly. Saves $0.08/scene.
+
+---
+
+## Grid Image Specifications (Locked)
+
+| Setting | Value |
+|---------|-------|
+| Grid sizes | 2×2 (4 items) or 3×3 (9 items) ONLY |
+| Aspect ratio | Always 1:1 (square) |
+| Resolution | Always 4K (4096×4096) |
+| Model | nano-banana-2 |
+| Cell format | Equal-size cells, 1px black grid lines |
+| Prompt format | `"A NxN Grid. Grid_1x1: [desc]. Grid_1x2: [desc]..."` |
+| Style | Injected from series metadata |
+| No-text suffix | Always appended (prevents text artifacts) |
+
+### Grid Prompt Template — Characters
+```
+Photorealistic cinematic style with natural skin texture. Grid image with 
+each cell in the same size with 1px black grid lines. Each cell shows one 
+character on a neutral white background, front-facing, full body visible 
+from head to shoes, clearly separated. Each character must show their 
+complete outfit clearly visible. {style_from_metadata}
+```
+
+### Grid Prompt Template — Locations
+```
+Photorealistic cinematic style. Grid image with each cell in the same size 
+with 1px black grid lines. Each cell shows one empty environment/location 
+with no people, with varied cinematic camera angles. Locations should feel 
+lived-in and atmospheric with natural lighting and environmental details. 
+{style_from_metadata}
+```
+
+### Grid Prompt Template — Props
+```
+Product photography style. Grid image with each cell in the same size with 
+1px black grid lines. Each cell shows one object/prop on a clean neutral 
+background. Centered composition, studio lighting, high detail. 
+{style_from_metadata}
+```
+
+---
+
+## Series Metadata Schema
+
+```typescript
+interface SeriesMetadata {
+  // Production mode
+  mode: "narrative" | "cinematic";
+  
+  // Episode planning  
+  target_episode_count: number;
+  target_episode_duration_seconds: number; // e.g. 60, 120, 180
+  pacing: "slow" | "medium" | "fast";
+  
+  // Voice (narrative mode only)
+  voice_id: string; // ElevenLabs voice ID
+  
+  // Visual style (injected into all prompts)
+  style: {
+    setting: string;        // "1990s European hotel"
+    time_period: string;    // "Late 1990s"
+    visual_style: string;   // "photorealistic" | "animated" | "anime" | "stylized"
+    color_palette: string;  // "muted, desaturated, cold tones with warm lamp accents"
+    lighting: string;       // "dim, claustrophobic, surveillance-camera aesthetic"
+    mood: string;           // "paranoid, tense, isolated"
+    camera_style: string;   // "slow deliberate movements, voyeuristic angles, tight framing"
+    custom_notes: string;   // anything else
+  };
+}
+```
+
+The `style` object gets serialized into a style suffix appended to ALL prompts (grid generation, scene prompts, etc). This ensures visual consistency across every generated asset.
+
+---
+
+## Storyboard Scene Schema (v2)
+
+```typescript
+interface ScenePlan {
+  scenes: Array<{
+    // Asset references (IDs from series assets)
+    characters: string[];           // asset IDs
+    character_variants?: (string | null)[];  // variant IDs, null = default
+    location: string;               // asset ID
+    location_variant?: string | null;
+    props?: string[];               // asset IDs
+    
+    // Generation
+    prompt: string;                 // Kling O3 scene prompt with @Element/@Image refs
+    voiceover: string;              // single language, one string per scene
+    duration: number;               // seconds (3-15)
+  }>;
+}
+```
+
+**No grid prompts. No first-frame prompts. No object/background definitions. Just scenes referencing existing assets.**
+
+---
+
+## Approval Gates
+
+| Action | Cost | Approver |
+|--------|------|----------|
+| Grid image generation (series assets) | ~$0.08/grid | Agent (auto) |
+| Grid split into individual assets | Free | Agent (auto) |
+| TTS voiceover generation | ~$0.02/scene | Agent (auto) |
+| **Video generation (Kling O3)** | **$0.56-$1.12/clip** | **User (manual)** |
+| Composite/stitch | Free | Agent (auto) |
+
+Video generation uses dry-run pattern: agent shows cost estimate → user confirms → agent queues.
+
+---
+
+## Variant Rules
+
+| Change Type | Duration | Action |
+|-------------|----------|--------|
+| Expression, wet, brief costume | 1 scene | Handle via prompt |
+| Injury, bandage, wardrobe change | Multiple scenes/episodes | Create variant |
+| Time of day, weather | 1-2 scenes | Handle via prompt |
+| Location renovation, destruction | Permanent | Create variant |
+
+Variants are tagged and reusable. Once created, they persist until the character "recovers" or the location changes back.
+
+---
+
+## TTS Configuration
+
+- Model: ElevenLabs turbo-v2.5 via fal.ai
+- Default voice: `pNInz6obpgDQGcFmaJgB` (Adam)
+- Context: previous + next scene text sent for natural flow
+- Speed: 0.7 - 1.2 (default 1.0)
+- Single language per generation (translation is a later feature)
+
+---
+
+## Pipeline Flow
+
+```
+1. CONVERSATION: User + Agent discuss episode
+          ↓
+2. SERIES ASSETS: Agent creates characters/locations/props (if new)
+          ↓  
+3. GRID GENERATION: Agent generates reference images (2x2 or 3x3, 4K, 1:1)
+          ↓
+4. GRID SPLIT: Auto-split into individual asset images
+          ↓
+5. SCENE PLAN: Agent creates storyboard referencing asset IDs
+          ↓
+6. TTS: Agent generates voiceover per scene (auto-approved)
+          ↓
+7. VIDEO ESTIMATE: Agent shows cost per scene to user
+          ↓
+8. USER APPROVES: User confirms video generation
+          ↓
+9. VIDEO GENERATION: Kling O3 ref-to-video per scene
+          ↓
+10. COMPOSITE: Stitch scenes + audio into episode
+          ↓
+11. PUBLISH: Post to social accounts
+```
+
+Steps 2-4 happen ONCE per series (or when new assets are needed).
+Steps 5-11 happen per episode.
+
+---
+
+## API Endpoints (v2)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/v2/series/create` | Create series + project + assets |
+| POST | `/api/v2/series/{id}/generate-assets` | Generate reference images for assets |
+| POST | `/api/v2/storyboard/create` | Create storyboard with scene plan |
+| POST | `/api/v2/storyboard/{id}/approve` | Trigger grid gen + asset injection |
+| GET | `/api/v2/project/{id}/status` | Full pipeline status per scene |
+| POST | `/api/v2/storyboard/{id}/generate-video` | Cost estimate + confirm to queue |
+| POST | `/api/v2/storyboard/{id}/generate-tts` | Generate voiceover per scene |
+| POST | `/api/v2/storyboard/{id}/composite` | Stitch scenes into episode |
+
+---
+
+## Prompt Architecture
+
+```
+Base prompts (in repo, versioned)     →  immutable foundation
+     +
+Agent memory (per user, runtime)      →  style preferences, learned patterns
+     +  
+Series metadata style                 →  injected into every prompt
+     =
+Final prompt sent to API
+```
+
+Base prompts evolve as the agent learns what produces better video globally.
+Agent memory is per-user and captures individual preferences.
+Series style is per-project and ensures visual consistency.
+
+---
+
+## Future (Not Now)
+
+- Multi-language voiceover + translation
+- Cinematic mode (native Kling audio)
+- Per-user agent memory (SaaS multi-tenant)
+- Music/SFX layer
+- Automated quality checking (vision model validates grids before split)
+- Episode continuity tracking (what happened in previous episodes)
