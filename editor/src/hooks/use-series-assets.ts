@@ -166,18 +166,37 @@ export function useSeriesAssets(
       const supabase = createClient('studio');
 
       try {
-        const { data: series, error: seriesError } = await supabase
-          .from('series')
-          .select('id')
-          .eq('project_id', projectId)
-          .limit(1)
-          .maybeSingle();
+        // Step 1: Find series ID via project settings or series.project_id
+        let foundSeriesId: string | null = null;
 
-        if (seriesError) {
-          throw new Error(seriesError.message);
+        // Try project settings first (has series_id from create-project)
+        const projRes = await fetch(`/api/projects/${projectId}`);
+        if (projRes.ok) {
+          const projData = await projRes.json();
+          const settings = projData?.project?.settings as Record<
+            string,
+            unknown
+          > | null;
+          if (settings?.series_id && typeof settings.series_id === 'string') {
+            foundSeriesId = settings.series_id;
+          }
         }
 
-        if (!series?.id) {
+        // Fallback: query series.project_id
+        if (!foundSeriesId) {
+          const { data: series, error: seriesError } = await supabase
+            .from('series')
+            .select('id')
+            .eq('project_id', projectId)
+            .limit(1)
+            .maybeSingle();
+
+          if (!seriesError && series?.id) {
+            foundSeriesId = series.id;
+          }
+        }
+
+        if (!foundSeriesId) {
           if (!cancelled) {
             setSeriesId(null);
             setAssets([]);
@@ -191,7 +210,7 @@ export function useSeriesAssets(
           .select(
             'id, name, type, description, sort_order, series_asset_variants(id, label, is_default, is_finalized, series_asset_variant_images(url, storage_path))'
           )
-          .eq('series_id', series.id)
+          .eq('series_id', foundSeriesId)
           .order('type', { ascending: true })
           .order('sort_order', { ascending: true });
 
@@ -236,7 +255,7 @@ export function useSeriesAssets(
         });
 
         if (!cancelled) {
-          setSeriesId(series.id);
+          setSeriesId(foundSeriesId);
           setAssets(parsedAssets);
           setIsLoading(false);
         }

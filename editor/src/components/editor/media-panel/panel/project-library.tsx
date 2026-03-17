@@ -156,38 +156,69 @@ export default function PanelProjectLibrary() {
       setLoading(true);
       setError(null);
       try {
-        // Check if this project belongs to a series episode
-        // First try project settings
-        const projRes = await fetch(`/api/projects/${projectId}`);
+        // Try multiple methods to find the linked series
         let seriesId: string | undefined;
 
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          const settings = projData?.project?.settings as Record<
-            string,
-            unknown
-          > | null;
-          seriesId = settings?.series_id as string | undefined;
+        // Method 1: project settings via API
+        try {
+          const projRes = await fetch(`/api/projects/${projectId}`);
+          if (projRes.ok) {
+            const projData = await projRes.json();
+            const settings = projData?.project?.settings as Record<
+              string,
+              unknown
+            > | null;
+            seriesId = settings?.series_id as string | undefined;
+          }
+        } catch {
+          // Continue to fallback
         }
 
-        // Fallback: check series_episodes table for this project
+        // Method 2: check all series for episodes linked to this project
         if (!seriesId) {
-          const seriesRes = await fetch('/api/series');
-          if (seriesRes.ok) {
-            const seriesData = await seriesRes.json();
-            for (const s of seriesData.series ?? []) {
-              const epRes = await fetch(`/api/series/${s.id}/episodes`);
-              if (epRes.ok) {
-                const epData = await epRes.json();
-                const match = (epData.episodes ?? []).find(
-                  (ep: { project_id: string }) => ep.project_id === projectId
-                );
-                if (match) {
+          try {
+            const seriesRes = await fetch('/api/series');
+            if (seriesRes.ok) {
+              const seriesData = await seriesRes.json();
+              for (const s of seriesData.series ?? []) {
+                try {
+                  const epRes = await fetch(`/api/series/${s.id}/episodes`);
+                  if (epRes.ok) {
+                    const epData = await epRes.json();
+                    const match = (epData.episodes ?? []).find(
+                      (ep: { project_id: string }) =>
+                        ep.project_id === projectId
+                    );
+                    if (match) {
+                      seriesId = s.id;
+                      break;
+                    }
+                  }
+                } catch {
+                  // Continue
+                }
+              }
+            }
+          } catch {
+            // Continue
+          }
+        }
+
+        // Method 3: check project.settings from series metadata column
+        if (!seriesId) {
+          try {
+            const seriesRes = await fetch('/api/series');
+            if (seriesRes.ok) {
+              const seriesData = await seriesRes.json();
+              for (const s of seriesData.series ?? []) {
+                if (s.project_id === projectId) {
                   seriesId = s.id;
                   break;
                 }
               }
             }
+          } catch {
+            // Continue
           }
         }
 
