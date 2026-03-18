@@ -236,14 +236,10 @@ export function DraftPlanEditor({
             </span>
             {videoModel && (
               <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded">
-                {videoModel === 'skyreels'
-                  ? 'SkyReels'
-                  : videoModel === 'klingo3' || videoModel === 'klingo3pro'
-                    ? 'Kling O3'
-                    : 'WAN 2.6'}
+                Kling O3
               </span>
             )}
-            {ref && isWanPlan(refPlan as RefPlan) && (
+            {ref && (
               <span className="text-xs px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded">
                 {isDialogueMode ? 'Dialogue Scene' : 'Narrative'}
               </span>
@@ -522,56 +518,31 @@ export function DraftPlanEditor({
                               }
                               readOnly={readOnly}
                               className="text-xs min-h-[60px]"
-                              placeholder={
-                                videoModel === 'skyreels'
-                                  ? 'Scene prompt using character names (no @Element syntax)...'
-                                  : refPlan && isKlingPlan(refPlan)
-                                    ? 'Scene prompt with @ElementN and @Image1 references...'
-                                    : 'Scene prompt with @Element1 (bg) and @Element2+ (characters)...'
-                              }
+                              placeholder="Scene prompt with @ElementN and @Image1 references..."
                             />
                           )}
                           <div className="mt-1 flex flex-wrap gap-1">
-                            {videoModel === 'skyreels' ? (
-                              <>
-                                <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
-                                  BG: {refPlan!.background_names[sceneBgIdx]}
-                                </span>
-                                {sceneObjIndices.map((objIdx) => (
+                            <>
+                              <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
+                                @Image1 ={' '}
+                                {refPlan!.background_names[sceneBgIdx]}
+                              </span>
+                              {sceneObjIndices.map((objIdx) => {
+                                const pos = sceneObjIndices.indexOf(objIdx) + 1;
+                                const isKling = isKlingPlan(refPlan!);
+                                return (
                                   <span
                                     key={objIdx}
                                     className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
                                   >
-                                    {objectNames[objIdx]}
+                                    {isKling
+                                      ? `@Element${pos}`
+                                      : `@Element${pos + 1}`}{' '}
+                                    = {objectNames[objIdx]}
                                   </span>
-                                ))}
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
-                                  {isKlingPlan(refPlan!)
-                                    ? '@Image1'
-                                    : '@Element1'}{' '}
-                                  = {refPlan!.background_names[sceneBgIdx]}
-                                </span>
-                                {sceneObjIndices.map((objIdx) => {
-                                  const pos =
-                                    sceneObjIndices.indexOf(objIdx) + 1;
-                                  const isKling = isKlingPlan(refPlan!);
-                                  return (
-                                    <span
-                                      key={objIdx}
-                                      className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
-                                    >
-                                      {isKling
-                                        ? `@Element${pos}`
-                                        : `@Element${pos + 1}`}{' '}
-                                      = {objectNames[objIdx]}
-                                    </span>
-                                  );
-                                })}
-                              </>
-                            )}
+                                );
+                              })}
+                            </>
                           </div>
                           {isWanPlan(refPlan!) && (
                             <label className="mt-1.5 flex items-center gap-1.5 cursor-pointer">
