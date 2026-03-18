@@ -718,10 +718,14 @@ export function StoryboardCards({
 
   const isKlingModel = storyboard?.model?.startsWith('kling') ?? false;
 
-  const isNarrativeNoAudioMode =
+  // Narrative mode = TTS voiceover composited on silent video (TTS ALLOWED)
+  // This flag was incorrectly blocking TTS — kept for reference but no longer gates TTS
+  const isNarrativeMode =
     isRefToVideoMode &&
     (storyboard?.model === 'wan26flash' || isKlingModel) &&
     refVideoMode === 'narrative';
+  // DEPRECATED: was blocking TTS in narrative mode (wrong). Use isCinematicMode to block TTS instead.
+  const isNarrativeNoAudioMode = false;
 
   // Dialogue/cinematic mode: Kling generates native audio — no TTS, no voiceover controls
   const isDialogueMode =
@@ -1066,13 +1070,6 @@ export function StoryboardCards({
 
   const handleGenerateVoiceovers = async () => {
     if (selectedSceneIds.size === 0) return;
-
-    if (isNarrativeNoAudioMode) {
-      toast.info(
-        'Narrative mode keeps video silent in V1. Switch to Dialogue Scene for TTS.'
-      );
-      return;
-    }
 
     setIsGenerating(true);
     try {
