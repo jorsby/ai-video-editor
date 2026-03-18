@@ -51,9 +51,11 @@ function getAssetEmoji(type: AssetType): string {
 function AssetCard({
   asset,
   viewMode,
+  thumbSize = 40,
 }: {
   asset: SeriesAsset;
   viewMode: ViewMode;
+  thumbSize?: number;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -376,12 +378,22 @@ function AssetSection({
               }}
             >
               {assets.map((asset) => (
-                <AssetCard key={asset.id} asset={asset} viewMode="grid" />
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
+                  viewMode="grid"
+                  thumbSize={cardMinWidth}
+                />
               ))}
             </div>
           ) : (
             assets.map((asset) => (
-              <AssetCard key={asset.id} asset={asset} viewMode="list" />
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                viewMode="list"
+                thumbSize={cardMinWidth}
+              />
             ))
           )}
         </div>
