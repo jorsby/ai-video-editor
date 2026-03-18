@@ -782,13 +782,13 @@ async function sendRefVideoRequest(
         enable_audio: enableAudio,
       });
     } else {
-      // Use library character elements if available, otherwise naive single-image
-      const elements = context.library_elements
-        ? context.library_elements
-        : context.object_urls.map((url) => ({
-            frontal_image_url: url,
-            reference_image_urls: [url],
-          }));
+      // Use per-scene object URLs — each scene already has the correct elements
+      // linked via series_asset_variant_id. Don't use library_elements which
+      // sends ALL series characters regardless of which scene needs them.
+      const elements = context.object_urls.map((url) => ({
+        frontal_image_url: url,
+        reference_image_urls: [url],
+      }));
       payload = modelConfig.buildPayload!({
         prompt: context.prompt,
         image_url: '',
