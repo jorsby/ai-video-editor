@@ -29,7 +29,22 @@ function calculateSceneCost(
   );
 }
 
-function splitMultiPromptDurations(prompts: string[], totalDuration: number) {
+function buildMultiPromptPayload(
+  prompts: string[],
+  multiShots: Array<{ duration?: string }> | null,
+  totalDuration: number
+) {
+  // If per-shot durations are stored, use them directly
+  if (multiShots && multiShots.length === prompts.length) {
+    return prompts.map((prompt, index) => ({
+      prompt,
+      duration: String(
+        Math.max(3, Math.min(15, Number(multiShots[index]?.duration ?? '5')))
+      ),
+    }));
+  }
+
+  // Fallback: split total duration evenly
   const count = prompts.length;
   const base = Math.floor(totalDuration / count);
   const remainder = totalDuration - base * count;
@@ -40,6 +55,15 @@ function splitMultiPromptDurations(prompts: string[], totalDuration: number) {
       Math.max(3, Math.min(15, base + (index < remainder ? 1 : 0)))
     ),
   }));
+}
+
+function getMultiShotTotalDuration(
+  multiPromptPayload: Array<{ prompt: string; duration: string }>
+): number {
+  return multiPromptPayload.reduce(
+    (sum, shot) => sum + Number(shot.duration),
+    0
+  );
 }
 
 function getWebhookBaseUrl() {
@@ -122,6 +146,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .eq('storyboard_id', storyboardId)
       .order('order', { ascending: true });
 
+    // multi_shots comes as jsonb — type it properly
+    type SceneRow = NonNullable<typeof scenes>[number] & {
+      multi_shots: Array<{ duration?: string }> | null;
+    };
+
     if (scenesError) {
       return NextResponse.json(
         { error: 'Failed to load scenes' },
@@ -184,6 +213,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       order: number;
       prompt: string | null;
       multi_prompt: string[] | null;
+      multi_shots: Array<{ duration?: string }> | null;
       video_status: string | null;
       objects: Array<{
         scene_order: number;
@@ -195,8 +225,24 @@ export async function POST(req: NextRequest, context: RouteContext) {
         url: string | null;
       }>;
     }>) {
-      const duration = plan.scene_durations?.[scene.order] ?? 5;
-      const estimatedCost = calculateSceneCost(duration, withAudio);
+      const planDuration = plan.scene_durations?.[scene.order] ?? 5;
+
+      // For multi-shot, calculate actual total from per-shot durations
+      let actualDuration = planDuration;
+      let multiPromptPayload: Array<{
+        prompt: string;
+        duration: string;
+      }> | null = null;
+      if (scene.multi_prompt && scene.multi_prompt.length > 1) {
+        multiPromptPayload = buildMultiPromptPayload(
+          scene.multi_prompt,
+          scene.multi_shots,
+          planDuration
+        );
+        actualDuration = getMultiShotTotalDuration(multiPromptPayload);
+      }
+
+      const estimatedCost = calculateSceneCost(actualDuration, withAudio);
 
       if (!confirm) {
         jobs.push({
@@ -242,15 +288,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
         generate_audio: withAudio,
       };
 
-      if (scene.multi_prompt && scene.multi_prompt.length > 1) {
-        payload.multi_prompt = splitMultiPromptDurations(
-          scene.multi_prompt,
-          duration
-        );
+      if (multiPromptPayload) {
+        payload.multi_prompt = multiPromptPayload;
+        payload.shot_type = 'customize';
       } else {
         payload.prompt =
           scene.multi_prompt?.[0] ?? scene.prompt ?? `Scene ${scene.order + 1}`;
-        payload.duration = String(duration);
+        payload.duration = String(planDuration);
       }
 
       await db
