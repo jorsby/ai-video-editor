@@ -1863,47 +1863,60 @@ export function StoryboardCards({
 
     setIsGeneratingVideo(true);
     try {
-      const { data, error } = await invokeWorkflow('/api/workflow/video', {
-        scene_ids: Array.from(selectedSceneIds),
-        resolution: videoResolution,
-        model: selectedModel,
-        aspect_ratio:
-          storyboard && 'aspect_ratio' in storyboard
-            ? storyboard.aspect_ratio
-            : '16:9',
-        ...(fallbackDuration && { fallback_duration: fallbackDuration }),
-        ...(dialogueDurationOverridesPayload && {
-          duration_overrides: dialogueDurationOverridesPayload,
-        }),
-        ...(selectedModel === 'skyreels' && {
-          skyreels_duration_mode: skyreelsDurationMode,
-          ...(skyreelsDurationMode === 'fixed' && {
-            skyreels_duration_seconds: Number(skyreelsFixedDuration),
-          }),
-        }),
-        ...(isRefToVideoMode &&
-          selectedModel === 'wan26flash' && {
-            enable_audio: wanEnableAudio,
-            ...(!dialogueDurationOverridesPayload && {
-              duration_overrides: Object.fromEntries(
-                Array.from(selectedSceneIds).map((sceneId) => [
-                  sceneId,
-                  wanDurationBySceneId.get(sceneId)?.selected ?? 5,
-                ])
-              ),
+      const isRefStoryboard = storyboard?.mode === 'ref_to_video';
+
+      const { data, error } = isRefStoryboard
+        ? await invokeWorkflow(
+            `/api/v2/storyboard/${storyboard?.id}/generate-video`,
+            {
+              scene_ids: Array.from(selectedSceneIds),
+              audio: isCinematicMode,
+              confirm: true,
+            }
+          )
+        : await invokeWorkflow('/api/workflow/video', {
+            scene_ids: Array.from(selectedSceneIds),
+            resolution: videoResolution,
+            model: selectedModel,
+            aspect_ratio:
+              storyboard && 'aspect_ratio' in storyboard
+                ? storyboard.aspect_ratio
+                : '16:9',
+            ...(fallbackDuration && { fallback_duration: fallbackDuration }),
+            ...(dialogueDurationOverridesPayload && {
+              duration_overrides: dialogueDurationOverridesPayload,
             }),
-          }),
-        ...(storyboard?.mode === 'ref_to_video' && {
-          storyboard_id: storyboard.id,
-        }),
-      });
+            ...(selectedModel === 'skyreels' && {
+              skyreels_duration_mode: skyreelsDurationMode,
+              ...(skyreelsDurationMode === 'fixed' && {
+                skyreels_duration_seconds: Number(skyreelsFixedDuration),
+              }),
+            }),
+            ...(isRefToVideoMode &&
+              selectedModel === 'wan26flash' && {
+                enable_audio: wanEnableAudio,
+                ...(!dialogueDurationOverridesPayload && {
+                  duration_overrides: Object.fromEntries(
+                    Array.from(selectedSceneIds).map((sceneId) => [
+                      sceneId,
+                      wanDurationBySceneId.get(sceneId)?.selected ?? 5,
+                    ])
+                  ),
+                }),
+              }),
+            ...(storyboard?.mode === 'ref_to_video' && {
+              storyboard_id: storyboard.id,
+            }),
+          });
 
       if (error) throw error;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      toast.success(
-        `Video generation started for ${(data as any).summary.queued} scene(s)`
-      );
+      const queued = isRefStoryboard
+        ? ((data as any).jobs ?? []).filter((j: any) => j.status === 'queued')
+            .length
+        : (data as any).summary?.queued;
+
+      toast.success(`Video generation started for ${queued ?? 0} scene(s)`);
       clearSelection();
       refresh(); // Fetch updated video statuses
     } catch (err) {
@@ -2370,29 +2383,36 @@ export function StoryboardCards({
       throw resetError;
     }
 
-    const { error: videoError } = await invokeWorkflow('/api/workflow/video', {
-      scene_ids: [sceneId],
-      resolution: videoResolution,
-      model: useFirstFrameI2V
-        ? videoModel
-        : isRef
-          ? selectedVideoModel
-          : videoModel,
-      ...(useFirstFrameI2V && { generation_path: 'i2v' }),
-      aspect_ratio:
-        storyboard && 'aspect_ratio' in storyboard
-          ? storyboard.aspect_ratio
-          : '16:9',
-      ...(isRef && selectedVideoModel === 'wan26flash'
-        ? {
-            enable_audio: wanEnableAudio,
-            duration_overrides: {
-              [sceneId]: wanDurationBySceneId.get(sceneId)?.selected ?? 5,
-            },
-          }
-        : {}),
-      ...(isRef && { storyboard_id: storyboard?.id }),
-    });
+    const { error: videoError } = useFirstFrameI2V
+      ? await invokeWorkflow('/api/workflow/video', {
+          scene_ids: [sceneId],
+          resolution: videoResolution,
+          model: videoModel,
+          generation_path: 'i2v',
+          aspect_ratio:
+            storyboard && 'aspect_ratio' in storyboard
+              ? storyboard.aspect_ratio
+              : '16:9',
+          ...(isRef && { storyboard_id: storyboard?.id }),
+        })
+      : isRef
+        ? await invokeWorkflow(
+            `/api/v2/storyboard/${storyboard?.id}/generate-video`,
+            {
+              scene_ids: [sceneId],
+              audio: isCinematicMode,
+              confirm: true,
+            }
+          )
+        : await invokeWorkflow('/api/workflow/video', {
+            scene_ids: [sceneId],
+            resolution: videoResolution,
+            model: videoModel,
+            aspect_ratio:
+              storyboard && 'aspect_ratio' in storyboard
+                ? storyboard.aspect_ratio
+                : '16:9',
+          });
 
     if (videoError) {
       console.error('Video generation failed:', videoError);
