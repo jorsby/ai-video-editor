@@ -106,13 +106,6 @@ interface SceneCardProps {
   compact?: boolean;
   isSelected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
-  skyreelsTiming?: {
-    voiceoverSeconds: number | null;
-    generatedSeconds: number;
-    playbackRate: number | null;
-    warnSlowdown: boolean;
-    mode: 'auto' | 'fixed';
-  };
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
@@ -142,16 +135,6 @@ interface SceneCardProps {
     sceneId: string,
     newGridPosition: number
   ) => Promise<void>;
-  wanDurationSeconds?: 5 | 10;
-  wanDurationSelection?: 'auto' | '5' | '10';
-  wanVoiceoverSeconds?: number;
-  onChangeWanDurationSelection?: (
-    sceneId: string,
-    selection: 'auto' | '5' | '10'
-  ) => void;
-  dialogueDurationSeconds?: number;
-  dialogueDurationLlmDefault?: number;
-  onChangeDialogueDuration?: (sceneId: string, seconds: number) => void;
   isDialogueMode?: boolean;
 }
 
@@ -1028,7 +1011,6 @@ export function SceneCard({
   showVisual = true,
   isSelected,
   onSelectionChange,
-  skyreelsTiming,
   playingVoiceoverId,
   setPlayingVoiceoverId,
   onReadScene,
@@ -1049,13 +1031,6 @@ export function SceneCard({
   availableBackgrounds,
   assetImageMap = {},
   onChangeBackground,
-  wanDurationSeconds,
-  wanDurationSelection,
-  wanVoiceoverSeconds,
-  onChangeWanDurationSelection,
-  dialogueDurationSeconds,
-  dialogueDurationLlmDefault,
-  onChangeDialogueDuration,
   isDialogueMode,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
@@ -1134,11 +1109,6 @@ export function SceneCard({
   const collapsedVoiceoverDurationLabel = formatVoiceoverDuration(
     voiceover?.duration
   );
-
-  const wanDurationLabel =
-    typeof wanDurationSeconds === 'number'
-      ? `${wanDurationSelection === 'auto' ? 'Auto ' : ''}${wanDurationSeconds}s`
-      : null;
 
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
@@ -1413,25 +1383,6 @@ export function SceneCard({
         <ObjectsRow objects={scene.objects} assetImageMap={assetImageMap} />
       )}
 
-      {skyreelsTiming && (
-        <div
-          className={`mt-1.5 px-1.5 py-1 rounded text-[9px] ${skyreelsTiming.warnSlowdown ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'}`}
-        >
-          <div>
-            SkyReels ({skyreelsTiming.mode === 'fixed' ? 'fixed' : 'auto'}):{' '}
-            {skyreelsTiming.voiceoverSeconds
-              ? `VO ${skyreelsTiming.voiceoverSeconds.toFixed(1)}s → Gen ${skyreelsTiming.generatedSeconds}s`
-              : `No VO → Gen ${skyreelsTiming.generatedSeconds}s`}
-            {skyreelsTiming.playbackRate
-              ? ` → ${skyreelsTiming.playbackRate.toFixed(2)}x`
-              : ''}
-          </div>
-          {skyreelsTiming.warnSlowdown && (
-            <div className="mt-0.5">Heavy slowdown may feel unnatural.</div>
-          )}
-        </div>
-      )}
-
       {/* Video prompt info (collapsed) */}
       {!expanded && (
         <div className="mt-1.5 space-y-1">
@@ -1484,89 +1435,6 @@ export function SceneCard({
 
       {expanded && (
         <>
-          {wanDurationLabel && onChangeWanDurationSelection && (
-            <div
-              className="mt-2 p-1.5 rounded border border-cyan-500/20 bg-cyan-500/5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-[10px] text-cyan-300">WAN Duration</span>
-                <span className="text-[10px] text-muted-foreground">
-                  VO {Math.max(0, wanVoiceoverSeconds ?? 0).toFixed(1)}s →{' '}
-                  {wanDurationSeconds}s
-                </span>
-              </div>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={
-                    wanDurationSelection === 'auto' ? 'secondary' : 'ghost'
-                  }
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, 'auto')}
-                >
-                  Auto
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={wanDurationSelection === '5' ? 'secondary' : 'ghost'}
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, '5')}
-                >
-                  5s
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={
-                    wanDurationSelection === '10' ? 'secondary' : 'ghost'
-                  }
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, '10')}
-                >
-                  10s
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {typeof dialogueDurationSeconds === 'number' &&
-            onChangeDialogueDuration && (
-              <div
-                className="mt-2 p-1.5 rounded border border-amber-500/20 bg-amber-500/5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="text-[10px] text-amber-300">
-                    Scene Duration
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {dialogueDurationSeconds}s
-                    {dialogueDurationLlmDefault &&
-                      dialogueDurationSeconds !== dialogueDurationLlmDefault &&
-                      ` (AI: ${dialogueDurationLlmDefault}s)`}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={3}
-                  max={15}
-                  step={1}
-                  value={dialogueDurationSeconds}
-                  onChange={(e) =>
-                    onChangeDialogueDuration(scene.id, Number(e.target.value))
-                  }
-                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-400 bg-amber-500/20"
-                />
-                <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
-                  <span>3s</span>
-                  <span>15s</span>
-                </div>
-              </div>
-            )}
-
           {/* Video Prompt (expanded) */}
           <div
             className="mt-2 p-2 rounded border border-cyan-500/20 bg-cyan-500/5 space-y-1.5"

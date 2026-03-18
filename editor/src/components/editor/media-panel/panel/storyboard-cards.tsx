@@ -94,7 +94,6 @@ import type {
   Scene,
   Storyboard,
   StoryboardWithScenes,
-  VideoModel,
 } from '@/lib/supabase/workflow-service';
 import { GridImageReview } from './grid-image-review';
 import { RefGridImageReview } from './ref-grid-image-review';
@@ -274,19 +273,6 @@ const FIRST_FRAME_RESOLUTIONS = {
   '4k': { label: '4K' },
 } as const;
 
-const VIDEO_MODELS = {
-  'wan2.6': { label: 'Wan 2.6', resolutions: ['720p', '1080p'] as const },
-  'bytedance1.5pro': {
-    label: 'ByteDance 1.5 Pro',
-    resolutions: ['480p', '720p'] as const,
-  },
-  grok: {
-    label: 'Grok',
-    resolutions: ['480p', '720p'] as const,
-  },
-} as const;
-
-type VideoModelKey = keyof typeof VIDEO_MODELS;
 type FirstFrameModelKey = keyof typeof FIRST_FRAME_MODELS;
 type FirstFrameAspectRatioKey = keyof typeof FIRST_FRAME_ASPECT_RATIOS;
 type FirstFrameResolutionKey = keyof typeof FIRST_FRAME_RESOLUTIONS;
@@ -461,8 +447,7 @@ export function StoryboardCards({
     'documentary'
   );
 
-  const [videoModel, setVideoModel] =
-    useState<VideoModelKey>('bytedance1.5pro');
+  const [videoModel, setVideoModel] = useState('klingo3');
   const [firstFrameModel, setFirstFrameModel] =
     useState<FirstFrameModelKey>('grok');
   const [firstFrameAspectRatio, setFirstFrameAspectRatio] =
@@ -477,19 +462,6 @@ export function StoryboardCards({
   >('720p');
   const [isGeneratingRefFirstFrames, setIsGeneratingRefFirstFrames] =
     useState(false);
-  const [skyreelsDurationMode, setSkyreelsDurationMode] = useState<
-    'auto' | 'fixed'
-  >('auto');
-  const [skyreelsFixedDuration, setSkyreelsFixedDuration] = useState<
-    '1' | '2' | '3' | '4' | '5'
-  >('4');
-  const [wanEnableAudio, setWanEnableAudio] = useState(true);
-  const [wanDurationOverrides, setWanDurationOverrides] = useState<
-    Record<string, 'auto' | '5' | '10'>
-  >({});
-  const [dialogueDurationOverrides, setDialogueDurationOverrides] = useState<
-    Record<string, number>
-  >({});
   const [isGeneratingSfx, setIsGeneratingSfx] = useState(false);
   const [isAddingToTimeline, setIsAddingToTimeline] = useState(false);
   const selectedLanguage = useLanguageStore((s) => s.activeLanguage);
@@ -628,36 +600,12 @@ export function StoryboardCards({
     }
   }, [refreshTrigger, refresh]);
 
-  // Auto-correct resolution when model changes
+  // Auto-correct resolution — cap at 720p for Kling
   useEffect(() => {
-    const workflowVariant =
-      storyboard?.plan &&
-      'workflow_variant' in storyboard.plan &&
-      typeof storyboard.plan.workflow_variant === 'string'
-        ? storyboard.plan.workflow_variant
-        : undefined;
-
-    const isDirectRefMode =
-      storyboard?.mode === 'ref_to_video' &&
-      workflowVariant !== 'i2v_from_refs';
-
-    const allowed: ReadonlyArray<'480p' | '720p' | '1080p'> =
-      isDirectRefMode && storyboard?.model === 'wan26flash'
-        ? ['720p', '1080p']
-        : isDirectRefMode && storyboard?.model?.startsWith('kling')
-          ? ['720p', '1080p']
-          : [...VIDEO_MODELS[videoModel].resolutions];
-
-    if (!allowed.includes(videoResolution)) {
-      setVideoResolution(allowed[0] as '480p' | '720p' | '1080p');
+    if (videoResolution === '480p') {
+      setVideoResolution('720p');
     }
-  }, [
-    videoModel,
-    videoResolution,
-    storyboard?.mode,
-    storyboard?.model,
-    storyboard?.plan,
-  ]);
+  }, [videoResolution]);
 
   const scenes =
     storyboard && 'scenes' in storyboard
@@ -713,17 +661,8 @@ export function StoryboardCards({
           | undefined)
       : undefined;
 
-  const isWanRefDirectMode =
-    isRefDirectMode && storyboard?.model === 'wan26flash';
-
   const isKlingModel = storyboard?.model?.startsWith('kling') ?? false;
 
-  // Narrative mode = TTS voiceover composited on silent video (TTS ALLOWED)
-  // This flag was incorrectly blocking TTS — kept for reference but no longer gates TTS
-  const isNarrativeMode =
-    isRefToVideoMode &&
-    (storyboard?.model === 'wan26flash' || isKlingModel) &&
-    refVideoMode === 'narrative';
   // DEPRECATED: was blocking TTS in narrative mode (wrong). Use isCinematicMode to block TTS instead.
   const isNarrativeNoAudioMode = false;
 
@@ -770,37 +709,6 @@ export function StoryboardCards({
   }, [isRefToVideoMode, storyboard?.model]);
 
   useEffect(() => {
-    if (
-      !isRefToVideoMode ||
-      (storyboard?.model !== 'wan26flash' && !isKlingModel)
-    )
-      return;
-
-    if (refVideoMode === 'narrative') {
-      setWanEnableAudio(false);
-      return;
-    }
-
-    if (refVideoMode === 'dialogue_scene') {
-      setWanEnableAudio(true);
-      return;
-    }
-
-    setWanEnableAudio(true);
-  }, [
-    isRefToVideoMode,
-    storyboard?.model,
-    isKlingModel,
-    refVideoMode,
-    storyboard?.id,
-  ]);
-
-  useEffect(() => {
-    if (!isWanRefDirectMode) return;
-    setVideoResolution('720p');
-  }, [isWanRefDirectMode, storyboard?.id]);
-
-  useEffect(() => {
     const aspect = storyboard?.aspect_ratio;
     if (
       aspect &&
@@ -809,140 +717,6 @@ export function StoryboardCards({
       setFirstFrameAspectRatio(aspect);
     }
   }, [storyboard?.aspect_ratio]);
-
-  const skyreelsTimingBySceneId = useMemo(() => {
-    const isSkyReelsStoryboard =
-      isRefToVideoMode && storyboard?.model === 'skyreels';
-
-    if (!isSkyReelsStoryboard) {
-      return new Map<
-        string,
-        {
-          voiceoverSeconds: number | null;
-          generatedSeconds: number;
-          playbackRate: number | null;
-          warnSlowdown: boolean;
-          mode: 'auto' | 'fixed';
-        }
-      >();
-    }
-
-    const fixedSeconds = Number(skyreelsFixedDuration);
-
-    return new Map(
-      sortedScenes.map((scene) => {
-        const maxVoiceoverSeconds = Math.max(
-          ...(scene.voiceovers || []).map((v) => v.duration ?? 0),
-          0
-        );
-
-        const hasVoiceover = maxVoiceoverSeconds > 0;
-        const generatedSeconds =
-          skyreelsDurationMode === 'fixed'
-            ? fixedSeconds
-            : hasVoiceover
-              ? maxVoiceoverSeconds > 4
-                ? 5
-                : Math.max(1, Math.ceil(maxVoiceoverSeconds))
-              : 3;
-
-        const playbackRate =
-          hasVoiceover && maxVoiceoverSeconds > 0
-            ? generatedSeconds / maxVoiceoverSeconds
-            : null;
-
-        const timing = {
-          voiceoverSeconds: hasVoiceover ? maxVoiceoverSeconds : null,
-          generatedSeconds,
-          playbackRate,
-          warnSlowdown: playbackRate !== null && playbackRate < 0.6,
-          mode: skyreelsDurationMode,
-        };
-
-        return [scene.id, timing] as const;
-      })
-    );
-  }, [
-    isRefToVideoMode,
-    storyboard?.model,
-    sortedScenes,
-    skyreelsDurationMode,
-    skyreelsFixedDuration,
-  ]);
-
-  const wanDurationBySceneId = useMemo(() => {
-    if (!isWanRefDirectMode)
-      return new Map<
-        string,
-        {
-          auto: 5 | 10;
-          selected: 5 | 10;
-          selection: 'auto' | '5' | '10';
-          voiceoverSeconds: number;
-        }
-      >();
-
-    return new Map(
-      sortedScenes.map((scene) => {
-        // Only use the active language's voiceover duration
-        const langVoiceover = (scene.voiceovers || []).find(
-          (v) => v.language === selectedLanguage
-        );
-        const voiceoverSeconds = langVoiceover?.duration ?? 0;
-        const autoDuration: 5 | 10 = voiceoverSeconds > 7.5 ? 10 : 5;
-        const selection = wanDurationOverrides[scene.id] ?? 'auto';
-        const selected: 5 | 10 =
-          selection === '5' ? 5 : selection === '10' ? 10 : autoDuration;
-
-        return [
-          scene.id,
-          {
-            auto: autoDuration,
-            selected,
-            selection,
-            voiceoverSeconds,
-          },
-        ] as const;
-      })
-    );
-  }, [
-    isWanRefDirectMode,
-    sortedScenes,
-    wanDurationOverrides,
-    selectedLanguage,
-  ]);
-
-  // Dialogue mode: LLM-planned durations with user overrides
-  const dialogueDurationBySceneId = useMemo(() => {
-    const planDurations =
-      storyboard?.plan &&
-      typeof storyboard.plan === 'object' &&
-      'scene_durations' in storyboard.plan &&
-      Array.isArray((storyboard.plan as any).scene_durations)
-        ? ((storyboard.plan as any).scene_durations as number[])
-        : null;
-
-    if (!planDurations || planDurations.length === 0)
-      return new Map<string, { llmDefault: number; selected: number }>();
-
-    return new Map(
-      sortedScenes
-        .filter((scene) => planDurations[scene.order] != null)
-        .map((scene) => {
-          const llmDefault = planDurations[scene.order];
-          const override = dialogueDurationOverrides[scene.id];
-          const selected = typeof override === 'number' ? override : llmDefault;
-          return [scene.id, { llmDefault, selected }] as const;
-        })
-    );
-  }, [storyboard?.plan, sortedScenes, dialogueDurationOverrides]);
-
-  const handleDialogueDurationChange = (sceneId: string, seconds: number) => {
-    setDialogueDurationOverrides((prev) => ({
-      ...prev,
-      [sceneId]: seconds,
-    }));
-  };
 
   const splitProgress = useMemo(() => {
     if (!isRefToVideoMode) return null;
@@ -1002,48 +776,6 @@ export function StoryboardCards({
       backgrounds,
     };
   }, [isRefToVideoMode, sortedScenes, storyboard?.plan_status]);
-
-  const hasSkyreelsProcessing =
-    isRefToVideoMode &&
-    storyboard?.model === 'skyreels' &&
-    sortedScenes.some((scene) => scene.video_status === 'processing');
-
-  useEffect(() => {
-    if (!hasSkyreelsProcessing) return;
-
-    let isPolling = false;
-
-    const pollSkyreels = async () => {
-      if (isPolling) return;
-      isPolling = true;
-
-      try {
-        const res = await fetch('/api/workflow/poll-skyreels', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storyboard_id: storyboard?.id }),
-        });
-
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if ((data.success_count ?? 0) > 0 || (data.failed_count ?? 0) > 0) {
-          refresh();
-        }
-      } catch {
-        // Best-effort polling. Ignore temporary network failures.
-      } finally {
-        isPolling = false;
-      }
-    };
-
-    pollSkyreels();
-    const intervalId = setInterval(pollSkyreels, 10_000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [hasSkyreelsProcessing, refresh, storyboard?.id]);
 
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
@@ -1669,23 +1401,6 @@ export function StoryboardCards({
     }
   };
 
-  const directRefVideoModel =
-    isRefDirectMode && storyboard?.model?.startsWith('kling')
-      ? refVideoModel
-      : storyboard?.model;
-
-  const selectedVideoModel = directRefVideoModel ?? videoModel;
-
-  const handleWanDurationSelectionChange = (
-    sceneId: string,
-    selection: 'auto' | '5' | '10'
-  ) => {
-    setWanDurationOverrides((prev) => ({
-      ...prev,
-      [sceneId]: selection,
-    }));
-  };
-
   const handleGenerateRefFirstFrames = async () => {
     if (!isRefI2VMode || selectedSceneIds.size === 0) return;
 
@@ -1758,68 +1473,11 @@ export function StoryboardCards({
       selectedSceneIds.has(s.id)
     );
 
-    const selectedModel = selectedVideoModel;
-
-    // SkyReels only supports up to 5s duration per scene. Warn before clamping.
-    if (selectedModel === 'skyreels') {
-      const scenesOverLimit = selectedScenes.filter((s) => {
-        const maxDuration = Math.max(
-          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
-          0
-        );
-        return maxDuration > 5;
-      });
-
-      if (scenesOverLimit.length > 0) {
-        const sceneLabels = scenesOverLimit
-          .map((s) => `Scene ${s.order + 1}`)
-          .join(', ');
-        const confirmed = await confirm({
-          title: 'SkyReels Duration Limit',
-          description: `${sceneLabels} ${scenesOverLimit.length === 1 ? 'has' : 'have'} voiceover longer than 5 seconds. SkyReels will clamp video duration to 5 seconds for ${scenesOverLimit.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
-          confirmLabel: 'Continue',
-        });
-        if (!confirmed) return;
-      }
-
-      const fixedSeconds = Number(skyreelsFixedDuration);
-      const scenesWithHeavySlowdown = selectedScenes.filter((s) => {
-        const maxDuration = Math.max(
-          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
-          0
-        );
-
-        if (maxDuration <= 0) return false;
-
-        const generatedSeconds =
-          skyreelsDurationMode === 'fixed'
-            ? fixedSeconds
-            : maxDuration > 4
-              ? 5
-              : Math.max(1, Math.ceil(maxDuration));
-
-        return generatedSeconds / maxDuration < 0.6;
-      });
-
-      if (scenesWithHeavySlowdown.length > 0) {
-        const sceneLabels = scenesWithHeavySlowdown
-          .map((s) => `Scene ${s.order + 1}`)
-          .join(', ');
-        const confirmed = await confirm({
-          title: 'Heavy Slowdown Warning',
-          description: `${sceneLabels} ${scenesWithHeavySlowdown.length === 1 ? 'will be' : 'will be'} slowed below 0.60x to match voiceover length. Motion may feel unnatural. Continue anyway?`,
-          confirmLabel: 'Continue',
-        });
-        if (!confirmed) return;
-      }
-    }
-
     let fallbackDuration: number | undefined;
 
     const shouldSkipMissingVoiceoverCheck =
-      (selectedModel === 'skyreels' && skyreelsDurationMode === 'fixed') ||
       // Kling dialogue mode generates native audio — no voiceover expected
-      (isKlingModel && refVideoMode === 'dialogue_scene');
+      isKlingModel && refVideoMode === 'dialogue_scene';
 
     if (!shouldSkipMissingVoiceoverCheck) {
       // Check for scenes without voiceover audio
@@ -1845,22 +1503,6 @@ export function StoryboardCards({
       }
     }
 
-    // Dialogue mode: use LLM-planned scene_durations (with user overrides), fallback to 10s for older storyboards
-    let dialogueDurationOverridesPayload: Record<string, number> | undefined;
-    if (refVideoMode === 'dialogue_scene') {
-      if (dialogueDurationBySceneId.size > 0) {
-        // Use user-adjusted durations (defaults to LLM-planned if not overridden)
-        dialogueDurationOverridesPayload = Object.fromEntries(
-          selectedScenes
-            .filter((s) => dialogueDurationBySceneId.has(s.id))
-            .map((s) => [s.id, dialogueDurationBySceneId.get(s.id)!.selected])
-        );
-      } else {
-        // Older storyboard without scene_durations — flat fallback
-        fallbackDuration = 10;
-      }
-    }
-
     setIsGeneratingVideo(true);
     try {
       const isRefStoryboard = storyboard?.mode === 'ref_to_video';
@@ -1877,33 +1519,12 @@ export function StoryboardCards({
         : await invokeWorkflow('/api/workflow/video', {
             scene_ids: Array.from(selectedSceneIds),
             resolution: videoResolution,
-            model: selectedModel,
+            model: videoModel,
             aspect_ratio:
               storyboard && 'aspect_ratio' in storyboard
                 ? storyboard.aspect_ratio
                 : '16:9',
             ...(fallbackDuration && { fallback_duration: fallbackDuration }),
-            ...(dialogueDurationOverridesPayload && {
-              duration_overrides: dialogueDurationOverridesPayload,
-            }),
-            ...(selectedModel === 'skyreels' && {
-              skyreels_duration_mode: skyreelsDurationMode,
-              ...(skyreelsDurationMode === 'fixed' && {
-                skyreels_duration_seconds: Number(skyreelsFixedDuration),
-              }),
-            }),
-            ...(isRefToVideoMode &&
-              selectedModel === 'wan26flash' && {
-                enable_audio: wanEnableAudio,
-                ...(!dialogueDurationOverridesPayload && {
-                  duration_overrides: Object.fromEntries(
-                    Array.from(selectedSceneIds).map((sceneId) => [
-                      sceneId,
-                      wanDurationBySceneId.get(sceneId)?.selected ?? 5,
-                    ])
-                  ),
-                }),
-              }),
             ...(storyboard?.mode === 'ref_to_video' && {
               storyboard_id: storyboard.id,
             }),
@@ -2761,14 +2382,11 @@ export function StoryboardCards({
         }}
       >
         {sortedScenes.map((scene) => {
-          const wanDuration = wanDurationBySceneId.get(scene.id);
-
           return (
             <SceneCard
               key={scene.id}
               scene={scene}
               compact
-              skyreelsTiming={skyreelsTimingBySceneId.get(scene.id)}
               isSelected={selectedSceneIds.has(scene.id)}
               onSelectionChange={(selected) => toggleScene(scene.id, selected)}
               playingVoiceoverId={playingVoiceoverId}
@@ -2818,31 +2436,6 @@ export function StoryboardCards({
               assetImageMap={assetImageMap}
               onChangeBackground={
                 isRefToVideoMode ? handleChangeBackground : undefined
-              }
-              wanDurationSeconds={
-                isWanRefDirectMode ? wanDuration?.selected : undefined
-              }
-              wanDurationSelection={
-                isWanRefDirectMode ? wanDuration?.selection : undefined
-              }
-              wanVoiceoverSeconds={
-                isWanRefDirectMode ? wanDuration?.voiceoverSeconds : undefined
-              }
-              onChangeWanDurationSelection={
-                isWanRefDirectMode
-                  ? handleWanDurationSelectionChange
-                  : undefined
-              }
-              dialogueDurationSeconds={
-                dialogueDurationBySceneId.get(scene.id)?.selected
-              }
-              dialogueDurationLlmDefault={
-                dialogueDurationBySceneId.get(scene.id)?.llmDefault
-              }
-              onChangeDialogueDuration={
-                dialogueDurationBySceneId.size > 0
-                  ? handleDialogueDurationChange
-                  : undefined
               }
               isDialogueMode={isDialogueMode}
             />
@@ -3275,116 +2868,8 @@ export function StoryboardCards({
                           <div className="text-xs text-muted-foreground px-1">
                             Ref Video Model:{' '}
                             <span className="font-medium text-foreground">
-                              {storyboard?.model === 'wan26flash'
-                                ? 'WAN 2.6 Flash'
-                                : storyboard?.model === 'skyreels'
-                                  ? 'SkyReels'
-                                  : (storyboard?.model ?? 'N/A')}
+                              Kling O3
                             </span>
-                          </div>
-                        )}
-
-                        {/* WAN ref controls */}
-                        {storyboard?.model === 'wan26flash' && (
-                          <div className="flex items-end gap-2">
-                            <div className="flex flex-col gap-1 w-[100px]">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                                Resolution
-                              </span>
-                              <Select
-                                value={videoResolution}
-                                onValueChange={(
-                                  value: '480p' | '720p' | '1080p'
-                                ) => setVideoResolution(value)}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(['720p', '1080p'] as const).map((res) => (
-                                    <SelectItem key={res} value={res}>
-                                      {res}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex flex-col gap-1 w-[150px]">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                                Audio
-                              </span>
-                              <Select
-                                value={wanEnableAudio ? 'on' : 'off'}
-                                onValueChange={(value: 'on' | 'off') =>
-                                  setWanEnableAudio(value === 'on')
-                                }
-                                disabled={refVideoMode === 'narrative'}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="on">With Audio</SelectItem>
-                                  <SelectItem value="off">No Audio</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground leading-tight pb-0.5">
-                              {refVideoMode === 'narrative'
-                                ? 'Narrative mode enforces No Audio.'
-                                : 'No Audio is cheaper for WAN ref flash.'}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* SkyReels duration controls */}
-                        {storyboard?.model === 'skyreels' && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                                Duration Mode
-                              </span>
-                              <Select
-                                value={skyreelsDurationMode}
-                                onValueChange={(value: 'auto' | 'fixed') =>
-                                  setSkyreelsDurationMode(value)
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="auto">
-                                    Auto (from VO)
-                                  </SelectItem>
-                                  <SelectItem value="fixed">Fixed</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                                Fixed Seconds
-                              </span>
-                              <Select
-                                value={skyreelsFixedDuration}
-                                onValueChange={(
-                                  value: '1' | '2' | '3' | '4' | '5'
-                                ) => setSkyreelsFixedDuration(value)}
-                                disabled={skyreelsDurationMode !== 'fixed'}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="1">1s</SelectItem>
-                                  <SelectItem value="2">2s</SelectItem>
-                                  <SelectItem value="3">3s</SelectItem>
-                                  <SelectItem value="4">4s</SelectItem>
-                                  <SelectItem value="5">5s</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
                           </div>
                         )}
                       </>
@@ -3484,32 +2969,16 @@ export function StoryboardCards({
                           </div>
                         </div>
 
-                        <div className="flex items-end gap-2">
-                          <div className="flex flex-col gap-1 flex-1">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                              i2v Model
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 text-xs text-muted-foreground">
+                            <span className="text-[10px] uppercase tracking-wider">
+                              i2v Model:{' '}
                             </span>
-                            <Select
-                              value={videoModel}
-                              onValueChange={(value: string) =>
-                                setVideoModel(value as VideoModelKey)
-                              }
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(
-                                  Object.keys(VIDEO_MODELS) as VideoModelKey[]
-                                ).map((key) => (
-                                  <SelectItem key={key} value={key}>
-                                    {VIDEO_MODELS[key].label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <span className="font-medium text-foreground">
+                              Kling O3
+                            </span>
                           </div>
-                          <div className="flex flex-col gap-1 w-[80px]">
+                          <div className="flex flex-col gap-1 w-[100px]">
                             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                               Resolution
                             </span>
@@ -3523,13 +2992,11 @@ export function StoryboardCards({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {VIDEO_MODELS[videoModel].resolutions.map(
-                                  (res) => (
-                                    <SelectItem key={res} value={res}>
-                                      {res}
-                                    </SelectItem>
-                                  )
-                                )}
+                                {(['720p', '1080p'] as const).map((res) => (
+                                  <SelectItem key={res} value={res}>
+                                    {res}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -3556,32 +3023,16 @@ export function StoryboardCards({
                     )}
                   </div>
                 ) : (
-                  <div className="flex items-end gap-2">
-                    <div className="flex flex-col gap-1 flex-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                        Model
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 text-xs text-muted-foreground">
+                      <span className="text-[10px] uppercase tracking-wider">
+                        Video Model:{' '}
                       </span>
-                      <Select
-                        value={videoModel}
-                        onValueChange={(value: string) =>
-                          setVideoModel(value as VideoModelKey)
-                        }
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(Object.keys(VIDEO_MODELS) as VideoModelKey[]).map(
-                            (key) => (
-                              <SelectItem key={key} value={key}>
-                                {VIDEO_MODELS[key].label}
-                              </SelectItem>
-                            )
-                          )}
-                        </SelectContent>
-                      </Select>
+                      <span className="font-medium text-foreground">
+                        Kling O3
+                      </span>
                     </div>
-                    <div className="flex flex-col gap-1 w-[80px]">
+                    <div className="flex flex-col gap-1 w-[100px]">
                       <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                         Resolution
                       </span>
@@ -3595,7 +3046,7 @@ export function StoryboardCards({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {VIDEO_MODELS[videoModel].resolutions.map((res) => (
+                          {(['720p', '1080p'] as const).map((res) => (
                             <SelectItem key={res} value={res}>
                               {res}
                             </SelectItem>
