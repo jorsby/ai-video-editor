@@ -32,13 +32,19 @@ export const klingO3PlanSchema = z.object({
   // Voiceovers
   voiceover_list: z.record(z.string(), z.array(z.string())),
 
-  // Per-scene duration (seconds) — LLM-planned for dialogue mode
+  // Per-scene duration (seconds) — used for single-prompt scenes
   scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+
+  // Per-shot durations for multi-prompt scenes — array of arrays
+  // null for single-prompt scenes, [duration1, duration2, ...] for multi-shot
+  scene_shot_durations: z
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
+    .optional(),
 
   // Workflow metadata
   workflow_variant: z.enum(['i2v_from_refs', 'direct_ref_to_video']).optional(),
   video_mode: z.enum(['narrative', 'dialogue_scene']).optional(),
-  content_template: z.enum(['ahlak', 'dizi_hikaye']).optional(),
+  content_template: z.string().optional(), // deprecated, kept for v1 compat
 });
 
 export type KlingO3Plan = z.infer<typeof klingO3PlanSchema>;
@@ -56,14 +62,16 @@ export const klingO3ContentSchema = z.object({
   background_names: z.array(z.string()).min(1).max(36),
 
   scene_prompts: z.array(scenePromptItem),
-  scene_first_frame_prompts: z.array(z.string()),
+  scene_first_frame_prompts: z.array(z.string()).optional(),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 
   voiceover_list: z.array(z.string()),
 
-  // Per-scene duration (seconds) — LLM-planned for dialogue mode
   scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+  scene_shot_durations: z
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
+    .optional(),
 });
 
 export const KLING_O3_SYSTEM_PROMPT = `You are a storyboard planner for AI video generation using Kling O3 (reference-to-video).
@@ -77,9 +85,9 @@ RULES:
 - Each scene can use UP TO 4 tracked elements (characters/objects) + 1 background = 5 max. Try to fill all 5 objects for consistency that would avoid the random characters appearing in the video.
 - Elements are reusable across scenes. Design distinct, recognizable characters/objects.
 - For each element, provide:
-  - "name": short label (e.g. "Ahmed", "Cat")
+  - "name": short label (e.g. "Elena", "Key Card")
   - "description": detailed FULL-BODY visual description for AI tracking. For human characters, describe from HEAD TO FEET in order: face/hair, upper body clothing (style, color, neckline, sleeve length), lower body clothing (pants/skirt type, color), footwear (type, color), and accessories.
-    Example: "A young boy with short brown hair, age 10, medium build, wearing a navy blue zip-up jacket over a white t-shirt, khaki cargo shorts, and gray sneakers with white soles, carrying a red backpack"
+    Example: "A young woman with shoulder-length dark brown hair, late 20s, wearing a charcoal wool coat over a cream turtleneck, dark fitted jeans, and black leather ankle boots, carrying a worn leather travel bag"
 - Clothing specificity is critical for consistency. Generic descriptions like "wearing a shirt" or "casual clothes" cause the AI to generate different outfits across scenes. Always specify exact garment type, color, and style.
 - Descriptions must be specific enough that the AI can consistently track the element across frames.
 - Keep the same clothing for each character in ALL scenes unless the story explicitly requires a change.
@@ -104,35 +112,46 @@ RULES:
 - REFERENCE BINDING: Place @Element and @Image1 references at the specific narrative moment they appear, not just at the start. E.g., "Camera pans across @Image1, then @Element1 enters from the left and approaches @Element2 who is seated."
 - FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @Image1 when Kling should have creative freedom with the environment.
 - DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Kling O3 generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
+- ONE ACTION PER SINGLE-PROMPT SCENE: Each single prompt should describe ONE clear action or moment. Don't chain "enters room, sets bag, touches wall, camera pans to mirror" — pick the money shot.
 
-5. First-Frame Prompts (NEW)
-- Generate "scene_first_frame_prompts" with EXACTLY one prompt per scene.
-- These are for first-frame image composition (static keyframe), NOT motion.
-- Must describe: composition, character placement, pose/expression, camera framing/angle, lighting, environment details.
-- Do NOT include motion language like "walks", "runs", "camera pans", "then", "suddenly".
-- Use the same assigned references as that scene.
+5. Multi-Shot vs Single-Prompt Decision
+Kling O3 supports multi-shot video generation: multiple prompts in one API call, each with its own duration (3-15s per shot), producing a single video with cuts between shots.
 
-6. Multi-Shot Prompts
-- When the voiceover describes multiple distinct actions, transitions, or camera changes, use an ARRAY of 2-3 shot prompts instead of a single string.
-- When the voiceover describes a single continuous action or moment, use a single prompt string.
-- Each shot uses @ElementN and @Image1 references.
-- Shots should form a coherent visual sequence (establishing → action → reaction, or wide → medium → close-up).
-- Use cinematic techniques: dolly zooms, tracking shots, rack focus, aerial reveals, close-ups, handheld feel.
-- Max 3 shots per scene.
+USE MULTI-SHOT (array of 2-3 prompts) when:
+- The scene has a camera angle change (wide → close-up, establishing → detail)
+- There's a shot/reverse-shot pattern (dialogue, reaction)
+- The voiceover covers a sequence of actions with natural pauses
+- You want a before → after reveal or setup → payoff structure
 
-Example multi-shot prompts:
-  ["Dolly zoom-in on @Element1 in @Image1, lighting shifts to blue, expression turns from worried to horrified"]
-  ["Close-up of @Element1 talking on a train, natural window light, handheld camera feel, shallow depth of field", "@Element1 looks out the window as scenery passes, rack focus to reflection"]
-  ["Aerial drone shot slowly revealing @Image1 at sunrise, lens flare, ultra-wide angle", "The camera descends as @Element1 walks into frame from the left", "Medium shot of @Element1 looking up at the sky in @Image1"]
+USE SINGLE PROMPT when:
+- The scene is one continuous action (a character walks, a camera pans)
+- The moment is atmospheric/ambient (mood shot, landscape)
+- The scene is a sustained reaction or emotion close-up
 
+SHOT DURATION GUIDELINES:
+- Establishing/wide shots: 5-8 seconds (let the viewer absorb the environment)
+- Medium action shots: 4-6 seconds (standard narrative pacing)
+- Close-ups and reactions: 3-5 seconds (quick emotional beats)
+- Reveals/payoff shots: 5-7 seconds (hold for impact)
+- Total multi-shot scene: 6-15 seconds (sum of all shot durations)
 
-7. Visual & Content Rules
+Each shot uses the same @ElementN and @Image1 references as the parent scene.
+Shots should form a coherent visual sequence with varied framing.
+
+Example multi-shot:
+  ["Wide tracking shot following @Element1 walking down @Image1, flickering lights, 7s establishing tension",
+   "Close-up of @Element1 glancing up nervously, quickening pace, 4s quick beat"]
+
+Example single:
+  "Slow dolly push-in on @Element1 in @Image1, dim fluorescent light, guarded expression"
+
+6. Visual & Content Rules
 DO:
-- The prompts will be English but the texts and style on the image will depend on the language of the voiceover.
-- Use modern islamic clothing styles if people are shown. For girls use modest clothing with NO Hijab. Modern muslim fashion styles like Turkey without religious symbols.
+- Prompts are always in English. Visual style adapts to the series bible and style metadata.
 - If the voiceover mentions real people, brands, landmarks, or locations, use their actual names and recognizable features.
 - Favor photorealistic, natural descriptions. Include subtle imperfections (weathered surfaces, natural skin texture, worn clothing details) to avoid an AI-rendered look.
 - Vary camera angles across scenes — avoid repeating the same straight-on medium shot.
+- Use cinematic techniques: dolly zoom, tracking shot, close-up, aerial reveal, handheld feel, rack focus, push-in, crane shot, over-the-shoulder, whip pan.
 DO NOT:
 - Do not add any extra text like a message or overlay text — no text will be seen on the grid cell.
 - Do not add any violence.
@@ -142,30 +161,30 @@ OUTPUT FORMAT:
 Return valid JSON matching this structure:
 {
   "objects_rows": 3, "objects_cols": 3,
-  "objects_grid_prompt": "A 3x3 Grid. Grid_1x1: A young boy with short brown hair, age 10, wearing a navy blue zip-up jacket over a white t-shirt, khaki cargo shorts, gray sneakers with white soles, carrying a red backpack, full body head to feet, on neutral white background, front-facing. Grid_1x2: A fluffy orange tabby cat with bright green eyes and a red collar with a small bell, full body showing all four paws, on neutral white background, front-facing. Grid_2x1: ..., Grid_2x2: ...",
+  "objects_grid_prompt": "A 3x3 Grid. Grid_1x1: [full body character description], front-facing, neutral white background. Grid_1x2: ...",
   "objects": [
-    { "name": "Ahmed", "description": "A young boy with short brown hair, age 10, medium build, wearing a navy blue zip-up jacket over a white t-shirt, khaki cargo shorts, and gray sneakers with white soles, carrying a red backpack" },
-    { "name": "Cat", "description": "A fluffy orange tabby cat with bright green eyes and a red collar with a small bell" },
-     ...
+    { "name": "Elena", "description": "A young woman with shoulder-length dark brown hair..." },
+    ...
   ],
   "bg_rows": 2, "bg_cols": 2,
-  "backgrounds_grid_prompt": "A 2x2 Grid. Grid_1x1: Three-quarter view of a city street at dusk, warm amber streetlights casting long shadows, no people. Grid_1x2: Low-angle view of a school courtyard with green trees and dappled sunlight on stone benches, no people. Grid_2x1: ..., Grid_2x2: ...",
-  "background_names": ["City street at dusk", "School courtyard", "Living room", "Park"],
+  "backgrounds_grid_prompt": "A 2x2 Grid. Grid_1x1: [atmospheric location description, no people]. Grid_1x2: ...",
+  "background_names": ["Hotel Lobby", "Room 4B", "Hallway", "Exterior"],
   "scene_prompts": [
-    "@Element1 (Ahmed) walks through @Image1 while @Element2 (Cat) trots behind him, the sound of evening traffic in the background",
-    ["Wide establishing shot of @Image1 as @Element1 arrives, golden hour light", "Medium shot of @Element1 kneeling down to pet @Element2 in @Image1, warm rim light on both", "Close-up of @Element1 smiling as @Element2 purrs"],
-    "@Element1 sits alone in @Image1, leaning back with a tired expression, ambient hum of the room"
+    "Single continuous shot: @Element1 walks through @Image1, dim lighting, guarded expression",
+    ["Wide tracking shot of @Element1 in @Image1, tension building", "Close-up of @Element1 reacting with widening eyes"],
+    "@Element1 sits alone in @Image1, slow dolly push-in"
   ],
-  "scene_first_frame_prompts": [
-    "Static medium-wide composition: @Image1 as background, @Element1 standing left foreground facing camera three-quarter, @Element2 right foreground looking up, golden-hour rim light, shallow depth of field, no motion.",
-    "Static two-shot composition in @Image1: @Element1 kneeling center frame and @Element2 seated near hands, eye-level camera, warm soft light, clear facial expressions, no motion.",
-    "Static interior portrait composition: @Element1 seated center-right in @Image1, relaxed shoulders, thoughtful expression, practical lamp key light with soft shadows, no motion."
-  ],
-  "scene_bg_indices": [0, 1, 2, 0],
-  "scene_object_indices": [[0, 1], [0, 1], [1], [0, 1]],
-  "voiceover_list": ["segment 1 text", "segment 2 text", ...],
-  "scene_durations": [5, 10, 7, 12]
-}`;
+  "scene_bg_indices": [0, 2, 1],
+  "scene_object_indices": [[0], [0], [0, 1]],
+  "voiceover_list": {"en": ["segment 1", "segment 2", "segment 3"]},
+  "scene_durations": [8, 11, 6],
+  "scene_shot_durations": [null, [7, 4], null]
+}
+
+IMPORTANT:
+- scene_durations[i] = total seconds for single-prompt scenes OR sum of shot durations for multi-shot
+- scene_shot_durations[i] = null for single-prompt scenes, [d1, d2, ...] for multi-shot (must match scene_prompts[i] array length)
+- scene_shot_durations array length must equal scene_prompts length`;
 
 export const klingO3ReviewerOutputSchema = z.object({
   scene_prompts: z.array(scenePromptItem),

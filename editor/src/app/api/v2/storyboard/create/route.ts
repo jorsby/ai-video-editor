@@ -42,6 +42,26 @@ function validatePlanConsistency(plan: z.infer<typeof klingO3PlanSchema>) {
     return 'plan.scene_durations length must equal scene_prompts length';
   }
 
+  if (
+    plan.scene_shot_durations &&
+    plan.scene_shot_durations.length !== sceneCount
+  ) {
+    return 'plan.scene_shot_durations length must equal scene_prompts length';
+  }
+
+  // Validate that multi-shot durations match multi-prompt array lengths
+  if (plan.scene_shot_durations) {
+    for (let i = 0; i < sceneCount; i++) {
+      const prompt = plan.scene_prompts[i];
+      const shotDurations = plan.scene_shot_durations[i];
+      if (Array.isArray(prompt) && Array.isArray(shotDurations)) {
+        if (prompt.length !== shotDurations.length) {
+          return `scene_shot_durations[${i}] length must match scene_prompts[${i}] length`;
+        }
+      }
+    }
+  }
+
   for (const [lang, lines] of Object.entries(plan.voiceover_list)) {
     if (lines.length !== sceneCount) {
       return `plan.voiceover_list.${lang} length must equal scene_prompts length`;

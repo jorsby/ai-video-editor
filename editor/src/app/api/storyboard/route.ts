@@ -417,12 +417,13 @@ Return the corrected fields.`;
   // Validate scene counts match (safety net after reviewer)
   if (
     content.scene_prompts.length !== sceneCount ||
-    content.scene_first_frame_prompts.length !== sceneCount ||
+    (content.scene_first_frame_prompts &&
+      content.scene_first_frame_prompts.length !== sceneCount) ||
     content.scene_bg_indices.length !== sceneCount ||
     content.scene_object_indices.length !== sceneCount
   ) {
     throw new Error(
-      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
+      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts?.length ?? 0}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
     );
   }
 

@@ -345,6 +345,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     for (let i = 0; i < sceneCount; i++) {
       const scenePrompt = styledScenePrompts[i];
 
+      // Build multi_shots metadata from plan if available
+      const shotDurations = plan.scene_shot_durations?.[i];
+      const multiShotsData =
+        Array.isArray(scenePrompt) && Array.isArray(shotDurations)
+          ? shotDurations.map((d) => ({ duration: String(d) }))
+          : null;
+
       const { data: scene, error: sceneError } = await db
         .from('scenes')
         .insert({
@@ -352,6 +359,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           order: i,
           prompt: Array.isArray(scenePrompt) ? null : scenePrompt,
           multi_prompt: Array.isArray(scenePrompt) ? scenePrompt : null,
+          multi_shots: multiShotsData,
         })
         .select('id')
         .single();
