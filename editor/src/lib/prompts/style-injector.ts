@@ -77,7 +77,7 @@ export async function getSeriesStyleForProject(
 ): Promise<string | null> {
   const { data: series, error } = await supabase
     .from('series')
-    .select('metadata')
+    .select('metadata, visual_style')
     .eq('project_id', projectId)
     .maybeSingle();
 
@@ -89,15 +89,19 @@ export async function getSeriesStyleForProject(
     return null;
   }
 
-  if (
-    !series ||
-    !isRecord(series.metadata) ||
-    !isRecord(series.metadata.style)
-  ) {
-    return null;
-  }
+  if (!series) return null;
 
-  const styleEntries = Object.entries(series.metadata.style)
+  // Try metadata.style first, then fall back to visual_style column
+  const styleSource =
+    isRecord(series.metadata) && isRecord(series.metadata.style)
+      ? series.metadata.style
+      : isRecord(series.visual_style)
+        ? series.visual_style
+        : null;
+
+  if (!styleSource) return null;
+
+  const styleEntries = Object.entries(styleSource)
     .filter(([, value]) => typeof value === 'string')
     .map(([key, value]) => [key, value as string]);
 

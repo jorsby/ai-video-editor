@@ -94,8 +94,6 @@ const VIDEO_MODES = [
 
 const VIDEO_MODELS = [
   { value: 'klingo3' as const, label: 'Kling O3' },
-  { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
-  { value: 'skyreels' as const, label: 'SkyReels' },
 ] as const;
 
 const REF_VIDEO_MODE_OPTIONS = [
@@ -1010,59 +1008,10 @@ export default function PanelStoryboard() {
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  <Select
-                    value={formVideoMode}
-                    onValueChange={(v) =>
-                      setFormVideoMode(v as CreateVideoMode)
-                    }
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VIDEO_MODES.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={formModel}
-                    onValueChange={(v) => setFormModel(v as StoryboardModel)}
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STORYBOARD_MODELS.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {formVideoMode === 'ref_to_video' && (
-                    <Select
-                      value={formVideoModel}
-                      onValueChange={(v) => setFormVideoModel(v as VideoModel)}
-                    >
-                      <SelectTrigger className="h-8 w-[130px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VIDEO_MODELS.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                  {/* Mode locked to ref_to_video + Kling O3 */}
+                  <span className="h-8 px-3 text-xs border rounded-md flex items-center text-muted-foreground">
+                    Ref to Video · Kling O3
+                  </span>
                 </div>
               </div>
 
@@ -1094,30 +1043,6 @@ export default function PanelStoryboard() {
                   </Select>
                 </div>
               )}
-
-              {/* Content template */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Content Template
-                </span>
-                <Select
-                  value={formContentTemplate}
-                  onValueChange={(value) =>
-                    setFormContentTemplate(value as StoryboardContentTemplate)
-                  }
-                >
-                  <SelectTrigger className="h-8 flex-1 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STORYBOARD_CONTENT_TEMPLATE_OPTIONS.map((template) => (
-                      <SelectItem key={template.value} value={template.value}>
-                        {template.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
               {/* Generate Button */}
               <Button

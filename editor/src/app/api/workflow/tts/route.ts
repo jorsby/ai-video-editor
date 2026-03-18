@@ -190,8 +190,19 @@ export async function POST(req: NextRequest) {
   try {
     const authClient = await createClient();
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await authClient.auth.getUser();
+
+    // Support API key auth for agent access
+    let user = sessionUser;
+    if (!user) {
+      const { validateApiKey } = await import('@/lib/auth/api-key');
+      const apiKeyResult = validateApiKey(req);
+      if (apiKeyResult.valid && apiKeyResult.userId) {
+        user = { id: apiKeyResult.userId } as typeof sessionUser;
+      }
+    }
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
