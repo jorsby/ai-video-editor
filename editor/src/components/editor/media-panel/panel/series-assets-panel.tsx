@@ -5,6 +5,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Slider } from '@/components/ui/slider';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
   Collapsible,
   CollapsibleContent,
@@ -17,8 +19,10 @@ import {
   IconChevronRight,
   IconChevronUp,
   IconLayoutGrid,
+  IconList,
   IconLoader2,
   IconMapPin,
+  IconMaximize,
   IconPackage,
   IconRefresh,
   IconUsers,
@@ -26,6 +30,7 @@ import {
 import { toast } from 'sonner';
 
 type AssetType = 'character' | 'location' | 'prop';
+type ViewMode = 'list' | 'grid';
 
 const SECTION_CONFIG: Record<
   AssetType,
@@ -34,127 +39,227 @@ const SECTION_CONFIG: Record<
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
-  character: {
-    label: 'Characters',
-    icon: IconUsers,
-  },
-  location: {
-    label: 'Locations',
-    icon: IconMapPin,
-  },
-  prop: {
-    label: 'Props',
-    icon: IconPackage,
-  },
+  character: { label: 'Characters', icon: IconUsers },
+  location: { label: 'Locations', icon: IconMapPin },
+  prop: { label: 'Props', icon: IconPackage },
 };
 
-function AssetCard({ asset }: { asset: SeriesAsset }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const description = asset.description?.trim() || 'No description yet';
+function getAssetEmoji(type: AssetType): string {
+  return type === 'character' ? '👤' : type === 'location' ? '🏠' : '📦';
+}
 
-  return (
-    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="w-full border border-border/40 rounded-md px-2.5 py-2 text-left hover:bg-muted/20 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            {asset.thumbnailUrl ? (
+function AssetCard({
+  asset,
+  viewMode,
+}: {
+  asset: SeriesAsset;
+  viewMode: ViewMode;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const description = asset.description?.trim() || 'No description yet';
+  const imageUrl =
+    asset.thumbnailUrl ||
+    asset.variants.find((v) => v.imageUrl)?.imageUrl ||
+    null;
+  const emoji = getAssetEmoji(asset.type);
+
+  if (viewMode === 'grid') {
+    return (
+      <>
+        <div className="group/asset relative rounded-md overflow-hidden border border-border/40 bg-muted/10 hover:bg-muted/20 transition-colors">
+          <div className="relative aspect-square">
+            {imageUrl ? (
               <img
-                src={asset.thumbnailUrl}
-                alt={`${asset.name} reference`}
-                className="size-10 rounded object-cover border border-border/30 shrink-0"
+                src={imageUrl}
+                alt={asset.name}
+                className="absolute inset-0 w-full h-full object-cover"
               />
             ) : (
-              <div className="size-10 rounded border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-sm">
-                {asset.type === 'character'
-                  ? '👤'
-                  : asset.type === 'location'
-                    ? '🏠'
-                    : '📦'}
+              <div className="absolute inset-0 flex items-center justify-center text-2xl">
+                {emoji}
               </div>
             )}
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <p className="text-xs font-medium truncate">{asset.name}</p>
-                {asset.variants.some((variant) => variant.isFinalized) && (
-                  <Badge
-                    variant="outline"
-                    className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 shrink-0"
-                  >
-                    Finalized
-                  </Badge>
-                )}
+            {imageUrl && (
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                className="absolute top-1 right-1 p-1 rounded bg-black/60 text-white opacity-0 group-hover/asset:opacity-100 transition-opacity hover:bg-black/80"
+                title="Expand"
+              >
+                <IconMaximize size={12} />
+              </button>
+            )}
+            {asset.variants.some((v) => v.isFinalized) && (
+              <div className="absolute top-1 left-1">
+                <Badge
+                  variant="outline"
+                  className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 bg-black/50 text-emerald-400"
+                >
+                  Finalized
+                </Badge>
               </div>
-              <p className="text-[10px] text-muted-foreground line-clamp-1">
-                {description}
-              </p>
-            </div>
-
-            {isExpanded ? (
-              <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
-            ) : (
-              <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
             )}
           </div>
-        </button>
-      </CollapsibleTrigger>
+          <div className="p-1.5">
+            <p className="text-[10px] font-medium truncate">{asset.name}</p>
+            <p className="text-[9px] text-muted-foreground line-clamp-1">
+              {description}
+            </p>
+          </div>
+        </div>
+        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 sm:p-4 bg-black/90 border-white/10">
+            <DialogTitle className="sr-only">{asset.name}</DialogTitle>
+            {imageUrl && (
+              <img
+                src={imageUrl}
+                alt={asset.name}
+                className="w-full h-auto max-h-[80vh] object-contain rounded"
+              />
+            )}
+            <div className="text-center mt-2">
+              <p className="text-sm font-medium text-white">{asset.name}</p>
+              <p className="text-xs text-white/60">{description}</p>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
-      <CollapsibleContent>
-        <div className="px-2.5 pt-1 pb-2 space-y-1.5">
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {description}
-          </p>
-          {asset.variants.length > 0 && (
-            <div className="space-y-1">
-              {asset.variants.map((variant) => (
-                <div
-                  key={variant.id}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
-                >
-                  {variant.imageUrl ? (
-                    <img
-                      src={variant.imageUrl}
-                      alt={variant.label}
-                      className="size-6 rounded object-cover border border-border/30 shrink-0"
-                    />
-                  ) : (
-                    <div className="size-6 rounded bg-muted/30 shrink-0" />
-                  )}
-                  <span className="text-[10px] flex-1 truncate">
-                    {variant.label}
-                  </span>
-                  {variant.isDefault && (
-                    <Badge
-                      variant="secondary"
-                      className="text-[7px] px-1 py-0 h-3"
-                    >
-                      Default
-                    </Badge>
-                  )}
-                  {variant.isFinalized && (
+  // List mode
+  return (
+    <>
+      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="w-full border border-border/40 rounded-md px-2.5 py-2 text-left hover:bg-muted/20 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              {imageUrl ? (
+                <div className="relative group/thumb shrink-0">
+                  <img
+                    src={imageUrl}
+                    alt={`${asset.name} reference`}
+                    className="size-10 rounded object-cover border border-border/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewOpen(true);
+                    }}
+                    className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                  >
+                    <IconMaximize size={12} className="text-white" />
+                  </button>
+                </div>
+              ) : (
+                <div className="size-10 rounded border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-sm">
+                  {emoji}
+                </div>
+              )}
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-medium truncate">{asset.name}</p>
+                  {asset.variants.some((v) => v.isFinalized) && (
                     <Badge
                       variant="outline"
-                      className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
+                      className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 shrink-0"
                     >
-                      Locked
+                      Finalized
                     </Badge>
                   )}
                 </div>
-              ))}
+                <p className="text-[10px] text-muted-foreground line-clamp-1">
+                  {description}
+                </p>
+              </div>
+
+              {isExpanded ? (
+                <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+              )}
             </div>
+          </button>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <div className="px-2.5 pt-1 pb-2 space-y-1.5">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {description}
+            </p>
+            {asset.variants.length > 0 && (
+              <div className="space-y-1">
+                {asset.variants.map((variant) => (
+                  <div
+                    key={variant.id}
+                    className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
+                  >
+                    {variant.imageUrl ? (
+                      <img
+                        src={variant.imageUrl}
+                        alt={variant.label}
+                        className="size-6 rounded object-cover border border-border/30 shrink-0"
+                      />
+                    ) : (
+                      <div className="size-6 rounded bg-muted/30 shrink-0" />
+                    )}
+                    <span className="text-[10px] flex-1 truncate">
+                      {variant.label}
+                    </span>
+                    {variant.isDefault && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[7px] px-1 py-0 h-3"
+                      >
+                        Default
+                      </Badge>
+                    )}
+                    {variant.isFinalized && (
+                      <Badge
+                        variant="outline"
+                        className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
+                      >
+                        Locked
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 sm:p-4 bg-black/90 border-white/10">
+          <DialogTitle className="sr-only">{asset.name}</DialogTitle>
+          {imageUrl && (
+            <img
+              src={imageUrl}
+              alt={asset.name}
+              className="w-full h-auto max-h-[80vh] object-contain rounded"
+            />
           )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          <div className="text-center mt-2">
+            <p className="text-sm font-medium text-white">{asset.name}</p>
+            <p className="text-xs text-white/60">{description}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
 function AssetSection({
   type,
   assets,
+  viewMode,
+  cardMinWidth,
   gridPrompt,
   onGridPromptChange,
   onSavePrompt,
@@ -164,6 +269,8 @@ function AssetSection({
 }: {
   type: AssetType;
   assets: SeriesAsset[];
+  viewMode: ViewMode;
+  cardMinWidth: number;
   gridPrompt: string;
   onGridPromptChange: (value: string) => void;
   onSavePrompt: () => Promise<void>;
@@ -261,8 +368,21 @@ function AssetSection({
             <p className="text-[10px] text-muted-foreground/70 pb-1">
               No {config.label.toLowerCase()} yet.
             </p>
+          ) : viewMode === 'grid' ? (
+            <div
+              className="grid gap-2"
+              style={{
+                gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+              }}
+            >
+              {assets.map((asset) => (
+                <AssetCard key={asset.id} asset={asset} viewMode="grid" />
+              ))}
+            </div>
           ) : (
-            assets.map((asset) => <AssetCard key={asset.id} asset={asset} />)
+            assets.map((asset) => (
+              <AssetCard key={asset.id} asset={asset} viewMode="list" />
+            ))
           )}
         </div>
       </CollapsibleContent>
@@ -284,6 +404,9 @@ export default function SeriesAssetsPanel() {
     saveGridPrompt,
     generateGrid,
   } = useSeriesAssets(projectId);
+
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [cardMinWidth, setCardMinWidth] = useState(120);
 
   const groupedAssets = useMemo(() => {
     return {
@@ -327,11 +450,53 @@ export default function SeriesAssetsPanel() {
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-2.5">
+        {/* View controls */}
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md overflow-hidden border">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`h-7 px-2 text-xs transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-background hover:bg-accent text-muted-foreground'
+              }`}
+              title="List view"
+            >
+              <IconList size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`h-7 px-2 text-xs transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-background hover:bg-accent text-muted-foreground'
+              }`}
+              title="Grid view"
+            >
+              <IconLayoutGrid size={14} />
+            </button>
+          </div>
+          {viewMode === 'grid' && (
+            <Slider
+              value={[cardMinWidth]}
+              onValueChange={([v]) => setCardMinWidth(v)}
+              min={80}
+              max={250}
+              step={10}
+              className="flex-1"
+            />
+          )}
+        </div>
+
         {(['character', 'location', 'prop'] as const).map((type) => (
           <AssetSection
             key={type}
             type={type}
             assets={groupedAssets[type]}
+            viewMode={viewMode}
+            cardMinWidth={cardMinWidth}
             gridPrompt={gridPrompts[type]}
             onGridPromptChange={(value) => setGridPrompt(type, value)}
             onSavePrompt={async () => {
@@ -340,7 +505,6 @@ export default function SeriesAssetsPanel() {
                 toast.error(result.error ?? 'Failed to save prompt');
                 return;
               }
-
               toast.success(`${SECTION_CONFIG[type].label} prompt saved`);
             }}
             onGenerateGrid={async () => {
@@ -349,7 +513,6 @@ export default function SeriesAssetsPanel() {
                 toast.error(result.error ?? 'Failed to generate grid');
                 return;
               }
-
               toast.success(
                 `${SECTION_CONFIG[type].label} grid generation started`
               );
