@@ -144,7 +144,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         multi_shots,
         video_status,
         objects (scene_order, final_url, url, status),
-        backgrounds (final_url, url, status)
+        backgrounds (final_url, url, status),
+        voiceovers (duration)
       `
       )
       .eq('storyboard_id', storyboardId)
@@ -183,6 +184,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           url: string | null;
           status: string | null;
         }>;
+        voiceovers: Array<{ duration: number | null }>;
       }) => {
         if (indexFilterSet && !indexFilterSet.has(scene.order)) {
           return false;
@@ -214,6 +216,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const jobs: Array<{
       scene_id: string;
       scene_index: number;
+      duration_seconds: number;
       estimated_cost_usd: number;
       fal_request_id?: string;
       status: 'queued' | 'skipped' | 'estimate';
@@ -235,11 +238,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
         final_url: string | null;
         url: string | null;
       }>;
+      voiceovers: Array<{ duration: number | null }>;
     }>) {
+      // Duration priority: voiceover duration + 1s buffer → plan duration → 5s default
+      const maxVoiceoverDuration = Math.max(
+        0,
+        ...(scene.voiceovers ?? []).map((v) => v.duration ?? 0)
+      );
+      const voiceoverBasedDuration =
+        maxVoiceoverDuration > 0
+          ? Math.min(15, Math.ceil(maxVoiceoverDuration) + 1)
+          : 0;
       const planDuration = plan.scene_durations?.[scene.order] ?? 5;
+      const baseDuration = voiceoverBasedDuration || planDuration;
 
       // For multi-shot, calculate actual total from per-shot durations
-      let actualDuration = planDuration;
+      let actualDuration = baseDuration;
       let multiPromptPayload: Array<{
         prompt: string;
         duration: string;
@@ -259,6 +273,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
+          duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'estimate',
         });
@@ -272,6 +287,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
+          duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
         });
@@ -284,6 +300,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
+          duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
         });
@@ -311,7 +328,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       } else {
         payload.prompt =
           scene.multi_prompt?.[0] ?? scene.prompt ?? `Scene ${scene.order + 1}`;
-        payload.duration = String(planDuration);
+        payload.duration = String(baseDuration);
       }
 
       await db
@@ -389,6 +406,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       jobs.push({
         scene_id: scene.id,
         scene_index: scene.order,
+        duration_seconds: actualDuration,
         estimated_cost_usd: estimatedCost,
         fal_request_id: requestId,
         status: 'queued',

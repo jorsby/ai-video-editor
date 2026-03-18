@@ -136,6 +136,10 @@ interface SceneCardProps {
     newGridPosition: number
   ) => Promise<void>;
   isDialogueMode?: boolean;
+  onUpdateShotDurations?: (
+    sceneId: string,
+    durations: Array<{ duration: string }>
+  ) => void;
 }
 
 interface SceneThumbnailProps {
@@ -1032,6 +1036,7 @@ export function SceneCard({
   assetImageMap = {},
   onChangeBackground,
   isDialogueMode,
+  onUpdateShotDurations,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1474,6 +1479,84 @@ export function SceneCard({
                 {scene.prompt || 'No prompt set'}
               </p>
             )}
+            {/* Duration stepper */}
+            {onUpdateShotDurations &&
+              (() => {
+                const sd = (
+                  Array.isArray(scene.multi_shots) ? scene.multi_shots : null
+                ) as Array<{ duration?: string }> | null;
+                const isMulti =
+                  scene.multi_prompt && scene.multi_prompt.length > 1;
+                const shotCount = isMulti ? scene.multi_prompt!.length : 1;
+                const getDur = (idx: number) =>
+                  Number(sd?.[idx]?.duration ?? '5');
+                const setDur = (idx: number, delta: number) => {
+                  const shots = Array.from({ length: shotCount }, (_, i) => ({
+                    duration: String(
+                      Math.max(
+                        3,
+                        Math.min(15, getDur(i) + (i === idx ? delta : 0))
+                      )
+                    ),
+                  }));
+                  onUpdateShotDurations(scene.id, shots);
+                };
+                const totalDur = Array.from({ length: shotCount }, (_, i) =>
+                  getDur(i)
+                ).reduce((a, b) => a + b, 0);
+
+                return (
+                  <div className="flex items-center gap-2 pt-1 border-t border-cyan-500/10">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                      Duration
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {Array.from({ length: shotCount }, (_, idx) => (
+                        <div
+                          key={`dur-${scene.id}-${idx}`}
+                          className="flex items-center gap-0.5"
+                        >
+                          {isMulti && (
+                            <span className="text-[8px] text-purple-400 mr-0.5">
+                              S{idx + 1}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className="w-5 h-5 rounded bg-muted/50 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            disabled={getDur(idx) <= 3}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDur(idx, -1);
+                            }}
+                          >
+                            −
+                          </button>
+                          <span className="text-[10px] text-foreground/80 font-mono w-5 text-center">
+                            {getDur(idx)}s
+                          </span>
+                          <button
+                            type="button"
+                            className="w-5 h-5 rounded bg-muted/50 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            disabled={getDur(idx) >= 15}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDur(idx, 1);
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                      {isMulti && (
+                        <span className="text-[9px] text-muted-foreground ml-1">
+                          = {totalDur}s total
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             {/* Elements summary */}
             {scene.objects && scene.objects.length > 0 && (
               <div className="flex flex-wrap gap-1 pt-1 border-t border-cyan-500/10">

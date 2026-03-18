@@ -1466,6 +1466,25 @@ export function StoryboardCards({
     }
   };
 
+  const handleUpdateShotDurations = useCallback(
+    async (sceneId: string, durations: Array<{ duration: string }>) => {
+      const supabase = createClient('studio');
+      const { error } = await supabase
+        .from('scenes')
+        .update({ multi_shots: durations })
+        .eq('id', sceneId);
+
+      if (error) {
+        toast.error('Failed to update duration');
+        return;
+      }
+
+      // Update local state immediately
+      refresh();
+    },
+    [refresh]
+  );
+
   const handleGenerateVideo = async () => {
     if (selectedSceneIds.size === 0) return;
 
@@ -1567,7 +1586,7 @@ export function StoryboardCards({
           .from('scenes')
           .update({
             video_url: null,
-            video_status: 'processing',
+            video_status: null,
             video_request_id: null,
             video_error_message: null,
             video_resolution: null,
@@ -2438,6 +2457,7 @@ export function StoryboardCards({
                 isRefToVideoMode ? handleChangeBackground : undefined
               }
               isDialogueMode={isDialogueMode}
+              onUpdateShotDurations={handleUpdateShotDurations}
             />
           );
         })}
