@@ -8,8 +8,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
   scene_indices: z.array(z.number().int().min(0)).optional(),
+  scene_ids: z.array(z.string().uuid()).optional(),
   audio: z.boolean().optional(),
   confirm: z.boolean().optional(),
+  aspect_ratio: z.string().optional(),
 });
 
 const KLING_O3_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
@@ -90,8 +92,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const sceneIndicesFilter = parsedBody.data.scene_indices;
+    const sceneIdsFilter = parsedBody.data.scene_ids;
     const withAudio = parsedBody.data.audio ?? true;
     const confirm = parsedBody.data.confirm ?? false;
+    const aspectRatioOverride = parsedBody.data.aspect_ratio;
 
     const db = createServiceClient('studio');
 
@@ -161,9 +165,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const indexFilterSet = sceneIndicesFilter
       ? new Set(sceneIndicesFilter)
       : null;
+    const idFilterSet = sceneIdsFilter ? new Set(sceneIdsFilter) : null;
 
     const candidates = (scenes ?? []).filter(
       (scene: {
+        id: string;
         order: number;
         video_status: string | null;
         objects: Array<{
@@ -179,6 +185,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         }>;
       }) => {
         if (indexFilterSet && !indexFilterSet.has(scene.order)) {
+          return false;
+        }
+        if (idFilterSet && !idFilterSet.has(scene.id)) {
           return false;
         }
 
@@ -203,9 +212,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     );
 
     const jobs: Array<{
+      scene_id: string;
       scene_index: number;
       estimated_cost_usd: number;
       fal_request_id?: string;
+      status: 'queued' | 'skipped' | 'estimate';
     }> = [];
 
     for (const scene of candidates as Array<{
@@ -246,8 +257,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       if (!confirm) {
         jobs.push({
+          scene_id: scene.id,
           scene_index: scene.order,
           estimated_cost_usd: estimatedCost,
+          status: 'estimate',
         });
         continue;
       }
@@ -257,8 +270,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         scene.video_status === 'success'
       ) {
         jobs.push({
+          scene_id: scene.id,
           scene_index: scene.order,
           estimated_cost_usd: estimatedCost,
+          status: 'skipped',
         });
         continue;
       }
@@ -267,8 +282,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         scene.backgrounds[0]?.final_url ?? scene.backgrounds[0]?.url;
       if (!backgroundUrl) {
         jobs.push({
+          scene_id: scene.id,
           scene_index: scene.order,
           estimated_cost_usd: estimatedCost,
+          status: 'skipped',
         });
         continue;
       }
@@ -284,7 +301,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           reference_image_urls: [url],
         })),
         image_urls: [backgroundUrl],
-        aspect_ratio: storyboard.aspect_ratio ?? '9:16',
+        aspect_ratio: aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
         generate_audio: withAudio,
       };
 
@@ -370,9 +387,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .eq('id', scene.id);
 
       jobs.push({
+        scene_id: scene.id,
         scene_index: scene.order,
         estimated_cost_usd: estimatedCost,
         fal_request_id: requestId,
+        status: 'queued',
       });
     }
 

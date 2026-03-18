@@ -383,12 +383,29 @@ async function getRefVideoContext(
 
   const { data: objects } = await supabase
     .from('objects')
-    .select('final_url, character_id')
+    .select('final_url, character_id, series_asset_variant_id')
     .eq('scene_id', sceneId)
     .order('scene_order', { ascending: true });
-  const objectUrls: string[] = (objects || [])
-    .map((o: { final_url: string | null }) => o.final_url)
-    .filter((url: string | null): url is string => !!url);
+
+  // Resolve element images: prefer live series asset image, fallback to static final_url
+  const resolvedObjects: Array<{ url: string; variantId: string | null }> = [];
+  for (const obj of objects || []) {
+    let url = obj.final_url;
+    // Try live series asset image if variant linked
+    if (obj.series_asset_variant_id) {
+      const { data: liveImg } = await supabase
+        .from('series_asset_variant_images')
+        .select('url')
+        .eq('variant_id', obj.series_asset_variant_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (liveImg?.url) url = liveImg.url;
+    }
+    if (url)
+      resolvedObjects.push({ url, variantId: obj.series_asset_variant_id });
+  }
+  const objectUrls: string[] = resolvedObjects.map((o) => o.url);
 
   // Check for library characters (via project_characters)
   let libraryElements: LibraryElement[] | undefined;
