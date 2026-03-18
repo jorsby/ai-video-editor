@@ -1488,8 +1488,16 @@ export function SceneCard({
                 const isMulti =
                   scene.multi_prompt && scene.multi_prompt.length > 1;
                 const shotCount = isMulti ? scene.multi_prompt!.length : 1;
+                // Narrative mode: derive default from voiceover duration
+                // ceil(voiceover) + 1s buffer, capped at 15, split evenly across shots
+                const voDur = voiceover?.duration
+                  ? Math.min(15, Math.ceil(Number(voiceover.duration)) + 1)
+                  : null;
+                const defaultPerShot = voDur
+                  ? Math.max(3, Math.min(15, Math.round(voDur / shotCount)))
+                  : 5;
                 const getDur = (idx: number) =>
-                  Number(sd?.[idx]?.duration ?? '5');
+                  Number(sd?.[idx]?.duration ?? String(defaultPerShot));
                 const setDur = (idx: number, delta: number) => {
                   const shots = Array.from({ length: shotCount }, (_, i) => ({
                     duration: String(
