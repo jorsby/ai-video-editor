@@ -1432,31 +1432,53 @@ export function SceneCard({
         </div>
       )}
 
-      {!expanded && showVoiceover && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <IconMicrophone size={10} className="text-blue-400 flex-shrink-0" />
-          <p className="text-[10px] text-foreground/70 truncate flex-1">
-            {voiceoverPreview || (
-              <span className="italic text-muted-foreground">
-                {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+      {/* Video prompt info (collapsed) */}
+      {!expanded && (
+        <div className="mt-1.5 space-y-1">
+          {/* Shot type + duration badge */}
+          <div className="flex items-center gap-1.5">
+            <IconVideo size={10} className="text-cyan-400 flex-shrink-0" />
+            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                {scene.multi_prompt.length}-shot
+              </span>
+            ) : (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                Single shot
               </span>
             )}
-          </p>
-          {renderCollapsedVoiceoverStatus()}
-          {collapsedVoiceoverDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
-              {collapsedVoiceoverDurationLabel}
-            </span>
+            <p className="text-[9px] text-foreground/50 truncate flex-1">
+              {scene.multi_prompt?.[0]
+                ? scene.multi_prompt[0].slice(0, 50) +
+                  (scene.multi_prompt[0].length > 50 ? '...' : '')
+                : scene.prompt
+                  ? scene.prompt.slice(0, 50) +
+                    ((scene.prompt?.length ?? 0) > 50 ? '...' : '')
+                  : 'No prompt'}
+            </p>
+          </div>
+          {/* Voiceover line */}
+          {showVoiceover && (
+            <div className="flex items-center gap-1.5">
+              <IconMicrophone
+                size={10}
+                className="text-blue-400 flex-shrink-0"
+              />
+              <p className="text-[10px] text-foreground/70 truncate flex-1">
+                {voiceoverPreview || (
+                  <span className="italic text-muted-foreground">
+                    {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+                  </span>
+                )}
+              </p>
+              {renderCollapsedVoiceoverStatus()}
+              {collapsedVoiceoverDurationLabel && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
+                  {collapsedVoiceoverDurationLabel}
+                </span>
+              )}
+            </div>
           )}
-          {wanDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-300 flex-shrink-0">
-              {wanDurationLabel}
-            </span>
-          )}
-          <IconChevronDown
-            size={12}
-            className="text-muted-foreground flex-shrink-0"
-          />
         </div>
       )}
 
@@ -1544,6 +1566,62 @@ export function SceneCard({
                 </div>
               </div>
             )}
+
+          {/* Video Prompt (expanded) */}
+          <div
+            className="mt-2 p-2 rounded border border-cyan-500/20 bg-cyan-500/5 space-y-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-cyan-300 font-medium flex items-center gap-1">
+                <IconVideo size={12} />
+                Video Prompt
+              </span>
+              {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                  {scene.multi_prompt.length}-shot
+                </span>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/20">
+                  Single shot
+                </span>
+              )}
+            </div>
+            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+              <div className="space-y-1">
+                {scene.multi_prompt.map((shot: string, idx: number) => (
+                  <div
+                    key={`shot-${scene.id}-${idx}`}
+                    className="text-[10px] text-foreground/80 leading-relaxed pl-2 border-l-2 border-purple-500/30"
+                  >
+                    <span className="text-purple-400 font-medium">
+                      Shot {idx + 1}:
+                    </span>{' '}
+                    {shot}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-foreground/80 leading-relaxed">
+                {scene.prompt || 'No prompt set'}
+              </p>
+            )}
+            {/* Elements summary */}
+            {scene.objects && scene.objects.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1 border-t border-cyan-500/10">
+                {scene.objects.map(
+                  (obj: { name?: string; id?: string }, idx: number) => (
+                    <span
+                      key={obj.id || idx}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                    >
+                      @E{idx + 1} {obj.name}
+                    </span>
+                  )
+                )}
+              </div>
+            )}
+          </div>
 
           <ExpandedContent
             voiceover={voiceover}
