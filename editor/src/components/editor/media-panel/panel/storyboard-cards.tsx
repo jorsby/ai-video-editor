@@ -1933,7 +1933,7 @@ export function StoryboardCards({
           .from('scenes')
           .update({
             video_url: null,
-            video_status: null,
+            video_status: 'processing',
             video_request_id: null,
             video_error_message: null,
             video_resolution: null,
@@ -2354,11 +2354,11 @@ export function StoryboardCards({
       }
     }
 
-    // Reset video fields on scenes
+    // Set video status to processing immediately so UI shows spinner
     const { error: resetError } = await supabase
       .from('scenes')
       .update({
-        video_status: null,
+        video_status: 'processing',
         video_url: null,
         video_request_id: null,
         video_error_message: null,
