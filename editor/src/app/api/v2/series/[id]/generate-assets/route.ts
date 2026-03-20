@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -72,10 +73,6 @@ const PREFIX_BY_ASSET_TYPE: Record<string, string> = {
     'Empty environment, no people, neutral baseline lighting, reusable location plate, avoid explicit time-of-day styling. ',
   prop: 'Single isolated prop cutout on transparent background (alpha), no text, clean edges, no background scene. ',
 };
-
-function getWebhookBaseUrl() {
-  return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-}
 
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
@@ -167,7 +164,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ jobs: [] });
     }
 
-    const webhookBase = getWebhookBaseUrl();
+    const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
       return NextResponse.json(
         { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },

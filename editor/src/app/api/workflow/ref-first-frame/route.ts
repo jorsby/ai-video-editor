@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
   DEFAULT_GRID_RESOLUTION,
@@ -13,8 +14,6 @@ import {
 } from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 interface RefFirstFrameInput {
   scene_ids: string[];
@@ -198,6 +197,7 @@ async function queueFirstFrameRequest(
   model: NonNullable<RefFirstFrameInput['model']>,
   aspectRatio: GridAspectRatio,
   resolution: GridResolution,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
@@ -207,7 +207,7 @@ async function queueFirstFrameRequest(
     resolution,
   });
 
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
@@ -340,6 +340,17 @@ export async function POST(req: NextRequest) {
         ? resolution
         : DEFAULT_GRID_RESOLUTION;
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
     const supabase = createServiceClient();
 
     const results: Array<{
@@ -414,6 +425,7 @@ export async function POST(req: NextRequest) {
         model,
         selectedAspectRatio,
         selectedResolution,
+        webhookBase,
         log
       );
 

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -47,14 +48,6 @@ function pushIfString(target: string[], value: unknown, prefix?: string) {
   const trimmed = value.trim();
   if (!trimmed) return;
   target.push(prefix ? `${prefix}${trimmed}` : trimmed);
-}
-
-function getWebhookBaseUrl(req: NextRequest): string {
-  return (
-    process.env.WEBHOOK_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    req.nextUrl.origin
-  );
 }
 
 function buildStyleLock(series: {
@@ -199,7 +192,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Build webhook URL
-    const webhookBase = getWebhookBaseUrl(req);
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
     const webhookUrl = `${webhookBase}/api/webhook/fal?step=SeriesAssetImage&variant_id=${variant_id}`;
 
     // Submit to fal.ai queue

@@ -2,10 +2,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 interface EditImageInput {
   scene_ids: string[];
@@ -186,6 +185,7 @@ async function sendEditRequest(
   model: string,
   prompt: string,
   webhookStep: string,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>,
   referenceUrls?: string[]
 ): Promise<{ requestId: string | null; error: string | null }> {
@@ -205,7 +205,7 @@ async function sendEditRequest(
     step: webhookStep,
     [entityKey]: entityId,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -328,6 +328,17 @@ export async function POST(req: NextRequest) {
         );
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
     const supabase = createServiceClient();
     const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.kling;
 
@@ -373,6 +384,7 @@ export async function POST(req: NextRequest) {
         model,
         input.prompt as string,
         'EnhanceImage',
+        webhookBase,
         log,
         referenceUrls
       );
@@ -458,6 +470,7 @@ export async function POST(req: NextRequest) {
           model,
           objPrompt,
           'EnhanceImage',
+          webhookBase,
           log
         );
 
@@ -573,6 +586,7 @@ export async function POST(req: NextRequest) {
         model,
         prompt,
         webhookStep,
+        webhookBase,
         log
       );
 

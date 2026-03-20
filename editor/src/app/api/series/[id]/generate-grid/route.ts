@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -12,14 +13,6 @@ const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
   'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
 };
 const DEFAULT_MODEL = 'nano-banana-2';
-
-function getWebhookBaseUrl(req: NextRequest): string {
-  return (
-    process.env.WEBHOOK_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    req.nextUrl.origin
-  );
-}
 
 // ── nano-banana-2 supported aspect ratios (per docs) ─────────────────────────
 const NANO_ASPECT_RATIOS = [
@@ -459,7 +452,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const gridAspect = closestNanoAspect(gridWidth, gridHeight);
 
     // ── Build webhook URL ───────────────────────────────────────────────────
-    const webhookUrl = new URL(`${getWebhookBaseUrl(req)}/api/webhook/fal`);
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
+    const webhookUrl = new URL(`${webhookBase}/api/webhook/fal`);
     webhookUrl.searchParams.set('step', 'SeriesGridImage');
     webhookUrl.searchParams.set('variant_ids', variantIds.join(','));
     webhookUrl.searchParams.set('cols', String(cols));

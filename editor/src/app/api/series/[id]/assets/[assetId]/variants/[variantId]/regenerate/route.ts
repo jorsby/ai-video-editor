@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { getSeries } from '@/lib/supabase/series-service';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const FAL_KEY = process.env.FAL_KEY!;
@@ -133,10 +134,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       prompt = parts.join('. ');
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
     // Build webhook URL
-    const webhookUrl = new URL(
-      `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal`
-    );
+    const webhookUrl = new URL(`${webhookBase}/api/webhook/fal`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 

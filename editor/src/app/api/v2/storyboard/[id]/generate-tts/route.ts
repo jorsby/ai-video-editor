@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -84,10 +85,6 @@ async function logVoiceoverGenerationAttempt(params: {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getWebhookBaseUrl() {
-  return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 }
 
 function normalizeText(text: string | null | undefined): string | null {
@@ -318,7 +315,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return input.error;
     }
 
-    const webhookBase = getWebhookBaseUrl();
+    const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
       return NextResponse.json(
         { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },

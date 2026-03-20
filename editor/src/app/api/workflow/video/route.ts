@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   resolveForKling,
   type CharacterImage,
@@ -10,8 +11,6 @@ import {
 import { resolveSeriesAssetsForProject } from '@/lib/supabase/series-asset-resolver';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 // ── Model configuration ───────────────────────────────────────────────
 
@@ -614,13 +613,14 @@ async function sendRefVideoRequest(
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
   enableAudio: boolean,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -701,13 +701,14 @@ async function sendVideoRequest(
   resolution: string,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -771,6 +772,7 @@ async function queueDirectRefVideo(
   aspect_ratio: string | undefined,
   enableAudio: boolean,
   durationOverride: number | undefined,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>,
   fallback_duration: number | undefined
 ): Promise<{
@@ -814,6 +816,7 @@ async function queueDirectRefVideo(
     modelConfig,
     aspect_ratio,
     enableAudio,
+    webhookBase,
     log
   );
 
@@ -1088,6 +1091,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      log.error('Missing webhook base URL');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
     log.info('Processing video requests', {
       scene_count: scene_ids.length,
       resolution,
@@ -1099,6 +1114,7 @@ export async function POST(req: NextRequest) {
           : 'image_to_video',
       enable_audio: effectiveEnableAudio,
       storyboard_video_mode: storyboardVideoMode,
+      webhook_base: webhookBase,
     });
 
     const results: Array<{
@@ -1148,6 +1164,7 @@ export async function POST(req: NextRequest) {
           resolution,
           modelConfig,
           aspect_ratio,
+          webhookBase,
           log
         );
 
@@ -1223,6 +1240,7 @@ export async function POST(req: NextRequest) {
           aspect_ratio,
           effectiveEnableAudio,
           durationOverrideForScene,
+          webhookBase,
           log,
           fallback_duration
         );
@@ -1260,6 +1278,7 @@ export async function POST(req: NextRequest) {
         resolution,
         modelConfig,
         aspect_ratio,
+        webhookBase,
         log
       );
       if (error || !requestId) {

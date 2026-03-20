@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -69,10 +70,6 @@ function getMultiShotTotalDuration(
     (sum, shot) => sum + Number(shot.duration),
     0
   );
-}
-
-function getWebhookBaseUrl() {
-  return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 }
 
 async function logSceneGenerationAttempt(params: {
@@ -409,7 +406,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         })
         .eq('id', scene.id);
 
-      const webhookBase = getWebhookBaseUrl();
+      const webhookBase = resolveWebhookBaseUrl(req);
       if (!webhookBase) {
         return NextResponse.json(
           { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
   DEFAULT_GRID_RESOLUTION,
@@ -24,10 +25,6 @@ function getRequiredEnv(name: string): string {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
-}
-
-function getWebhookBaseUrl(): string {
-  return process.env.WEBHOOK_BASE_URL || getRequiredEnv('NEXT_PUBLIC_APP_URL');
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────
@@ -146,6 +143,7 @@ function validateWorkflowInput(input: WorkflowInput): string | null {
 
 async function executeStartWorkflow(
   input: WorkflowInput,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{
   success: boolean;
@@ -234,7 +232,7 @@ async function executeStartWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const webhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(
     'https://queue.fal.run/workflows/octupost/generategridimage'
   );
@@ -452,6 +450,7 @@ async function sendFalGridRequest(
 
 async function executeStartRefWorkflow(
   input: RefWorkflowInput,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{
   success: boolean;
@@ -590,7 +589,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const objectsWebhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${objectsWebhookParams.toString()}`;
+  const objectsWebhookUrl = `${webhookBase}/api/webhook/fal?${objectsWebhookParams.toString()}`;
 
   const bgWebhookParams = new URLSearchParams({
     step: 'GenGridImage',
@@ -601,7 +600,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const bgWebhookUrl = `${getWebhookBaseUrl()}/api/webhook/fal?${bgWebhookParams.toString()}`;
+  const bgWebhookUrl = `${webhookBase}/api/webhook/fal?${bgWebhookParams.toString()}`;
 
   const selectedGridAspectRatio = isGridAspectRatio(
     grid_generation_aspect_ratio
@@ -778,6 +777,14 @@ export async function POST(req: NextRequest) {
 
     const workflowStoryboard = claimedStoryboard;
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
     // Get dimensions from aspect ratio
     const dimensions =
       ASPECT_RATIOS[workflowStoryboard.aspect_ratio] || ASPECT_RATIOS['9:16'];
@@ -822,6 +829,7 @@ export async function POST(req: NextRequest) {
           grid_generation_resolution:
             workflowStoryboard.plan.grid_generation_resolution,
         },
+        webhookBase,
         log
       );
     } else {
@@ -843,6 +851,7 @@ export async function POST(req: NextRequest) {
           grid_generation_resolution:
             workflowStoryboard.plan.grid_generation_resolution,
         },
+        webhookBase,
         log
       );
     }

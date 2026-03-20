@@ -9,6 +9,7 @@ import {
   resolveSeriesAssetCandidatesForProject,
   type SeriesAssetCandidate,
 } from '@/lib/supabase/series-asset-resolver';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -31,10 +32,6 @@ const RESOLUTION_TO_SIZE: Record<
 const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
 
 type MissingAssetType = 'object' | 'background';
-
-function getWebhookBaseUrl() {
-  return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -527,7 +524,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       String(error instanceof Error ? error.message : error).slice(0, 400);
 
     if (canRetryExistingFailed) {
-      const webhookBase = getWebhookBaseUrl();
+      const webhookBase = resolveWebhookBaseUrl(req);
       if (!webhookBase) {
         return NextResponse.json(
           { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
@@ -1143,7 +1140,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const skippedAssets: SkippedAssetMeta[] = [];
 
     if (missingObjectCount > 0 || missingBackgroundCount > 0) {
-      const webhookBase = getWebhookBaseUrl();
+      const webhookBase = resolveWebhookBaseUrl(req);
       if (!webhookBase) {
         return NextResponse.json(
           { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },

@@ -2,10 +2,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 const TTS_ENDPOINTS: Record<string, string> = {
   'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
@@ -170,13 +169,14 @@ async function sendTTSRequest(
   voice: string,
   endpoint: string,
   speed: number,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
   const webhookParams = new URLSearchParams({
     step: 'GenerateTTS',
     voiceover_id: context.voiceover_id,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
@@ -294,9 +294,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      log.error('Missing webhook base URL');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
     log.info('Processing TTS requests', {
       scene_count: scene_ids.length,
       model,
+      webhook_base: webhookBase,
     });
 
     const supabase = createServiceClient();
@@ -373,6 +386,7 @@ export async function POST(req: NextRequest) {
         voice,
         endpoint,
         speed,
+        webhookBase,
         log
       );
 
