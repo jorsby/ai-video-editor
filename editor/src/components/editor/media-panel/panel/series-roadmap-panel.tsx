@@ -43,6 +43,7 @@ interface StoryboardScene {
   id: string;
   order: number;
   prompt: string | null;
+  multi_prompt?: string[] | null;
   video_status: string | null;
   video_url: string | null;
   objects: SceneObject[];
@@ -54,6 +55,8 @@ interface StoryboardInfo {
   plan_status: string;
   mode: string;
   voiceover: string;
+  scriptLanguage: string;
+  scriptLines: string[];
   scenes: StoryboardScene[];
 }
 
@@ -71,6 +74,42 @@ const STATUS_CONFIG = {
   done: { label: 'Done', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
 } as const;
 
+function trimSentence(value: string, max = 180): string {
+  const text = value.trim();
+  if (!text) return text;
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function deriveScriptLines(params: {
+  voiceover: string;
+  planVoiceoverList: unknown;
+}): { language: string; lines: string[] } {
+  const list = params.planVoiceoverList;
+
+  if (list && typeof list === 'object') {
+    const entries = Object.entries(list as Record<string, unknown>);
+    for (const [language, value] of entries) {
+      if (!Array.isArray(value)) continue;
+      const lines = value
+        .map((line) => (typeof line === 'string' ? line.trim() : ''))
+        .filter(Boolean);
+      if (lines.length > 0) {
+        return { language, lines };
+      }
+    }
+  }
+
+  const fallback = params.voiceover
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return {
+    language: 'tr',
+    lines: fallback,
+  };
+}
+
 function SceneRow({
   scene,
   index,
@@ -80,8 +119,16 @@ function SceneRow({
   index: number;
   variantImages: Map<string, string>;
 }) {
-  const prompt = scene.prompt || 'No prompt yet';
+  const firstMultiPrompt =
+    Array.isArray(scene.multi_prompt) && scene.multi_prompt.length > 0
+      ? scene.multi_prompt[0]
+      : null;
+  const prompt =
+    scene.prompt?.trim() || firstMultiPrompt?.trim() || 'No prompt yet';
   const videoStatus = scene.video_status || 'pending';
+  const shotCount = Array.isArray(scene.multi_prompt)
+    ? scene.multi_prompt.length
+    : 0;
 
   // Resolve live thumbnails from variant images map
   const objectThumbs = scene.objects.map((obj) => ({
@@ -125,6 +172,12 @@ function SceneRow({
 
         <div className="flex-1" />
 
+        {shotCount > 1 && (
+          <span className="text-[8px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 shrink-0">
+            {shotCount}-shot
+          </span>
+        )}
+
         <div className="shrink-0">
           {videoStatus === 'success' ? (
             <IconCheck className="size-3 text-emerald-400" />
@@ -156,10 +209,21 @@ function EpisodeCard({
   onToggle: () => void;
   variantImages: Map<string, string>;
 }) {
+  const [showFullScript, setShowFullScript] = useState(false);
   const statusConfig = STATUS_CONFIG[episode.status] || STATUS_CONFIG.planned;
   const sceneCount = storyboard?.scenes?.length ?? 0;
   const doneScenes =
     storyboard?.scenes?.filter((s) => s.video_status === 'success').length ?? 0;
+
+  const keyPoints = [
+    storyboard?.scriptLines?.[0]
+      ? `Hook: ${trimSentence(storyboard.scriptLines[0], 120)}`
+      : null,
+    `Amaç: ${trimSentence(episode.summary, 120)}`,
+    sceneCount > 0
+      ? `Yapı: ${sceneCount} sahne${doneScenes > 0 ? ` • ${doneScenes}/${sceneCount} video hazır` : ''}`
+      : 'Yapı: Storyboard henüz oluşturulmadı',
+  ].filter(Boolean) as string[];
 
   return (
     <div className="border border-border/40 rounded-md overflow-hidden">
@@ -198,9 +262,66 @@ function EpisodeCard({
 
       {isExpanded && (
         <div className="px-2.5 pb-2.5 space-y-2">
-          <p className="text-[10px] text-muted-foreground leading-relaxed pl-6">
-            {episode.summary}
-          </p>
+          <div className="pl-6 space-y-1">
+            <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+              Episode Goal
+            </p>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              {episode.summary}
+            </p>
+          </div>
+
+          <div className="pl-6 space-y-1">
+            <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+              Key Notes
+            </p>
+            <ul className="space-y-1">
+              {keyPoints.map((point, idx) => (
+                <li
+                  key={`${episode.number}-key-${idx}`}
+                  className="text-[10px] text-muted-foreground leading-relaxed"
+                >
+                  • {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {storyboard && storyboard.scriptLines.length > 0 && (
+            <Collapsible open={showFullScript} onOpenChange={setShowFullScript}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
+                >
+                  <IconBook className="size-3 text-muted-foreground shrink-0" />
+                  <span className="text-[10px] font-medium flex-1">
+                    Full Script ({storyboard.scriptLanguage.toUpperCase()})
+                  </span>
+                  {showFullScript ? (
+                    <IconChevronUp className="size-3 text-muted-foreground" />
+                  ) : (
+                    <IconChevronDown className="size-3 text-muted-foreground" />
+                  )}
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="pl-6 pt-1.5 space-y-1.5 max-h-44 overflow-auto pr-1">
+                  {storyboard.scriptLines.map((line, idx) => (
+                    <p
+                      key={`${episode.number}-script-${idx}`}
+                      className="text-[10px] text-foreground/85 leading-relaxed"
+                    >
+                      <span className="text-muted-foreground/70">
+                        {idx + 1}.
+                      </span>{' '}
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           {storyboard && storyboard.scenes.length > 0 ? (
             <div className="pl-6 space-y-1">
@@ -331,12 +452,16 @@ export default function SeriesRoadmapPanel() {
           // Try to match storyboard to episode by title or order
           const plan = sb.plan as Record<string, unknown> | null;
           const voiceoverList = plan?.voiceover_list;
-          const scenePrompts = plan?.scene_prompts as string[] | undefined;
+          const { language: scriptLanguage, lines: scriptLines } =
+            deriveScriptLines({
+              voiceover: sb.voiceover || '',
+              planVoiceoverList: voiceoverList,
+            });
 
           // Load scenes with objects and backgrounds
           const { data: scenes } = await supabase
             .from('scenes')
-            .select('id, order, prompt, video_status, video_url')
+            .select('id, order, prompt, multi_prompt, video_status, video_url')
             .eq('storyboard_id', sb.id)
             .order('order', { ascending: true });
 
@@ -414,10 +539,13 @@ export default function SeriesRoadmapPanel() {
             plan_status: sb.plan_status || 'draft',
             mode: sb.mode || 'ref_to_video',
             voiceover: sb.voiceover || '',
+            scriptLanguage,
+            scriptLines,
             scenes: (scenes ?? []).map((s) => ({
               id: s.id,
               order: s.order,
               prompt: s.prompt,
+              multi_prompt: s.multi_prompt,
               video_status: s.video_status,
               video_url: s.video_url,
               objects: objectsByScene.get(s.id) || [],

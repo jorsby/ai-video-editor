@@ -1433,7 +1433,7 @@ export function SceneCard({
                   </div>
                 </div>
               )}
-              {scene.video_status === 'processing' && (
+              {scene.video_status === 'processing' && !scene.video_url && (
                 <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
                   <IconLoader2
                     size={20}
@@ -1532,7 +1532,7 @@ export function SceneCard({
                     Splitting...
                   </span>
                 </div>
-              ) : scene.video_status === 'processing' ? (
+              ) : scene.video_status === 'processing' && !scene.video_url ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-1">
                   <IconLoader2
                     size={20}
