@@ -75,6 +75,49 @@ function getWebhookBaseUrl() {
   return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 }
 
+async function logSceneGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  sceneId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+}) {
+  const {
+    db,
+    sceneId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+  } = params;
+
+  const { data: latest } = await db
+    .from('generation_logs')
+    .select('version')
+    .eq('entity_type', 'scene')
+    .eq('entity_id', sceneId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  await db.from('generation_logs').insert({
+    entity_type: 'scene',
+    entity_id: sceneId,
+    storyboard_id: storyboardId,
+    version: (latest?.version ?? 0) + 1,
+    prompt,
+    generation_meta: generationMeta ?? null,
+    feedback: feedback ?? null,
+    result_url: resultUrl ?? null,
+    status,
+  });
+}
+
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id: storyboardId } = await context.params;
@@ -220,6 +263,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       estimated_cost_usd: number;
       fal_request_id?: string;
       status: 'queued' | 'skipped' | 'estimate';
+      reason?: 'no_prompt' | 'already_generated' | 'missing_background';
     }> = [];
 
     for (const scene of candidates as Array<{
@@ -268,6 +312,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       const estimatedCost = calculateSceneCost(actualDuration, withAudio);
+      const scenePrompt =
+        scene.multi_prompt?.find((p) => p.trim().length > 0) ??
+        scene.prompt?.trim() ??
+        '';
+
+      if (!scenePrompt) {
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: null,
+          status: 'skipped',
+          feedback: 'Skipped: no scene prompt saved',
+        });
+
+        jobs.push({
+          scene_id: scene.id,
+          scene_index: scene.order,
+          duration_seconds: actualDuration,
+          estimated_cost_usd: estimatedCost,
+          status: 'skipped',
+          reason: 'no_prompt',
+        });
+        continue;
+      }
 
       if (!confirm) {
         jobs.push({
@@ -290,6 +359,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
+          reason: 'already_generated',
         });
         continue;
       }
@@ -303,6 +373,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
+          reason: 'missing_background',
         });
         continue;
       }
@@ -326,8 +397,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         payload.multi_prompt = multiPromptPayload;
         payload.shot_type = 'customize';
       } else {
-        payload.prompt =
-          scene.multi_prompt?.[0] ?? scene.prompt ?? `Scene ${scene.order + 1}`;
+        payload.prompt = scenePrompt;
         payload.duration = String(baseDuration);
       }
 
@@ -371,6 +441,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
           })
           .eq('id', scene.id);
 
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: scenePrompt,
+          status: 'failed',
+          feedback: `Failed to queue scene ${scene.order}`,
+        });
+
         return NextResponse.json(
           { error: `Failed to queue scene ${scene.order}` },
           { status: 500 }
@@ -389,6 +468,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
           })
           .eq('id', scene.id);
 
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: scenePrompt,
+          status: 'failed',
+          feedback: `Missing fal request_id for scene ${scene.order}`,
+        });
+
         return NextResponse.json(
           {
             error: `fal.ai response missing request_id for scene ${scene.order}`,
@@ -401,6 +489,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .from('scenes')
         .update({ video_request_id: requestId })
         .eq('id', scene.id);
+
+      await logSceneGenerationAttempt({
+        db,
+        sceneId: scene.id,
+        storyboardId,
+        prompt: scenePrompt,
+        generationMeta: {
+          model: endpoint,
+          aspect_ratio:
+            aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
+          duration_seconds: actualDuration,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+          audio: withAudio,
+        },
+        status: 'pending',
+      });
 
       jobs.push({
         scene_id: scene.id,

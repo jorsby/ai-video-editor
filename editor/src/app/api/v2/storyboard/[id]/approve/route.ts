@@ -28,8 +28,6 @@ const RESOLUTION_TO_SIZE: Record<
   '2k': { width: 2048, height: 2048 },
 };
 
-const NEGATIVE_PROMPT = 'text, words, labels, watermark, blurry, low quality';
-
 const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
 
 type MissingAssetType = 'object' | 'background';
@@ -85,6 +83,60 @@ type AssetJobMeta = {
   status: 'queued' | 'failed';
   error?: string;
 };
+
+type SkippedAssetMeta = {
+  asset_type: MissingAssetType;
+  grid_position: number;
+  name: string;
+  reason: 'no_prompt';
+};
+
+async function logGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  entityType: MissingAssetType;
+  entityId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+}) {
+  const {
+    db,
+    entityType,
+    entityId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+  } = params;
+
+  const { data: latest } = await db
+    .from('generation_logs')
+    .select('version')
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextVersion = (latest?.version ?? 0) + 1;
+
+  await db.from('generation_logs').insert({
+    entity_type: entityType,
+    entity_id: entityId,
+    storyboard_id: storyboardId,
+    version: nextVersion,
+    prompt,
+    generation_meta: generationMeta ?? null,
+    feedback: feedback ?? null,
+    result_url: resultUrl ?? null,
+    status,
+  });
+}
 
 async function resolveObjectMatches(params: {
   objectNames: string[];
@@ -320,7 +372,6 @@ async function queueMissingAssetJob(params: {
     },
     body: JSON.stringify({
       prompt: params.prompt,
-      negative_prompt: NEGATIVE_PROMPT,
       num_images: 1,
       image_size: { width: size.width, height: size.height },
       enable_safety_checker: false,
@@ -506,19 +557,24 @@ export async function POST(req: NextRequest, context: RouteContext) {
         await Promise.all([
           db
             .from('objects')
-            .select('grid_position, name, description')
+            .select('id, grid_position, name, description, generation_prompt')
             .in('scene_id', sceneIds)
             .eq('status', 'failed'),
           db
             .from('backgrounds')
-            .select('grid_position, name')
+            .select('id, grid_position, name, generation_prompt')
             .in('scene_id', sceneIds)
             .eq('status', 'failed'),
         ]);
 
       const objectFailedByPosition = new Map<
         number,
-        { name: string; description: string | null }
+        {
+          id: string;
+          name: string;
+          description: string | null;
+          generation_prompt: string | null;
+        }
       >();
       for (const row of failedObjectsRows ?? []) {
         const position = Number(row.grid_position);
@@ -526,27 +582,40 @@ export async function POST(req: NextRequest, context: RouteContext) {
         if (objectFailedByPosition.has(position)) continue;
 
         objectFailedByPosition.set(position, {
+          id: row.id,
           name:
             typeof row.name === 'string' && row.name.trim().length > 0
               ? row.name
               : (plan.objects[position]?.name ?? `Object ${position + 1}`),
           description:
             typeof row.description === 'string' ? row.description : null,
+          generation_prompt:
+            typeof row.generation_prompt === 'string'
+              ? row.generation_prompt
+              : null,
         });
       }
 
-      const backgroundFailedByPosition = new Map<number, { name: string }>();
+      const backgroundFailedByPosition = new Map<
+        number,
+        { id: string; name: string; generation_prompt: string | null }
+      >();
       for (const row of failedBackgroundRows ?? []) {
         const position = Number(row.grid_position);
         if (!Number.isInteger(position) || position < 0) continue;
         if (backgroundFailedByPosition.has(position)) continue;
 
         backgroundFailedByPosition.set(position, {
+          id: row.id,
           name:
             typeof row.name === 'string' && row.name.trim().length > 0
               ? row.name
               : (plan.background_names[position] ??
                 `Background ${position + 1}`),
+          generation_prompt:
+            typeof row.generation_prompt === 'string'
+              ? row.generation_prompt
+              : null,
         });
       }
 
@@ -573,13 +642,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       const assetJobs: AssetJobMeta[] = [];
+      const skippedAssets: SkippedAssetMeta[] = [];
 
       for (const [gridPosition, info] of objectFailedByPosition) {
-        const prompt = buildMissingObjectPrompt({
-          name: info.name,
-          description: info.description,
-          usagePrompts: objectUsageByGrid.get(gridPosition) ?? [],
-        });
+        const prompt = info.generation_prompt?.trim() ?? '';
+
+        if (!prompt) {
+          skippedAssets.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: info.name,
+            reason: 'no_prompt',
+          });
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt: null,
+            status: 'skipped',
+            feedback: 'Skipped: no generation_prompt saved',
+          });
+
+          continue;
+        }
 
         const webhookParams = new URLSearchParams({
           step: 'GenerateMissingAssetImage',
@@ -608,6 +695,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .eq('grid_position', gridPosition)
             .eq('status', 'failed');
 
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            generationMeta: {
+              model: FAL_IMAGE_ENDPOINT,
+              output_format: 'png',
+              resolution,
+              generated_at: new Date().toISOString(),
+              generated_by: 'system',
+            },
+            status: 'pending',
+          });
+
           assetJobs.push({
             asset_type: 'object',
             grid_position: gridPosition,
@@ -625,6 +728,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .eq('grid_position', gridPosition)
             .eq('status', 'failed');
 
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            status: 'failed',
+            feedback: errorMessage,
+          });
+
           assetJobs.push({
             asset_type: 'object',
             grid_position: gridPosition,
@@ -637,10 +750,28 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       for (const [gridPosition, info] of backgroundFailedByPosition) {
-        const prompt = buildMissingBackgroundPrompt({
-          name: info.name,
-          usagePrompts: backgroundUsageByGrid.get(gridPosition) ?? [],
-        });
+        const prompt = info.generation_prompt?.trim() ?? '';
+
+        if (!prompt) {
+          skippedAssets.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: info.name,
+            reason: 'no_prompt',
+          });
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt: null,
+            status: 'skipped',
+            feedback: 'Skipped: no generation_prompt saved',
+          });
+
+          continue;
+        }
 
         const webhookParams = new URLSearchParams({
           step: 'GenerateMissingAssetImage',
@@ -668,6 +799,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .eq('grid_position', gridPosition)
             .eq('status', 'failed');
 
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            generationMeta: {
+              model: FAL_IMAGE_ENDPOINT,
+              output_format: 'png',
+              resolution,
+              generated_at: new Date().toISOString(),
+              generated_by: 'system',
+            },
+            status: 'pending',
+          });
+
           assetJobs.push({
             asset_type: 'background',
             grid_position: gridPosition,
@@ -684,6 +831,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .in('scene_id', sceneIds)
             .eq('grid_position', gridPosition)
             .eq('status', 'failed');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            status: 'failed',
+            feedback: errorMessage,
+          });
 
           assetJobs.push({
             asset_type: 'background',
@@ -702,11 +859,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const failedJobsCount = assetJobs.filter(
         (job) => job.status === 'failed'
       ).length;
+      const skippedJobsCount = skippedAssets.length;
 
       const nextStatus =
         queuedJobsCount > 0
           ? 'generating'
-          : failedJobsCount > 0
+          : failedJobsCount > 0 || skippedJobsCount > 0
             ? 'failed'
             : 'approved';
 
@@ -723,7 +881,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
           resolution,
           queued: queuedJobsCount,
           failed: failedJobsCount,
+          skipped: skippedJobsCount,
           jobs: [...previousJobs, ...assetJobs],
+          skipped_items: skippedAssets,
           retried_at: new Date().toISOString(),
         },
       };
@@ -737,6 +897,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         status: nextStatus,
         retried: true,
         asset_jobs: assetJobs,
+        skipped: skippedAssets,
       });
     }
 
@@ -795,6 +956,59 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const missingObjectCount = missingObjectPositions.length;
     const missingBackgroundCount = missingBackgroundPositions.length;
+
+    const objectUsageByGrid = new Map<number, Array<string | string[]>>();
+    const backgroundUsageByGrid = new Map<number, Array<string | string[]>>();
+
+    for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
+      const scenePrompt = styledScenePrompts[sceneIdx];
+
+      for (const gridPosition of plan.scene_object_indices[sceneIdx] ?? []) {
+        if (!objectUsageByGrid.has(gridPosition)) {
+          objectUsageByGrid.set(gridPosition, []);
+        }
+        objectUsageByGrid.get(gridPosition)?.push(scenePrompt);
+      }
+
+      const bgPosition = plan.scene_bg_indices[sceneIdx];
+      if (bgPosition != null && bgPosition >= 0) {
+        if (!backgroundUsageByGrid.has(bgPosition)) {
+          backgroundUsageByGrid.set(bgPosition, []);
+        }
+        backgroundUsageByGrid.get(bgPosition)?.push(scenePrompt);
+      }
+    }
+
+    const defaultObjectPromptByGrid = new Map<number, string>();
+    for (const gridPosition of missingObjectPositions) {
+      const object = plan.objects[gridPosition];
+      const assetName = object?.name ?? `Object ${gridPosition + 1}`;
+      const assetDescription =
+        typeof object?.description === 'string' ? object.description : null;
+
+      defaultObjectPromptByGrid.set(
+        gridPosition,
+        buildMissingObjectPrompt({
+          name: assetName,
+          description: assetDescription,
+          usagePrompts: objectUsageByGrid.get(gridPosition) ?? [],
+        })
+      );
+    }
+
+    const defaultBackgroundPromptByGrid = new Map<number, string>();
+    for (const gridPosition of missingBackgroundPositions) {
+      const assetName =
+        plan.background_names[gridPosition] ?? `Background ${gridPosition + 1}`;
+
+      defaultBackgroundPromptByGrid.set(
+        gridPosition,
+        buildMissingBackgroundPrompt({
+          name: assetName,
+          usagePrompts: backgroundUsageByGrid.get(gridPosition) ?? [],
+        })
+      );
+    }
 
     const sceneIds: string[] = [];
     const sceneCount = styledScenePrompts.length;
@@ -856,6 +1070,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         const object = plan.objects[gridPosition];
         const matchedAsset = objectAiMatch.byGridPosition.get(gridPosition);
 
+        const generationPrompt =
+          defaultObjectPromptByGrid.get(gridPosition) ?? null;
+
         const { error: objectError } = await db.from('objects').insert({
           scene_id: sceneIds[sceneIdx],
           scene_order: position,
@@ -865,7 +1082,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
           url: matchedAsset?.url ?? null,
           final_url: matchedAsset?.url ?? null,
           series_asset_variant_id: matchedAsset?.variantId ?? null,
-          status: matchedAsset ? 'success' : 'processing',
+          generation_prompt: generationPrompt,
+          generation_meta: generationPrompt
+            ? {
+                model: FAL_IMAGE_ENDPOINT,
+                output_format: 'png',
+                resolution,
+                use_case: 'missing_object_generation',
+                generated_by: 'system',
+              }
+            : {},
+          status: matchedAsset ? 'success' : 'pending',
         });
 
         if (objectError) {
@@ -881,6 +1108,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const bgIndex = plan.scene_bg_indices[sceneIdx];
       const matchedBg = backgroundAiMatch.byGridPosition.get(bgIndex);
 
+      const generationPrompt =
+        defaultBackgroundPromptByGrid.get(bgIndex) ?? null;
+
       const { error: bgError } = await db.from('backgrounds').insert({
         scene_id: sceneIds[sceneIdx],
         grid_position: bgIndex,
@@ -888,7 +1118,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
         url: matchedBg?.url ?? null,
         final_url: matchedBg?.url ?? null,
         series_asset_variant_id: matchedBg?.variantId ?? null,
-        status: matchedBg ? 'success' : 'processing',
+        generation_prompt: generationPrompt,
+        generation_meta: generationPrompt
+          ? {
+              model: FAL_IMAGE_ENDPOINT,
+              output_format: 'png',
+              resolution,
+              use_case: 'missing_background_generation',
+              generated_by: 'system',
+            }
+          : {},
+        status: matchedBg ? 'success' : 'pending',
       });
 
       if (bgError) {
@@ -900,28 +1140,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const assetJobs: AssetJobMeta[] = [];
-
-    const objectUsageByGrid = new Map<number, Array<string | string[]>>();
-    const backgroundUsageByGrid = new Map<number, Array<string | string[]>>();
-
-    for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
-      const scenePrompt = styledScenePrompts[sceneIdx];
-
-      for (const gridPosition of plan.scene_object_indices[sceneIdx] ?? []) {
-        if (!objectUsageByGrid.has(gridPosition)) {
-          objectUsageByGrid.set(gridPosition, []);
-        }
-        objectUsageByGrid.get(gridPosition)?.push(scenePrompt);
-      }
-
-      const bgPosition = plan.scene_bg_indices[sceneIdx];
-      if (bgPosition != null && bgPosition >= 0) {
-        if (!backgroundUsageByGrid.has(bgPosition)) {
-          backgroundUsageByGrid.set(bgPosition, []);
-        }
-        backgroundUsageByGrid.get(bgPosition)?.push(scenePrompt);
-      }
-    }
+    const skippedAssets: SkippedAssetMeta[] = [];
 
     if (missingObjectCount > 0 || missingBackgroundCount > 0) {
       const webhookBase = getWebhookBaseUrl();
@@ -936,17 +1155,114 @@ export async function POST(req: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
-      for (const gridPosition of missingObjectPositions) {
-        const object = plan.objects[gridPosition];
-        const assetName = object?.name ?? `Object ${gridPosition + 1}`;
-        const assetDescription =
-          typeof object?.description === 'string' ? object.description : null;
+      const [{ data: pendingObjectRows }, { data: pendingBackgroundRows }] =
+        await Promise.all([
+          missingObjectCount > 0
+            ? db
+                .from('objects')
+                .select(
+                  'id, grid_position, name, description, generation_prompt'
+                )
+                .in('scene_id', sceneIds)
+                .in('grid_position', missingObjectPositions)
+                .eq('status', 'pending')
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+          missingBackgroundCount > 0
+            ? db
+                .from('backgrounds')
+                .select('id, grid_position, name, generation_prompt')
+                .in('scene_id', sceneIds)
+                .in('grid_position', missingBackgroundPositions)
+                .eq('status', 'pending')
+            : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+        ]);
 
-        const prompt = buildMissingObjectPrompt({
-          name: assetName,
-          description: assetDescription,
-          usagePrompts: objectUsageByGrid.get(gridPosition) ?? [],
+      const pendingObjectByGrid = new Map<
+        number,
+        {
+          id: string;
+          name: string;
+          description: string | null;
+          generation_prompt: string | null;
+        }
+      >();
+      for (const row of pendingObjectRows ?? []) {
+        const gridPosition = Number(row.grid_position);
+        if (!Number.isInteger(gridPosition) || gridPosition < 0) continue;
+        if (pendingObjectByGrid.has(gridPosition)) continue;
+
+        pendingObjectByGrid.set(gridPosition, {
+          id: row.id as string,
+          name:
+            typeof row.name === 'string' && row.name.trim().length > 0
+              ? row.name
+              : `Object ${gridPosition + 1}`,
+          description:
+            typeof row.description === 'string' ? row.description : null,
+          generation_prompt:
+            typeof row.generation_prompt === 'string'
+              ? row.generation_prompt
+              : null,
         });
+      }
+
+      const pendingBackgroundByGrid = new Map<
+        number,
+        { id: string; name: string; generation_prompt: string | null }
+      >();
+      for (const row of pendingBackgroundRows ?? []) {
+        const gridPosition = Number(row.grid_position);
+        if (!Number.isInteger(gridPosition) || gridPosition < 0) continue;
+        if (pendingBackgroundByGrid.has(gridPosition)) continue;
+
+        pendingBackgroundByGrid.set(gridPosition, {
+          id: row.id as string,
+          name:
+            typeof row.name === 'string' && row.name.trim().length > 0
+              ? row.name
+              : `Background ${gridPosition + 1}`,
+          generation_prompt:
+            typeof row.generation_prompt === 'string'
+              ? row.generation_prompt
+              : null,
+        });
+      }
+
+      for (const gridPosition of missingObjectPositions) {
+        const info = pendingObjectByGrid.get(gridPosition);
+        if (!info) continue;
+
+        const assetName = info.name;
+        const assetDescription = info.description;
+        const prompt = info.generation_prompt?.trim() ?? '';
+
+        if (!prompt) {
+          skippedAssets.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: assetName,
+            reason: 'no_prompt',
+          });
+
+          await db
+            .from('objects')
+            .update({ status: 'failed', error_message: 'no_prompt_saved' })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt: null,
+            status: 'skipped',
+            feedback: 'Skipped: no generation_prompt saved',
+          });
+
+          continue;
+        }
 
         const webhookParams = new URLSearchParams({
           step: 'GenerateMissingAssetImage',
@@ -969,7 +1285,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .update({ request_id: requestId, status: 'processing' })
             .in('scene_id', sceneIds)
             .eq('grid_position', gridPosition)
-            .neq('status', 'success');
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            generationMeta: {
+              model: FAL_IMAGE_ENDPOINT,
+              output_format: 'png',
+              resolution,
+              generated_at: new Date().toISOString(),
+              generated_by: 'system',
+            },
+            status: 'pending',
+          });
 
           assetJobs.push({
             asset_type: 'object',
@@ -986,7 +1318,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .update({ status: 'failed', error_message: errorMessage })
             .in('scene_id', sceneIds)
             .eq('grid_position', gridPosition)
-            .neq('status', 'success');
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'object',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            status: 'failed',
+            feedback: errorMessage,
+          });
 
           assetJobs.push({
             asset_type: 'object',
@@ -1000,14 +1342,39 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       for (const gridPosition of missingBackgroundPositions) {
-        const assetName =
-          plan.background_names[gridPosition] ??
-          `Background ${gridPosition + 1}`;
+        const info = pendingBackgroundByGrid.get(gridPosition);
+        if (!info) continue;
 
-        const prompt = buildMissingBackgroundPrompt({
-          name: assetName,
-          usagePrompts: backgroundUsageByGrid.get(gridPosition) ?? [],
-        });
+        const assetName = info.name;
+        const prompt = info.generation_prompt?.trim() ?? '';
+
+        if (!prompt) {
+          skippedAssets.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: assetName,
+            reason: 'no_prompt',
+          });
+
+          await db
+            .from('backgrounds')
+            .update({ status: 'failed', error_message: 'no_prompt_saved' })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt: null,
+            status: 'skipped',
+            feedback: 'Skipped: no generation_prompt saved',
+          });
+
+          continue;
+        }
 
         const webhookParams = new URLSearchParams({
           step: 'GenerateMissingAssetImage',
@@ -1029,7 +1396,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .update({ request_id: requestId, status: 'processing' })
             .in('scene_id', sceneIds)
             .eq('grid_position', gridPosition)
-            .neq('status', 'success');
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            generationMeta: {
+              model: FAL_IMAGE_ENDPOINT,
+              output_format: 'png',
+              resolution,
+              generated_at: new Date().toISOString(),
+              generated_by: 'system',
+            },
+            status: 'pending',
+          });
 
           assetJobs.push({
             asset_type: 'background',
@@ -1046,7 +1429,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
             .update({ status: 'failed', error_message: errorMessage })
             .in('scene_id', sceneIds)
             .eq('grid_position', gridPosition)
-            .neq('status', 'success');
+            .eq('status', 'pending');
+
+          await logGenerationAttempt({
+            db,
+            entityType: 'background',
+            entityId: info.id,
+            storyboardId,
+            prompt,
+            status: 'failed',
+            feedback: errorMessage,
+          });
 
           assetJobs.push({
             asset_type: 'background',
@@ -1066,11 +1459,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const failedJobsCount = assetJobs.filter(
       (job) => job.status === 'failed'
     ).length;
+    const skippedJobsCount = skippedAssets.length;
 
     const nextPlanStatus =
       queuedJobsCount > 0
         ? 'generating'
-        : failedJobsCount > 0
+        : failedJobsCount > 0 || skippedJobsCount > 0
           ? 'failed'
           : 'approved';
 
@@ -1097,7 +1491,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         resolution,
         queued: queuedJobsCount,
         failed: failedJobsCount,
+        skipped: skippedJobsCount,
         jobs: assetJobs,
+        skipped_items: skippedAssets,
       },
     };
 
@@ -1119,6 +1515,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({
       status: nextPlanStatus,
       asset_jobs: assetJobs,
+      skipped: skippedAssets,
       match_summary: {
         strategy: 'ai-only',
         objects: {
