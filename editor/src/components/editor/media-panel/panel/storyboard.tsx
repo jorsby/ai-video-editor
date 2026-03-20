@@ -14,12 +14,7 @@ import {
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+// DropdownMenu removed — series-level settings no longer selectable per storyboard
 import {
   Collapsible,
   CollapsibleContent,
@@ -53,17 +48,8 @@ import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
 import {
   DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
-  STORYBOARD_CONTENT_TEMPLATE_OPTIONS,
   type StoryboardContentTemplate,
 } from '@/lib/storyboard-content-template';
-
-const ASPECT_RATIOS = [
-  { value: '16:9', label: '16:9', width: 1920, height: 1080 },
-  { value: '9:16', label: '9:16', width: 1080, height: 1920 },
-  { value: '1:1', label: '1:1', width: 1080, height: 1080 },
-] as const;
-
-type AspectRatio = (typeof ASPECT_RATIOS)[number]['value'];
 
 const STORYBOARD_MODELS = [
   { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
@@ -73,33 +59,6 @@ const STORYBOARD_MODELS = [
 ] as const;
 
 type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
-
-type CreateVideoMode =
-  | 'image_to_video'
-  | 'image_to_video_legacy'
-  | 'ref_to_video'
-  | 'quick_video';
-
-const VIDEO_MODES = [
-  {
-    value: 'image_to_video' as const,
-    label: 'Image to Video',
-  },
-  {
-    value: 'image_to_video_legacy' as const,
-    label: 'Image to Video (Legacy)',
-  },
-  { value: 'ref_to_video' as const, label: 'Ref to Video' },
-] as const;
-
-const VIDEO_MODELS = [
-  { value: 'klingo3' as const, label: 'Kling O3' },
-] as const;
-
-const REF_VIDEO_MODE_OPTIONS = [
-  { value: 'narrative' as const, label: 'Narrative (Audio OFF)' },
-  { value: 'dialogue_scene' as const, label: 'Cinematic (Audio ON)' },
-] as const;
 
 type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
 
@@ -258,17 +217,11 @@ export default function PanelStoryboard() {
     string | null
   >(null);
 
-  // Form state (for create mode)
+  // Form state (for create mode) — most settings now inherited from series metadata
   const [formVoiceover, setFormVoiceover] = useState('');
-  const [formAspectRatio, setFormAspectRatio] = useState<AspectRatio>('9:16');
   const [formModel, setFormModel] = useState<StoryboardModel>(
     'google/gemini-3.1-pro-preview'
   );
-  const [formVideoMode, setFormVideoMode] =
-    useState<CreateVideoMode>('image_to_video');
-  const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
-  const [formRefVideoMode, setFormRefVideoMode] =
-    useState<RefVideoMode>('narrative');
   const [formContentTemplate, setFormContentTemplate] =
     useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
 
@@ -475,32 +428,19 @@ export default function PanelStoryboard() {
     setDraftError(null);
 
     try {
+      // Settings now inherited from series metadata
+      const resolvedMode: StoryboardMode = 'ref_to_video';
+      const resolvedVideoModel = 'klingo3';
+      const workflowVariant: RefWorkflowVariant = 'direct_ref_to_video';
+      // TODO: read scene_mode + aspect_ratio from series metadata
+      const resolvedRefVideoMode: RefVideoMode = 'narrative';
+      const resolvedAspectRatio = '9:16';
+
       console.log('[Storyboard] Generating storyboard plan...', {
         projectId,
-        aspectRatio: formAspectRatio,
+        aspectRatio: resolvedAspectRatio,
         voiceoverLength: formVoiceover.length,
       });
-
-      const resolvedMode: StoryboardMode =
-        formVideoMode === 'image_to_video'
-          ? 'ref_to_video'
-          : formVideoMode === 'image_to_video_legacy'
-            ? 'image_to_video'
-            : formVideoMode;
-
-      const workflowVariant: RefWorkflowVariant | undefined =
-        formVideoMode === 'image_to_video'
-          ? 'i2v_from_refs'
-          : formVideoMode === 'ref_to_video'
-            ? 'direct_ref_to_video'
-            : undefined;
-
-      const resolvedVideoModel = 'klingo3';
-
-      const resolvedRefVideoMode: RefVideoMode =
-        resolvedMode === 'ref_to_video' && resolvedVideoModel === 'klingo3'
-          ? formRefVideoMode
-          : 'narrative';
 
       // Generate storyboard with AI and create draft record
       const response = await fetch('/api/storyboard', {
@@ -510,14 +450,12 @@ export default function PanelStoryboard() {
           voiceoverText: formVoiceover,
           model: formModel,
           projectId,
-          aspectRatio: formAspectRatio,
+          aspectRatio: resolvedAspectRatio,
           mode: resolvedMode,
           contentTemplate: formContentTemplate,
-          ...(resolvedMode === 'ref_to_video' && {
-            videoModel: resolvedVideoModel,
-            workflowVariant,
-            videoMode: resolvedRefVideoMode,
-          }),
+          videoModel: resolvedVideoModel,
+          workflowVariant,
+          videoMode: resolvedRefVideoMode,
         }),
       });
 
@@ -554,11 +492,7 @@ export default function PanelStoryboard() {
         const { storyboard_id, mode, model, ...planData } = data;
         setDraftPlan(planData as RefPlan);
         setDraftMode('ref_to_video');
-
-        const variant = getRefWorkflowVariant(planData);
-        setDraftVideoModel(
-          variant === 'direct_ref_to_video' ? model || formVideoModel : null
-        );
+        setDraftVideoModel(model || 'klingo3');
       } else {
         setDraftPlan({
           rows: data.rows,
@@ -818,11 +752,7 @@ export default function PanelStoryboard() {
               setSelectedStoryboardId(null);
               setViewMode('create');
               setFormVoiceover('');
-              setFormAspectRatio('9:16');
               setFormModel('google/gemini-3.1-pro-preview');
-              setFormVideoMode('image_to_video');
-              setFormVideoModel('klingo3');
-              setFormRefVideoMode('narrative');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -1118,76 +1048,33 @@ export default function PanelStoryboard() {
               </Collapsible>
             )
           ) : (
-            /* Create Mode - Editable form */
+            /* Create Mode — simplified: agent writes prompts, settings from series metadata */
             <div className="p-4 flex flex-col gap-3">
-              {/* Voiceover Text Input */}
+              {/* Voiceover Text Input (manual fallback — agent usually writes this) */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                   Voiceover Script
                 </span>
                 <Textarea
-                  placeholder="Enter your voiceover script..."
+                  placeholder="Enter voiceover script or let the agent write it..."
                   className="resize-none text-sm min-h-[80px] max-h-[200px] overflow-y-auto"
                   value={formVoiceover}
                   onChange={(e) => setFormVoiceover(e.target.value)}
                 />
               </div>
 
-              {/* Controls Row: Dropdowns */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="secondary" size="sm" className="gap-1">
-                        {formAspectRatio}
-                        <IconChevronDown className="size-3 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {ASPECT_RATIOS.map((option) => (
-                        <DropdownMenuItem
-                          key={option.value}
-                          onClick={() => setFormAspectRatio(option.value)}
-                        >
-                          {option.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  {/* Mode locked to ref_to_video + Kling O3 */}
-                  <span className="h-8 px-3 text-xs border rounded-md flex items-center text-muted-foreground">
-                    Ref to Video · Kling O3
-                  </span>
-                </div>
+              {/* Series settings badge (read-only) */}
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  Ref to Video
+                </span>
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  Kling O3
+                </span>
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  9:16
+                </span>
               </div>
-
-              {(formVideoMode === 'image_to_video' ||
-                (formVideoMode === 'ref_to_video' &&
-                  formVideoModel === 'klingo3')) && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Scene Mode
-                  </span>
-                  <Select
-                    value={formRefVideoMode}
-                    onValueChange={(value) =>
-                      setFormRefVideoMode(value as RefVideoMode)
-                    }
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {REF_VIDEO_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               {/* Generate Button */}
               <Button
