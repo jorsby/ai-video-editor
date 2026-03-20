@@ -1,5 +1,5 @@
 import {
-  Application,
+  type Application,
   Sprite,
   Texture,
   Container,

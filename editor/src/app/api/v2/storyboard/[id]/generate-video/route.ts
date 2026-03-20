@@ -12,9 +12,12 @@ const bodySchema = z.object({
   audio: z.boolean().optional(),
   confirm: z.boolean().optional(),
   aspect_ratio: z.string().optional(),
+  model: z.enum(['klingo3']).optional(),
 });
 
-const KLING_O3_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
+const KLING_ENDPOINTS = {
+  klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
+} as const;
 
 const COST_PER_5S = {
   withAudio: 0.112,
@@ -72,6 +75,49 @@ function getWebhookBaseUrl() {
   return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 }
 
+async function logSceneGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  sceneId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+}) {
+  const {
+    db,
+    sceneId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+  } = params;
+
+  const { data: latest } = await db
+    .from('generation_logs')
+    .select('version')
+    .eq('entity_type', 'scene')
+    .eq('entity_id', sceneId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  await db.from('generation_logs').insert({
+    entity_type: 'scene',
+    entity_id: sceneId,
+    storyboard_id: storyboardId,
+    version: (latest?.version ?? 0) + 1,
+    prompt,
+    generation_meta: generationMeta ?? null,
+    feedback: feedback ?? null,
+    result_url: resultUrl ?? null,
+    status,
+  });
+}
+
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id: storyboardId } = await context.params;
@@ -96,6 +142,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const withAudio = parsedBody.data.audio ?? true;
     const confirm = parsedBody.data.confirm ?? false;
     const aspectRatioOverride = parsedBody.data.aspect_ratio;
+    const model = parsedBody.data.model ?? 'klingo3';
+    const endpoint = KLING_ENDPOINTS[model];
 
     const db = createServiceClient('studio');
 
@@ -150,11 +198,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       )
       .eq('storyboard_id', storyboardId)
       .order('order', { ascending: true });
-
-    // multi_shots comes as jsonb — type it properly
-    type SceneRow = NonNullable<typeof scenes>[number] & {
-      multi_shots: Array<{ duration?: string }> | null;
-    };
 
     if (scenesError) {
       return NextResponse.json(
@@ -220,6 +263,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       estimated_cost_usd: number;
       fal_request_id?: string;
       status: 'queued' | 'skipped' | 'estimate';
+      reason?: 'no_prompt' | 'already_generated' | 'missing_background';
     }> = [];
 
     for (const scene of candidates as Array<{
@@ -268,6 +312,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       const estimatedCost = calculateSceneCost(actualDuration, withAudio);
+      const scenePrompt =
+        scene.multi_prompt?.find((p) => p.trim().length > 0) ??
+        scene.prompt?.trim() ??
+        '';
+
+      if (!scenePrompt) {
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: null,
+          status: 'skipped',
+          feedback: 'Skipped: no scene prompt saved',
+        });
+
+        jobs.push({
+          scene_id: scene.id,
+          scene_index: scene.order,
+          duration_seconds: actualDuration,
+          estimated_cost_usd: estimatedCost,
+          status: 'skipped',
+          reason: 'no_prompt',
+        });
+        continue;
+      }
 
       if (!confirm) {
         jobs.push({
@@ -290,6 +359,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
+          reason: 'already_generated',
         });
         continue;
       }
@@ -303,6 +373,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           duration_seconds: actualDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
+          reason: 'missing_background',
         });
         continue;
       }
@@ -326,8 +397,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         payload.multi_prompt = multiPromptPayload;
         payload.shot_type = 'customize';
       } else {
-        payload.prompt =
-          scene.multi_prompt?.[0] ?? scene.prompt ?? `Scene ${scene.order + 1}`;
+        payload.prompt = scenePrompt;
         payload.duration = String(baseDuration);
       }
 
@@ -335,7 +405,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .from('scenes')
         .update({
           video_status: 'processing',
-          video_model: 'klingo3',
           video_resolution: '720p',
         })
         .eq('id', scene.id);
@@ -348,7 +417,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         );
       }
 
-      const falUrl = new URL(`https://queue.fal.run/${KLING_O3_ENDPOINT}`);
+      const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
       falUrl.searchParams.set(
         'fal_webhook',
         `${webhookBase}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
@@ -372,6 +441,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
           })
           .eq('id', scene.id);
 
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: scenePrompt,
+          status: 'failed',
+          feedback: `Failed to queue scene ${scene.order}`,
+        });
+
         return NextResponse.json(
           { error: `Failed to queue scene ${scene.order}` },
           { status: 500 }
@@ -390,6 +468,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
           })
           .eq('id', scene.id);
 
+        await logSceneGenerationAttempt({
+          db,
+          sceneId: scene.id,
+          storyboardId,
+          prompt: scenePrompt,
+          status: 'failed',
+          feedback: `Missing fal request_id for scene ${scene.order}`,
+        });
+
         return NextResponse.json(
           {
             error: `fal.ai response missing request_id for scene ${scene.order}`,
@@ -402,6 +489,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .from('scenes')
         .update({ video_request_id: requestId })
         .eq('id', scene.id);
+
+      await logSceneGenerationAttempt({
+        db,
+        sceneId: scene.id,
+        storyboardId,
+        prompt: scenePrompt,
+        generationMeta: {
+          model: endpoint,
+          aspect_ratio:
+            aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
+          duration_seconds: actualDuration,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+          audio: withAudio,
+        },
+        status: 'pending',
+      });
 
       jobs.push({
         scene_id: scene.id,

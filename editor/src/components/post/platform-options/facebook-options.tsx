@@ -1,6 +1,9 @@
 'use client';
 
-import type { FacebookOptions as FacebookOptionsType, FacebookPostType } from '@/types/post';
+import type {
+  FacebookOptions as FacebookOptionsType,
+  FacebookPostType,
+} from '@/types/post';
 
 interface FacebookOptionsProps {
   value: FacebookOptionsType;

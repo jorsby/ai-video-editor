@@ -51,9 +51,7 @@ export function CaptionStyleOptions({
   return (
     <Collapsible defaultOpen>
       <CollapsibleTrigger className="flex w-full items-center justify-between py-1">
-        <span className="text-xs font-medium text-zinc-400">
-          Style Options
-        </span>
+        <span className="text-xs font-medium text-zinc-400">Style Options</span>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-muted-foreground">
             {language?.toUpperCase()},{' '}
@@ -68,8 +66,13 @@ export function CaptionStyleOptions({
           {/* Language selector */}
           {language && onLanguageChange && (
             <div className="space-y-1.5">
-              <label className="text-[11px] text-muted-foreground">Language</label>
-              <Select value={language} onValueChange={(v) => onLanguageChange(v as LanguageCode)}>
+              <label className="text-[11px] text-muted-foreground">
+                Language
+              </label>
+              <Select
+                value={language}
+                onValueChange={(v) => onLanguageChange(v as LanguageCode)}
+              >
                 <SelectTrigger className="w-full border-zinc-700 bg-zinc-900 text-sm text-zinc-300">
                   <SelectValue />
                 </SelectTrigger>

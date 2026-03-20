@@ -1,7 +1,7 @@
 import gsap from 'gsap';
 import { PixiPlugin } from 'gsap/PixiPlugin';
 import * as PIXI from 'pixi.js';
-import { AnimationOptions, AnimationTransform, IAnimation } from './types';
+import type { AnimationOptions, AnimationTransform, IAnimation } from './types';
 
 // Register PixiPlugin to support skewX, skewY, and other PixiJS properties
 gsap.registerPlugin(PixiPlugin);

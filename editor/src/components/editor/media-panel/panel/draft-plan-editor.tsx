@@ -21,9 +21,6 @@ import type {
   RefPlan,
   StoryboardMode,
   VideoModel,
-  KlingO3RefPlan,
-  Wan26FlashRefPlan,
-  SceneDialogueLine,
 } from '@/lib/supabase/workflow-service';
 import { getLanguageName } from '@/lib/constants/languages';
 
@@ -43,40 +40,6 @@ interface DraftPlanEditorProps {
 
 function isRefPlan(plan: StoryboardPlan | RefPlan): plan is RefPlan {
   return 'scene_prompts' in plan;
-}
-
-function isKlingPlan(plan: RefPlan): plan is KlingO3RefPlan {
-  return 'objects' in plan;
-}
-
-function isWanPlan(plan: RefPlan): plan is Wan26FlashRefPlan {
-  return 'scene_multi_shots' in plan || 'object_names' in plan;
-}
-
-function serializeSceneDialogue(
-  lines: SceneDialogueLine[] | undefined
-): string {
-  if (!Array.isArray(lines) || lines.length === 0) return '';
-  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join('\n');
-}
-
-function parseSceneDialogue(value: string): SceneDialogueLine[] {
-  return value
-    .split('\n')
-    .map((raw) => raw.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const colon = line.indexOf(':');
-      if (colon <= 0) {
-        return { speaker: 'Narrator', line };
-      }
-
-      const speaker = line.slice(0, colon).trim();
-      const text = line.slice(colon + 1).trim();
-      if (!speaker || !text) return null;
-      return { speaker, line: text };
-    })
-    .filter((line): line is SceneDialogueLine => line !== null);
 }
 
 export function DraftPlanEditor({
@@ -152,15 +115,6 @@ export function DraftPlanEditor({
     onPlanChange?.({ ...plan, backgrounds_grid_prompt: value } as RefPlan);
   };
 
-  const handleMultiShotsToggle = (index: number) => {
-    if (!ref || !isWanPlan(plan as RefPlan)) return;
-    const wanPlan = plan as Wan26FlashRefPlan;
-    const current = wanPlan.scene_multi_shots ?? Array(sceneCount).fill(false);
-    const newMultiShots = [...current];
-    newMultiShots[index] = !newMultiShots[index];
-    onPlanChange?.({ ...wanPlan, scene_multi_shots: newMultiShots });
-  };
-
   const handleScenePromptChange = (
     index: number,
     value: string,
@@ -181,10 +135,7 @@ export function DraftPlanEditor({
   // --- Ref plan header info ---
   const refPlan = ref ? (plan as RefPlan) : null;
   const objectNames: string[] = refPlan
-    ? (refPlan.objects?.map((o) => o.name) ??
-      ('object_names' in refPlan
-        ? ((refPlan as Wan26FlashRefPlan).object_names ?? [])
-        : []))
+    ? (refPlan.objects?.map((o) => o.name) ?? [])
     : [];
 
   const refVideoMode =
@@ -192,35 +143,6 @@ export function DraftPlanEditor({
       ? (refPlan.video_mode ?? 'narrative')
       : 'narrative';
   const isDialogueMode = ref && refVideoMode === 'dialogue_scene';
-
-  const handleSceneDialogueChange = (index: number, value: string) => {
-    if (!ref || !isWanPlan(plan as RefPlan)) return;
-
-    const wanPlan = plan as Wan26FlashRefPlan;
-    const newSceneDialogue = Array.from(
-      { length: sceneCount },
-      (_, i) => wanPlan.scene_dialogue?.[i] ?? []
-    );
-
-    const parsedLines = parseSceneDialogue(value).slice(0, 3);
-    newSceneDialogue[index] = parsedLines;
-
-    const sourceLanguage = Object.keys(wanPlan.voiceover_list)[0] ?? 'en';
-    const nextVoiceovers = {
-      ...wanPlan.voiceover_list,
-      [sourceLanguage]: [...(wanPlan.voiceover_list[sourceLanguage] ?? [])],
-    };
-
-    nextVoiceovers[sourceLanguage][index] = parsedLines
-      .map((line) => `${line.speaker}: ${line.line}`)
-      .join(' ');
-
-    onPlanChange?.({
-      ...wanPlan,
-      scene_dialogue: newSceneDialogue,
-      voiceover_list: nextVoiceovers,
-    });
-  };
 
   // --- Render ---
   return (
@@ -436,15 +358,6 @@ export function DraftPlanEditor({
                       Scene {index + 1}
                     </span>
                     <div className="flex items-center gap-2">
-                      {ref &&
-                        isWanPlan(refPlan!) &&
-                        (refPlan as Wan26FlashRefPlan).scene_multi_shots?.[
-                          index
-                        ] && (
-                          <span className="text-[10px] px-1 py-0.5 bg-purple-500/10 text-purple-500 rounded font-medium">
-                            MS
-                          </span>
-                        )}
                       {ref && (
                         <span className="text-[10px] text-muted-foreground">
                           {sceneObjIndices
@@ -529,90 +442,37 @@ export function DraftPlanEditor({
                               </span>
                               {sceneObjIndices.map((objIdx) => {
                                 const pos = sceneObjIndices.indexOf(objIdx) + 1;
-                                const isKling = isKlingPlan(refPlan!);
                                 return (
                                   <span
                                     key={objIdx}
                                     className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
                                   >
-                                    {isKling
-                                      ? `@Element${pos}`
-                                      : `@Element${pos + 1}`}{' '}
-                                    = {objectNames[objIdx]}
+                                    {`@Element${pos}`} = {objectNames[objIdx]}
                                   </span>
                                 );
                               })}
                             </>
                           </div>
-                          {isWanPlan(refPlan!) && (
-                            <label className="mt-1.5 flex items-center gap-1.5 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  (refPlan as Wan26FlashRefPlan)
-                                    .scene_multi_shots?.[index] ?? false
-                                }
-                                onChange={() => handleMultiShotsToggle(index)}
-                                disabled={readOnly}
-                                className="size-3.5 rounded border-border accent-purple-500"
-                              />
-                              <span className="text-[10px] text-muted-foreground">
-                                Multi-shot
-                              </span>
-                            </label>
-                          )}
-                        </div>
-                      )}
-
-                      {isDialogueMode && (
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            Dialogue (Speaker: line)
-                          </label>
-                          <Textarea
-                            value={serializeSceneDialogue(
-                              (refPlan as Wan26FlashRefPlan).scene_dialogue?.[
-                                index
-                              ]
-                            )}
-                            onChange={(e) =>
-                              handleSceneDialogueChange(index, e.target.value)
-                            }
-                            readOnly={readOnly}
-                            className="text-xs min-h-[72px]"
-                            placeholder={
-                              'Mother: We only take what we need.\nBoy: Okay, mom.'
-                            }
-                          />
-                          <p className="mt-1 text-[10px] text-muted-foreground">
-                            V1 uses visual dialogue + separate TTS track (no
-                            lip-sync).
-                          </p>
                         </div>
                       )}
 
                       {/* Voiceovers */}
-                      {!isDialogueMode &&
-                        Object.keys(plan.voiceover_list).map((lang) => (
-                          <div key={lang}>
-                            <label className="text-xs text-muted-foreground block mb-1">
-                              {getLanguageName(lang)}
-                            </label>
-                            <Textarea
-                              value={plan.voiceover_list[lang]?.[index] || ''}
-                              onChange={(e) =>
-                                handleVoiceoverChange(
-                                  index,
-                                  lang,
-                                  e.target.value
-                                )
-                              }
-                              readOnly={readOnly}
-                              className="text-xs min-h-[60px]"
-                              placeholder={`${getLanguageName(lang)} voiceover...`}
-                            />
-                          </div>
-                        ))}
+                      {Object.keys(plan.voiceover_list).map((lang) => (
+                        <div key={lang}>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            {getLanguageName(lang)}
+                          </label>
+                          <Textarea
+                            value={plan.voiceover_list[lang]?.[index] || ''}
+                            onChange={(e) =>
+                              handleVoiceoverChange(index, lang, e.target.value)
+                            }
+                            readOnly={readOnly}
+                            className="text-xs min-h-[60px]"
+                            placeholder={`${getLanguageName(lang)} voiceover...`}
+                          />
+                        </div>
+                      ))}
 
                       {/* Visual Prompt (i2v only) */}
                       {!ref && (
@@ -675,7 +535,7 @@ export function DraftPlanEditor({
               {isApproving ? (
                 <IconLoader2 className="size-4 animate-spin" />
               ) : ref ? (
-                'Generate Grids'
+                'Approve & Fill Missing Assets'
               ) : (
                 'Generate Scenes'
               )}

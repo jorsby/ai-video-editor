@@ -2,8 +2,8 @@ import { Texture } from 'pixi.js';
 import { Log } from '../utils/log';
 import { decodeImg } from '../utils';
 import { BaseClip } from './base-clip';
-import { type IClip } from './iclip';
-import { type ClipJSON, type ImageJSON } from '../json-serialization';
+import type { IClip } from './iclip';
+import type { ClipJSON, ImageJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
 
 type AnimateImgType = 'avif' | 'webp' | 'png' | 'gif';

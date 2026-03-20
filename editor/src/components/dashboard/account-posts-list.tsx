@@ -1,6 +1,12 @@
 'use client';
 
-import { AlertCircle, ArrowLeft, FileVideo, Loader2, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  FileVideo,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { PostItemCard } from './post-item-card';
@@ -81,7 +87,10 @@ export function AccountPostsList({
       <div className="flex items-center gap-3">
         <Avatar>
           {account.profile_image_url && (
-            <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+            <AvatarImage
+              src={account.profile_image_url}
+              alt={account.account_name}
+            />
           )}
           <AvatarFallback>{getInitials(account.account_name)}</AvatarFallback>
         </Avatar>
@@ -90,7 +99,9 @@ export function AccountPostsList({
             {account.account_name}
           </p>
           <p className="text-xs text-muted-foreground">
-            {account.account_username ? `@${account.account_username}` : account.platform}
+            {account.account_username
+              ? `@${account.account_username}`
+              : account.platform}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -116,7 +127,10 @@ export function AccountPostsList({
               )}
             </div>
           )}
-          <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
+          <ProviderIcon
+            provider={account.platform}
+            className="h-5 w-5 text-muted-foreground"
+          />
         </div>
       </div>
 
@@ -140,7 +154,9 @@ export function AccountPostsList({
               platformMediaError.includes('401') ||
               platformMediaError.includes('403')) && (
               <p className="mt-1">
-                <span className="font-medium">Please re-authorize this account.</span>
+                <span className="font-medium">
+                  Please re-authorize this account.
+                </span>
               </p>
             )}
           </div>
@@ -179,7 +195,9 @@ export function AccountPostsList({
       {isLoadingPlatformMedia && (
         <div className="flex items-center justify-center gap-2 py-4">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading posts from platform...</p>
+          <p className="text-sm text-muted-foreground">
+            Loading posts from platform...
+          </p>
         </div>
       )}
     </div>

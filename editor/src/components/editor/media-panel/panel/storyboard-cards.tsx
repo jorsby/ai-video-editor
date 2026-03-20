@@ -454,9 +454,7 @@ export function StoryboardCards({
     useState<FirstFrameAspectRatioKey>('1:1');
   const [firstFrameResolution, setFirstFrameResolution] =
     useState<FirstFrameResolutionKey>('2k');
-  const [refVideoModel, setRefVideoModel] = useState<'klingo3' | 'klingo3pro'>(
-    'klingo3'
-  );
+  const [refVideoModel, setRefVideoModel] = useState<'klingo3'>('klingo3');
   const [videoResolution, setVideoResolution] = useState<
     '480p' | '720p' | '1080p'
   >('720p');
@@ -703,7 +701,7 @@ export function StoryboardCards({
     if (!isRefToVideoMode) return;
 
     const sbModel = storyboard?.model;
-    if (sbModel === 'klingo3' || sbModel === 'klingo3pro') {
+    if (sbModel === 'klingo3') {
       setRefVideoModel(sbModel);
     }
   }, [isRefToVideoMode, storyboard?.model]);
@@ -776,6 +774,49 @@ export function StoryboardCards({
       backgrounds,
     };
   }, [isRefToVideoMode, sortedScenes, storyboard?.plan_status]);
+
+  const assetCoverage = useMemo(() => {
+    if (!isRefToVideoMode) return null;
+
+    const allObjects = sortedScenes.flatMap((scene) => scene.objects ?? []);
+    const allBackgrounds = sortedScenes.flatMap(
+      (scene) => scene.backgrounds ?? []
+    );
+
+    const mappedObjects = allObjects.filter(
+      (object) => !!object.series_asset_variant_id
+    ).length;
+    const mappedBackgrounds = allBackgrounds.filter(
+      (background) => !!background.series_asset_variant_id
+    ).length;
+
+    const unmappedObjectNames = Array.from(
+      new Set(
+        allObjects
+          .filter((object) => !object.series_asset_variant_id)
+          .map((object) => object.name)
+          .filter((name): name is string => typeof name === 'string' && !!name)
+      )
+    );
+
+    const unmappedBackgroundNames = Array.from(
+      new Set(
+        allBackgrounds
+          .filter((background) => !background.series_asset_variant_id)
+          .map((background) => background.name)
+          .filter((name): name is string => typeof name === 'string' && !!name)
+      )
+    );
+
+    return {
+      totalObjects: allObjects.length,
+      mappedObjects,
+      totalBackgrounds: allBackgrounds.length,
+      mappedBackgrounds,
+      unmappedObjectNames,
+      unmappedBackgroundNames,
+    };
+  }, [isRefToVideoMode, sortedScenes]);
 
   const toggleScene = (sceneId: string, selected: boolean) => {
     setSelectedSceneIds((prev) => {
@@ -1522,16 +1563,66 @@ export function StoryboardCards({
       }
     }
 
+    const isRefStoryboard = storyboard?.mode === 'ref_to_video';
+    const multiPromptScenes = selectedScenes.filter(
+      (scene) => (scene.multi_prompt?.length ?? 0) > 1
+    ).length;
+    const singlePromptScenes = selectedScenes.length - multiPromptScenes;
+
+    const missingReferenceScenes = isRefStoryboard
+      ? selectedScenes.filter((scene) => {
+          const objectsReady =
+            (scene.objects?.length ?? 0) > 0 &&
+            (scene.objects ?? []).every(
+              (object) =>
+                object.status === 'success' &&
+                Boolean(object.final_url ?? object.url)
+            );
+
+          const backgroundsReady =
+            (scene.backgrounds?.length ?? 0) > 0 &&
+            (scene.backgrounds ?? []).every(
+              (background) =>
+                background.status === 'success' &&
+                Boolean(background.final_url ?? background.url)
+            );
+
+          return !(objectsReady && backgroundsReady);
+        }).length
+      : 0;
+
+    const modelLabel = isRefStoryboard ? 'Kling O3' : videoModel;
+
+    const preflightLines = [
+      `Scenes: ${selectedScenes.length}`,
+      `Model: ${modelLabel}`,
+      `Prompt mode: ${singlePromptScenes} single, ${multiPromptScenes} multi`,
+      `Native audio: ${isCinematicMode ? 'On' : 'Off (voiceover track)'}`,
+    ];
+
+    if (missingReferenceScenes > 0) {
+      preflightLines.push(
+        `⚠ ${missingReferenceScenes} scene(s) missing object/background refs will be skipped`
+      );
+    }
+
+    const shouldContinue = await confirm({
+      title: 'Start video generation?',
+      description: preflightLines.join('\n'),
+      confirmLabel: 'Generate',
+    });
+
+    if (!shouldContinue) return;
+
     setIsGeneratingVideo(true);
     try {
-      const isRefStoryboard = storyboard?.mode === 'ref_to_video';
-
       const { data, error } = isRefStoryboard
         ? await invokeWorkflow(
             `/api/v2/storyboard/${storyboard?.id}/generate-video`,
             {
               scene_ids: Array.from(selectedSceneIds),
               audio: isCinematicMode,
+              model: refVideoModel,
               confirm: true,
             }
           )
@@ -1556,7 +1647,16 @@ export function StoryboardCards({
             .length
         : (data as any).summary?.queued;
 
-      toast.success(`Video generation started for ${queued ?? 0} scene(s)`);
+      const skipped = isRefStoryboard
+        ? ((data as any).jobs ?? []).filter((j: any) => j.status === 'skipped')
+            .length
+        : 0;
+
+      toast.success(
+        skipped > 0
+          ? `Video generation started for ${queued ?? 0} scene(s), skipped ${skipped}`
+          : `Video generation started for ${queued ?? 0} scene(s)`
+      );
       clearSelection();
       refresh(); // Fetch updated video statuses
     } catch (err) {
@@ -1648,6 +1748,35 @@ export function StoryboardCards({
     const vo = s.voiceovers?.find((v) => v.language === selectedLanguage);
     return vo?.status === 'success' && vo?.audio_url;
   });
+
+  const selectedScenesMissingRefs = sortedScenes.filter((scene) => {
+    if (!selectedSceneIds.has(scene.id)) return false;
+
+    const objectsReady =
+      (scene.objects?.length ?? 0) > 0 &&
+      (scene.objects ?? []).every(
+        (object) =>
+          object.status === 'success' && Boolean(object.final_url ?? object.url)
+      );
+
+    const backgroundsReady =
+      (scene.backgrounds?.length ?? 0) > 0 &&
+      (scene.backgrounds ?? []).every(
+        (background) =>
+          background.status === 'success' &&
+          Boolean(background.final_url ?? background.url)
+      );
+
+    return !(objectsReady && backgroundsReady);
+  });
+
+  const selectedScenesMissingPrompt = sortedScenes.filter((scene) => {
+    if (!selectedSceneIds.has(scene.id)) return false;
+    return !scene.prompt && !(scene.multi_prompt && scene.multi_prompt.length);
+  });
+
+  const disableVideoGenerateForMissingPrompts =
+    isRefToVideoMode && !isRefI2VMode && selectedScenesMissingPrompt.length > 0;
 
   const handleSaveVoiceoverText = async (sceneId: string, newText: string) => {
     const scene = sortedScenes.find((s) => s.id === sceneId);
@@ -2506,6 +2635,52 @@ export function StoryboardCards({
         </div>
       )}
 
+      {assetCoverage && (
+        <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-amber-300">
+              Asset Coverage (Storyboard)
+            </span>
+            <span className="text-[10px] text-amber-200/80">
+              Missing:{' '}
+              {assetCoverage.unmappedObjectNames.length +
+                assetCoverage.unmappedBackgroundNames.length}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-amber-200/90">
+            <div>
+              Objects mapped: {assetCoverage.mappedObjects}/
+              {assetCoverage.totalObjects}
+            </div>
+            <div>
+              Backgrounds mapped: {assetCoverage.mappedBackgrounds}/
+              {assetCoverage.totalBackgrounds}
+            </div>
+          </div>
+
+          {(assetCoverage.unmappedObjectNames.length > 0 ||
+            assetCoverage.unmappedBackgroundNames.length > 0) && (
+            <div className="space-y-1 text-[10px] text-amber-100/90">
+              {assetCoverage.unmappedObjectNames.length > 0 && (
+                <div>
+                  <span className="text-amber-300">Needs object assets:</span>{' '}
+                  {assetCoverage.unmappedObjectNames.join(', ')}
+                </div>
+              )}
+              {assetCoverage.unmappedBackgroundNames.length > 0 && (
+                <div>
+                  <span className="text-amber-300">
+                    Needs background assets:
+                  </span>{' '}
+                  {assetCoverage.unmappedBackgroundNames.join(', ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Mode / Audio Status */}
       {isRefToVideoMode && (
         <div className="px-2 py-1.5 bg-secondary/20 rounded-md flex items-center gap-2 text-[10px]">
@@ -2865,11 +3040,7 @@ export function StoryboardCards({
                             </span>
                             <Select
                               value={refVideoModel}
-                              onValueChange={(value: string) =>
-                                setRefVideoModel(
-                                  value as 'klingo3' | 'klingo3pro'
-                                )
-                              }
+                              onValueChange={() => setRefVideoModel('klingo3')}
                             >
                               <SelectTrigger className="h-8 text-xs">
                                 <SelectValue />
@@ -2877,9 +3048,6 @@ export function StoryboardCards({
                               <SelectContent>
                                 <SelectItem value="klingo3">
                                   Kling O3
-                                </SelectItem>
-                                <SelectItem value="klingo3pro">
-                                  Kling O3 Pro
                                 </SelectItem>
                               </SelectContent>
                             </Select>
@@ -3082,13 +3250,22 @@ export function StoryboardCards({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={selectedSceneIds.size === 0 || isGeneratingVideo}
+                    disabled={
+                      selectedSceneIds.size === 0 ||
+                      isGeneratingVideo ||
+                      disableVideoGenerateForMissingPrompts
+                    }
                     onClick={
                       isRefI2VMode
                         ? handleGenerateVideoFromFirstFrame
                         : handleGenerateVideo
                     }
                     className="h-9 text-xs flex-1"
+                    title={
+                      disableVideoGenerateForMissingPrompts
+                        ? 'Save prompts for selected scenes first'
+                        : undefined
+                    }
                   >
                     {isGeneratingVideo ? (
                       <IconLoader2 className="size-3.5 animate-spin mr-1" />
@@ -3117,6 +3294,29 @@ export function StoryboardCards({
                     Remove
                   </Button>
                 </div>
+
+                {(selectedScenesMissingRefs.length > 0 ||
+                  selectedScenesMissingPrompt.length > 0) && (
+                  <div className="mt-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 flex items-start gap-1.5">
+                    <IconAlertTriangle className="size-3 mt-[1px] shrink-0" />
+                    <div className="space-y-0.5">
+                      {selectedScenesMissingRefs.length > 0 && (
+                        <div>
+                          {selectedScenesMissingRefs.length} selected scene
+                          {selectedScenesMissingRefs.length === 1 ? '' : 's'}{' '}
+                          missing object/background refs and will be skipped.
+                        </div>
+                      )}
+                      {selectedScenesMissingPrompt.length > 0 && (
+                        <div>
+                          {selectedScenesMissingPrompt.length} selected scene
+                          {selectedScenesMissingPrompt.length === 1 ? '' : 's'}{' '}
+                          missing prompts.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {(isGeneratingVideo || processingVideoCount > 0) && (
                   <div className="mt-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-300 flex items-center gap-1.5">

@@ -31,18 +31,38 @@ export interface SeriesAssetMap {
   props: Map<string, SeriesAssetEntry>;
 }
 
+export interface SeriesAssetCandidate {
+  assetId: string;
+  variantId: string;
+  assetName: string;
+  description: string | null;
+  type: 'character' | 'location' | 'prop';
+  url: string;
+}
+
+export interface SeriesAssetCandidateSet {
+  characters: SeriesAssetCandidate[];
+  locations: SeriesAssetCandidate[];
+  props: SeriesAssetCandidate[];
+}
+
 /**
  * Normalize an asset name for matching:
- * - lowercase + trim
+ * - remove diacritics + lowercase + trim
  * - strip leading "the "
  * - strip everything after "/" or "("
+ * - collapse punctuation/whitespace differences
  */
 function normalizeName(name: string): string {
   return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim()
     .replace(/^the\s+/i, '')
     .replace(/[/(].*/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -215,6 +235,70 @@ async function resolveSeriesIdForProject(
   }
 
   return episode?.series_id ?? null;
+}
+
+export async function resolveSeriesAssetCandidatesForProject(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<SeriesAssetCandidateSet | null> {
+  const seriesId = await resolveSeriesIdForProject(supabase, projectId);
+  if (!seriesId) return null;
+
+  const { data: assets, error: assetsError } = await supabase
+    .from('series_assets')
+    .select(
+      'id, name, type, description, series_asset_variants (id, is_default, is_finalized, series_asset_variant_images (id, url, storage_path))'
+    )
+    .eq('series_id', seriesId);
+
+  if (assetsError) {
+    console.warn(
+      '[series-asset-resolver] Failed to load series assets for candidates:',
+      assetsError.message
+    );
+    return null;
+  }
+
+  if (!assets || assets.length === 0) return null;
+
+  const candidateSet: SeriesAssetCandidateSet = {
+    characters: [],
+    locations: [],
+    props: [],
+  };
+
+  for (const asset of assets) {
+    const bestVariantImage = pickBestVariantImage(
+      supabase,
+      asset.series_asset_variants ?? []
+    );
+    if (!bestVariantImage) continue;
+
+    const candidate: SeriesAssetCandidate = {
+      assetId: String(asset.id),
+      variantId: bestVariantImage.variantId,
+      assetName: String(asset.name),
+      description:
+        typeof asset.description === 'string' ? asset.description : null,
+      type:
+        asset.type === 'character'
+          ? 'character'
+          : asset.type === 'location'
+            ? 'location'
+            : 'prop',
+      url: bestVariantImage.url,
+    };
+
+    if (candidate.type === 'character') {
+      candidateSet.characters.push(candidate);
+    } else if (candidate.type === 'location') {
+      candidateSet.locations.push(candidate);
+    } else {
+      candidateSet.props.push(candidate);
+    }
+  }
+
+  return candidateSet;
 }
 
 /**

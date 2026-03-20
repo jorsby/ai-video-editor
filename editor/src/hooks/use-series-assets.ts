@@ -9,6 +9,7 @@ type GridPromptKey = 'characters' | 'locations' | 'props';
 interface VariantImageRow {
   url: string | null;
   storage_path: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface VariantRow {
@@ -72,9 +73,27 @@ const INITIAL_ACTION_STATE: Record<AssetType, boolean> = {
   prop: false,
 };
 
+const EMPTY_GENERATION_STATUS: AssetGenerationStatus = {
+  pending: 0,
+  completed: 0,
+  stale: 0,
+};
+
+const INITIAL_GENERATION_STATUS: Record<AssetType, AssetGenerationStatus> = {
+  character: { ...EMPTY_GENERATION_STATUS },
+  location: { ...EMPTY_GENERATION_STATUS },
+  prop: { ...EMPTY_GENERATION_STATUS },
+};
+
 interface ActionResult {
   ok: boolean;
   error?: string;
+}
+
+export interface AssetGenerationStatus {
+  pending: number;
+  completed: number;
+  stale: number;
 }
 
 interface UseSeriesAssetsResult {
@@ -85,6 +104,7 @@ interface UseSeriesAssetsResult {
   gridPrompts: SeriesGridPrompts;
   isSavingPrompt: Record<AssetType, boolean>;
   isGeneratingGrid: Record<AssetType, boolean>;
+  generationStatus: Record<AssetType, AssetGenerationStatus>;
   setGridPrompt: (type: AssetType, value: string) => void;
   saveGridPrompt: (type: AssetType) => Promise<ActionResult>;
   generateGrid: (type: AssetType) => Promise<ActionResult>;
@@ -219,6 +239,9 @@ export function useSeriesAssets(
   const [isSavingPrompt, setIsSavingPrompt] = useState(INITIAL_ACTION_STATE);
   const [isGeneratingGrid, setIsGeneratingGrid] =
     useState(INITIAL_ACTION_STATE);
+  const [generationStatus, setGenerationStatus] = useState(
+    INITIAL_GENERATION_STATUS
+  );
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const refresh = useCallback(() => {
@@ -244,6 +267,7 @@ export function useSeriesAssets(
           setAssets([]);
           setSeriesMetadata({});
           setGridPrompts(DEFAULT_GRID_PROMPTS);
+          setGenerationStatus(INITIAL_GENERATION_STATUS);
         }
         return;
       }
@@ -292,6 +316,7 @@ export function useSeriesAssets(
             setAssets([]);
             setSeriesMetadata({});
             setGridPrompts(DEFAULT_GRID_PROMPTS);
+            setGenerationStatus(INITIAL_GENERATION_STATUS);
             setIsLoading(false);
           }
           return;
@@ -314,7 +339,7 @@ export function useSeriesAssets(
         const { data: assetsData, error: assetsError } = await supabase
           .from('series_assets')
           .select(
-            'id, name, type, description, sort_order, series_asset_variants(id, label, is_default, is_finalized, series_asset_variant_images(url, storage_path))'
+            'id, name, type, description, sort_order, series_asset_variants(id, label, is_default, is_finalized, series_asset_variant_images(url, storage_path, metadata))'
           )
           .eq('series_id', foundSeriesId)
           .order('type', { ascending: true })
@@ -324,9 +349,68 @@ export function useSeriesAssets(
           throw new Error(assetsError.message);
         }
 
-        const parsedAssets: SeriesAsset[] = (
-          (assetsData ?? []) as AssetRow[]
-        ).flatMap((asset) => {
+        const assetsRows = (assetsData ?? []) as AssetRow[];
+
+        const savedRequestIds = new Set<string>();
+        for (const asset of assetsRows) {
+          for (const variant of asset.series_asset_variants ?? []) {
+            for (const image of variant.series_asset_variant_images ?? []) {
+              const requestId = image?.metadata?.fal_request_id;
+              if (typeof requestId === 'string' && requestId.trim()) {
+                savedRequestIds.add(requestId.trim());
+              }
+            }
+          }
+        }
+
+        const { data: jobsData } = await supabase
+          .from('series_generation_jobs')
+          .select('request_id, created_at, config')
+          .eq('series_id', foundSeriesId)
+          .eq('type', 'asset_image')
+          .order('created_at', { ascending: false })
+          .limit(300);
+
+        const nextGenerationStatus: Record<AssetType, AssetGenerationStatus> = {
+          character: { ...EMPTY_GENERATION_STATUS },
+          location: { ...EMPTY_GENERATION_STATUS },
+          prop: { ...EMPTY_GENERATION_STATUS },
+        };
+
+        const staleThresholdMs = 20 * 60 * 1000;
+
+        for (const job of (jobsData ?? []) as Array<{
+          request_id: string;
+          created_at: string;
+          config: Record<string, unknown> | null;
+        }>) {
+          const assetTypeRaw =
+            isRecord(job.config) && typeof job.config.asset_type === 'string'
+              ? job.config.asset_type
+              : null;
+
+          if (!assetTypeRaw || !isAssetType(assetTypeRaw)) {
+            continue;
+          }
+
+          if (savedRequestIds.has(job.request_id)) {
+            nextGenerationStatus[assetTypeRaw].completed += 1;
+            continue;
+          }
+
+          const createdAtMs = Number(new Date(job.created_at));
+          const isStale =
+            Number.isFinite(createdAtMs) &&
+            Date.now() - createdAtMs > staleThresholdMs;
+
+          if (isStale) {
+            nextGenerationStatus[assetTypeRaw].stale += 1;
+          } else {
+            nextGenerationStatus[assetTypeRaw].pending += 1;
+          }
+        }
+
+        const parsedAssets: SeriesAsset[] = assetsRows.flatMap((asset) => {
           if (!isAssetType(asset.type)) {
             return [];
           }
@@ -365,6 +449,7 @@ export function useSeriesAssets(
           setAssets(parsedAssets);
           setSeriesMetadata(metadata);
           setGridPrompts(resolveGridPrompts(metadata));
+          setGenerationStatus(nextGenerationStatus);
           setIsLoading(false);
         }
       } catch (err) {
@@ -376,6 +461,7 @@ export function useSeriesAssets(
           setAssets([]);
           setSeriesMetadata({});
           setGridPrompts(DEFAULT_GRID_PROMPTS);
+          setGenerationStatus(INITIAL_GENERATION_STATUS);
           setIsLoading(false);
         }
       }
@@ -454,75 +540,59 @@ export function useSeriesAssets(
 
       const sectionAssets = assets.filter((asset) => asset.type === type);
 
-      if (sectionAssets.length < 2) {
+      if (sectionAssets.length === 0) {
         return {
           ok: false,
-          error: `Need at least 2 ${
+          error: `No ${
             type === 'character'
               ? 'characters'
               : type === 'location'
                 ? 'locations'
                 : 'props'
-          } to generate a grid`,
+          } to generate`,
         };
       }
 
-      const hasFinalized = sectionAssets.some((asset) =>
-        asset.variants.some((variant) => variant.isFinalized)
-      );
-
-      if (hasFinalized) {
-        return {
-          ok: false,
-          error: 'Cannot regenerate — some assets are finalized',
-        };
-      }
-
-      const prompt = gridPrompts[type];
-      if (!prompt.trim()) {
-        return { ok: false, error: 'Grid prompt is empty' };
-      }
-
-      const gridSize =
-        sectionAssets.length <= 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 3 };
-
-      const items = sectionAssets
-        .slice(0, gridSize.cols * gridSize.rows)
+      const generationTargets = sectionAssets
         .map((asset) => ({
           asset_id: asset.id,
           variant_id:
             asset.variants.find((variant) => variant.isDefault)?.id ??
-            asset.variants[0]?.id,
+            asset.variants[0]?.id ??
+            null,
+          isFinalized: asset.variants.some((variant) => variant.isFinalized),
+        }))
+        .filter((item) => !!item.variant_id && !item.isFinalized)
+        .map((item) => ({
+          asset_id: item.asset_id,
+          variant_id: item.variant_id as string,
         }));
 
-      if (items.some((item) => !item.variant_id)) {
-        return { ok: false, error: 'Some assets are missing variants' };
+      if (generationTargets.length === 0) {
+        return {
+          ok: false,
+          error: 'All assets are finalized or missing variants',
+        };
       }
 
       setIsGeneratingGrid((prev) => ({ ...prev, [type]: true }));
 
       try {
-        const res = await fetch(`/api/series/${seriesId}/generate-grid`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type,
-            prompt,
-            items,
-            grid: {
-              cols: gridSize.cols,
-              rows: gridSize.rows,
-              cell_ratio: '1:1',
-              resolution: '4K',
-            },
-            aspect_ratio: '1:1',
-            custom_suffix: prompt,
-          }),
-        });
+        // Serialize requests to avoid burst rate-limit and keep order predictable
+        for (const target of generationTargets) {
+          const res = await fetch(`/api/series/${seriesId}/generate-images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              asset_id: target.asset_id,
+              variant_id: target.variant_id,
+            }),
+          });
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Grid generation failed');
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || 'Asset image generation failed');
+          }
         }
 
         setTimeout(refresh, 60_000);
@@ -530,14 +600,34 @@ export function useSeriesAssets(
       } catch (err) {
         return {
           ok: false,
-          error: err instanceof Error ? err.message : 'Grid generation failed',
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Asset image generation failed',
         };
       } finally {
         setIsGeneratingGrid((prev) => ({ ...prev, [type]: false }));
       }
     },
-    [assets, gridPrompts, refresh, seriesId]
+    [assets, refresh, seriesId]
   );
+
+  const totalPending =
+    generationStatus.character.pending +
+    generationStatus.location.pending +
+    generationStatus.prop.pending;
+
+  useEffect(() => {
+    if (totalPending <= 0) return;
+
+    const timer = window.setInterval(() => {
+      refresh();
+    }, 8000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refresh, totalPending]);
 
   return {
     isLoading,
@@ -547,6 +637,7 @@ export function useSeriesAssets(
     gridPrompts,
     isSavingPrompt,
     isGeneratingGrid,
+    generationStatus,
     setGridPrompt,
     saveGridPrompt,
     generateGrid,

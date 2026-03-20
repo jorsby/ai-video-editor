@@ -7,12 +7,21 @@ import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
 import { SchedulePicker } from './schedule-picker';
-import { validateScheduleNotInPast, getTodayInTimezone } from '@/lib/schedule-validation';
+import {
+  validateScheduleNotInPast,
+  getTodayInTimezone,
+} from '@/lib/schedule-validation';
 import { FacebookOptions } from './platform-options/facebook-options';
 import { YouTubeOptions } from './platform-options/youtube-options';
 import { TikTokOptions } from './platform-options/tiktok-options';
 import { InstagramOptions } from './platform-options/instagram-options';
-import type { SocialAccount, SocialPost, SocialPostAccount, AccountGroup, AccountTag } from '@/types/social';
+import type {
+  SocialAccount,
+  SocialPost,
+  SocialPostAccount,
+  AccountGroup,
+  AccountTag,
+} from '@/types/social';
 import type {
   PlatformOptions,
   FacebookOptions as FacebookOptionsType,
@@ -40,13 +49,23 @@ export function EditPostPage({ postId }: EditPostPageProps) {
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [timezone, setTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
 
   // Platform options
-  const [facebookOptions, setFacebookOptions] = useState<FacebookOptionsType>({ type: 'reel' });
-  const [youtubeOptions, setYoutubeOptions] = useState<YouTubeOptionsType>({ title: '', status: 'public' });
-  const [tiktokOptions, setTiktokOptions] = useState<Record<string, TikTokAccountOptions>>({});
-  const [instagramOptions, setInstagramOptions] = useState<InstagramOptionsType>({ type: 'reel' });
+  const [facebookOptions, setFacebookOptions] = useState<FacebookOptionsType>({
+    type: 'reel',
+  });
+  const [youtubeOptions, setYoutubeOptions] = useState<YouTubeOptionsType>({
+    title: '',
+    status: 'public',
+  });
+  const [tiktokOptions, setTiktokOptions] = useState<
+    Record<string, TikTokAccountOptions>
+  >({});
+  const [instagramOptions, setInstagramOptions] =
+    useState<InstagramOptionsType>({ type: 'reel' });
 
   // Save state
   const [isSaving, setIsSaving] = useState(false);
@@ -68,33 +87,40 @@ export function EditPostPage({ postId }: EditPostPageProps) {
         const postData = await postRes.json();
         const accountsData = await accountsRes.json();
 
-        const post: SocialPost & { post_accounts?: SocialPostAccount[] } = postData.post;
+        const post: SocialPost & { post_accounts?: SocialPostAccount[] } =
+          postData.post;
 
         // Map OctupostAccount response to SocialAccount shape
-        const mappedAccounts: SocialAccount[] = (accountsData.accounts || []).map((a: {
-          platform: string;
-          account_id: string;
-          account_name: string;
-          account_username: string | null;
-          language: string | null;
-          expires_at: string;
-        }) => ({
-          id: a.account_id,
-          user_id: '',
-          octupost_account_id: a.account_id,
-          platform: a.platform,
-          account_name: a.account_name,
-          account_username: a.account_username,
-          language: a.language,
-          expires_at: a.expires_at,
-          synced_at: new Date().toISOString(),
-        }));
+        const mappedAccounts: SocialAccount[] = (
+          accountsData.accounts || []
+        ).map(
+          (a: {
+            platform: string;
+            account_id: string;
+            account_name: string;
+            account_username: string | null;
+            language: string | null;
+            expires_at: string;
+          }) => ({
+            id: a.account_id,
+            user_id: '',
+            octupost_account_id: a.account_id,
+            platform: a.platform,
+            account_name: a.account_name,
+            account_username: a.account_username,
+            language: a.language,
+            expires_at: a.expires_at,
+            synced_at: new Date().toISOString(),
+          })
+        );
         setAccounts(mappedAccounts);
 
         // Pre-fill form from existing post
         setCaption(post.caption ?? '');
         setSelectedAccountIds(
-          (post.accounts || post.post_accounts || []).map((a) => a.octupost_account_id)
+          (post.accounts || post.post_accounts || []).map(
+            (a) => a.octupost_account_id
+          )
         );
 
         if (post.scheduled_at) {
@@ -112,12 +138,18 @@ export function EditPostPage({ postId }: EditPostPageProps) {
         const opts = (post.platform_options ?? {}) as Record<string, unknown>;
 
         const ig = opts.instagram as { type?: string } | undefined;
-        if (ig?.type) setInstagramOptions({ type: ig.type as InstagramOptionsType['type'] });
+        if (ig?.type)
+          setInstagramOptions({
+            type: ig.type as InstagramOptionsType['type'],
+          });
 
         const fb = opts.facebook as { type?: string } | undefined;
-        if (fb?.type) setFacebookOptions({ type: fb.type as FacebookOptionsType['type'] });
+        if (fb?.type)
+          setFacebookOptions({ type: fb.type as FacebookOptionsType['type'] });
 
-        const yt = opts.youtube as { title?: string; status?: string } | undefined;
+        const yt = opts.youtube as
+          | { title?: string; status?: string }
+          | undefined;
         if (yt) {
           setYoutubeOptions({
             title: yt.title ?? '',
@@ -125,7 +157,9 @@ export function EditPostPage({ postId }: EditPostPageProps) {
           });
         }
 
-        const ttk = opts.tiktok as Record<string, TikTokAccountOptions> | undefined;
+        const ttk = opts.tiktok as
+          | Record<string, TikTokAccountOptions>
+          | undefined;
         if (ttk) setTiktokOptions(ttk);
 
         // Optional: groups and tags
@@ -151,7 +185,10 @@ export function EditPostPage({ postId }: EditPostPageProps) {
 
   // Derived: which providers are selected
   const selectedAccounts = useMemo(
-    () => accounts.filter((a) => selectedAccountIds.includes(a.octupost_account_id)),
+    () =>
+      accounts.filter((a) =>
+        selectedAccountIds.includes(a.octupost_account_id)
+      ),
     [accounts, selectedAccountIds]
   );
 
@@ -183,7 +220,11 @@ export function EditPostPage({ postId }: EditPostPageProps) {
       toast.error('Please enter a YouTube title');
       return;
     }
-    const scheduleError = validateScheduleNotInPast(scheduledDate, scheduledTime, timezone);
+    const scheduleError = validateScheduleNotInPast(
+      scheduledDate,
+      scheduledTime,
+      timezone
+    );
     if (scheduleError) {
       toast.error(scheduleError);
       return;
@@ -242,7 +283,9 @@ export function EditPostPage({ postId }: EditPostPageProps) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0a0a0c]">
         <div className="max-w-md text-center">
-          <h2 className="mb-2 text-lg font-medium text-white">Unable to Load Post</h2>
+          <h2 className="mb-2 text-lg font-medium text-white">
+            Unable to Load Post
+          </h2>
           <p className="mb-4 text-sm text-muted-foreground">{loadError}</p>
           <Button variant="outline" onClick={() => window.close()}>
             Close
@@ -320,7 +363,9 @@ export function EditPostPage({ postId }: EditPostPageProps) {
           <div className="space-y-6">
             {/* Accounts */}
             <section>
-              <h2 className="mb-3 text-sm font-medium text-zinc-300">Accounts</h2>
+              <h2 className="mb-3 text-sm font-medium text-zinc-300">
+                Accounts
+              </h2>
               <AccountSelector
                 accounts={accounts}
                 groups={groups}
@@ -342,12 +387,20 @@ export function EditPostPage({ postId }: EditPostPageProps) {
             {/* Platform-specific options */}
             {(hasFacebook || hasYouTube || hasTikTok || hasInstagram) && (
               <section className="space-y-4">
-                <h2 className="text-sm font-medium text-zinc-300">Platform Options</h2>
+                <h2 className="text-sm font-medium text-zinc-300">
+                  Platform Options
+                </h2>
                 {hasFacebook && (
-                  <FacebookOptions value={facebookOptions} onChange={setFacebookOptions} />
+                  <FacebookOptions
+                    value={facebookOptions}
+                    onChange={setFacebookOptions}
+                  />
                 )}
                 {hasYouTube && (
-                  <YouTubeOptions value={youtubeOptions} onChange={setYoutubeOptions} />
+                  <YouTubeOptions
+                    value={youtubeOptions}
+                    onChange={setYoutubeOptions}
+                  />
                 )}
                 {hasTikTok && (
                   <TikTokOptions
@@ -357,7 +410,10 @@ export function EditPostPage({ postId }: EditPostPageProps) {
                   />
                 )}
                 {hasInstagram && (
-                  <InstagramOptions value={instagramOptions} onChange={setInstagramOptions} />
+                  <InstagramOptions
+                    value={instagramOptions}
+                    onChange={setInstagramOptions}
+                  />
                 )}
               </section>
             )}

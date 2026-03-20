@@ -2,7 +2,15 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Check, ArrowLeft, ExternalLink, XCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import {
+  Loader2,
+  Check,
+  ArrowLeft,
+  ExternalLink,
+  XCircle,
+  CheckCircle2,
+  RotateCcw,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AccountSelector } from './account-selector';
 import { CaptionEditor } from './caption-editor';
@@ -74,18 +82,24 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
   // Submission
   const [submitStep, setSubmitStep] = useState<SubmitStep>('idle');
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [postResult, setPostResult] = useState<{ post: SocialPost & { post_accounts: SocialPostAccount[] } } | null>(null);
+  const [postResult, setPostResult] = useState<{
+    post: SocialPost & { post_accounts: SocialPostAccount[] };
+  } | null>(null);
   const isSubmittingRef = useRef(false);
 
   // AI caption generation
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
-  const [captionStyle, setCaptionStyle] =
-    useState<CaptionStyleOptions>(DEFAULT_CAPTION_STYLE);
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyleOptions>(
+    DEFAULT_CAPTION_STYLE
+  );
   const [captionLanguage, setCaptionLanguage] = useState<LanguageCode>('en');
 
   // Derived: which providers are selected
   const selectedAccounts = useMemo(
-    () => accounts.filter((a) => selectedAccountIds.includes(a.octupost_account_id)),
+    () =>
+      accounts.filter((a) =>
+        selectedAccountIds.includes(a.octupost_account_id)
+      ),
     [accounts, selectedAccountIds]
   );
 
@@ -106,10 +120,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
   // Auto-suggest Short length when only TikTok is selected
   useEffect(() => {
-    if (
-      selectedProviders.length === 1 &&
-      selectedProviders[0] === 'tiktok'
-    ) {
+    if (selectedProviders.length === 1 && selectedProviders[0] === 'tiktok') {
       setCaptionStyle((prev) => ({ ...prev, length: 'short' }));
     }
   }, [selectedProviders]);
@@ -137,24 +148,28 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
         // The v2/accounts endpoint returns OctupostAccount objects and also syncs them to social_accounts.
         // Map to SocialAccount shape for the UI.
-        const mappedAccounts: SocialAccount[] = (accountsData.accounts || []).map((a: {
-          platform: string;
-          account_id: string;
-          account_name: string;
-          account_username: string | null;
-          language: string | null;
-          expires_at: string;
-        }) => ({
-          id: a.account_id, // use account_id as the row id since we don't have the DB id
-          user_id: '',
-          octupost_account_id: a.account_id,
-          platform: a.platform,
-          account_name: a.account_name,
-          account_username: a.account_username,
-          language: a.language,
-          expires_at: a.expires_at,
-          synced_at: new Date().toISOString(),
-        }));
+        const mappedAccounts: SocialAccount[] = (
+          accountsData.accounts || []
+        ).map(
+          (a: {
+            platform: string;
+            account_id: string;
+            account_name: string;
+            account_username: string | null;
+            language: string | null;
+            expires_at: string;
+          }) => ({
+            id: a.account_id, // use account_id as the row id since we don't have the DB id
+            user_id: '',
+            octupost_account_id: a.account_id,
+            platform: a.platform,
+            account_name: a.account_name,
+            account_username: a.account_username,
+            language: a.language,
+            expires_at: a.expires_at,
+            synced_at: new Date().toISOString(),
+          })
+        );
         setAccounts(mappedAccounts);
 
         // Load groups and tags if available
@@ -165,7 +180,12 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
           ]);
           if (groupsRes.ok) {
             const groupsData = await groupsRes.json();
-            setGroups((groupsData.groups || []).map((g: any) => ({ ...g, account_ids: g.account_uuids || g.account_ids || [] })));
+            setGroups(
+              (groupsData.groups || []).map((g: any) => ({
+                ...g,
+                account_ids: g.account_uuids || g.account_ids || [],
+              }))
+            );
           }
           if (tagsRes.ok) {
             const tagsData = await tagsRes.json();
@@ -245,10 +265,7 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
     if (!video) return;
 
-    if (
-      scheduleType === 'scheduled' &&
-      (!scheduledDate || !scheduledTime)
-    ) {
+    if (scheduleType === 'scheduled' && (!scheduledDate || !scheduledTime)) {
       toast.error('Please set a date and time for scheduling');
       return;
     }
@@ -318,9 +335,14 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
 
       // Check for failures in the response
       const postAccounts: SocialPostAccount[] = data.post?.post_accounts || [];
-      const failedAccounts = postAccounts.filter((pa) => pa.status === 'failed');
+      const failedAccounts = postAccounts.filter(
+        (pa) => pa.status === 'failed'
+      );
 
-      if (failedAccounts.length > 0 && failedAccounts.length < postAccounts.length) {
+      if (
+        failedAccounts.length > 0 &&
+        failedAccounts.length < postAccounts.length
+      ) {
         // Partial success
         const errorSummary = failedAccounts
           .map((a) => `${a.platform}: ${a.error_message || 'Unknown error'}`)
@@ -404,49 +426,68 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     );
   }
 
-  const isSubmitting = submitStep === 'preflight' || submitStep === 'submitting';
-  const isPublishingOrResult = isSubmitting || submitStep === 'done' || submitStep === 'error';
+  const isSubmitting =
+    submitStep === 'preflight' || submitStep === 'submitting';
+  const isPublishingOrResult =
+    isSubmitting || submitStep === 'done' || submitStep === 'error';
   const isDone = submitStep === 'done';
   const isError = submitStep === 'error';
 
-  const postAccounts: SocialPostAccount[] = postResult?.post?.post_accounts || [];
-  const resultSucceededAccounts = postAccounts.filter(a => a.status === 'published');
+  const postAccounts: SocialPostAccount[] =
+    postResult?.post?.post_accounts || [];
+  const resultSucceededAccounts = postAccounts.filter(
+    (a) => a.status === 'published'
+  );
   const hasPartialSuccess = isError && resultSucceededAccounts.length > 0;
 
   const headerTitle = isDone
-    ? (scheduleType === 'now' ? 'Published!' : 'Post Scheduled!')
+    ? scheduleType === 'now'
+      ? 'Published!'
+      : 'Post Scheduled!'
     : isError
-      ? (hasPartialSuccess ? 'Partially Published' : 'Publishing Failed')
-      : (scheduleType === 'now' ? 'Publishing...' : 'Scheduling...');
+      ? hasPartialSuccess
+        ? 'Partially Published'
+        : 'Publishing Failed'
+      : scheduleType === 'now'
+        ? 'Publishing...'
+        : 'Scheduling...';
 
   const headerSubtitle = isDone
-    ? (scheduleType === 'now'
-        ? 'Your video has been published to the selected platforms.'
-        : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`)
+    ? scheduleType === 'now'
+      ? 'Your video has been published to the selected platforms.'
+      : `Your video will be published on ${scheduledDate} at ${scheduledTime}.`
     : isError
-      ? (hasPartialSuccess
-          ? 'Post failed on one or more platforms.'
-          : 'Something went wrong while publishing.')
-      : (scheduleType === 'now'
-          ? 'Your video is being sent to your selected platforms.'
-          : 'Your post is being prepared and scheduled.');
+      ? hasPartialSuccess
+        ? 'Post failed on one or more platforms.'
+        : 'Something went wrong while publishing.'
+      : scheduleType === 'now'
+        ? 'Your video is being sent to your selected platforms.'
+        : 'Your post is being prepared and scheduled.';
 
   // Progress panel helpers
   const PUBLISH_STEPS: Array<{ key: SubmitStep; label: string }> = [
     { key: 'preflight', label: 'Checking accounts' },
-    { key: 'submitting', label: scheduleType === 'now' ? 'Publishing to platforms' : 'Scheduling post' },
+    {
+      key: 'submitting',
+      label:
+        scheduleType === 'now' ? 'Publishing to platforms' : 'Scheduling post',
+    },
   ];
 
   const STEP_ORDER: SubmitStep[] = ['preflight', 'submitting'];
-  const currentStepIndex = (submitStep === 'done' || submitStep === 'error')
-    ? STEP_ORDER.length
-    : STEP_ORDER.indexOf(submitStep as SubmitStep);
+  const currentStepIndex =
+    submitStep === 'done' || submitStep === 'error'
+      ? STEP_ORDER.length
+      : STEP_ORDER.indexOf(submitStep as SubmitStep);
 
   function providerColor(provider: string): string {
     const map: Record<string, string> = {
-      facebook: 'bg-blue-500', instagram: 'bg-pink-500',
-      tiktok: 'bg-zinc-400', youtube: 'bg-red-500',
-      twitter: 'bg-sky-400', x: 'bg-zinc-400',
+      facebook: 'bg-blue-500',
+      instagram: 'bg-pink-500',
+      tiktok: 'bg-zinc-400',
+      youtube: 'bg-red-500',
+      twitter: 'bg-sky-400',
+      x: 'bg-zinc-400',
     };
     return map[provider] ?? 'bg-zinc-600';
   }
@@ -548,7 +589,9 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                 {/* Pre-verification error message */}
                 {isError && submitError && (
                   <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
-                    <p className="text-sm text-red-400 whitespace-pre-line">{submitError}</p>
+                    <p className="text-sm text-red-400 whitespace-pre-line">
+                      {submitError}
+                    </p>
                   </div>
                 )}
 
@@ -561,11 +604,18 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 divide-y divide-white/[0.06]">
                       {postAccounts.map((pa) => {
                         // Look up account name from loaded accounts
-                        const acct = accounts.find(a => a.octupost_account_id === pa.octupost_account_id);
-                        const displayName = pa.account_name ?? acct?.account_name ?? pa.platform;
+                        const acct = accounts.find(
+                          (a) =>
+                            a.octupost_account_id === pa.octupost_account_id
+                        );
+                        const displayName =
+                          pa.account_name ?? acct?.account_name ?? pa.platform;
 
                         return (
-                          <div key={pa.id} className="flex items-center gap-3 px-4 py-3">
+                          <div
+                            key={pa.id}
+                            className="flex items-center gap-3 px-4 py-3"
+                          >
                             <div className="flex-shrink-0 flex items-center justify-center h-5 w-5">
                               {pa.status === 'failed' ? (
                                 <XCircle className="h-4 w-4 text-red-400" />
@@ -601,11 +651,17 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                     </h3>
                     <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 divide-y divide-white/[0.06]">
                       {selectedAccounts.map((account) => (
-                        <div key={account.octupost_account_id} className="flex items-center gap-3 px-4 py-3">
-                          <div className={`h-2 w-2 rounded-full flex-shrink-0 ${providerColor(account.platform)}`} />
+                        <div
+                          key={account.octupost_account_id}
+                          className="flex items-center gap-3 px-4 py-3"
+                        >
+                          <div
+                            className={`h-2 w-2 rounded-full flex-shrink-0 ${providerColor(account.platform)}`}
+                          />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium text-white truncate block">
-                              {account.account_name ?? account.octupost_account_id}
+                              {account.account_name ??
+                                account.octupost_account_id}
                             </span>
                             <span className="text-[10px] uppercase text-zinc-500">
                               {account.platform}
@@ -618,20 +674,24 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
                   </div>
                 ) : null}
 
-                {isDone &&
-                  resultSucceededAccounts.length > 0 && (
-                    <div className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-4 space-y-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-green-400">
-                        Published to {resultSucceededAccounts.length} account{resultSucceededAccounts.length > 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  )}
+                {isDone && resultSucceededAccounts.length > 0 && (
+                  <div className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-4 space-y-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-green-400">
+                      Published to {resultSucceededAccounts.length} account
+                      {resultSucceededAccounts.length > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                )}
 
                 {/* Footer: action buttons after done/error */}
                 {(isDone || isError) && (
                   <div className="flex gap-3">
                     {isError && (
-                      <Button variant="outline" onClick={handleRetry} className="gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={handleRetry}
+                        className="gap-2"
+                      >
                         <RotateCcw className="h-4 w-4" />
                         Retry
                       </Button>

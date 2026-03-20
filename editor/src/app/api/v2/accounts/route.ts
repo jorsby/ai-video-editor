@@ -15,14 +15,19 @@ export async function GET() {
     // Read accounts directly from social_auth.tokens (single source of truth)
     const { data: tokens, error } = await supabase
       .from('tokens')
-      .select('platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url')
+      .select(
+        'platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url'
+      )
       .eq('user_id', user.id)
       .order('platform')
       .order('account_name');
 
     if (error) {
       console.error('Database error:', error);
-      return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Failed to fetch accounts' },
+        { status: 500 }
+      );
     }
 
     const accounts = (tokens ?? []).map((t: any) => ({

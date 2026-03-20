@@ -1,4 +1,10 @@
-import { mp4box, MP4File, MP4Sample, SampleOpts, TrakBoxParser } from 'wrapbox';
+import {
+  mp4box,
+  type MP4File,
+  type MP4Sample,
+  type SampleOpts,
+  type TrakBoxParser,
+} from 'wrapbox';
 import { tmpfile, write } from 'opfs-tools';
 import { DEFAULT_AUDIO_CONF } from '../clips';
 import { autoReadStream } from '../utils/stream-utils';

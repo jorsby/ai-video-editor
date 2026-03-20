@@ -35,9 +35,52 @@ type TtsResult = {
   scene_id: string;
   voiceover_id: string | null;
   request_id: string | null;
-  status: 'queued' | 'failed';
+  status: 'queued' | 'failed' | 'skipped';
   error?: string;
 };
+
+async function logVoiceoverGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  voiceoverId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+}) {
+  const {
+    db,
+    voiceoverId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+  } = params;
+
+  const { data: latest } = await db
+    .from('generation_logs')
+    .select('version')
+    .eq('entity_type', 'voiceover')
+    .eq('entity_id', voiceoverId)
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  await db.from('generation_logs').insert({
+    entity_type: 'voiceover',
+    entity_id: voiceoverId,
+    storyboard_id: storyboardId,
+    version: (latest?.version ?? 0) + 1,
+    prompt,
+    generation_meta: generationMeta ?? null,
+    feedback: feedback ?? null,
+    result_url: resultUrl ?? null,
+    status,
+  });
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,6 +208,8 @@ async function processSceneTts(params: {
   voiceId: string;
   speed: number;
   webhookBase: string;
+  storyboardId: string;
+  language: string;
 }): Promise<TtsResult> {
   if (!params.scene.voiceover_id) {
     return {
@@ -178,11 +223,21 @@ async function processSceneTts(params: {
 
   if (!params.scene.text) {
     await markVoiceoverFailed(params.db, params.scene.voiceover_id);
+
+    await logVoiceoverGenerationAttempt({
+      db: params.db,
+      voiceoverId: params.scene.voiceover_id,
+      storyboardId: params.storyboardId,
+      prompt: null,
+      status: 'skipped',
+      feedback: 'Skipped: voiceover text empty',
+    });
+
     return {
       scene_id: params.scene.scene_id,
       voiceover_id: params.scene.voiceover_id,
       request_id: null,
-      status: 'failed',
+      status: 'skipped',
       error: 'Voiceover text is empty',
     };
   }
@@ -201,6 +256,16 @@ async function processSceneTts(params: {
 
   if (!queued.requestId) {
     await markVoiceoverFailed(params.db, params.scene.voiceover_id);
+
+    await logVoiceoverGenerationAttempt({
+      db: params.db,
+      voiceoverId: params.scene.voiceover_id,
+      storyboardId: params.storyboardId,
+      prompt: params.scene.text,
+      status: 'failed',
+      feedback: queued.error ?? 'Unknown queue error',
+    });
+
     return {
       scene_id: params.scene.scene_id,
       voiceover_id: params.scene.voiceover_id,
@@ -214,6 +279,22 @@ async function processSceneTts(params: {
     .from('voiceovers')
     .update({ request_id: queued.requestId })
     .eq('id', params.scene.voiceover_id);
+
+  await logVoiceoverGenerationAttempt({
+    db: params.db,
+    voiceoverId: params.scene.voiceover_id,
+    storyboardId: params.storyboardId,
+    prompt: params.scene.text,
+    generationMeta: {
+      model: 'fal-ai/elevenlabs/tts/turbo-v2.5',
+      voice_id: params.voiceId,
+      speed: params.speed,
+      language: params.language,
+      generated_at: new Date().toISOString(),
+      generated_by: 'system',
+    },
+    status: 'pending',
+  });
 
   return {
     scene_id: params.scene.scene_id,
@@ -304,6 +385,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         voiceId: input.data.voiceId,
         speed: input.data.speed,
         webhookBase,
+        storyboardId,
+        language: input.data.language,
       });
 
       results.push(result);

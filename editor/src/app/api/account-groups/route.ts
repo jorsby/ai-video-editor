@@ -31,9 +31,7 @@ export async function GET() {
       id: g.id,
       name: g.name,
       created_at: g.created_at,
-      account_uuids: g.account_group_members.map(
-        (m: any) => m.account_uuid
-      ),
+      account_uuids: g.account_group_members.map((m: any) => m.account_uuid),
     }));
 
     return NextResponse.json({ groups: result });

@@ -54,10 +54,12 @@ interface MediaItem {
 
 function extractMedia(post: SocialPost): MediaItem[] {
   if (!post.media_url) return [];
-  return [{
-    url: post.media_url,
-    type: post.media_type === 'video' ? 'video' : 'image',
-  }];
+  return [
+    {
+      url: post.media_url,
+      type: post.media_type === 'video' ? 'video' : 'image',
+    },
+  ];
 }
 
 export function PostDetailDialog({
@@ -122,7 +124,9 @@ export function PostDetailDialog({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setDeleteError(data?.error || 'Failed to delete post. Please try again.');
+        setDeleteError(
+          data?.error || 'Failed to delete post. Please try again.'
+        );
         setConfirmDelete(false);
         return;
       }
@@ -250,25 +254,36 @@ export function PostDetailDialog({
                       <div key={account.id} className="space-y-1">
                         <div
                           className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${
-                            hasFailed ? 'bg-red-500/10' : account.status === 'published' ? 'bg-emerald-500/10' : 'bg-muted'
+                            hasFailed
+                              ? 'bg-red-500/10'
+                              : account.status === 'published'
+                                ? 'bg-emerald-500/10'
+                                : 'bg-muted'
                           }`}
                         >
                           <span
                             className={`text-xs font-medium ${hasFailed ? 'text-red-400' : account.status === 'published' ? 'text-emerald-400' : ''}`}
                           >
-                            {account.account_name || account.octupost_account_id}
+                            {account.account_name ||
+                              account.octupost_account_id}
                           </span>
                           <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
                             {account.platform}
                           </span>
                           <div className="ml-auto flex items-center gap-2">
                             <span className="text-[10px]">
-                              {hasFailed ? '✗ failed' : account.status === 'published' ? '✓ published' : ''}
+                              {hasFailed
+                                ? '✗ failed'
+                                : account.status === 'published'
+                                  ? '✓ published'
+                                  : ''}
                             </span>
                           </div>
                         </div>
                         {hasFailed && (
-                          <p className="px-2 text-[11px] text-red-400/80">{account.error_message}</p>
+                          <p className="px-2 text-[11px] text-red-400/80">
+                            {account.error_message}
+                          </p>
                         )}
                       </div>
                     );
@@ -301,8 +316,14 @@ export function PostDetailDialog({
               {post.scheduled_at && (
                 <p>Scheduled: {formatDateTime(post.scheduled_at)}</p>
               )}
-              {(post.accounts || []).some(a => a.published_at) && (
-                <p>Published: {formatDateTime((post.accounts || []).find(a => a.published_at)?.published_at ?? null)}</p>
+              {(post.accounts || []).some((a) => a.published_at) && (
+                <p>
+                  Published:{' '}
+                  {formatDateTime(
+                    (post.accounts || []).find((a) => a.published_at)
+                      ?.published_at ?? null
+                  )}
+                </p>
               )}
               <p>Created: {formatDateTime(post.created_at)}</p>
             </div>
@@ -315,7 +336,9 @@ export function PostDetailDialog({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(`/post/edit/${post.id}`, '_blank')}
+                      onClick={() =>
+                        window.open(`/post/edit/${post.id}`, '_blank')
+                      }
                     >
                       Edit Post
                     </Button>
@@ -364,7 +387,6 @@ export function PostDetailDialog({
           </div>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

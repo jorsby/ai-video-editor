@@ -268,6 +268,7 @@ function AssetSection({
   onGenerateGrid,
   savingPrompt,
   generating,
+  status,
 }: {
   type: AssetType;
   assets: SeriesAsset[];
@@ -279,6 +280,7 @@ function AssetSection({
   onGenerateGrid: () => Promise<void>;
   savingPrompt: boolean;
   generating: boolean;
+  status: { pending: number; completed: number; stale: number };
 }) {
   const config = SECTION_CONFIG[type];
   const [isOpen, setIsOpen] = useState(true);
@@ -302,6 +304,22 @@ function AssetSection({
             <span className="text-[10px] text-muted-foreground">
               ({assets.length})
             </span>
+            {status.pending > 0 && (
+              <Badge
+                variant="secondary"
+                className="text-[8px] px-1 py-0 h-3.5 shrink-0"
+              >
+                Generating {status.pending}
+              </Badge>
+            )}
+            {status.stale > 0 && (
+              <Badge
+                variant="destructive"
+                className="text-[8px] px-1 py-0 h-3.5 shrink-0"
+              >
+                Retry {status.stale}
+              </Badge>
+            )}
           </button>
         </CollapsibleTrigger>
 
@@ -310,14 +328,14 @@ function AssetSection({
           variant="outline"
           className="h-7 text-[10px] gap-1 px-2"
           onClick={onGenerateGrid}
-          disabled={generating || assets.length < 2}
+          disabled={generating || assets.length < 1}
         >
-          {generating ? (
+          {generating || status.pending > 0 ? (
             <IconLoader2 className="size-3 animate-spin" />
           ) : (
             <IconRefresh className="size-3" />
           )}
-          Generate Grid
+          {status.pending > 0 ? 'Generating...' : 'Generate Images'}
         </Button>
       </div>
 
@@ -338,7 +356,7 @@ function AssetSection({
                   <IconChevronRight className="size-3" />
                 )}
                 <IconLayoutGrid className="size-3" />
-                Grid Prompt
+                Style Prompt
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
@@ -348,7 +366,7 @@ function AssetSection({
                   onChange={(event) => onGridPromptChange(event.target.value)}
                   rows={4}
                   className="text-[10px] min-h-[80px]"
-                  placeholder={`Grid prompt for ${config.label.toLowerCase()}...`}
+                  placeholder={`Style prompt for ${config.label.toLowerCase()}...`}
                 />
                 <Button
                   size="sm"
@@ -412,6 +430,7 @@ export default function SeriesAssetsPanel() {
     gridPrompts,
     isSavingPrompt,
     isGeneratingGrid,
+    generationStatus,
     setGridPrompt,
     saveGridPrompt,
     generateGrid,
@@ -522,15 +541,16 @@ export default function SeriesAssetsPanel() {
             onGenerateGrid={async () => {
               const result = await generateGrid(type);
               if (!result.ok) {
-                toast.error(result.error ?? 'Failed to generate grid');
+                toast.error(result.error ?? 'Failed to generate images');
                 return;
               }
               toast.success(
-                `${SECTION_CONFIG[type].label} grid generation started`
+                `${SECTION_CONFIG[type].label} image generation started`
               );
             }}
             savingPrompt={isSavingPrompt[type]}
             generating={isGeneratingGrid[type]}
+            status={generationStatus[type]}
           />
         ))}
       </div>

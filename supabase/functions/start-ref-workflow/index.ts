@@ -146,7 +146,8 @@ function validateInput(input: RefWorkflowInput): string | null {
 
   // Validate voiceover_list
   const languages = Object.keys(voiceover_list);
-  if (languages.length === 0) return 'voiceover_list must have at least one language';
+  if (languages.length === 0)
+    return 'voiceover_list must have at least one language';
   for (const lang of languages) {
     if (voiceover_list[lang].length !== sceneCount) {
       return `voiceover_list.${lang} length must equal scene count (${sceneCount})`;

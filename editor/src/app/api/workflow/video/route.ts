@@ -58,76 +58,6 @@ function splitMultiPromptDurations(
 }
 
 const MODEL_CONFIG: Record<string, ModelConfig> = {
-  'wan2.6': {
-    endpoint: 'fal-ai/wan/v2.6/image-to-video',
-    mode: 'image_to_video',
-    validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => (raw <= 5 ? 5 : raw <= 10 ? 10 : 15),
-    buildPayload: ({ prompt, image_url, resolution, duration }) => ({
-      prompt,
-      image_url,
-      resolution,
-      duration: String(duration),
-      enable_safety_checker: false,
-    }),
-  },
-  'bytedance1.5pro': {
-    endpoint: 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
-    mode: 'image_to_video',
-    validResolutions: ['480p', '720p'],
-    bucketDuration: (raw) => Math.max(4, Math.min(12, raw)),
-    buildPayload: ({
-      prompt,
-      image_url,
-      resolution,
-      duration,
-      aspect_ratio,
-    }) => ({
-      prompt,
-      image_url,
-      aspect_ratio: aspect_ratio ?? '16:9',
-      resolution,
-      duration,
-    }),
-  },
-  grok: {
-    endpoint: 'xai/grok-imagine-video/image-to-video',
-    mode: 'image_to_video',
-    validResolutions: ['480p', '720p'],
-    bucketDuration: (raw) => Math.max(1, Math.min(15, raw)),
-    buildPayload: ({ prompt, image_url, resolution, duration }) => ({
-      prompt,
-      image_url,
-      resolution,
-      duration,
-    }),
-  },
-  wan26flash: {
-    endpoint: 'wan/v2.6/reference-to-video/flash',
-    mode: 'ref_to_video',
-    validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => (raw <= 5 ? 5 : 10),
-    buildPayload: ({
-      prompt,
-      image_urls,
-      video_urls,
-      resolution,
-      duration,
-      aspect_ratio,
-      multi_shots,
-      enable_audio,
-    }) => ({
-      prompt,
-      video_urls: video_urls ?? [],
-      image_urls: image_urls ?? [],
-      aspect_ratio: aspect_ratio ?? '16:9',
-      resolution,
-      duration: String(duration),
-      enable_audio: enable_audio ?? true,
-      enable_safety_checker: false,
-      multi_shots: multi_shots ?? false,
-    }),
-  },
   klingo3: {
     endpoint: 'fal-ai/kling-video/o3/standard/reference-to-video',
     mode: 'ref_to_video',
@@ -149,7 +79,6 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
         generate_audio: enable_audio ?? false,
       };
       if (multi_prompt && multi_prompt.length > 1) {
-        // Native Kling multi-shot: array of {prompt, duration} objects
         base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
       } else {
         base.prompt =
@@ -158,49 +87,11 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       }
       return base;
     },
-  },
-  klingo3pro: {
-    endpoint: 'fal-ai/kling-video/o3/pro/reference-to-video',
-    mode: 'ref_to_video',
-    validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => Math.max(3, Math.min(15, raw)),
-    buildPayload: ({
-      prompt,
-      elements,
-      image_urls,
-      duration,
-      aspect_ratio,
-      multi_prompt,
-      enable_audio,
-    }) => {
-      const base: Record<string, unknown> = {
-        elements: elements || [],
-        image_urls: image_urls || [],
-        aspect_ratio: aspect_ratio ?? '16:9',
-        generate_audio: enable_audio ?? false,
-      };
-      if (multi_prompt && multi_prompt.length > 1) {
-        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
-      } else {
-        base.prompt =
-          multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
-        base.duration = String(duration);
-      }
-      return base;
-    },
-  },
-  skyreels: {
-    endpoint: 'skyreels-direct',
-    mode: 'ref_to_video',
-    validResolutions: ['720p', '1080p'],
-    bucketDuration: (raw) => Math.max(1, Math.min(5, raw)),
-    buildPayload: null,
   },
 };
 
-const SKYREELS_API_URL = 'https://apis.skyreels.ai/api/v1/video/multiobject';
-
-const DEFAULT_MODEL = 'bytedance1.5pro';
+const DEFAULT_MODEL = 'klingo3';
+const ACTIVE_VIDEO_MODELS = ['klingo3'] as const;
 
 type ModelKey = keyof typeof MODEL_CONFIG;
 
@@ -212,17 +103,10 @@ function isModelKey(value: string): value is ModelKey {
 
 function resolvePrompt(
   scenePrompt: string,
-  model: string,
-  objectCount: number
+  _model: string,
+  _objectCount: number
 ): string {
-  let resolved = scenePrompt;
-  if (model === 'wan26flash') {
-    resolved = resolved.replaceAll(`{bg}`, `Character1`);
-    for (let i = 1; i <= objectCount; i++) {
-      resolved = resolved.replaceAll(`{object_${i}}`, `Character${i + 1}`);
-    }
-  }
-  return resolved;
+  return scenePrompt;
 }
 
 function resolveMultiPrompt(
@@ -231,6 +115,58 @@ function resolveMultiPrompt(
   objectCount: number
 ): string[] {
   return shots.map((shot) => resolvePrompt(shot, model, objectCount));
+}
+
+async function logSceneGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  sceneId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+  log: ReturnType<typeof createLogger>;
+}) {
+  const {
+    db,
+    sceneId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+    log,
+  } = params;
+
+  try {
+    const { data: latest } = await db
+      .from('generation_logs')
+      .select('version')
+      .eq('entity_type', 'scene')
+      .eq('entity_id', sceneId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await db.from('generation_logs').insert({
+      entity_type: 'scene',
+      entity_id: sceneId,
+      storyboard_id: storyboardId,
+      version: (latest?.version ?? 0) + 1,
+      prompt,
+      generation_meta: generationMeta ?? null,
+      feedback: feedback ?? null,
+      result_url: resultUrl ?? null,
+      status,
+    });
+  } catch (error) {
+    log.warn('Failed to write generation log row (non-fatal)', {
+      scene_id: sceneId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -245,12 +181,11 @@ interface GenerateVideoInput {
   storyboard_id?: string;
   enable_audio?: boolean;
   duration_overrides?: Record<string, number>;
-  skyreels_duration_mode?: 'auto' | 'fixed';
-  skyreels_duration_seconds?: number;
 }
 
 interface VideoContext {
   scene_id: string;
+  storyboard_id: string;
   final_url: string;
   visual_prompt: string;
   duration: number;
@@ -263,7 +198,9 @@ interface LibraryElement {
 
 interface RefVideoContext {
   scene_id: string;
+  storyboard_id: string;
   prompt: string;
+  prompt_for_log: string;
   multi_prompt?: string[];
   multi_shots?: boolean;
   object_urls: string[];
@@ -286,7 +223,7 @@ async function getVideoContext(
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
     .select(
-      `id, video_status, first_frames (id, final_url, visual_prompt), voiceovers (duration)`
+      `id, storyboard_id, video_status, first_frames (id, final_url, visual_prompt), voiceovers (duration)`
     )
     .eq('id', sceneId)
     .single();
@@ -319,6 +256,12 @@ async function getVideoContext(
     return null;
   }
 
+  const visualPrompt = firstFrame.visual_prompt?.trim();
+  if (!visualPrompt) {
+    log.warn('No visual prompt on first_frame', { scene_id: sceneId });
+    return null;
+  }
+
   const maxDuration = Math.max(
     0,
     ...((scene.voiceovers as Array<{ duration?: number }>) || []).map(
@@ -340,8 +283,9 @@ async function getVideoContext(
   const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   return {
     scene_id: sceneId,
+    storyboard_id: scene.storyboard_id,
     final_url: firstFrame.final_url,
-    visual_prompt: firstFrame.visual_prompt || '',
+    visual_prompt: visualPrompt,
     duration: bucketDuration(raw),
   };
 }
@@ -354,13 +298,12 @@ async function getRefVideoContext(
   bucketDuration: (raw: number) => number,
   log: ReturnType<typeof createLogger>,
   fallbackDuration?: number,
-  durationOverride?: number,
-  skyreelsDurationMode: 'auto' | 'fixed' = 'auto'
+  durationOverride?: number
 ): Promise<RefVideoContext | null> {
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
     .select(
-      `id, prompt, multi_prompt, multi_shots, video_status, voiceovers (duration)`
+      `id, storyboard_id, prompt, multi_prompt, multi_shots, video_status, voiceovers (duration)`
     )
     .eq('id', sceneId)
     .single();
@@ -372,7 +315,14 @@ async function getRefVideoContext(
     });
     return null;
   }
-  if (!scene.prompt && !scene.multi_prompt) {
+  const scenePrompt = scene.prompt?.trim() ?? '';
+  const multiPromptValues = Array.isArray(scene.multi_prompt)
+    ? (scene.multi_prompt as string[])
+        .map((prompt) => prompt.trim())
+        .filter((prompt) => prompt.length > 0)
+    : [];
+
+  if (!scenePrompt && multiPromptValues.length === 0) {
     log.error('No prompt on scene', { scene_id: sceneId });
     return null;
   }
@@ -409,7 +359,7 @@ async function getRefVideoContext(
 
   // Check for library characters (via project_characters)
   let libraryElements: LibraryElement[] | undefined;
-  if (model === 'klingo3' || model === 'klingo3pro') {
+  if (model === 'klingo3') {
     // Find the project via scene → storyboard → project chain
     const { data: sceneProject } = await supabase
       .from('scenes')
@@ -571,15 +521,7 @@ async function getRefVideoContext(
   }
 
   const objectCount = objectUrls.length;
-  if (model === 'skyreels' && objectCount > 3) {
-    log.error('SkyReels max 3 objects exceeded', { scene_id: sceneId });
-    return null;
-  }
-  if (model === 'wan26flash' && objectCount + 1 > 5) {
-    log.error('WAN 2.6 Flash max 5 images exceeded', { scene_id: sceneId });
-    return null;
-  }
-  if ((model === 'klingo3' || model === 'klingo3pro') && objectCount > 4) {
+  if (objectCount > 4) {
     log.error('Kling O3 max 4 elements exceeded', { scene_id: sceneId });
     return null;
   }
@@ -607,55 +549,32 @@ async function getRefVideoContext(
 
   if (hasDurationOverride) {
     raw = durationOverride;
-  } else if (model === 'skyreels' && skyreelsDurationMode === 'auto') {
-    // Policy: <=4s keep natural bucket, >4s force 5s then timeline can stretch.
-    raw =
-      maxDuration > 0
-        ? maxDuration > 4
-          ? 5
-          : Math.max(1, Math.ceil(maxDuration))
-        : fallbackDuration!;
-  } else if (model === 'wan26flash') {
-    // WAN ref flash only supports 5 or 10 seconds.
-    // Product rule: <=7.5s => 5s, >7.5s => 10s.
-    raw = maxDuration > 0 ? (maxDuration <= 7.5 ? 5 : 10) : fallbackDuration!;
   } else {
     raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   }
 
   const durationInt = bucketDuration(raw);
 
-  if (model === 'skyreels') {
-    return {
-      scene_id: sceneId,
-      prompt: scene.prompt || '',
-      object_urls: objectUrls,
-      background_url: bg.final_url,
-      duration: durationInt,
-    };
-  }
-
   let multiPromptShots: string[] | undefined;
-  if (
-    scene.multi_prompt &&
-    Array.isArray(scene.multi_prompt) &&
-    scene.multi_prompt.length > 0
-  ) {
-    multiPromptShots = scene.multi_prompt as string[];
-  } else if (scene.prompt && scene.prompt.startsWith('[')) {
+  if (multiPromptValues.length > 0) {
+    multiPromptShots = multiPromptValues;
+  } else if (scenePrompt.startsWith('[')) {
     try {
-      const parsed = JSON.parse(scene.prompt);
+      const parsed = JSON.parse(scenePrompt);
       if (
         Array.isArray(parsed) &&
         parsed.every((s: unknown) => typeof s === 'string')
-      )
-        multiPromptShots = parsed;
+      ) {
+        multiPromptShots = parsed
+          .map((shot) => shot.trim())
+          .filter((shot) => shot.length > 0);
+      }
     } catch {
       /* not JSON */
     }
   }
 
-  if (multiPromptShots) {
+  if (multiPromptShots && multiPromptShots.length > 0) {
     const resolvedShots = resolveMultiPrompt(
       multiPromptShots,
       model,
@@ -663,7 +582,9 @@ async function getRefVideoContext(
     );
     return {
       scene_id: sceneId,
+      storyboard_id: scene.storyboard_id,
       prompt: '',
+      prompt_for_log: resolvedShots[0] ?? scenePrompt,
       multi_prompt: resolvedShots,
       multi_shots: scene.multi_shots ?? undefined,
       object_urls: objectUrls,
@@ -675,85 +596,15 @@ async function getRefVideoContext(
 
   return {
     scene_id: sceneId,
-    prompt: resolvePrompt(scene.prompt, model, objectCount),
+    storyboard_id: scene.storyboard_id,
+    prompt: resolvePrompt(scenePrompt, model, objectCount),
+    prompt_for_log: scenePrompt,
     multi_shots: scene.multi_shots ?? undefined,
     object_urls: objectUrls,
     background_url: bg.final_url,
     duration: durationInt,
     library_elements: libraryElements,
   };
-}
-
-async function sendSkyReelsRequest(
-  context: RefVideoContext,
-  aspect_ratio: string | undefined,
-  log: ReturnType<typeof createLogger>
-): Promise<{ taskId: string | null; error: string | null }> {
-  const apiKey = process.env.SKYREELS_API_KEY;
-  if (!apiKey)
-    return { taskId: null, error: 'SKYREELS_API_KEY not configured' };
-
-  const refImages = [context.background_url, ...context.object_urls];
-  if (refImages.length > 4)
-    return {
-      taskId: null,
-      error: `SkyReels max 4 ref_images but got ${refImages.length}`,
-    };
-
-  const payload = {
-    api_key: apiKey,
-    prompt: context.prompt,
-    ref_images: refImages,
-    duration: context.duration,
-    aspect_ratio: aspect_ratio ?? '16:9',
-  };
-
-  log.api('skyreels', 'multiobject/submit', {
-    scene_id: context.scene_id,
-    ref_image_count: refImages.length,
-    duration: context.duration,
-  });
-  log.startTiming('skyreels_submit');
-
-  try {
-    const response = await fetch(`${SKYREELS_API_URL}/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      log.error('SkyReels submit failed', {
-        status: response.status,
-        error: errorText,
-        time_ms: log.endTiming('skyreels_submit'),
-      });
-
-      if (response.status === 481) {
-        return {
-          taskId: null,
-          error: 'skyreels_parallel_limit',
-        };
-      }
-
-      return {
-        taskId: null,
-        error: `SkyReels submit failed: ${response.status}`,
-      };
-    }
-    const result = await response.json();
-    log.success('SkyReels task submitted', {
-      task_id: result.task_id,
-      time_ms: log.endTiming('skyreels_submit'),
-    });
-    return { taskId: result.task_id, error: null };
-  } catch (err) {
-    log.error('SkyReels submit exception', {
-      error: err instanceof Error ? err.message : String(err),
-      time_ms: log.endTiming('skyreels_submit'),
-    });
-    return { taskId: null, error: 'SkyReels request exception' };
-  }
 }
 
 async function sendRefVideoRequest(
@@ -780,47 +631,32 @@ async function sendRefVideoRequest(
     resolution,
     duration: context.duration,
     aspect_ratio,
-    ...(model === 'wan26flash' ? { enable_audio: enableAudio } : {}),
+    enable_audio: enableAudio,
   });
   log.startTiming('fal_video_request');
 
   try {
-    let payload: Record<string, unknown>;
-    if (model === 'wan26flash') {
-      payload = modelConfig.buildPayload!({
-        prompt: context.prompt,
-        image_url: '',
-        image_urls: [context.background_url, ...context.object_urls],
-        video_urls: [],
-        resolution,
-        duration: context.duration,
-        aspect_ratio,
-        multi_shots: context.multi_shots,
-        enable_audio: enableAudio,
-      });
-    } else {
-      // Use per-scene object URLs — each scene already has the correct elements
-      // linked via series_asset_variant_id. Don't use library_elements which
-      // sends ALL series characters regardless of which scene needs them.
-      const elements = context.object_urls.map((url) => ({
-        frontal_image_url: url,
-        reference_image_urls: [url],
-      }));
-      payload = modelConfig.buildPayload!({
-        prompt: context.prompt,
-        image_url: '',
-        resolution,
-        elements,
-        image_urls: [context.background_url],
-        duration: context.duration,
-        aspect_ratio,
-        multi_prompt: context.multi_prompt,
-        multi_shots: context.multi_shots,
-        enable_audio: enableAudio,
-      });
-    }
+    // Use per-scene object URLs — each scene already has the correct elements
+    // linked via series_asset_variant_id. Don't use library_elements which
+    // sends ALL series characters regardless of which scene needs them.
+    const elements = context.object_urls.map((url) => ({
+      frontal_image_url: url,
+      reference_image_urls: [url],
+    }));
+    const payload = modelConfig.buildPayload!({
+      prompt: context.prompt,
+      image_url: '',
+      resolution,
+      elements,
+      image_urls: [context.background_url],
+      duration: context.duration,
+      aspect_ratio,
+      multi_prompt: context.multi_prompt,
+      multi_shots: context.multi_shots,
+      enable_audio: enableAudio,
+    });
 
-    const isKlingRef = model === 'klingo3' || model === 'klingo3pro';
+    const isKlingRef = model === 'klingo3';
     const falResponse = await fetch(falUrl.toString(), {
       method: 'POST',
       headers: {
@@ -933,23 +769,16 @@ async function queueDirectRefVideo(
   model: ModelKey,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
-  wanEnableAudio: boolean,
+  enableAudio: boolean,
   durationOverride: number | undefined,
   log: ReturnType<typeof createLogger>,
-  fallback_duration: number | undefined,
-  skyreelsDurationMode: 'auto' | 'fixed',
-  skyreelsDurationSeconds: number | undefined
+  fallback_duration: number | undefined
 ): Promise<{
   scene_id: string;
   request_id: string | null;
   status: 'queued' | 'skipped' | 'failed';
   error?: string;
 }> {
-  const effectiveDurationOverride =
-    model === 'skyreels' && skyreelsDurationMode === 'fixed'
-      ? skyreelsDurationSeconds
-      : durationOverride;
-
   const refContext = await getRefVideoContext(
     supabase,
     sceneId,
@@ -957,8 +786,7 @@ async function queueDirectRefVideo(
     modelConfig.bucketDuration,
     log,
     fallback_duration,
-    effectiveDurationOverride,
-    skyreelsDurationMode
+    durationOverride
   );
 
   if (!refContext) {
@@ -979,66 +807,13 @@ async function queueDirectRefVideo(
     })
     .eq('id', refContext.scene_id);
 
-  if (model === 'skyreels') {
-    const { taskId, error } = await sendSkyReelsRequest(
-      refContext,
-      aspect_ratio,
-      log
-    );
-
-    if (error || !taskId) {
-      if (error === 'skyreels_parallel_limit') {
-        await supabase
-          .from('scenes')
-          .update({
-            video_status: 'pending',
-            video_error_message: 'skyreels_parallel_limit',
-          })
-          .eq('id', refContext.scene_id);
-
-        return {
-          scene_id: sceneId,
-          request_id: null,
-          status: 'skipped',
-          error: 'SkyReels parallel limit exceeded',
-        };
-      }
-
-      await supabase
-        .from('scenes')
-        .update({
-          video_status: 'failed',
-          video_error_message: error || 'request_error',
-        })
-        .eq('id', refContext.scene_id);
-
-      return {
-        scene_id: sceneId,
-        request_id: null,
-        status: 'failed',
-        error: error || 'Unknown error',
-      };
-    }
-
-    await supabase
-      .from('scenes')
-      .update({ video_request_id: taskId })
-      .eq('id', refContext.scene_id);
-
-    return {
-      scene_id: sceneId,
-      request_id: taskId,
-      status: 'queued',
-    };
-  }
-
   const { requestId, error } = await sendRefVideoRequest(
     refContext,
     resolution,
     model,
     modelConfig,
     aspect_ratio,
-    wanEnableAudio,
+    enableAudio,
     log
   );
 
@@ -1050,6 +825,16 @@ async function queueDirectRefVideo(
         video_error_message: 'request_error',
       })
       .eq('id', refContext.scene_id);
+
+    await logSceneGenerationAttempt({
+      db: supabase,
+      sceneId: refContext.scene_id,
+      storyboardId: refContext.storyboard_id,
+      prompt: refContext.prompt_for_log,
+      status: 'failed',
+      feedback: error || 'Unknown error',
+      log,
+    });
 
     return {
       scene_id: sceneId,
@@ -1063,6 +848,25 @@ async function queueDirectRefVideo(
     .from('scenes')
     .update({ video_request_id: requestId })
     .eq('id', refContext.scene_id);
+
+  await logSceneGenerationAttempt({
+    db: supabase,
+    sceneId: refContext.scene_id,
+    storyboardId: refContext.storyboard_id,
+    prompt: refContext.prompt_for_log,
+    generationMeta: {
+      model: modelConfig.endpoint,
+      resolution,
+      aspect_ratio,
+      duration_seconds: refContext.duration,
+      generated_at: new Date().toISOString(),
+      generated_by: 'system',
+      audio: enableAudio,
+      mode: 'ref_to_video',
+    },
+    status: 'pending',
+    log,
+  });
 
   return {
     scene_id: sceneId,
@@ -1110,8 +914,6 @@ export async function POST(req: NextRequest) {
       storyboard_id,
       enable_audio = true,
       duration_overrides,
-      skyreels_duration_mode = 'auto',
-      skyreels_duration_seconds,
     } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
@@ -1142,11 +944,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!['auto', 'fixed'].includes(skyreels_duration_mode)) {
+    if (
+      !ACTIVE_VIDEO_MODELS.includes(
+        model as (typeof ACTIVE_VIDEO_MODELS)[number]
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error: 'skyreels_duration_mode must be auto or fixed',
+          error: `Model "${model}" is disabled. Active model: klingo3`,
         },
         { status: 400 }
       );
@@ -1193,22 +999,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (
-      skyreels_duration_mode === 'fixed' &&
-      (typeof skyreels_duration_seconds !== 'number' ||
-        skyreels_duration_seconds < 1 ||
-        skyreels_duration_seconds > 5)
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'skyreels_duration_seconds must be between 1 and 5',
-        },
-        { status: 400 }
-      );
-    }
-
-    const usesResolution = !['klingo3', 'klingo3pro'].includes(model);
+    const usesResolution = model !== 'klingo3';
     if (usesResolution && !modelConfig.validResolutions.includes(resolution)) {
       return NextResponse.json(
         {
@@ -1282,10 +1073,7 @@ export async function POST(req: NextRequest) {
 
     const isNarrativeMode = storyboardVideoMode === 'narrative';
     const effectiveEnableAudio =
-      isNarrativeMode &&
-      (effectiveDirectRefModel === 'wan26flash' ||
-        effectiveDirectRefModel === 'klingo3' ||
-        effectiveDirectRefModel === 'klingo3pro')
+      isNarrativeMode && effectiveDirectRefModel === 'klingo3'
         ? false
         : enable_audio;
 
@@ -1294,7 +1082,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error:
-            'Direct ref_to_video path requires a valid ref model (klingo3, klingo3pro, wan26flash, skyreels)',
+            'Direct ref_to_video path requires an active ref model (klingo3)',
         },
         { status: 400 }
       );
@@ -1309,21 +1097,8 @@ export async function POST(req: NextRequest) {
         : forceI2v
           ? 'i2v_override'
           : 'image_to_video',
-      ...(model === 'skyreels'
-        ? {
-            skyreels_duration_mode,
-            skyreels_duration_seconds:
-              skyreels_duration_mode === 'fixed'
-                ? skyreels_duration_seconds
-                : undefined,
-          }
-        : {}),
-      ...(model === 'wan26flash'
-        ? {
-            enable_audio: effectiveEnableAudio,
-            storyboard_video_mode: storyboardVideoMode,
-          }
-        : {}),
+      enable_audio: effectiveEnableAudio,
+      storyboard_video_mode: storyboardVideoMode,
     });
 
     const results: Array<{
@@ -1385,6 +1160,16 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', i2vContext.scene_id);
 
+          await logSceneGenerationAttempt({
+            db: supabase,
+            sceneId: i2vContext.scene_id,
+            storyboardId: i2vContext.storyboard_id,
+            prompt: i2vContext.visual_prompt,
+            status: 'failed',
+            feedback: error || 'Unknown error',
+            log,
+          });
+
           results.push({
             scene_id: sceneId,
             request_id: null,
@@ -1398,6 +1183,24 @@ export async function POST(req: NextRequest) {
           .from('scenes')
           .update({ video_request_id: requestId })
           .eq('id', i2vContext.scene_id);
+
+        await logSceneGenerationAttempt({
+          db: supabase,
+          sceneId: i2vContext.scene_id,
+          storyboardId: i2vContext.storyboard_id,
+          prompt: i2vContext.visual_prompt,
+          generationMeta: {
+            model: modelConfig.endpoint,
+            resolution,
+            aspect_ratio,
+            duration_seconds: i2vContext.duration,
+            generated_at: new Date().toISOString(),
+            generated_by: 'system',
+            mode: 'image_to_video',
+          },
+          status: 'pending',
+          log,
+        });
 
         results.push({
           scene_id: sceneId,
@@ -1421,42 +1224,9 @@ export async function POST(req: NextRequest) {
           effectiveEnableAudio,
           durationOverrideForScene,
           log,
-          fallback_duration,
-          skyreels_duration_mode,
-          skyreels_duration_seconds
+          fallback_duration
         );
         results.push(directResult);
-
-        if (
-          effectiveDirectRefModel === 'skyreels' &&
-          directResult.error === 'SkyReels parallel limit exceeded'
-        ) {
-          const remainingSceneIds = scene_ids.slice(i + 1);
-
-          if (remainingSceneIds.length > 0) {
-            await supabase
-              .from('scenes')
-              .update({
-                video_status: 'pending',
-                video_error_message: 'skyreels_parallel_limit',
-              })
-              .in('id', remainingSceneIds)
-              .eq('video_status', 'failed');
-
-            results.push(
-              ...remainingSceneIds.map((remainingSceneId) => ({
-                scene_id: remainingSceneId,
-                request_id: null,
-                status: 'skipped' as const,
-                error:
-                  'Deferred due to SkyReels parallel limit (will need retry)',
-              }))
-            );
-          }
-
-          break;
-        }
-
         continue;
       }
 
@@ -1500,6 +1270,17 @@ export async function POST(req: NextRequest) {
             video_error_message: 'request_error',
           })
           .eq('id', context.scene_id);
+
+        await logSceneGenerationAttempt({
+          db: supabase,
+          sceneId: context.scene_id,
+          storyboardId: context.storyboard_id,
+          prompt: context.visual_prompt,
+          status: 'failed',
+          feedback: error || 'Unknown error',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           request_id: null,
@@ -1512,6 +1293,25 @@ export async function POST(req: NextRequest) {
         .from('scenes')
         .update({ video_request_id: requestId })
         .eq('id', context.scene_id);
+
+      await logSceneGenerationAttempt({
+        db: supabase,
+        sceneId: context.scene_id,
+        storyboardId: context.storyboard_id,
+        prompt: context.visual_prompt,
+        generationMeta: {
+          model: modelConfig.endpoint,
+          resolution,
+          aspect_ratio,
+          duration_seconds: context.duration,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+          mode: 'image_to_video',
+        },
+        status: 'pending',
+        log,
+      });
+
       results.push({
         scene_id: sceneId,
         request_id: requestId,

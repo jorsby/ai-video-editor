@@ -1,4 +1,4 @@
-import { AnimationFactory, animationRegistry } from './registry';
+import { type AnimationFactory, animationRegistry } from './registry';
 import { KeyframeAnimation } from './keyframe-animation';
 import { GsapAnimation } from './gsap-animation';
 

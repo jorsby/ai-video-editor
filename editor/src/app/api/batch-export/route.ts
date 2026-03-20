@@ -5,8 +5,11 @@ import path from 'node:path';
 
 export async function GET() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const presetsPath = path.join(
       process.cwd(),
@@ -33,8 +36,11 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const formData = await req.formData();
     const file = formData.get('file') as Blob;

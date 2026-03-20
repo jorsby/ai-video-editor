@@ -97,7 +97,9 @@ RULES:
 3. Backgrounds
 - Maximize background reuse: prefer fewer unique backgrounds used in many scenes over many unique backgrounds used once.
 - Backgrounds represent the environment/location of each scene. They must contain NO people or characters — only the setting itself. The tracked element references will populate the scene during video generation.
-- Describe backgrounds with specific atmospheric details: time of day, lighting conditions, weather, key architectural or natural features. Locations should feel lived-in (worn textures, personal objects, environmental details).
+- background_names must be canonical location identities only (e.g. "Meccan Alley", "Council Room"). Do NOT encode time of day, lighting, or weather in background_names.
+- Put time-of-day, lighting, weather, and mood in scene_prompts (per scene), not in reusable location names.
+- backgrounds_grid_prompt should describe the location structure/details in neutral baseline lighting so the same location can be reused across many scenes.
 - Use varied cinematic camera angles (three-quarter view, slight low angle, wide establishing shot) — not flat straight-on views.
 - Valid grid sizes for backgrounds grid: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36).
 

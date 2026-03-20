@@ -38,7 +38,10 @@ export function ProjectTagInput({
   };
 
   return (
-    <div className="flex items-center gap-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="flex items-center gap-1 flex-wrap"
+      onClick={(e) => e.stopPropagation()}
+    >
       {tags.map((tag) => (
         <span
           key={tag}

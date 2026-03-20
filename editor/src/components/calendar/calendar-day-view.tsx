@@ -78,14 +78,22 @@ const DayPostCard = React.memo(function DayPostCard({
           {time && (
             <span className="text-[11px] font-medium opacity-80">{time}</span>
           )}
-          <span className="text-[10px] opacity-60">{statusLabel[status] ?? status}</span>
+          <span className="text-[10px] opacity-60">
+            {statusLabel[status] ?? status}
+          </span>
           {accounts.length > 0 && (
             <div className="ml-auto flex items-center gap-1">
               {accounts.slice(0, MAX_ICONS).map((a: SocialPostAccount) => (
-                <ProviderIcon key={a.octupost_account_id} provider={a.platform} className="h-4 w-4" />
+                <ProviderIcon
+                  key={a.octupost_account_id}
+                  provider={a.platform}
+                  className="h-4 w-4"
+                />
               ))}
               {accounts.length > MAX_ICONS && (
-                <span className="text-[10px] opacity-70">+{accounts.length - MAX_ICONS}</span>
+                <span className="text-[10px] opacity-70">
+                  +{accounts.length - MAX_ICONS}
+                </span>
               )}
             </div>
           )}
@@ -107,12 +115,16 @@ export const CalendarDayView = React.memo(function CalendarDayView({
     day: 'numeric',
   });
 
-  const sorted = [...posts].sort((a, b) => getPostSortKey(a) - getPostSortKey(b));
+  const sorted = [...posts].sort(
+    (a, b) => getPostSortKey(a) - getPostSortKey(b)
+  );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">{dayLabel}</span>
+        <span className="text-sm font-medium text-muted-foreground">
+          {dayLabel}
+        </span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
           {posts.length} {posts.length === 1 ? 'post' : 'posts'}
         </span>
@@ -125,7 +137,12 @@ export const CalendarDayView = React.memo(function CalendarDayView({
       ) : (
         <div className="space-y-2">
           {sorted.map((post) => (
-            <DayPostCard key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
+            <DayPostCard
+              key={post.id}
+              post={post}
+              onPostClick={onPostClick}
+              timezone={timezone}
+            />
           ))}
         </div>
       )}

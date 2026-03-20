@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { AlertCircle, ChevronsDownUp, ChevronsUpDown, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  ExternalLink,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { AccountGroupSection } from './account-group-section';
@@ -14,7 +22,11 @@ import { ProviderIcon } from './provider-icon';
 import { CompanionSetupDialog } from '@/components/companion/companion-setup-dialog';
 import { openAccountInBrowser } from '@/lib/companion/client';
 import type { OctupostAccount } from '@/lib/octupost/types';
-import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
+import type {
+  SocialPost,
+  AccountGroupWithMembers,
+  AccountTagMap,
+} from '@/types/social';
 
 interface SocialAccountsListProps {
   accounts: OctupostAccount[];
@@ -86,9 +98,14 @@ export function SocialAccountsList({
   );
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set());
   const [showCompanionDialog, setShowCompanionDialog] = useState(false);
-  const [pendingBrowserAccount, setPendingBrowserAccount] = useState<{ provider: string; accountId: string; url: string } | null>(null);
+  const [pendingBrowserAccount, setPendingBrowserAccount] = useState<{
+    provider: string;
+    accountId: string;
+    url: string;
+  } | null>(null);
   const [openingBrowserId, setOpeningBrowserId] = useState<string | null>(null);
-  const allExpanded = groups.length > 0 && groups.every((g) => openGroupIds.has(g.id));
+  const allExpanded =
+    groups.length > 0 && groups.every((g) => openGroupIds.has(g.id));
 
   const isSyncingAny = (platformMediaLoading?.size ?? 0) > 0;
 
@@ -177,10 +194,18 @@ export function SocialAccountsList({
   const handleOpenAccountInBrowser = async (account: OctupostAccount) => {
     const url = DEFAULT_BROWSER_URLS[account.platform] || 'about:blank';
     setOpeningBrowserId(account.account_id);
-    const result = await openAccountInBrowser(account.platform, account.account_id, url);
+    const result = await openAccountInBrowser(
+      account.platform,
+      account.account_id,
+      url
+    );
     setOpeningBrowserId(null);
     if (result.notRunning) {
-      setPendingBrowserAccount({ provider: account.platform, accountId: account.account_id, url });
+      setPendingBrowserAccount({
+        provider: account.platform,
+        accountId: account.account_id,
+        url,
+      });
       setShowCompanionDialog(true);
     }
   };
@@ -212,9 +237,16 @@ export function SocialAccountsList({
         onPostUpdated={onPostUpdated}
         isLoadingPlatformMedia={platformMediaLoading?.has(selectedAccountId)}
         platformMediaError={platformMediaErrors?.get(selectedAccountId) || null}
-        onSyncFromPlatform={onFetchPlatformMedia ? (id: string) => onFetchPlatformMedia(id, true) : undefined}
+        onSyncFromPlatform={
+          onFetchPlatformMedia
+            ? (id: string) => onFetchPlatformMedia(id, true)
+            : undefined
+        }
         lastSyncedAt={platformMediaSyncedAt?.get(selectedAccountId) || null}
-        isTokenInvalid={new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(selectedAccountId) ?? false)}
+        isTokenInvalid={
+          new Date(account.expires_at) < new Date() ||
+          (tokenInvalidAccountIds?.has(selectedAccountId) ?? false)
+        }
       />
     );
   }
@@ -357,9 +389,13 @@ export function SocialAccountsList({
           )}
           <div className="grid gap-2">
             {ungroupedAccounts.map((account) => {
-              const postCount = postsByAccount.get(account.account_id)?.length || 0;
-              const hasSynced = platformMediaSyncedAt?.has(account.account_id) ?? false;
-              const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
+              const postCount =
+                postsByAccount.get(account.account_id)?.length || 0;
+              const hasSynced =
+                platformMediaSyncedAt?.has(account.account_id) ?? false;
+              const needsReAuth =
+                new Date(account.expires_at) < new Date() ||
+                (tokenInvalidAccountIds?.has(account.account_id) ?? false);
               return (
                 <div
                   key={account.account_id}
@@ -368,7 +404,10 @@ export function SocialAccountsList({
                 >
                   <Avatar>
                     {account.profile_image_url && (
-                      <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+                      <AvatarImage
+                        src={account.profile_image_url}
+                        alt={account.account_name}
+                      />
                     )}
                     <AvatarFallback>
                       {getInitials(account.account_name)}
@@ -380,10 +419,15 @@ export function SocialAccountsList({
                       {account.account_name}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {account.account_username ? `@${account.account_username}` : account.platform}
+                      {account.account_username
+                        ? `@${account.account_username}`
+                        : account.platform}
                     </p>
                     {needsReAuth && (
-                      <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="flex items-center gap-1 mt-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
                         <span className="text-xs text-amber-600">
                           Token expired — please re-authorize
@@ -401,7 +445,10 @@ export function SocialAccountsList({
                   <div className="flex items-center gap-3">
                     {BROWSER_MANAGED_PROVIDERS.has(account.platform) && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleOpenAccountInBrowser(account); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenAccountInBrowser(account);
+                        }}
                         disabled={openingBrowserId === account.account_id}
                         className="flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-50"
                       >
@@ -419,11 +466,18 @@ export function SocialAccountsList({
                           {postCount === 0 && !hasSynced ? '—' : postCount}
                         </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {postCount === 0 && !hasSynced ? 'not synced' : postCount === 1 ? 'post' : 'posts'}
+                          {postCount === 0 && !hasSynced
+                            ? 'not synced'
+                            : postCount === 1
+                              ? 'post'
+                              : 'posts'}
                         </p>
                       </div>
                     )}
-                    <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
+                    <ProviderIcon
+                      provider={account.platform}
+                      className="h-5 w-5 text-muted-foreground"
+                    />
                   </div>
                 </div>
               );

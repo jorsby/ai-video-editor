@@ -46,8 +46,8 @@ export function CompanionSetupDialog({
         <DialogHeader>
           <DialogTitle>Companion Service Not Running</DialogTitle>
           <DialogDescription>
-            Opening Instagram and TikTok in browser requires the Jorsby Companion
-            service to be running locally.
+            Opening Instagram and TikTok in browser requires the Jorsby
+            Companion service to be running locally.
           </DialogDescription>
         </DialogHeader>
 
@@ -66,14 +66,16 @@ export function CompanionSetupDialog({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            The service runs on <code className="font-mono">127.0.0.1:12345</code> (loopback
-            only) and opens Chrome with isolated per-account profiles so each
-            social account stays logged in independently.
+            The service runs on{' '}
+            <code className="font-mono">127.0.0.1:12345</code> (loopback only)
+            and opens Chrome with isolated per-account profiles so each social
+            account stays logged in independently.
           </p>
 
           {retryError && (
             <p className="text-sm text-destructive">
-              Still not reachable — make sure the service started without errors.
+              Still not reachable — make sure the service started without
+              errors.
             </p>
           )}
         </div>

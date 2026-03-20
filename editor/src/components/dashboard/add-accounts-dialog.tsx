@@ -111,7 +111,9 @@ export function AddAccountsDialog({
                     {account.account_name}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {account.account_username ? `@${account.account_username}` : account.platform}
+                    {account.account_username
+                      ? `@${account.account_username}`
+                      : account.platform}
                   </p>
                 </div>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs">

@@ -31,10 +31,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!group) {
-      return NextResponse.json(
-        { error: 'Group not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Group not found' }, { status: 404 });
     }
 
     const { data: member, error } = await supabase
@@ -99,10 +96,7 @@ export async function DELETE(req: NextRequest) {
       .single();
 
     if (!group) {
-      return NextResponse.json(
-        { error: 'Group not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Group not found' }, { status: 404 });
     }
 
     const { error } = await supabase
