@@ -2,7 +2,6 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
@@ -141,15 +140,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const parsedPlan = klingO3PlanSchema.safeParse(storyboard.plan);
-    if (!parsedPlan.success) {
-      return NextResponse.json(
-        { error: 'Storyboard plan is invalid or missing' },
-        { status: 400 }
-      );
-    }
+    const planRecord =
+      storyboard.plan && typeof storyboard.plan === 'object'
+        ? (storyboard.plan as Record<string, unknown>)
+        : {};
 
-    const plan = parsedPlan.data;
+    const planSceneDurations = Array.isArray(planRecord.scene_durations)
+      ? planRecord.scene_durations
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      : [];
 
     const { data: scenes, error: scenesError } = await db
       .from('scenes')
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
       const voiceoverBasedDuration =
         maxVoiceoverDuration > 0 ? Math.ceil(maxVoiceoverDuration) : 0;
-      const planDuration = plan.scene_durations?.[scene.order] ?? 5;
+      const planDuration = planSceneDurations?.[scene.order] ?? 5;
       const baseDuration = voiceoverBasedDuration || planDuration;
 
       // For multi-shot, enforce total duration = ceil(voiceover duration) when available.
