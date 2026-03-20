@@ -38,6 +38,116 @@ const aiMatchSchema = z.object({
   ),
 });
 
+const TOKEN_ALIAS_GROUPS: string[][] = [
+  ['mekke', 'mecca', 'makkah'],
+  ['medine', 'medina', 'madinah'],
+  ['sevr', 'thawr'],
+  ['kuba', 'quba'],
+  ['deve', 'camel'],
+  ['at', 'horse'],
+  ['magara', 'cave'],
+  ['cadir', 'tent'],
+  ['yol', 'route', 'road', 'path'],
+  ['kilic', 'sword'],
+  ['parsomen', 'scroll'],
+  ['hz', 'hazrat'],
+  ['ebu', 'abu'],
+  ['mabed', "ma'bed", 'mabad'],
+];
+
+const TOKEN_ALIAS_INDEX = new Map<string, string[]>();
+for (const group of TOKEN_ALIAS_GROUPS) {
+  const normalizedGroup = group.map((token) => normalizeAliasText(token));
+  for (const token of normalizedGroup) {
+    TOKEN_ALIAS_INDEX.set(
+      token,
+      normalizedGroup.filter((entry) => entry !== token)
+    );
+  }
+}
+
+function normalizeAliasText(text: string): string {
+  return text
+    .replace(/[ıİ]/g, 'i')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[üÜ]/g, 'u')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[çÇ]/g, 'c')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^the\s+/i, '')
+    .replace(/[/(].*/g, '')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitAliasSegments(text: string): string[] {
+  const segments = new Set<string>();
+  const trimmed = text.trim();
+  if (trimmed.length > 0) segments.add(trimmed);
+
+  for (const slashPart of trimmed.split('/')) {
+    const normalized = slashPart.trim();
+    if (normalized.length > 0) segments.add(normalized);
+  }
+
+  const parenMatches = trimmed.matchAll(/\(([^)]+)\)/g);
+  for (const match of parenMatches) {
+    const value = match[1]?.trim();
+    if (value) segments.add(value);
+  }
+
+  return Array.from(segments);
+}
+
+function buildAliasVariants(value: string | null | undefined): string[] {
+  if (!value || value.trim().length === 0) return [];
+
+  const aliasSet = new Set<string>();
+
+  for (const segment of splitAliasSegments(value)) {
+    const base = normalizeAliasText(segment);
+    if (!base) continue;
+
+    aliasSet.add(base);
+
+    const tokens = base.split(' ').filter(Boolean);
+    for (let index = 0; index < tokens.length; index++) {
+      const aliases = TOKEN_ALIAS_INDEX.get(tokens[index]);
+      if (!aliases || aliases.length === 0) continue;
+
+      for (const alias of aliases) {
+        const replaced = [...tokens];
+        replaced[index] = alias;
+        aliasSet.add(replaced.join(' '));
+      }
+    }
+  }
+
+  return Array.from(aliasSet).slice(0, 12);
+}
+
+function buildEntityAliases(params: {
+  name: string;
+  description?: string | null;
+}): string[] {
+  const aliases = new Set<string>();
+
+  for (const item of buildAliasVariants(params.name)) {
+    aliases.add(item);
+  }
+
+  for (const item of buildAliasVariants(params.description ?? null)) {
+    aliases.add(item);
+  }
+
+  return Array.from(aliases).slice(0, 14);
+}
+
 function buildSceneUsageText(item: AssetMatchItem) {
   return item.sceneUsage
     .slice(0, 6)
@@ -88,6 +198,10 @@ export async function matchAssetsWithAI(params: {
     assetId: candidate.assetId,
     name: candidate.assetName,
     description: candidate.description,
+    aliases: buildEntityAliases({
+      name: candidate.assetName,
+      description: candidate.description,
+    }),
     imageUrl: candidate.url,
     type: candidate.type,
   }));
@@ -103,6 +217,10 @@ export async function matchAssetsWithAI(params: {
     gridPosition: item.gridPosition,
     name: item.name,
     description: item.description ?? null,
+    aliases: buildEntityAliases({
+      name: item.name,
+      description: item.description,
+    }),
     sceneUsage: buildSceneUsageText(item),
   }));
 
@@ -110,7 +228,8 @@ export async function matchAssetsWithAI(params: {
 Match requested ${itemType}s to existing series assets.
 
 Hard rules:
-- Prefer semantic relevance from name + description + scene usage context.
+- Prefer semantic relevance from name + description + aliases + scene usage context.
+- Treat Turkish/English transliterations and aliases as equivalent (e.g. Mekke/Mecca, Medine/Medina, Sevr/Thawr, Ümmü Ma'bed/Umm Mabad).
 - Use candidate imageUrl only as a weak hint from metadata (do not hallucinate visual details).
 - If no candidate is clearly correct, return candidateKey=null.
 - Confidence should reflect trustworthiness:
