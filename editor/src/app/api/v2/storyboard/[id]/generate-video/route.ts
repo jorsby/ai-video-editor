@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
+import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -33,34 +34,6 @@ function calculateSceneCost(
   return (
     Math.round(((durationSeconds / 5) * rate + Number.EPSILON) * 1000) / 1000
   );
-}
-
-function buildMultiPromptPayload(
-  prompts: string[],
-  multiShots: Array<{ duration?: string }> | null,
-  totalDuration: number
-) {
-  // If per-shot durations are stored, use them directly
-  if (multiShots && multiShots.length === prompts.length) {
-    return prompts.map((prompt, index) => ({
-      prompt,
-      duration: String(
-        Math.max(3, Math.min(15, Number(multiShots[index]?.duration ?? '5')))
-      ),
-    }));
-  }
-
-  // Fallback: split total duration evenly
-  const count = prompts.length;
-  const base = Math.floor(totalDuration / count);
-  const remainder = totalDuration - base * count;
-
-  return prompts.map((prompt, index) => ({
-    prompt,
-    duration: String(
-      Math.max(3, Math.min(15, base + (index < remainder ? 1 : 0)))
-    ),
-  }));
 }
 
 function getMultiShotTotalDuration(
@@ -281,30 +254,28 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }>;
       voiceovers: Array<{ duration: number | null }>;
     }>) {
-      // Duration priority: voiceover duration + 1s buffer → plan duration → 5s default
+      // Duration priority: ceil(voiceover duration) → plan duration → 5s default
       const maxVoiceoverDuration = Math.max(
         0,
         ...(scene.voiceovers ?? []).map((v) => v.duration ?? 0)
       );
       const voiceoverBasedDuration =
-        maxVoiceoverDuration > 0
-          ? Math.min(15, Math.ceil(maxVoiceoverDuration) + 1)
-          : 0;
+        maxVoiceoverDuration > 0 ? Math.ceil(maxVoiceoverDuration) : 0;
       const planDuration = plan.scene_durations?.[scene.order] ?? 5;
       const baseDuration = voiceoverBasedDuration || planDuration;
 
-      // For multi-shot, calculate actual total from per-shot durations
+      // For multi-shot, enforce total duration = ceil(voiceover duration) when available.
       let actualDuration = baseDuration;
       let multiPromptPayload: Array<{
         prompt: string;
         duration: string;
       }> | null = null;
       if (scene.multi_prompt && scene.multi_prompt.length > 1) {
-        multiPromptPayload = buildMultiPromptPayload(
-          scene.multi_prompt,
-          scene.multi_shots,
-          planDuration
-        );
+        multiPromptPayload = buildKlingMultiPromptPayload({
+          prompts: scene.multi_prompt,
+          targetTotalSeconds: baseDuration,
+          multiShots: scene.multi_shots,
+        });
         actualDuration = getMultiShotTotalDuration(multiPromptPayload);
       }
 
@@ -390,11 +361,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
         generate_audio: withAudio,
       };
 
-      if (multiPromptPayload) {
+      if (multiPromptPayload && multiPromptPayload.length > 1) {
         payload.multi_prompt = multiPromptPayload;
         payload.shot_type = 'customize';
       } else {
-        payload.prompt = scenePrompt;
+        payload.prompt =
+          multiPromptPayload?.[0]?.prompt ??
+          scene.multi_prompt?.[0]?.trim() ??
+          scenePrompt;
         payload.duration = String(baseDuration);
       }
 

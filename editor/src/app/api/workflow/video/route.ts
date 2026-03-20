@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { createLogger } from '@/lib/logger';
+import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   resolveForKling,
@@ -32,28 +33,11 @@ interface ModelConfig {
           reference_image_urls: string[];
         }>;
         multi_prompt?: string[];
-        multi_shots?: boolean;
+        multi_shots?: Array<{ duration?: string }> | null;
         video_urls?: string[];
         enable_audio?: boolean;
       }) => Record<string, unknown>)
     | null;
-}
-
-function splitMultiPromptDurations(
-  prompts: string[],
-  totalDuration: number
-): { prompt: string; duration: string }[] {
-  const count = prompts.length;
-  const base = Math.floor(totalDuration / count);
-  const remainder = totalDuration - base * count;
-
-  return prompts.map((p, i) => {
-    const shotDuration = Math.max(
-      3,
-      Math.min(15, base + (i < remainder ? 1 : 0))
-    );
-    return { prompt: p, duration: String(shotDuration) };
-  });
 }
 
 const MODEL_CONFIG: Record<string, ModelConfig> = {
@@ -69,6 +53,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
       duration,
       aspect_ratio,
       multi_prompt,
+      multi_shots,
       enable_audio,
     }) => {
       const base: Record<string, unknown> = {
@@ -78,7 +63,11 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
         generate_audio: enable_audio ?? false,
       };
       if (multi_prompt && multi_prompt.length > 1) {
-        base.multi_prompt = splitMultiPromptDurations(multi_prompt, duration);
+        base.multi_prompt = buildKlingMultiPromptPayload({
+          prompts: multi_prompt,
+          targetTotalSeconds: duration,
+          multiShots: multi_shots,
+        });
       } else {
         base.prompt =
           multi_prompt && multi_prompt.length === 1 ? multi_prompt[0] : prompt;
@@ -201,7 +190,7 @@ interface RefVideoContext {
   prompt: string;
   prompt_for_log: string;
   multi_prompt?: string[];
-  multi_shots?: boolean;
+  multi_shots?: Array<{ duration?: string }> | null;
   object_urls: string[];
   background_url: string;
   duration: number;
@@ -552,7 +541,7 @@ async function getRefVideoContext(
     raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   }
 
-  const durationInt = bucketDuration(raw);
+  const targetDuration = Math.max(1, Math.ceil(raw));
 
   let multiPromptShots: string[] | undefined;
   if (multiPromptValues.length > 0) {
@@ -585,10 +574,12 @@ async function getRefVideoContext(
       prompt: '',
       prompt_for_log: resolvedShots[0] ?? scenePrompt,
       multi_prompt: resolvedShots,
-      multi_shots: scene.multi_shots ?? undefined,
+      multi_shots: Array.isArray(scene.multi_shots)
+        ? (scene.multi_shots as Array<{ duration?: string }>)
+        : null,
       object_urls: objectUrls,
       background_url: bg.final_url,
-      duration: durationInt,
+      duration: targetDuration,
       library_elements: libraryElements,
     };
   }
@@ -598,10 +589,12 @@ async function getRefVideoContext(
     storyboard_id: scene.storyboard_id,
     prompt: resolvePrompt(scenePrompt, model, objectCount),
     prompt_for_log: scenePrompt,
-    multi_shots: scene.multi_shots ?? undefined,
+    multi_shots: Array.isArray(scene.multi_shots)
+      ? (scene.multi_shots as Array<{ duration?: string }>)
+      : null,
     object_urls: objectUrls,
     background_url: bg.final_url,
-    duration: durationInt,
+    duration: bucketDuration(targetDuration),
     library_elements: libraryElements,
   };
 }
