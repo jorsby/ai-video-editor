@@ -117,6 +117,58 @@ function resolveMultiPrompt(
   return shots.map((shot) => resolvePrompt(shot, model, objectCount));
 }
 
+async function logSceneGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  sceneId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+  log: ReturnType<typeof createLogger>;
+}) {
+  const {
+    db,
+    sceneId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+    log,
+  } = params;
+
+  try {
+    const { data: latest } = await db
+      .from('generation_logs')
+      .select('version')
+      .eq('entity_type', 'scene')
+      .eq('entity_id', sceneId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await db.from('generation_logs').insert({
+      entity_type: 'scene',
+      entity_id: sceneId,
+      storyboard_id: storyboardId,
+      version: (latest?.version ?? 0) + 1,
+      prompt,
+      generation_meta: generationMeta ?? null,
+      feedback: feedback ?? null,
+      result_url: resultUrl ?? null,
+      status,
+    });
+  } catch (error) {
+    log.warn('Failed to write generation log row (non-fatal)', {
+      scene_id: sceneId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface GenerateVideoInput {
@@ -133,6 +185,7 @@ interface GenerateVideoInput {
 
 interface VideoContext {
   scene_id: string;
+  storyboard_id: string;
   final_url: string;
   visual_prompt: string;
   duration: number;
@@ -145,7 +198,9 @@ interface LibraryElement {
 
 interface RefVideoContext {
   scene_id: string;
+  storyboard_id: string;
   prompt: string;
+  prompt_for_log: string;
   multi_prompt?: string[];
   multi_shots?: boolean;
   object_urls: string[];
@@ -168,7 +223,7 @@ async function getVideoContext(
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
     .select(
-      `id, video_status, first_frames (id, final_url, visual_prompt), voiceovers (duration)`
+      `id, storyboard_id, video_status, first_frames (id, final_url, visual_prompt), voiceovers (duration)`
     )
     .eq('id', sceneId)
     .single();
@@ -201,6 +256,12 @@ async function getVideoContext(
     return null;
   }
 
+  const visualPrompt = firstFrame.visual_prompt?.trim();
+  if (!visualPrompt) {
+    log.warn('No visual prompt on first_frame', { scene_id: sceneId });
+    return null;
+  }
+
   const maxDuration = Math.max(
     0,
     ...((scene.voiceovers as Array<{ duration?: number }>) || []).map(
@@ -222,8 +283,9 @@ async function getVideoContext(
   const raw = maxDuration > 0 ? Math.ceil(maxDuration) : fallbackDuration!;
   return {
     scene_id: sceneId,
+    storyboard_id: scene.storyboard_id,
     final_url: firstFrame.final_url,
-    visual_prompt: firstFrame.visual_prompt || '',
+    visual_prompt: visualPrompt,
     duration: bucketDuration(raw),
   };
 }
@@ -241,7 +303,7 @@ async function getRefVideoContext(
   const { data: scene, error: sceneError } = await supabase
     .from('scenes')
     .select(
-      `id, prompt, multi_prompt, multi_shots, video_status, voiceovers (duration)`
+      `id, storyboard_id, prompt, multi_prompt, multi_shots, video_status, voiceovers (duration)`
     )
     .eq('id', sceneId)
     .single();
@@ -253,7 +315,14 @@ async function getRefVideoContext(
     });
     return null;
   }
-  if (!scene.prompt && !scene.multi_prompt) {
+  const scenePrompt = scene.prompt?.trim() ?? '';
+  const multiPromptValues = Array.isArray(scene.multi_prompt)
+    ? (scene.multi_prompt as string[])
+        .map((prompt) => prompt.trim())
+        .filter((prompt) => prompt.length > 0)
+    : [];
+
+  if (!scenePrompt && multiPromptValues.length === 0) {
     log.error('No prompt on scene', { scene_id: sceneId });
     return null;
   }
@@ -487,26 +556,25 @@ async function getRefVideoContext(
   const durationInt = bucketDuration(raw);
 
   let multiPromptShots: string[] | undefined;
-  if (
-    scene.multi_prompt &&
-    Array.isArray(scene.multi_prompt) &&
-    scene.multi_prompt.length > 0
-  ) {
-    multiPromptShots = scene.multi_prompt as string[];
-  } else if (scene.prompt && scene.prompt.startsWith('[')) {
+  if (multiPromptValues.length > 0) {
+    multiPromptShots = multiPromptValues;
+  } else if (scenePrompt.startsWith('[')) {
     try {
-      const parsed = JSON.parse(scene.prompt);
+      const parsed = JSON.parse(scenePrompt);
       if (
         Array.isArray(parsed) &&
         parsed.every((s: unknown) => typeof s === 'string')
-      )
-        multiPromptShots = parsed;
+      ) {
+        multiPromptShots = parsed
+          .map((shot) => shot.trim())
+          .filter((shot) => shot.length > 0);
+      }
     } catch {
       /* not JSON */
     }
   }
 
-  if (multiPromptShots) {
+  if (multiPromptShots && multiPromptShots.length > 0) {
     const resolvedShots = resolveMultiPrompt(
       multiPromptShots,
       model,
@@ -514,7 +582,9 @@ async function getRefVideoContext(
     );
     return {
       scene_id: sceneId,
+      storyboard_id: scene.storyboard_id,
       prompt: '',
+      prompt_for_log: resolvedShots[0] ?? scenePrompt,
       multi_prompt: resolvedShots,
       multi_shots: scene.multi_shots ?? undefined,
       object_urls: objectUrls,
@@ -526,7 +596,9 @@ async function getRefVideoContext(
 
   return {
     scene_id: sceneId,
-    prompt: resolvePrompt(scene.prompt, model, objectCount),
+    storyboard_id: scene.storyboard_id,
+    prompt: resolvePrompt(scenePrompt, model, objectCount),
+    prompt_for_log: scenePrompt,
     multi_shots: scene.multi_shots ?? undefined,
     object_urls: objectUrls,
     background_url: bg.final_url,
@@ -754,6 +826,16 @@ async function queueDirectRefVideo(
       })
       .eq('id', refContext.scene_id);
 
+    await logSceneGenerationAttempt({
+      db: supabase,
+      sceneId: refContext.scene_id,
+      storyboardId: refContext.storyboard_id,
+      prompt: refContext.prompt_for_log,
+      status: 'failed',
+      feedback: error || 'Unknown error',
+      log,
+    });
+
     return {
       scene_id: sceneId,
       request_id: null,
@@ -766,6 +848,25 @@ async function queueDirectRefVideo(
     .from('scenes')
     .update({ video_request_id: requestId })
     .eq('id', refContext.scene_id);
+
+  await logSceneGenerationAttempt({
+    db: supabase,
+    sceneId: refContext.scene_id,
+    storyboardId: refContext.storyboard_id,
+    prompt: refContext.prompt_for_log,
+    generationMeta: {
+      model: modelConfig.endpoint,
+      resolution,
+      aspect_ratio,
+      duration_seconds: refContext.duration,
+      generated_at: new Date().toISOString(),
+      generated_by: 'system',
+      audio: enableAudio,
+      mode: 'ref_to_video',
+    },
+    status: 'pending',
+    log,
+  });
 
   return {
     scene_id: sceneId,
@@ -1059,6 +1160,16 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', i2vContext.scene_id);
 
+          await logSceneGenerationAttempt({
+            db: supabase,
+            sceneId: i2vContext.scene_id,
+            storyboardId: i2vContext.storyboard_id,
+            prompt: i2vContext.visual_prompt,
+            status: 'failed',
+            feedback: error || 'Unknown error',
+            log,
+          });
+
           results.push({
             scene_id: sceneId,
             request_id: null,
@@ -1072,6 +1183,24 @@ export async function POST(req: NextRequest) {
           .from('scenes')
           .update({ video_request_id: requestId })
           .eq('id', i2vContext.scene_id);
+
+        await logSceneGenerationAttempt({
+          db: supabase,
+          sceneId: i2vContext.scene_id,
+          storyboardId: i2vContext.storyboard_id,
+          prompt: i2vContext.visual_prompt,
+          generationMeta: {
+            model: modelConfig.endpoint,
+            resolution,
+            aspect_ratio,
+            duration_seconds: i2vContext.duration,
+            generated_at: new Date().toISOString(),
+            generated_by: 'system',
+            mode: 'image_to_video',
+          },
+          status: 'pending',
+          log,
+        });
 
         results.push({
           scene_id: sceneId,
@@ -1141,6 +1270,17 @@ export async function POST(req: NextRequest) {
             video_error_message: 'request_error',
           })
           .eq('id', context.scene_id);
+
+        await logSceneGenerationAttempt({
+          db: supabase,
+          sceneId: context.scene_id,
+          storyboardId: context.storyboard_id,
+          prompt: context.visual_prompt,
+          status: 'failed',
+          feedback: error || 'Unknown error',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           request_id: null,
@@ -1153,6 +1293,25 @@ export async function POST(req: NextRequest) {
         .from('scenes')
         .update({ video_request_id: requestId })
         .eq('id', context.scene_id);
+
+      await logSceneGenerationAttempt({
+        db: supabase,
+        sceneId: context.scene_id,
+        storyboardId: context.storyboard_id,
+        prompt: context.visual_prompt,
+        generationMeta: {
+          model: modelConfig.endpoint,
+          resolution,
+          aspect_ratio,
+          duration_seconds: context.duration,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+          mode: 'image_to_video',
+        },
+        status: 'pending',
+        log,
+      });
+
       results.push({
         scene_id: sceneId,
         request_id: requestId,

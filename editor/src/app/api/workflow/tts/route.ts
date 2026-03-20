@@ -25,9 +25,62 @@ interface GenerateTTSInput {
 interface SceneContext {
   voiceover_id: string;
   scene_id: string;
+  storyboard_id: string;
   text: string;
   previous_text: string | null;
   next_text: string | null;
+}
+
+async function logVoiceoverGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  voiceoverId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+  log: ReturnType<typeof createLogger>;
+}) {
+  const {
+    db,
+    voiceoverId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+    log,
+  } = params;
+
+  try {
+    const { data: latest } = await db
+      .from('generation_logs')
+      .select('version')
+      .eq('entity_type', 'voiceover')
+      .eq('entity_id', voiceoverId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await db.from('generation_logs').insert({
+      entity_type: 'voiceover',
+      entity_id: voiceoverId,
+      storyboard_id: storyboardId,
+      version: (latest?.version ?? 0) + 1,
+      prompt,
+      generation_meta: generationMeta ?? null,
+      feedback: feedback ?? null,
+      result_url: resultUrl ?? null,
+      status,
+    });
+  } catch (error) {
+    log.warn('Failed to write generation log row (non-fatal)', {
+      voiceover_id: voiceoverId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function getSceneContext(
@@ -75,6 +128,7 @@ async function getSceneContext(
     return {
       voiceover_id: voiceover.id,
       scene_id: sceneId,
+      storyboard_id: scene.storyboard_id,
       text: voiceover.text || '',
       previous_text: null,
       next_text: null,
@@ -104,6 +158,7 @@ async function getSceneContext(
   return {
     voiceover_id: voiceover.id,
     scene_id: sceneId,
+    storyboard_id: scene.storyboard_id,
     text: voiceover.text || '',
     previous_text,
     next_text,
@@ -287,6 +342,17 @@ export async function POST(req: NextRequest) {
           .from('voiceovers')
           .update({ status: 'failed', error_message: 'request_error' })
           .eq('id', context.voiceover_id);
+
+        await logVoiceoverGenerationAttempt({
+          db: supabase,
+          voiceoverId: context.voiceover_id,
+          storyboardId: context.storyboard_id,
+          prompt: null,
+          status: 'skipped',
+          feedback: 'Skipped: voiceover text empty',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           voiceover_id: context.voiceover_id,
@@ -315,6 +381,17 @@ export async function POST(req: NextRequest) {
           .from('voiceovers')
           .update({ status: 'failed', error_message: 'request_error' })
           .eq('id', context.voiceover_id);
+
+        await logVoiceoverGenerationAttempt({
+          db: supabase,
+          voiceoverId: context.voiceover_id,
+          storyboardId: context.storyboard_id,
+          prompt: context.text,
+          status: 'failed',
+          feedback: error || 'Unknown error',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           voiceover_id: context.voiceover_id,
@@ -329,6 +406,23 @@ export async function POST(req: NextRequest) {
         .from('voiceovers')
         .update({ request_id: requestId })
         .eq('id', context.voiceover_id);
+
+      await logVoiceoverGenerationAttempt({
+        db: supabase,
+        voiceoverId: context.voiceover_id,
+        storyboardId: context.storyboard_id,
+        prompt: context.text,
+        generationMeta: {
+          model: endpoint,
+          voice_id: voice,
+          speed,
+          language,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+        },
+        status: 'pending',
+        log,
+      });
 
       results.push({
         scene_id: sceneId,
