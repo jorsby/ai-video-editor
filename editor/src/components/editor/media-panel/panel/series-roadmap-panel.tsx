@@ -209,21 +209,15 @@ function EpisodeCard({
   onToggle: () => void;
   variantImages: Map<string, string>;
 }) {
-  const [showFullScript, setShowFullScript] = useState(false);
   const statusConfig = STATUS_CONFIG[episode.status] || STATUS_CONFIG.planned;
   const sceneCount = storyboard?.scenes?.length ?? 0;
   const doneScenes =
     storyboard?.scenes?.filter((s) => s.video_status === 'success').length ?? 0;
 
-  const keyPoints = [
-    storyboard?.scriptLines?.[0]
-      ? `Hook: ${trimSentence(storyboard.scriptLines[0], 120)}`
-      : null,
-    `Amaç: ${trimSentence(episode.summary, 120)}`,
+  const simpleFlow =
     sceneCount > 0
-      ? `Yapı: ${sceneCount} sahne${doneScenes > 0 ? ` • ${doneScenes}/${sceneCount} video hazır` : ''}`
-      : 'Yapı: Storyboard henüz oluşturulmadı',
-  ].filter(Boolean) as string[];
+      ? `${sceneCount} sahne • ${doneScenes}/${sceneCount} video hazır`
+      : 'Storyboard henüz oluşturulmadı';
 
   return (
     <div className="border border-border/40 rounded-md overflow-hidden">
@@ -264,63 +258,31 @@ function EpisodeCard({
         <div className="px-2.5 pb-2.5 space-y-2">
           <div className="pl-6 space-y-1">
             <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
-              Episode Goal
+              Bu bölümde ne olacak?
             </p>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
               {episode.summary}
             </p>
-          </div>
-
-          <div className="pl-6 space-y-1">
-            <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
-              Key Notes
-            </p>
-            <ul className="space-y-1">
-              {keyPoints.map((point, idx) => (
-                <li
-                  key={`${episode.number}-key-${idx}`}
-                  className="text-[10px] text-muted-foreground leading-relaxed"
-                >
-                  • {point}
-                </li>
-              ))}
-            </ul>
+            <p className="text-[9px] text-muted-foreground">{simpleFlow}</p>
           </div>
 
           {storyboard && storyboard.scriptLines.length > 0 && (
-            <Collapsible open={showFullScript} onOpenChange={setShowFullScript}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <IconBook className="size-3 text-muted-foreground shrink-0" />
-                  <span className="text-[10px] font-medium flex-1">
-                    Full Script ({storyboard.scriptLanguage.toUpperCase()})
-                  </span>
-                  {showFullScript ? (
-                    <IconChevronUp className="size-3 text-muted-foreground" />
-                  ) : (
-                    <IconChevronDown className="size-3 text-muted-foreground" />
-                  )}
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="pl-6 pt-1.5 space-y-1.5 max-h-44 overflow-auto pr-1">
-                  {storyboard.scriptLines.map((line, idx) => (
-                    <p
-                      key={`${episode.number}-script-${idx}`}
-                      className="text-[10px] text-foreground/85 leading-relaxed"
-                    >
-                      <span className="text-muted-foreground/70">
-                        {idx + 1}.
-                      </span>{' '}
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
+            <div className="pl-6 pt-1 space-y-1.5">
+              <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                Full Script ({storyboard.scriptLanguage.toUpperCase()})
+              </p>
+              <div className="space-y-1.5 max-h-44 overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-2">
+                {storyboard.scriptLines.map((line, idx) => (
+                  <p
+                    key={`${episode.number}-script-${idx}`}
+                    className="text-[10px] text-foreground/85 leading-relaxed"
+                  >
+                    <span className="text-muted-foreground/70">{idx + 1}.</span>{' '}
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
           )}
 
           {storyboard && storyboard.scenes.length > 0 ? (
@@ -598,6 +560,29 @@ export default function SeriesRoadmapPanel() {
 
   const doneEpisodes = episodes.filter((e) => e.status === 'done').length;
 
+  const generalFlowText = useMemo(() => {
+    if (episodes.length === 0) return '';
+    if (episodes.length === 1) return trimSentence(episodes[0].summary, 240);
+
+    const first = trimSentence(episodes[0].summary, 140);
+    const mid = trimSentence(
+      episodes[Math.floor((episodes.length - 1) / 2)].summary,
+      140
+    );
+    const last = trimSentence(episodes[episodes.length - 1].summary, 140);
+
+    return [first, mid, last].filter(Boolean).join(' → ');
+  }, [episodes]);
+
+  const episodeRoadmapLines = useMemo(
+    () =>
+      episodes.map(
+        (episode) =>
+          `Bölüm ${episode.number}: ${episode.title} — ${trimSentence(episode.summary, 120)}`
+      ),
+    [episodes]
+  );
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -645,9 +630,49 @@ export default function SeriesRoadmapPanel() {
           </div>
         </div>
 
+        {/* Genel akış */}
+        <div className="rounded border border-border/30 bg-muted/15 p-2 space-y-1.5">
+          <p className="text-[10px] font-medium">Genel Akış</p>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            {generalFlowText || 'Genel akış henüz hazırlanmadı.'}
+          </p>
+        </div>
+
+        {/* Bölüm haritası */}
+        <Collapsible open={showBible} onOpenChange={setShowBible}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
+            >
+              <IconBook className="size-3 text-muted-foreground shrink-0" />
+              <span className="text-[10px] font-medium flex-1">
+                Bölüm Bölüm Ne Olacak?
+              </span>
+              {showBible ? (
+                <IconChevronUp className="size-3 text-muted-foreground" />
+              ) : (
+                <IconChevronDown className="size-3 text-muted-foreground" />
+              )}
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-2 pt-1.5 pb-1 space-y-1">
+              {episodeRoadmapLines.map((line, idx) => (
+                <p
+                  key={`roadmap-line-${idx}`}
+                  className="text-[10px] text-muted-foreground leading-relaxed"
+                >
+                  • {line}
+                </p>
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
         {/* Bible (collapsible) */}
         {bible && (
-          <Collapsible open={showBible} onOpenChange={setShowBible}>
+          <Collapsible>
             <CollapsibleTrigger asChild>
               <button
                 type="button"
@@ -657,11 +682,7 @@ export default function SeriesRoadmapPanel() {
                 <span className="text-[10px] font-medium flex-1">
                   Series Bible
                 </span>
-                {showBible ? (
-                  <IconChevronUp className="size-3 text-muted-foreground" />
-                ) : (
-                  <IconChevronDown className="size-3 text-muted-foreground" />
-                )}
+                <IconChevronDown className="size-3 text-muted-foreground" />
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
