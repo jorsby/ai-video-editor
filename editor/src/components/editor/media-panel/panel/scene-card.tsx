@@ -1717,16 +1717,18 @@ export function SceneCard({
                 const isMulti =
                   scene.multi_prompt && scene.multi_prompt.length > 1;
                 const shotCount = isMulti ? scene.multi_prompt!.length : 1;
-                // Narrative mode: derive default from voiceover duration
-                // ceil(voiceover) + 1s buffer, capped at 15, split evenly across shots
+
+                // Default: ceil(voiceover) total split across shots
                 const voDur = voiceover?.duration
-                  ? Math.min(15, Math.ceil(Number(voiceover.duration)) + 1)
+                  ? Math.ceil(Number(voiceover.duration))
                   : null;
                 const defaultPerShot = voDur
                   ? Math.max(3, Math.min(15, Math.round(voDur / shotCount)))
                   : 5;
+
                 const getDur = (idx: number) =>
                   Number(sd?.[idx]?.duration ?? String(defaultPerShot));
+
                 const setDur = (idx: number, delta: number) => {
                   const shots = Array.from({ length: shotCount }, (_, i) => ({
                     duration: String(
@@ -1738,29 +1740,38 @@ export function SceneCard({
                   }));
                   onUpdateShotDurations(scene.id, shots);
                 };
+
                 const totalDur = Array.from({ length: shotCount }, (_, i) =>
                   getDur(i)
                 ).reduce((a, b) => a + b, 0);
 
                 return (
-                  <div className="flex items-center gap-2 pt-1 border-t border-cyan-500/10">
-                    <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                      Duration
-                    </span>
-                    <div className="flex items-center gap-2">
+                  <div className="pt-1 border-t border-cyan-500/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                        Duration
+                      </span>
+                      {isMulti && (
+                        <span className="text-[9px] text-muted-foreground">
+                          {totalDur}s total
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
                       {Array.from({ length: shotCount }, (_, idx) => (
                         <div
                           key={`dur-${scene.id}-${idx}`}
-                          className="flex items-center gap-0.5"
+                          className="inline-flex items-center gap-1 rounded bg-muted/30 border border-border/40 px-1 py-0.5"
                         >
                           {isMulti && (
-                            <span className="text-[8px] text-purple-400 mr-0.5">
+                            <span className="text-[8px] text-purple-400">
                               S{idx + 1}
                             </span>
                           )}
                           <button
                             type="button"
-                            className="w-5 h-5 rounded bg-muted/50 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            className="w-4 h-4 rounded bg-muted/60 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
                             disabled={getDur(idx) <= 3}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1769,12 +1780,12 @@ export function SceneCard({
                           >
                             −
                           </button>
-                          <span className="text-[10px] text-foreground/80 font-mono w-5 text-center">
+                          <span className="text-[10px] text-foreground/85 font-mono min-w-[24px] text-center">
                             {getDur(idx)}s
                           </span>
                           <button
                             type="button"
-                            className="w-5 h-5 rounded bg-muted/50 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            className="w-4 h-4 rounded bg-muted/60 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
                             disabled={getDur(idx) >= 15}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1785,11 +1796,6 @@ export function SceneCard({
                           </button>
                         </div>
                       ))}
-                      {isMulti && (
-                        <span className="text-[9px] text-muted-foreground ml-1">
-                          = {totalDur}s total
-                        </span>
-                      )}
                     </div>
                   </div>
                 );
