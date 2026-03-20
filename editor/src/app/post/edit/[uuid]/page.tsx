@@ -8,7 +8,9 @@ export default async function EditPostRoute({
   params: Promise<{ uuid: string }>;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
   const { uuid } = await params;

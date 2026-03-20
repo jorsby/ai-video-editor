@@ -1,10 +1,7 @@
 'use client';
 
 import { Switch } from '@/components/ui/switch';
-import type {
-  TikTokAccountOptions,
-  TikTokPrivacy,
-} from '@/types/post';
+import type { TikTokAccountOptions, TikTokPrivacy } from '@/types/post';
 import type { SocialAccount } from '@/types/social';
 
 interface TikTokOptionsProps {

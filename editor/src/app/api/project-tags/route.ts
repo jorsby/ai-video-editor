@@ -66,10 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!tag || typeof tag !== 'string' || tag.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'tag is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'tag is required' }, { status: 400 });
     }
 
     const { error } = await supabase.from('project_tags').insert({
@@ -86,10 +83,7 @@ export async function POST(req: NextRequest) {
         );
       }
       console.error('Database error:', error);
-      return NextResponse.json(
-        { error: 'Failed to add tag' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to add tag' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
@@ -126,10 +120,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     if (!tag) {
-      return NextResponse.json(
-        { error: 'tag is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'tag is required' }, { status: 400 });
     }
 
     const { error } = await supabase

@@ -12,9 +12,12 @@ const bodySchema = z.object({
   audio: z.boolean().optional(),
   confirm: z.boolean().optional(),
   aspect_ratio: z.string().optional(),
+  model: z.enum(['klingo3']).optional(),
 });
 
-const KLING_O3_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
+const KLING_ENDPOINTS = {
+  klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
+} as const;
 
 const COST_PER_5S = {
   withAudio: 0.112,
@@ -96,6 +99,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const withAudio = parsedBody.data.audio ?? true;
     const confirm = parsedBody.data.confirm ?? false;
     const aspectRatioOverride = parsedBody.data.aspect_ratio;
+    const model = parsedBody.data.model ?? 'klingo3';
+    const endpoint = KLING_ENDPOINTS[model];
 
     const db = createServiceClient('studio');
 
@@ -150,11 +155,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       )
       .eq('storyboard_id', storyboardId)
       .order('order', { ascending: true });
-
-    // multi_shots comes as jsonb — type it properly
-    type SceneRow = NonNullable<typeof scenes>[number] & {
-      multi_shots: Array<{ duration?: string }> | null;
-    };
 
     if (scenesError) {
       return NextResponse.json(
@@ -335,7 +335,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .from('scenes')
         .update({
           video_status: 'processing',
-          video_model: 'klingo3',
           video_resolution: '720p',
         })
         .eq('id', scene.id);
@@ -348,7 +347,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         );
       }
 
-      const falUrl = new URL(`https://queue.fal.run/${KLING_O3_ENDPOINT}`);
+      const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
       falUrl.searchParams.set(
         'fal_webhook',
         `${webhookBase}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`

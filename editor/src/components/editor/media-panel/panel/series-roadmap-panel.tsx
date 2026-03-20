@@ -284,11 +284,37 @@ export default function SeriesRoadmapPanel() {
         .eq('id', seriesId)
         .single();
 
+      // Load episodes from table (source of truth fallback)
+      const { data: episodeRows } = await supabase
+        .from('series_episodes')
+        .select('episode_number, title, synopsis, storyboard_id')
+        .eq('series_id', seriesId)
+        .order('episode_number', { ascending: true });
+
+      const episodesFromTable: Episode[] = (episodeRows ?? []).map((row) => ({
+        number: row.episode_number,
+        title: row.title || `Episode ${row.episode_number}`,
+        summary: row.synopsis || 'No summary yet.',
+        status: 'planned',
+      }));
+
+      const storyboardIdToEpisode = new Map<string, number>();
+      for (const row of episodeRows ?? []) {
+        if (row.storyboard_id) {
+          storyboardIdToEpisode.set(row.storyboard_id, row.episode_number);
+        }
+      }
+
+      let resolvedEpisodes: Episode[] = episodesFromTable;
+
       if (series) {
         setSeriesName(series.name || '');
         setBible(series.bible || '');
+
         const meta = series.metadata as { episodes?: Episode[] } | null;
-        setEpisodes(meta?.episodes ?? []);
+        if ((meta?.episodes?.length ?? 0) > 0) {
+          resolvedEpisodes = meta!.episodes!;
+        }
       }
 
       // Load storyboards with scenes
@@ -401,15 +427,33 @@ export default function SeriesRoadmapPanel() {
             })),
           };
 
-          // Match to episode 1 for now (we'll improve matching later)
-          if (!sbMap.has(1) && sb.plan_status !== 'draft') {
-            sbMap.set(1, sbInfo);
+          const epNumber = storyboardIdToEpisode.get(sb.id);
+          if (epNumber) {
+            sbMap.set(epNumber, sbInfo);
           }
         }
 
         setStoryboards(sbMap);
+
+        // Update episode statuses from storyboard/scenes availability
+        resolvedEpisodes = resolvedEpisodes.map((ep) => {
+          const sb = sbMap.get(ep.number);
+          if (!sb) return { ...ep, status: 'planned' };
+
+          const total = sb.scenes.length;
+          const done = sb.scenes.filter(
+            (scene) => scene.video_status === 'success'
+          ).length;
+
+          if (total > 0 && done === total) {
+            return { ...ep, status: 'done' };
+          }
+
+          return { ...ep, status: 'in_progress' };
+        });
       }
 
+      setEpisodes(resolvedEpisodes);
       setLoading(false);
     }
 

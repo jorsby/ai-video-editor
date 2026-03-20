@@ -1,4 +1,3 @@
-//@ts-ignore
 import {
   BAD_SIGNAL_FRAGMENT,
   BAD_SIGNAL_UNIFORMS,

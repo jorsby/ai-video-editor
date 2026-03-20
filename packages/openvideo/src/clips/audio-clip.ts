@@ -255,7 +255,10 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     state: 'success' | 'done';
   }> {
     const trimmedTime = time + this.trim.from;
-    if (!this.opts.loop && (trimmedTime >= this.trim.to || trimmedTime >= this._meta.duration)) {
+    if (
+      !this.opts.loop &&
+      (trimmedTime >= this.trim.to || trimmedTime >= this._meta.duration)
+    ) {
       return await this.tickInterceptor(time, { audio: [], state: 'done' });
     }
 

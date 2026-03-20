@@ -17,9 +17,7 @@ export function ProjectTagFilter({
   onToggleTag,
   onClear,
 }: ProjectTagFilterProps) {
-  const allTags = Array.from(
-    new Set(Object.values(tags).flat())
-  ).sort();
+  const allTags = Array.from(new Set(Object.values(tags).flat())).sort();
 
   if (allTags.length === 0) return null;
 

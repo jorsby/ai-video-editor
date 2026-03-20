@@ -21,14 +21,27 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient('studio');
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { scene_id, source_text, source_language, target_languages } = await req.json();
+  const { scene_id, source_text, source_language, target_languages } =
+    await req.json();
 
-  if (!scene_id || !source_text || !source_language || !Array.isArray(target_languages) || target_languages.length === 0) {
+  if (
+    !scene_id ||
+    !source_text ||
+    !source_language ||
+    !Array.isArray(target_languages) ||
+    target_languages.length === 0
+  ) {
     return NextResponse.json(
-      { error: 'scene_id, source_text, source_language, and target_languages[] are required' },
+      {
+        error:
+          'scene_id, source_text, source_language, and target_languages[] are required',
+      },
       { status: 400 }
     );
   }
@@ -38,10 +51,15 @@ export async function POST(req: NextRequest) {
     (code: string) => !SUPPORTED_LANGUAGES.find((l) => l.code === code)
   );
   if (invalidCodes.length > 0) {
-    return NextResponse.json({ error: `Invalid language codes: ${invalidCodes.join(', ')}` }, { status: 400 });
+    return NextResponse.json(
+      { error: `Invalid language codes: ${invalidCodes.join(', ')}` },
+      { status: 400 }
+    );
   }
 
-  const sourceLangName = SUPPORTED_LANGUAGES.find((l) => l.code === source_language)?.name ?? source_language;
+  const sourceLangName =
+    SUPPORTED_LANGUAGES.find((l) => l.code === source_language)?.name ??
+    source_language;
 
   // Fetch existing voiceovers for this scene to determine update vs insert
   const { data: existingVoiceovers } = await supabase
@@ -60,7 +78,8 @@ export async function POST(req: NextRequest) {
   const chunkResults = await Promise.allSettled(
     chunks.map(async (chunk: string[]) => {
       const langNames = chunk.map(
-        (code) => `${SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name ?? code} (${code})`
+        (code) =>
+          `${SUPPORTED_LANGUAGES.find((l) => l.code === code)?.name ?? code} (${code})`
       );
 
       const schemaShape: Record<string, z.ZodString> = {};
@@ -75,7 +94,9 @@ Use cultural nuances and idiomatic expressions. Maintain the same tone and style
 Return ONLY valid JSON with keys: ${chunk.map((c) => `"${c}"`).join(', ')}. Each key maps to the translated string.`;
 
       const { object: translation } = await generateObject({
-        model: openrouter.chat(TRANSLATION_MODEL, { plugins: [{ id: 'response-healing' }] }),
+        model: openrouter.chat(TRANSLATION_MODEL, {
+          plugins: [{ id: 'response-healing' }],
+        }),
         schema: translationSchema,
         system: systemPrompt,
         prompt: source_text,
@@ -150,7 +171,10 @@ Return ONLY valid JSON with keys: ${chunk.map((c) => `"${c}"`).join(', ')}. Each
   }
 
   if (translated.length === 0 && target_languages.length > 0) {
-    return NextResponse.json({ error: 'All translation chunks failed', failed }, { status: 500 });
+    return NextResponse.json(
+      { error: 'All translation chunks failed', failed },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ success: true, translated, failed });

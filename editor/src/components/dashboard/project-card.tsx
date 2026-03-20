@@ -38,7 +38,16 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-export function ProjectCard({ project, isArchived, onDelete, onArchive, onClick, tags, onTagAdded, onTagRemoved }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  isArchived,
+  onDelete,
+  onArchive,
+  onClick,
+  tags,
+  onTagAdded,
+  onTagRemoved,
+}: ProjectCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 

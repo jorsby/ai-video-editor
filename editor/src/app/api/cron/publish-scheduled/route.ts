@@ -6,7 +6,10 @@ import type { SocialPost, SocialPostAccount, PostStatus } from '@/types/social';
 
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || req.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (
+    !cronSecret ||
+    req.headers.get('authorization') !== `Bearer ${cronSecret}`
+  ) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -18,7 +21,9 @@ export async function GET(req: NextRequest) {
       .select('*, post_accounts(*)')
       .eq('status', 'scheduled')
       .lte('scheduled_at', new Date().toISOString())
-      .or(`processing_started_at.is.null,processing_started_at.lt.${new Date(Date.now() - 10 * 60 * 1000).toISOString()}`);
+      .or(
+        `processing_started_at.is.null,processing_started_at.lt.${new Date(Date.now() - 10 * 60 * 1000).toISOString()}`
+      );
 
     if (error) {
       console.error('[cron/publish-scheduled] query error:', error.message);
@@ -29,7 +34,9 @@ export async function GET(req: NextRequest) {
     let failed = 0;
     let skipped = 0;
 
-    for (const post of (posts as (SocialPost & { post_accounts: SocialPostAccount[] })[]) ?? []) {
+    for (const post of (posts as (SocialPost & {
+      post_accounts: SocialPostAccount[];
+    })[]) ?? []) {
       const accounts = post.post_accounts ?? [];
       if (!accounts.length || !post.media_url) {
         skipped++;
@@ -54,7 +61,8 @@ export async function GET(req: NextRequest) {
             accountId: account.octupost_account_id,
             token: token.access_token,
             mediaUrl: post.media_url!,
-            mediaType: (post.media_type as 'video' | 'image' | 'carousel') ?? 'video',
+            mediaType:
+              (post.media_type as 'video' | 'image' | 'carousel') ?? 'video',
             caption: post.caption ?? '',
             platformOptions: post.platform_options ?? {},
           });
@@ -82,8 +90,8 @@ export async function GET(req: NextRequest) {
           failCount++;
           const errorMsg =
             result.status === 'fulfilled'
-              ? result.value.error ?? 'Unknown error'
-              : result.reason?.message ?? 'Unknown error';
+              ? (result.value.error ?? 'Unknown error')
+              : (result.reason?.message ?? 'Unknown error');
           await supabase
             .from('post_accounts')
             .update({ status: 'failed', error_message: errorMsg })

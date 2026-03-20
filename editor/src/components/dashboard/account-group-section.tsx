@@ -39,7 +39,11 @@ import { AddAccountsDialog } from './add-accounts-dialog';
 import { TagInput } from './tag-input';
 import { ProviderIcon } from './provider-icon';
 import type { OctupostAccount } from '@/lib/octupost/types';
-import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
+import type {
+  SocialPost,
+  AccountGroupWithMembers,
+  AccountTagMap,
+} from '@/types/social';
 
 interface AccountGroupSectionProps {
   group: AccountGroupWithMembers;
@@ -103,7 +107,8 @@ export function AccountGroupSection({
 
   const memberAccounts = allAccounts.filter(
     (a) =>
-      group.account_uuids.includes(a.account_id) && filteredUuids.has(a.account_id)
+      group.account_uuids.includes(a.account_id) &&
+      filteredUuids.has(a.account_id)
   );
 
   const availableAccounts = allAccounts.filter(
@@ -204,9 +209,7 @@ export function AccountGroupSection({
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className="text-sm font-medium truncate">
-                {group.name}
-              </span>
+              <span className="text-sm font-medium truncate">{group.name}</span>
             )}
 
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
@@ -219,7 +222,10 @@ export function AccountGroupSection({
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0"
-              onClick={(e) => { e.stopPropagation(); handleSyncGroup(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSyncGroup();
+              }}
               disabled={isSyncingGroup}
               title="Sync All in Group"
             >
@@ -267,9 +273,13 @@ export function AccountGroupSection({
             ) : (
               <div className="grid gap-2">
                 {memberAccounts.map((account) => {
-                  const postCount = postsByAccount.get(account.account_id)?.length || 0;
-                  const hasSynced = platformMediaSyncedAt?.has(account.account_id) ?? false;
-                  const needsReAuth = new Date(account.expires_at) < new Date() || (tokenInvalidAccountIds?.has(account.account_id) ?? false);
+                  const postCount =
+                    postsByAccount.get(account.account_id)?.length || 0;
+                  const hasSynced =
+                    platformMediaSyncedAt?.has(account.account_id) ?? false;
+                  const needsReAuth =
+                    new Date(account.expires_at) < new Date() ||
+                    (tokenInvalidAccountIds?.has(account.account_id) ?? false);
                   return (
                     <div
                       key={account.account_id}
@@ -278,7 +288,10 @@ export function AccountGroupSection({
                     >
                       <Avatar>
                         {account.profile_image_url && (
-                          <AvatarImage src={account.profile_image_url} alt={account.account_name} />
+                          <AvatarImage
+                            src={account.profile_image_url}
+                            alt={account.account_name}
+                          />
                         )}
                         <AvatarFallback>
                           {getInitials(account.account_name)}
@@ -290,10 +303,15 @@ export function AccountGroupSection({
                           {account.account_name}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
-                          {account.account_username ? `@${account.account_username}` : account.platform}
+                          {account.account_username
+                            ? `@${account.account_username}`
+                            : account.platform}
                         </p>
                         {needsReAuth && (
-                          <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="flex items-center gap-1 mt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <AlertCircle className="h-3 w-3 text-amber-600 flex-shrink-0" />
                             <span className="text-xs text-amber-600">
                               Token expired — please re-authorize
@@ -315,11 +333,18 @@ export function AccountGroupSection({
                               {postCount === 0 && !hasSynced ? '—' : postCount}
                             </p>
                             <p className="text-[10px] text-muted-foreground">
-                              {postCount === 0 && !hasSynced ? 'not synced' : postCount === 1 ? 'post' : 'posts'}
+                              {postCount === 0 && !hasSynced
+                                ? 'not synced'
+                                : postCount === 1
+                                  ? 'post'
+                                  : 'posts'}
                             </p>
                           </div>
                         )}
-                        <ProviderIcon provider={account.platform} className="h-5 w-5 text-muted-foreground" />
+                        <ProviderIcon
+                          provider={account.platform}
+                          className="h-5 w-5 text-muted-foreground"
+                        />
                       </div>
 
                       <Button

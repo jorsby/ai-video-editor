@@ -45,7 +45,9 @@ export function useTextPresets() {
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'text_presets' },
         (payload) => {
-          setSavedPresets((prev) => prev.filter((p) => p.id !== payload.old.id));
+          setSavedPresets((prev) =>
+            prev.filter((p) => p.id !== payload.old.id)
+          );
         }
       )
       .subscribe();

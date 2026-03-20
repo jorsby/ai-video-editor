@@ -6,11 +6,11 @@ import { PixiSpriteRenderer } from '../sprite/pixi-sprite-renderer';
 import {
   clipToJSON,
   jsonToClip,
-  ProjectJSON,
-  ClipJSON,
-  GlobalTransitionJSON as TransitionJSON,
+  type ProjectJSON,
+  type ClipJSON,
+  type GlobalTransitionJSON as TransitionJSON,
 } from '../json-serialization';
-import { fontManager, IFont } from '../utils/fonts';
+import { fontManager, type IFont } from '../utils/fonts';
 
 export class TimelineModel {
   public tracks: StudioTrack[] = [];
@@ -1648,7 +1648,6 @@ export class TimelineModel {
             to: clip.trim.to,
           },
         });
-        continue;
       }
     }
 

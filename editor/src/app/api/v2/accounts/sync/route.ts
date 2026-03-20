@@ -35,7 +35,9 @@ export async function POST() {
     // Fetch the updated list from DB
     const { data: socialAccounts, error } = await supabase
       .from('tokens')
-      .select('platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url')
+      .select(
+        'platform, account_id, account_name, account_username, language, agent_id, expires_at, profile_image_url'
+      )
       .eq('user_id', user.id)
       .order('platform');
 

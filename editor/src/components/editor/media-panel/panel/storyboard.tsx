@@ -182,6 +182,45 @@ function getStatusBadgeClasses(status: Storyboard['plan_status']) {
   return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
 }
 
+type V2AssetJob = {
+  asset_type: 'object' | 'background';
+  grid_position: number;
+  name: string;
+  request_id: string | null;
+  status: 'queued' | 'failed';
+  error?: string;
+};
+
+function getV2AssetJobs(plan: Storyboard['plan']): V2AssetJob[] {
+  if (!plan || typeof plan !== 'object' || !('v2_asset_jobs' in plan)) {
+    return [];
+  }
+
+  const assetJobs = (plan as Record<string, unknown>).v2_asset_jobs;
+  if (
+    !assetJobs ||
+    typeof assetJobs !== 'object' ||
+    !('jobs' in assetJobs) ||
+    !Array.isArray((assetJobs as { jobs?: unknown }).jobs)
+  ) {
+    return [];
+  }
+
+  return ((assetJobs as { jobs: unknown[] }).jobs ?? []).filter(
+    (job): job is V2AssetJob => {
+      if (!job || typeof job !== 'object') return false;
+      const cast = job as Partial<V2AssetJob>;
+
+      return (
+        (cast.asset_type === 'object' || cast.asset_type === 'background') &&
+        typeof cast.grid_position === 'number' &&
+        typeof cast.name === 'string' &&
+        (cast.status === 'queued' || cast.status === 'failed')
+      );
+    }
+  );
+}
+
 interface StoryboardResponse {
   rows: number;
   cols: number;
@@ -253,6 +292,7 @@ export default function PanelStoryboard() {
     null
   );
   const [isApprovingDraft, setIsApprovingDraft] = useState(false);
+  const [isRetryingAssets, setIsRetryingAssets] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
 
   // Derived state
@@ -272,6 +312,16 @@ export default function PanelStoryboard() {
   const isSelectedStoryboardCinematic =
     selectedStoryboard?.mode === 'ref_to_video' &&
     selectedStoryboardVideoMode === 'dialogue_scene';
+
+  const selectedStoryboardAssetJobs = selectedStoryboard
+    ? getV2AssetJobs(selectedStoryboard.plan)
+    : [];
+  const selectedStoryboardQueuedJobs = selectedStoryboardAssetJobs.filter(
+    (job) => job.status === 'queued'
+  );
+  const selectedStoryboardFailedJobs = selectedStoryboardAssetJobs.filter(
+    (job) => job.status === 'failed'
+  );
 
   // Fetch storyboards on mount and when projectId changes
   useEffect(() => {
@@ -445,14 +495,10 @@ export default function PanelStoryboard() {
             ? 'direct_ref_to_video'
             : undefined;
 
-      const resolvedVideoModel =
-        formVideoMode === 'image_to_video' ? 'wan26flash' : formVideoModel;
+      const resolvedVideoModel = 'klingo3';
 
       const resolvedRefVideoMode: RefVideoMode =
-        resolvedMode === 'ref_to_video' &&
-        (resolvedVideoModel === 'wan26flash' ||
-          resolvedVideoModel === 'klingo3' ||
-          resolvedVideoModel === 'klingo3pro')
+        resolvedMode === 'ref_to_video' && resolvedVideoModel === 'klingo3'
           ? formRefVideoMode
           : 'narrative';
 
@@ -560,10 +606,20 @@ export default function PanelStoryboard() {
       }
 
       // Then approve and start scene generation
-      const approveResponse = await fetch('/api/storyboard/approve', {
+      // Ref-to-video drafts use the v2 approve path, which reuses series assets
+      // and generates only missing objects/backgrounds.
+      const isRefDraft = draftMode === 'ref_to_video';
+      const approveEndpoint = isRefDraft
+        ? `/api/v2/storyboard/${draftStoryboardId}/approve`
+        : '/api/storyboard/approve';
+      const approveBody = isRefDraft
+        ? { resolution: '1k' as const }
+        : { storyboardId: draftStoryboardId };
+
+      const approveResponse = await fetch(approveEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboardId: draftStoryboardId }),
+        body: JSON.stringify(approveBody),
       });
 
       if (!approveResponse.ok) {
@@ -571,7 +627,10 @@ export default function PanelStoryboard() {
         throw new Error(errorData.error || 'Failed to start scene generation');
       }
 
-      console.log('[Storyboard] Draft approved, scenes generating');
+      console.log('[Storyboard] Draft approved, scenes generating', {
+        mode: draftMode,
+        endpoint: approveEndpoint,
+      });
 
       // Sync language store with storyboard's source language
       const voiceoverList = (
@@ -605,6 +664,42 @@ export default function PanelStoryboard() {
       setDraftError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsApprovingDraft(false);
+    }
+  };
+
+  const handleRetryFailedAssets = async () => {
+    if (!selectedStoryboardId) return;
+
+    setIsRetryingAssets(true);
+
+    try {
+      const response = await fetch(
+        `/api/v2/storyboard/${selectedStoryboardId}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resolution: '1k',
+            retry_failed: true,
+          }),
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to retry failed assets');
+      }
+
+      toast.success('Retry started for failed assets');
+      setRefreshTrigger((prev) => prev + 1);
+      await refreshStoryboardsAfterCreate();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Retry failed to start'
+      );
+    } finally {
+      setIsRetryingAssets(false);
     }
   };
 
@@ -861,6 +956,58 @@ export default function PanelStoryboard() {
           </Collapsible>
         )}
 
+        {viewMode === 'view' &&
+          selectedStoryboard?.mode === 'ref_to_video' &&
+          (selectedStoryboard.plan_status === 'generating' ||
+            selectedStoryboard.plan_status === 'failed') &&
+          selectedStoryboardAssetJobs.length > 0 && (
+            <div className="mb-3 rounded-md border border-border/60 bg-secondary/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-medium">
+                    Missing asset generation
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Queued: {selectedStoryboardQueuedJobs.length} • Failed:{' '}
+                    {selectedStoryboardFailedJobs.length}
+                  </div>
+                </div>
+                {selectedStoryboardFailedJobs.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handleRetryFailedAssets}
+                    disabled={isRetryingAssets}
+                  >
+                    {isRetryingAssets && (
+                      <IconLoader2 className="mr-1.5 size-3 animate-spin" />
+                    )}
+                    Retry failed
+                  </Button>
+                )}
+              </div>
+              {selectedStoryboardFailedJobs.length > 0 && (
+                <div className="mt-2 space-y-1 text-[11px] text-red-400">
+                  {selectedStoryboardFailedJobs.slice(0, 5).map((job) => (
+                    <div
+                      key={`${job.asset_type}-${job.grid_position}-${job.name}`}
+                    >
+                      {job.asset_type}: {job.name}
+                      {job.error ? ` — ${job.error}` : ''}
+                    </div>
+                  ))}
+                  {selectedStoryboardFailedJobs.length > 5 && (
+                    <div className="text-muted-foreground">
+                      +{selectedStoryboardFailedJobs.length - 5} more failed
+                      items
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
         {/* Scene Cards - show only when viewing a selected storyboard */}
         {projectId && viewMode === 'view' && selectedStoryboardId && (
           <div className="mt-4">
@@ -1017,9 +1164,7 @@ export default function PanelStoryboard() {
 
               {(formVideoMode === 'image_to_video' ||
                 (formVideoMode === 'ref_to_video' &&
-                  (formVideoModel === 'wan26flash' ||
-                    formVideoModel === 'klingo3' ||
-                    formVideoModel === 'klingo3pro'))) && (
+                  formVideoModel === 'klingo3')) && (
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                     Scene Mode

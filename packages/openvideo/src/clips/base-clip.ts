@@ -1,5 +1,5 @@
 import { Log } from '../utils/log';
-import { BaseSprite, BaseSpriteEvents } from '../sprite/base-sprite';
+import { BaseSprite, type BaseSpriteEvents } from '../sprite/base-sprite';
 import { changePCMPlaybackRate } from '../utils';
 import type { IClip, IClipMeta, ITransitionInfo } from './iclip';
 import type { ClipJSON } from '../json-serialization';

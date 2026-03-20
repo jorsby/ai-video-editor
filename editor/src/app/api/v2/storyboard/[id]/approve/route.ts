@@ -4,9 +4,10 @@ import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { getSeriesStyleForProject } from '@/lib/prompts/style-injector';
 import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { matchAssetsWithAI } from '@/lib/supabase/series-asset-ai-matcher';
 import {
-  matchSeriesAsset,
-  resolveSeriesAssetsForProject,
+  resolveSeriesAssetCandidatesForProject,
+  type SeriesAssetCandidate,
 } from '@/lib/supabase/series-asset-resolver';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -15,6 +16,7 @@ type Resolution = '0.5k' | '1k' | '2k';
 
 const bodySchema = z.object({
   resolution: z.enum(['0.5k', '1k', '2k']).optional(),
+  retry_failed: z.boolean().optional(),
 });
 
 const RESOLUTION_TO_SIZE: Record<
@@ -29,6 +31,8 @@ const RESOLUTION_TO_SIZE: Record<
 const NEGATIVE_PROMPT = 'text, words, labels, watermark, blurry, low quality';
 
 const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
+
+type MissingAssetType = 'object' | 'background';
 
 function getWebhookBaseUrl() {
   return process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
@@ -56,7 +60,250 @@ function appendStyleToScenePrompt(
   return appendPromptSuffix(scenePrompt, styleSuffix);
 }
 
-async function queueGridJob(params: {
+function toScenePromptText(prompt: string | string[]): string {
+  if (Array.isArray(prompt)) return prompt.join(' | ');
+  return prompt;
+}
+
+type MatchedAsset = {
+  url: string;
+  variantId: string;
+};
+
+type MatchIssue = {
+  gridPosition: number;
+  name: string;
+  confidence: number;
+  reason: string;
+};
+
+type AssetJobMeta = {
+  asset_type: MissingAssetType;
+  grid_position: number;
+  name: string;
+  request_id: string | null;
+  status: 'queued' | 'failed';
+  error?: string;
+};
+
+async function resolveObjectMatches(params: {
+  objectNames: string[];
+  objectDescriptions: Array<string | null>;
+  sceneObjectIndices: number[][];
+  scenePrompts: Array<string | string[]>;
+  candidates: SeriesAssetCandidate[];
+}): Promise<{
+  byGridPosition: Map<number, MatchedAsset>;
+  aiMatched: number;
+  issues: MatchIssue[];
+}> {
+  const {
+    objectNames,
+    objectDescriptions,
+    sceneObjectIndices,
+    scenePrompts,
+    candidates,
+  } = params;
+
+  const uniqueGridPositions = Array.from(
+    new Set(sceneObjectIndices.flat().filter((idx) => idx >= 0))
+  );
+
+  const usageByGrid = new Map<
+    number,
+    Array<{ sceneIndex: number; prompt: string }>
+  >();
+
+  for (let sceneIdx = 0; sceneIdx < sceneObjectIndices.length; sceneIdx++) {
+    const scenePromptText = toScenePromptText(
+      scenePrompts[sceneIdx] ?? ''
+    ).slice(0, 600);
+
+    for (const gridPosition of sceneObjectIndices[sceneIdx] ?? []) {
+      if (!usageByGrid.has(gridPosition)) usageByGrid.set(gridPosition, []);
+      const usageRows = usageByGrid.get(gridPosition);
+      if (!usageRows) continue;
+
+      usageRows.push({
+        sceneIndex: sceneIdx,
+        prompt: scenePromptText,
+      });
+    }
+  }
+
+  const aiMatches = await matchAssetsWithAI({
+    itemType: 'object',
+    items: uniqueGridPositions.map((gridPosition) => ({
+      gridPosition,
+      name: objectNames[gridPosition] ?? `Object ${gridPosition + 1}`,
+      description: objectDescriptions[gridPosition] ?? null,
+      sceneUsage: usageByGrid.get(gridPosition) ?? [],
+    })),
+    candidates,
+  });
+
+  const byGridPosition = new Map<number, MatchedAsset>();
+  const issues: MatchIssue[] = [];
+  let aiMatched = 0;
+
+  for (const gridPosition of uniqueGridPositions) {
+    const decision = aiMatches.get(gridPosition);
+    if (decision?.matched && decision.candidate) {
+      byGridPosition.set(gridPosition, {
+        url: decision.candidate.url,
+        variantId: decision.candidate.variantId,
+      });
+      aiMatched++;
+      continue;
+    }
+
+    issues.push({
+      gridPosition,
+      name: objectNames[gridPosition] ?? `Object ${gridPosition + 1}`,
+      confidence: decision?.confidence ?? 0,
+      reason: decision?.reason ?? 'No AI match selected.',
+    });
+  }
+
+  return {
+    byGridPosition,
+    aiMatched,
+    issues,
+  };
+}
+
+async function resolveBackgroundMatches(params: {
+  backgroundNames: string[];
+  sceneBgIndices: number[];
+  scenePrompts: Array<string | string[]>;
+  candidates: SeriesAssetCandidate[];
+}): Promise<{
+  byGridPosition: Map<number, MatchedAsset>;
+  aiMatched: number;
+  issues: MatchIssue[];
+}> {
+  const { backgroundNames, sceneBgIndices, scenePrompts, candidates } = params;
+
+  const uniqueGridPositions = Array.from(
+    new Set(sceneBgIndices.filter((idx) => idx >= 0))
+  );
+
+  const usageByGrid = new Map<
+    number,
+    Array<{ sceneIndex: number; prompt: string }>
+  >();
+
+  for (let sceneIdx = 0; sceneIdx < sceneBgIndices.length; sceneIdx++) {
+    const gridPosition = sceneBgIndices[sceneIdx];
+    if (gridPosition == null || gridPosition < 0) continue;
+
+    if (!usageByGrid.has(gridPosition)) usageByGrid.set(gridPosition, []);
+
+    const usageRows = usageByGrid.get(gridPosition);
+    if (!usageRows) continue;
+
+    usageRows.push({
+      sceneIndex: sceneIdx,
+      prompt: toScenePromptText(scenePrompts[sceneIdx] ?? '').slice(0, 600),
+    });
+  }
+
+  const aiMatches = await matchAssetsWithAI({
+    itemType: 'background',
+    items: uniqueGridPositions.map((gridPosition) => ({
+      gridPosition,
+      name: backgroundNames[gridPosition] ?? `Background ${gridPosition + 1}`,
+      description: null,
+      sceneUsage: usageByGrid.get(gridPosition) ?? [],
+    })),
+    candidates,
+  });
+
+  const byGridPosition = new Map<number, MatchedAsset>();
+  const issues: MatchIssue[] = [];
+  let aiMatched = 0;
+
+  for (const gridPosition of uniqueGridPositions) {
+    const decision = aiMatches.get(gridPosition);
+    if (decision?.matched && decision.candidate) {
+      byGridPosition.set(gridPosition, {
+        url: decision.candidate.url,
+        variantId: decision.candidate.variantId,
+      });
+      aiMatched++;
+      continue;
+    }
+
+    issues.push({
+      gridPosition,
+      name: backgroundNames[gridPosition] ?? `Background ${gridPosition + 1}`,
+      confidence: decision?.confidence ?? 0,
+      reason: decision?.reason ?? 'No AI match selected.',
+    });
+  }
+
+  return {
+    byGridPosition,
+    aiMatched,
+    issues,
+  };
+}
+
+function summarizeUsagePrompts(
+  prompts: Array<string | string[]>,
+  maxItems = 2
+): string {
+  const samples = prompts
+    .map((prompt) => toScenePromptText(prompt).trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+
+  if (samples.length === 0) return '';
+
+  return samples
+    .map((sample, index) => `Scene cue ${index + 1}: ${sample.slice(0, 280)}`)
+    .join('\n');
+}
+
+function buildMissingObjectPrompt(params: {
+  name: string;
+  description: string | null;
+  usagePrompts: Array<string | string[]>;
+}): string {
+  const { name, description, usagePrompts } = params;
+  const details = description?.trim() ? ` ${description.trim()}` : '';
+  const usage = summarizeUsagePrompts(usagePrompts);
+
+  return [
+    'Generate ONE standalone reusable visual asset.',
+    `Asset name: ${name}.${details}`,
+    'Render a single isolated subject on a transparent background (alpha), no text, no watermark, no background scene.',
+    'Keep full subject visible with clean cutout edges, no floor shadow, and high detail for reuse across scenes.',
+    usage ? `Story context for visual consistency:\n${usage}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildMissingBackgroundPrompt(params: {
+  name: string;
+  usagePrompts: Array<string | string[]>;
+}): string {
+  const { name, usagePrompts } = params;
+  const usage = summarizeUsagePrompts(usagePrompts);
+
+  return [
+    'Generate ONE reusable location background plate.',
+    `Location name: ${name}.`,
+    'Environment only, no people or characters, no text, no watermark.',
+    'Use neutral baseline lighting so this background can be reused in different scene lighting conditions.',
+    usage ? `Story context for set design consistency:\n${usage}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function queueMissingAssetJob(params: {
   prompt: string;
   resolution: Resolution;
   webhookUrl: string;
@@ -77,7 +324,7 @@ async function queueGridJob(params: {
       num_images: 1,
       image_size: { width: size.width, height: size.height },
       enable_safety_checker: false,
-      output_format: 'jpeg',
+      output_format: 'png',
     }),
   });
 
@@ -117,12 +364,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const resolution = parsedBody.data.resolution ?? '1k';
+    const retryFailed = parsedBody.data.retry_failed ?? false;
 
     const db = createServiceClient('studio');
 
     const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
-      .select('id, project_id, plan, plan_status')
+      .select('id, project_id, mode, plan, plan_status')
       .eq('id', storyboardId)
       .single();
 
@@ -154,32 +402,28 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const plan = parsedPlan.data;
 
-    const existingGridJobs =
-      storyboard.plan_status === 'approved' &&
-      isRecord(storyboard.plan) &&
-      isRecord(storyboard.plan.v2_grid_jobs)
-        ? storyboard.plan.v2_grid_jobs
+    const existingAssetJobs =
+      isRecord(storyboard.plan) && isRecord(storyboard.plan.v2_asset_jobs)
+        ? storyboard.plan.v2_asset_jobs
         : null;
 
-    if (existingGridJobs) {
-      const existingObjectsJob =
-        typeof existingGridJobs.objects === 'string'
-          ? existingGridJobs.objects
-          : null;
-      const existingBackgroundsJob =
-        typeof existingGridJobs.backgrounds === 'string'
-          ? existingGridJobs.backgrounds
-          : null;
+    const canRetryExistingFailed =
+      retryFailed &&
+      storyboard.plan_status === 'failed' &&
+      storyboard.mode === 'ref_to_video';
 
+    if (
+      existingAssetJobs &&
+      !canRetryExistingFailed &&
+      (storyboard.plan_status === 'generating' ||
+        storyboard.plan_status === 'approved' ||
+        storyboard.plan_status === 'failed')
+    ) {
       return NextResponse.json({
-        status:
-          existingObjectsJob || existingBackgroundsJob
-            ? 'generating'
-            : 'approved',
-        grid_jobs: {
-          objects: existingObjectsJob,
-          backgrounds: existingBackgroundsJob,
-        },
+        status: storyboard.plan_status,
+        asset_jobs: Array.isArray(existingAssetJobs.jobs)
+          ? existingAssetJobs.jobs
+          : [],
       });
     }
 
@@ -190,7 +434,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .limit(1)
       .maybeSingle();
 
-    if (existingScene) {
+    if (existingScene && !canRetryExistingFailed) {
+      if (
+        storyboard.plan_status === 'generating' ||
+        storyboard.plan_status === 'approved' ||
+        storyboard.plan_status === 'failed'
+      ) {
+        return NextResponse.json({
+          status: storyboard.plan_status,
+          asset_jobs:
+            existingAssetJobs && Array.isArray(existingAssetJobs.jobs)
+              ? existingAssetJobs.jobs
+              : [],
+        });
+      }
+
       return NextResponse.json(
         { error: 'Storyboard already has scenes. Cannot approve twice.' },
         { status: 409 }
@@ -210,133 +468,333 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const styledObjectsGridPrompt = appendPromptSuffix(
-      plan.objects_grid_prompt,
-      seriesStyleSuffix
-    );
-    const styledBackgroundsGridPrompt = appendPromptSuffix(
-      plan.backgrounds_grid_prompt,
-      seriesStyleSuffix
-    );
     const styledScenePrompts = plan.scene_prompts.map((scenePrompt) =>
       appendStyleToScenePrompt(scenePrompt, seriesStyleSuffix)
     );
 
-    const sceneObjectMatches: Array<
-      Array<{ url: string; variantId: string } | null>
-    > = [];
-    const sceneBackgroundMatches: Array<{
-      url: string;
-      variantId: string;
-    } | null> = [];
+    const queueFailureMessage = (error: unknown) =>
+      String(error instanceof Error ? error.message : error).slice(0, 400);
 
-    let missingObjectCount = 0;
-    let missingBackgroundCount = 0;
+    if (canRetryExistingFailed) {
+      const webhookBase = getWebhookBaseUrl();
+      if (!webhookBase) {
+        return NextResponse.json(
+          { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+          { status: 500 }
+        );
+      }
 
-    let seriesAssetMap: Awaited<
-      ReturnType<typeof resolveSeriesAssetsForProject>
+      if (!process.env.FAL_KEY) {
+        return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+      }
+
+      const { data: existingScenes, error: scenesError } = await db
+        .from('scenes')
+        .select('id')
+        .eq('storyboard_id', storyboardId);
+
+      if (scenesError || !existingScenes || existingScenes.length === 0) {
+        return NextResponse.json(
+          { error: 'Storyboard scenes not found for retry' },
+          { status: 404 }
+        );
+      }
+
+      const sceneIds = existingScenes.map((scene: { id: string }) => scene.id);
+
+      const [{ data: failedObjectsRows }, { data: failedBackgroundRows }] =
+        await Promise.all([
+          db
+            .from('objects')
+            .select('grid_position, name, description')
+            .in('scene_id', sceneIds)
+            .eq('status', 'failed'),
+          db
+            .from('backgrounds')
+            .select('grid_position, name')
+            .in('scene_id', sceneIds)
+            .eq('status', 'failed'),
+        ]);
+
+      const objectFailedByPosition = new Map<
+        number,
+        { name: string; description: string | null }
+      >();
+      for (const row of failedObjectsRows ?? []) {
+        const position = Number(row.grid_position);
+        if (!Number.isInteger(position) || position < 0) continue;
+        if (objectFailedByPosition.has(position)) continue;
+
+        objectFailedByPosition.set(position, {
+          name:
+            typeof row.name === 'string' && row.name.trim().length > 0
+              ? row.name
+              : (plan.objects[position]?.name ?? `Object ${position + 1}`),
+          description:
+            typeof row.description === 'string' ? row.description : null,
+        });
+      }
+
+      const backgroundFailedByPosition = new Map<number, { name: string }>();
+      for (const row of failedBackgroundRows ?? []) {
+        const position = Number(row.grid_position);
+        if (!Number.isInteger(position) || position < 0) continue;
+        if (backgroundFailedByPosition.has(position)) continue;
+
+        backgroundFailedByPosition.set(position, {
+          name:
+            typeof row.name === 'string' && row.name.trim().length > 0
+              ? row.name
+              : (plan.background_names[position] ??
+                `Background ${position + 1}`),
+        });
+      }
+
+      const objectUsageByGrid = new Map<number, Array<string | string[]>>();
+      const backgroundUsageByGrid = new Map<number, Array<string | string[]>>();
+
+      for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
+        const scenePrompt = styledScenePrompts[sceneIdx];
+
+        for (const gridPosition of plan.scene_object_indices[sceneIdx] ?? []) {
+          if (!objectUsageByGrid.has(gridPosition)) {
+            objectUsageByGrid.set(gridPosition, []);
+          }
+          objectUsageByGrid.get(gridPosition)?.push(scenePrompt);
+        }
+
+        const bgPosition = plan.scene_bg_indices[sceneIdx];
+        if (bgPosition != null && bgPosition >= 0) {
+          if (!backgroundUsageByGrid.has(bgPosition)) {
+            backgroundUsageByGrid.set(bgPosition, []);
+          }
+          backgroundUsageByGrid.get(bgPosition)?.push(scenePrompt);
+        }
+      }
+
+      const assetJobs: AssetJobMeta[] = [];
+
+      for (const [gridPosition, info] of objectFailedByPosition) {
+        const prompt = buildMissingObjectPrompt({
+          name: info.name,
+          description: info.description,
+          usagePrompts: objectUsageByGrid.get(gridPosition) ?? [],
+        });
+
+        const webhookParams = new URLSearchParams({
+          step: 'GenerateMissingAssetImage',
+          storyboard_id: storyboardId,
+          asset_type: 'object',
+          grid_position: String(gridPosition),
+          asset_name: info.name,
+          ...(info.description ? { asset_description: info.description } : {}),
+        });
+
+        try {
+          const requestId = await queueMissingAssetJob({
+            prompt,
+            resolution,
+            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+          });
+
+          await db
+            .from('objects')
+            .update({
+              request_id: requestId,
+              status: 'processing',
+              error_message: null,
+            })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'failed');
+
+          assetJobs.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: info.name,
+            request_id: requestId,
+            status: 'queued',
+          });
+        } catch (queueError) {
+          const errorMessage = queueFailureMessage(queueError);
+
+          await db
+            .from('objects')
+            .update({ status: 'failed', error_message: errorMessage })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'failed');
+
+          assetJobs.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: info.name,
+            request_id: null,
+            status: 'failed',
+            error: errorMessage,
+          });
+        }
+      }
+
+      for (const [gridPosition, info] of backgroundFailedByPosition) {
+        const prompt = buildMissingBackgroundPrompt({
+          name: info.name,
+          usagePrompts: backgroundUsageByGrid.get(gridPosition) ?? [],
+        });
+
+        const webhookParams = new URLSearchParams({
+          step: 'GenerateMissingAssetImage',
+          storyboard_id: storyboardId,
+          asset_type: 'background',
+          grid_position: String(gridPosition),
+          asset_name: info.name,
+        });
+
+        try {
+          const requestId = await queueMissingAssetJob({
+            prompt,
+            resolution,
+            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+          });
+
+          await db
+            .from('backgrounds')
+            .update({
+              request_id: requestId,
+              status: 'processing',
+              error_message: null,
+            })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'failed');
+
+          assetJobs.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: info.name,
+            request_id: requestId,
+            status: 'queued',
+          });
+        } catch (queueError) {
+          const errorMessage = queueFailureMessage(queueError);
+
+          await db
+            .from('backgrounds')
+            .update({ status: 'failed', error_message: errorMessage })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .eq('status', 'failed');
+
+          assetJobs.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: info.name,
+            request_id: null,
+            status: 'failed',
+            error: errorMessage,
+          });
+        }
+      }
+
+      const queuedJobsCount = assetJobs.filter(
+        (job) => job.status === 'queued'
+      ).length;
+      const failedJobsCount = assetJobs.filter(
+        (job) => job.status === 'failed'
+      ).length;
+
+      const nextStatus =
+        queuedJobsCount > 0
+          ? 'generating'
+          : failedJobsCount > 0
+            ? 'failed'
+            : 'approved';
+
+      const previousJobs =
+        existingAssetJobs && Array.isArray(existingAssetJobs.jobs)
+          ? existingAssetJobs.jobs
+          : [];
+
+      const retryPlan = {
+        ...(storyboard.plan as Record<string, unknown>),
+        scene_prompts: styledScenePrompts,
+        v2_asset_jobs: {
+          strategy: 'direct-asset',
+          resolution,
+          queued: queuedJobsCount,
+          failed: failedJobsCount,
+          jobs: [...previousJobs, ...assetJobs],
+          retried_at: new Date().toISOString(),
+        },
+      };
+
+      await db
+        .from('storyboards')
+        .update({ plan_status: nextStatus, plan: retryPlan })
+        .eq('id', storyboardId);
+
+      return NextResponse.json({
+        status: nextStatus,
+        retried: true,
+        asset_jobs: assetJobs,
+      });
+    }
+
+    let seriesAssetCandidates: Awaited<
+      ReturnType<typeof resolveSeriesAssetCandidatesForProject>
     > | null = null;
 
     try {
-      seriesAssetMap = await resolveSeriesAssetsForProject(
+      seriesAssetCandidates = await resolveSeriesAssetCandidatesForProject(
         db,
         storyboard.project_id as string
       );
     } catch (seriesAssetError) {
       console.warn(
-        '[v2/storyboard/approve] Series asset lookup failed (non-fatal):',
+        '[v2/storyboard/approve] Series asset candidate lookup failed (non-fatal):',
         seriesAssetError
       );
     }
 
-    for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
-      const objectIndices = plan.scene_object_indices[sceneIdx] ?? [];
-      const objectMatches: Array<{ url: string; variantId: string } | null> =
-        [];
+    const objectNames = plan.objects.map((object) => object.name);
+    const objectDescriptions = plan.objects.map((object) =>
+      typeof object.description === 'string' ? object.description : null
+    );
 
-      for (const gridPosition of objectIndices) {
-        const objectName =
-          plan.objects[gridPosition]?.name ?? `Object ${gridPosition + 1}`;
+    const objectAiMatch = await resolveObjectMatches({
+      objectNames,
+      objectDescriptions,
+      sceneObjectIndices: plan.scene_object_indices,
+      scenePrompts: styledScenePrompts,
+      candidates: [
+        ...(seriesAssetCandidates?.characters ?? []),
+        ...(seriesAssetCandidates?.props ?? []),
+      ],
+    });
 
-        const objectMatch = seriesAssetMap
-          ? (matchSeriesAsset(seriesAssetMap, objectName, 'character') ??
-            matchSeriesAsset(seriesAssetMap, objectName, 'prop'))
-          : null;
+    const backgroundAiMatch = await resolveBackgroundMatches({
+      backgroundNames: plan.background_names,
+      sceneBgIndices: plan.scene_bg_indices,
+      scenePrompts: styledScenePrompts,
+      candidates: seriesAssetCandidates?.locations ?? [],
+    });
 
-        objectMatches.push(
-          objectMatch
-            ? { url: objectMatch.url, variantId: objectMatch.variantId }
-            : null
-        );
+    const requiredObjectPositions = Array.from(
+      new Set(plan.scene_object_indices.flat().filter((idx) => idx >= 0))
+    );
+    const requiredBackgroundPositions = Array.from(
+      new Set(plan.scene_bg_indices.filter((idx) => idx >= 0))
+    );
 
-        if (!objectMatch) {
-          missingObjectCount++;
-        }
-      }
+    const missingObjectPositions = requiredObjectPositions.filter(
+      (gridPosition) => !objectAiMatch.byGridPosition.has(gridPosition)
+    );
+    const missingBackgroundPositions = requiredBackgroundPositions.filter(
+      (gridPosition) => !backgroundAiMatch.byGridPosition.has(gridPosition)
+    );
 
-      sceneObjectMatches.push(objectMatches);
-
-      const bgIndex = plan.scene_bg_indices[sceneIdx];
-      const bgName =
-        plan.background_names[bgIndex] ?? `Background ${bgIndex + 1}`;
-
-      const bgMatch = seriesAssetMap
-        ? matchSeriesAsset(seriesAssetMap, bgName, 'location')
-        : null;
-
-      sceneBackgroundMatches.push(
-        bgMatch ? { url: bgMatch.url, variantId: bgMatch.variantId } : null
-      );
-
-      if (!bgMatch) {
-        missingBackgroundCount++;
-      }
-    }
-
-    const needsObjectsGrid = missingObjectCount > 0;
-    const needsBackgroundsGrid = missingBackgroundCount > 0;
-
-    const { data: objectsGrid, error: objectsGridError } = await db
-      .from('grid_images')
-      .insert({
-        storyboard_id: storyboardId,
-        type: 'objects',
-        prompt: styledObjectsGridPrompt,
-        status: needsObjectsGrid ? 'pending' : 'success',
-        detected_rows: plan.objects_rows,
-        detected_cols: plan.objects_cols,
-        dimension_detection_status: 'success',
-      })
-      .select('id')
-      .single();
-
-    if (objectsGridError || !objectsGrid) {
-      return NextResponse.json(
-        { error: 'Failed to create objects grid record' },
-        { status: 500 }
-      );
-    }
-
-    const { data: backgroundsGrid, error: backgroundsGridError } = await db
-      .from('grid_images')
-      .insert({
-        storyboard_id: storyboardId,
-        type: 'backgrounds',
-        prompt: styledBackgroundsGridPrompt,
-        status: needsBackgroundsGrid ? 'pending' : 'success',
-        detected_rows: plan.bg_rows,
-        detected_cols: plan.bg_cols,
-        dimension_detection_status: 'success',
-      })
-      .select('id')
-      .single();
-
-    if (backgroundsGridError || !backgroundsGrid) {
-      return NextResponse.json(
-        { error: 'Failed to create backgrounds grid record' },
-        { status: 500 }
-      );
-    }
+    const missingObjectCount = missingObjectPositions.length;
+    const missingBackgroundCount = missingBackgroundPositions.length;
 
     const sceneIds: string[] = [];
     const sceneCount = styledScenePrompts.length;
@@ -392,15 +850,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
       const objectIndices = plan.scene_object_indices[sceneIdx] ?? [];
-      const objectMatches = sceneObjectMatches[sceneIdx] ?? [];
 
       for (let position = 0; position < objectIndices.length; position++) {
         const gridPosition = objectIndices[position];
         const object = plan.objects[gridPosition];
-        const matchedAsset = objectMatches[position];
+        const matchedAsset = objectAiMatch.byGridPosition.get(gridPosition);
 
         const { error: objectError } = await db.from('objects').insert({
-          grid_image_id: objectsGrid.id,
           scene_id: sceneIds[sceneIdx],
           scene_order: position,
           grid_position: gridPosition,
@@ -423,10 +879,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (let sceneIdx = 0; sceneIdx < sceneIds.length; sceneIdx++) {
       const bgIndex = plan.scene_bg_indices[sceneIdx];
-      const matchedBg = sceneBackgroundMatches[sceneIdx];
+      const matchedBg = backgroundAiMatch.byGridPosition.get(bgIndex);
 
       const { error: bgError } = await db.from('backgrounds').insert({
-        grid_image_id: backgroundsGrid.id,
         scene_id: sceneIds[sceneIdx],
         grid_position: bgIndex,
         name: plan.background_names[bgIndex] ?? `Background ${bgIndex + 1}`,
@@ -444,10 +899,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    let objectsRequestId: string | null = null;
-    let backgroundsRequestId: string | null = null;
+    const assetJobs: AssetJobMeta[] = [];
 
-    if (needsObjectsGrid || needsBackgroundsGrid) {
+    const objectUsageByGrid = new Map<number, Array<string | string[]>>();
+    const backgroundUsageByGrid = new Map<number, Array<string | string[]>>();
+
+    for (let sceneIdx = 0; sceneIdx < styledScenePrompts.length; sceneIdx++) {
+      const scenePrompt = styledScenePrompts[sceneIdx];
+
+      for (const gridPosition of plan.scene_object_indices[sceneIdx] ?? []) {
+        if (!objectUsageByGrid.has(gridPosition)) {
+          objectUsageByGrid.set(gridPosition, []);
+        }
+        objectUsageByGrid.get(gridPosition)?.push(scenePrompt);
+      }
+
+      const bgPosition = plan.scene_bg_indices[sceneIdx];
+      if (bgPosition != null && bgPosition >= 0) {
+        if (!backgroundUsageByGrid.has(bgPosition)) {
+          backgroundUsageByGrid.set(bgPosition, []);
+        }
+        backgroundUsageByGrid.get(bgPosition)?.push(scenePrompt);
+      }
+    }
+
+    if (missingObjectCount > 0 || missingBackgroundCount > 0) {
       const webhookBase = getWebhookBaseUrl();
       if (!webhookBase) {
         return NextResponse.json(
@@ -460,68 +936,175 @@ export async function POST(req: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
-      const queueTasks: Array<Promise<void>> = [];
+      for (const gridPosition of missingObjectPositions) {
+        const object = plan.objects[gridPosition];
+        const assetName = object?.name ?? `Object ${gridPosition + 1}`;
+        const assetDescription =
+          typeof object?.description === 'string' ? object.description : null;
 
-      if (needsObjectsGrid) {
-        const objectsWebhook = `${webhookBase}/api/webhook/fal?step=GenGridImage&grid_image_id=${objectsGrid.id}&storyboard_id=${storyboardId}&rows=${plan.objects_rows}&cols=${plan.objects_cols}&width=${RESOLUTION_TO_SIZE[resolution].width}&height=${RESOLUTION_TO_SIZE[resolution].height}`;
+        const prompt = buildMissingObjectPrompt({
+          name: assetName,
+          description: assetDescription,
+          usagePrompts: objectUsageByGrid.get(gridPosition) ?? [],
+        });
 
-        queueTasks.push(
-          (async () => {
-            objectsRequestId = await queueGridJob({
-              prompt: styledObjectsGridPrompt,
-              resolution,
-              webhookUrl: objectsWebhook,
-            });
+        const webhookParams = new URLSearchParams({
+          step: 'GenerateMissingAssetImage',
+          storyboard_id: storyboardId,
+          asset_type: 'object',
+          grid_position: String(gridPosition),
+          asset_name: assetName,
+          ...(assetDescription ? { asset_description: assetDescription } : {}),
+        });
 
-            await db
-              .from('grid_images')
-              .update({ status: 'processing', request_id: objectsRequestId })
-              .eq('id', objectsGrid.id);
-          })()
-        );
+        try {
+          const requestId = await queueMissingAssetJob({
+            prompt,
+            resolution,
+            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+          });
+
+          await db
+            .from('objects')
+            .update({ request_id: requestId, status: 'processing' })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .neq('status', 'success');
+
+          assetJobs.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: assetName,
+            request_id: requestId,
+            status: 'queued',
+          });
+        } catch (queueError) {
+          const errorMessage = queueFailureMessage(queueError);
+
+          await db
+            .from('objects')
+            .update({ status: 'failed', error_message: errorMessage })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .neq('status', 'success');
+
+          assetJobs.push({
+            asset_type: 'object',
+            grid_position: gridPosition,
+            name: assetName,
+            request_id: null,
+            status: 'failed',
+            error: errorMessage,
+          });
+        }
       }
 
-      if (needsBackgroundsGrid) {
-        const backgroundsWebhook = `${webhookBase}/api/webhook/fal?step=GenGridImage&grid_image_id=${backgroundsGrid.id}&storyboard_id=${storyboardId}&rows=${plan.bg_rows}&cols=${plan.bg_cols}&width=${RESOLUTION_TO_SIZE[resolution].width}&height=${RESOLUTION_TO_SIZE[resolution].height}`;
+      for (const gridPosition of missingBackgroundPositions) {
+        const assetName =
+          plan.background_names[gridPosition] ??
+          `Background ${gridPosition + 1}`;
 
-        queueTasks.push(
-          (async () => {
-            backgroundsRequestId = await queueGridJob({
-              prompt: styledBackgroundsGridPrompt,
-              resolution,
-              webhookUrl: backgroundsWebhook,
-            });
+        const prompt = buildMissingBackgroundPrompt({
+          name: assetName,
+          usagePrompts: backgroundUsageByGrid.get(gridPosition) ?? [],
+        });
 
-            await db
-              .from('grid_images')
-              .update({
-                status: 'processing',
-                request_id: backgroundsRequestId,
-              })
-              .eq('id', backgroundsGrid.id);
-          })()
-        );
+        const webhookParams = new URLSearchParams({
+          step: 'GenerateMissingAssetImage',
+          storyboard_id: storyboardId,
+          asset_type: 'background',
+          grid_position: String(gridPosition),
+          asset_name: assetName,
+        });
+
+        try {
+          const requestId = await queueMissingAssetJob({
+            prompt,
+            resolution,
+            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+          });
+
+          await db
+            .from('backgrounds')
+            .update({ request_id: requestId, status: 'processing' })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .neq('status', 'success');
+
+          assetJobs.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: assetName,
+            request_id: requestId,
+            status: 'queued',
+          });
+        } catch (queueError) {
+          const errorMessage = queueFailureMessage(queueError);
+
+          await db
+            .from('backgrounds')
+            .update({ status: 'failed', error_message: errorMessage })
+            .in('scene_id', sceneIds)
+            .eq('grid_position', gridPosition)
+            .neq('status', 'success');
+
+          assetJobs.push({
+            asset_type: 'background',
+            grid_position: gridPosition,
+            name: assetName,
+            request_id: null,
+            status: 'failed',
+            error: errorMessage,
+          });
+        }
       }
-
-      await Promise.all(queueTasks);
     }
+
+    const queuedJobsCount = assetJobs.filter(
+      (job) => job.status === 'queued'
+    ).length;
+    const failedJobsCount = assetJobs.filter(
+      (job) => job.status === 'failed'
+    ).length;
+
+    const nextPlanStatus =
+      queuedJobsCount > 0
+        ? 'generating'
+        : failedJobsCount > 0
+          ? 'failed'
+          : 'approved';
 
     const planWithJobMetadata = {
       ...(storyboard.plan as Record<string, unknown>),
-      objects_grid_prompt: styledObjectsGridPrompt,
-      backgrounds_grid_prompt: styledBackgroundsGridPrompt,
       scene_prompts: styledScenePrompts,
-      v2_grid_jobs: {
-        objects: objectsRequestId,
-        backgrounds: backgroundsRequestId,
+      v2_asset_match: {
+        strategy: 'ai-only',
+        objects: {
+          matched: objectAiMatch.byGridPosition.size,
+          missing: missingObjectCount,
+          ai_matched: objectAiMatch.aiMatched,
+          issues: objectAiMatch.issues,
+        },
+        backgrounds: {
+          matched: backgroundAiMatch.byGridPosition.size,
+          missing: missingBackgroundCount,
+          ai_matched: backgroundAiMatch.aiMatched,
+          issues: backgroundAiMatch.issues,
+        },
+      },
+      v2_asset_jobs: {
+        strategy: 'direct-asset',
         resolution,
+        queued: queuedJobsCount,
+        failed: failedJobsCount,
+        jobs: assetJobs,
       },
     };
 
     const { error: updateStoryboardError } = await db
       .from('storyboards')
       .update({
-        plan_status: 'approved',
+        plan_status: nextPlanStatus,
         plan: planWithJobMetadata,
       })
       .eq('id', storyboardId);
@@ -533,17 +1116,27 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const isGenerating = !!objectsRequestId || !!backgroundsRequestId;
-
     return NextResponse.json({
-      status: isGenerating ? 'generating' : 'approved',
-      grid_jobs: {
-        objects: objectsRequestId,
-        backgrounds: backgroundsRequestId,
+      status: nextPlanStatus,
+      asset_jobs: assetJobs,
+      match_summary: {
+        strategy: 'ai-only',
+        objects: {
+          matched: objectAiMatch.byGridPosition.size,
+          missing: missingObjectCount,
+          ai_matched: objectAiMatch.aiMatched,
+          issues: objectAiMatch.issues,
+        },
+        backgrounds: {
+          matched: backgroundAiMatch.byGridPosition.size,
+          missing: missingBackgroundCount,
+          ai_matched: backgroundAiMatch.aiMatched,
+          issues: backgroundAiMatch.issues,
+        },
       },
       reused_series_assets: {
-        objects: !needsObjectsGrid,
-        backgrounds: !needsBackgroundsGrid,
+        objects: missingObjectCount === 0,
+        backgrounds: missingBackgroundCount === 0,
       },
     });
   } catch (error) {

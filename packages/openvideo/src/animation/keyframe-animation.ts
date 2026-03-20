@@ -1,5 +1,5 @@
 import { getEasing } from './easings';
-import {
+import type {
   AnimationOptions,
   AnimationProps,
   AnimationTransform,

@@ -3,17 +3,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   IconUsers,
   IconMapPin,
   IconPackage,
   IconChevronDown,
   IconChevronUp,
-  IconExternalLink,
 } from '@tabler/icons-react';
 import { useProjectId } from '@/contexts/project-context';
-import Link from 'next/link';
 
 interface VariantImage {
   id: string;
@@ -293,30 +290,20 @@ export default function PanelProjectLibrary() {
     <ScrollArea className="h-full">
       <div className="p-3 space-y-4">
         {/* Series header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium">{seriesInfo.name}</p>
-            <div className="flex gap-1 mt-0.5">
-              {seriesInfo.genre && (
-                <Badge
-                  variant="secondary"
-                  className="text-[9px] px-1 py-0 h-3.5"
-                >
-                  {seriesInfo.genre}
-                </Badge>
-              )}
-              {seriesInfo.tone && (
-                <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">
-                  {seriesInfo.tone}
-                </Badge>
-              )}
-            </div>
+        <div>
+          <p className="text-sm font-medium">{seriesInfo.name}</p>
+          <div className="flex gap-1 mt-0.5">
+            {seriesInfo.genre && (
+              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5">
+                {seriesInfo.genre}
+              </Badge>
+            )}
+            {seriesInfo.tone && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">
+                {seriesInfo.tone}
+              </Badge>
+            )}
           </div>
-          <Link href="/series">
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-              <IconExternalLink className="size-3.5" />
-            </Button>
-          </Link>
         </div>
 
         {/* Asset sections */}

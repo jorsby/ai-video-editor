@@ -6,14 +6,22 @@ import type { WorkflowRun, WorkflowRunLane } from '@/types/workflow-run';
 
 // Maps language codes to display labels
 const LANG_LABEL: Record<string, string> = {
-  en: 'EN', tr: 'TR', ar: 'AR', es: 'ES',
-  fr: 'FR', de: 'DE', it: 'IT', pt: 'PT',
+  en: 'EN',
+  tr: 'TR',
+  ar: 'AR',
+  es: 'ES',
+  fr: 'FR',
+  de: 'DE',
+  it: 'IT',
+  pt: 'PT',
 };
 
-function getRunStatusColor(lanes: WorkflowRunLane[]): 'green' | 'yellow' | 'red' {
-  const statuses = lanes.map(l => l.status);
-  if (statuses.some(s => s === 'failed')) return 'red';
-  if (statuses.every(s => s === 'published')) return 'green';
+function getRunStatusColor(
+  lanes: WorkflowRunLane[]
+): 'green' | 'yellow' | 'red' {
+  const statuses = lanes.map((l) => l.status);
+  if (statuses.some((s) => s === 'failed')) return 'red';
+  if (statuses.every((s) => s === 'published')) return 'green';
   return 'yellow';
 }
 
@@ -22,7 +30,10 @@ interface WorkflowRunPillProps {
   onClick: (run: WorkflowRun) => void;
 }
 
-export const WorkflowRunPill = React.memo(function WorkflowRunPill({ run, onClick }: WorkflowRunPillProps) {
+export const WorkflowRunPill = React.memo(function WorkflowRunPill({
+  run,
+  onClick,
+}: WorkflowRunPillProps) {
   const color = getRunStatusColor(run.lanes);
 
   const colorClass = {
@@ -38,14 +49,15 @@ export const WorkflowRunPill = React.memo(function WorkflowRunPill({ run, onClic
   }[color];
 
   const langLabels = run.lanes
-    .map(l => LANG_LABEL[l.language] ?? l.language.toUpperCase())
+    .map((l) => LANG_LABEL[l.language] ?? l.language.toUpperCase())
     .join(' · ');
 
-  const timeLabel = run.schedule_type === 'scheduled' && run.base_time
-    ? formatTime(run.base_time)
-    : run.schedule_type === 'now'
-      ? 'posted'
-      : null;
+  const timeLabel =
+    run.schedule_type === 'scheduled' && run.base_time
+      ? formatTime(run.base_time)
+      : run.schedule_type === 'now'
+        ? 'posted'
+        : null;
 
   return (
     <button
@@ -59,7 +71,9 @@ export const WorkflowRunPill = React.memo(function WorkflowRunPill({ run, onClic
     >
       <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', statusDot)} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[10px] leading-tight font-medium">{langLabels}</p>
+        <p className="truncate text-[10px] leading-tight font-medium">
+          {langLabels}
+        </p>
         {timeLabel && (
           <p className="text-[9px] leading-none opacity-70">{timeLabel}</p>
         )}

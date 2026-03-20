@@ -85,7 +85,9 @@ export function CaptionEditor({
       {providers.length > 0 && (
         <p className="text-[11px] text-muted-foreground">
           This caption will be posted to:{' '}
-          {providers.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(', ')}
+          {providers
+            .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+            .join(', ')}
         </p>
       )}
       {isOverLimit && (

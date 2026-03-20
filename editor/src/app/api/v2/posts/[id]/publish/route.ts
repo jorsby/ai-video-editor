@@ -82,9 +82,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
                 status: result.success ? 'published' : 'failed',
                 platform_post_id: result.platformPostId || null,
                 error_message: result.error || null,
-                published_at: result.success
-                  ? new Date().toISOString()
-                  : null,
+                published_at: result.success ? new Date().toISOString() : null,
               })
               .eq('id', pa.id);
 

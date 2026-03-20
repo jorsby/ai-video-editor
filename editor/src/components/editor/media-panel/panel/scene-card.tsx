@@ -850,91 +850,133 @@ function ObjectsRow({
   assetImageMap: AssetImageMap;
 }) {
   const sorted = [...objects].sort((a, b) => a.scene_order - b.scene_order);
+  const [previewObj, setPreviewObj] = useState<RefObject | null>(null);
+  const previewSrc = previewObj
+    ? resolveAssetImageUrl(previewObj, assetImageMap)
+    : null;
 
   return (
-    <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
-      {sorted.map((obj) => {
-        const imgSrc = resolveAssetImageUrl(obj, assetImageMap);
-        const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
+    <>
+      <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
+        {sorted.map((obj) => {
+          const imgSrc = resolveAssetImageUrl(obj, assetImageMap);
+          const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
 
-        return (
-          <div
-            key={obj.id}
-            className="flex flex-col items-center gap-0.5 flex-shrink-0"
-          >
+          return (
             <div
-              className={`relative w-7 h-7 rounded-full overflow-hidden bg-background/50 border ${
-                obj.status === 'failed'
-                  ? 'border-red-500/60'
-                  : 'border-border/40'
-              }`}
+              key={obj.id}
+              className="flex flex-col items-center gap-0.5 flex-shrink-0"
             >
-              {imgSrc ? (
-                <Image
-                  src={imgSrc}
-                  alt={obj.name}
-                  fill
-                  className="object-cover"
-                  unoptimized
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
-                  {initial}
-                </div>
-              )}
-              {obj.status === 'processing' && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-blue-400 animate-spin"
+              <div
+                className={`relative w-7 h-7 rounded-full overflow-hidden bg-background/50 border cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all ${
+                  obj.status === 'failed'
+                    ? 'border-red-500/60'
+                    : 'border-border/40'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPreviewObj(obj);
+                }}
+                title={`${obj.name} — click to enlarge`}
+              >
+                {imgSrc ? (
+                  <Image
+                    src={imgSrc}
+                    alt={obj.name}
+                    fill
+                    className="object-cover"
+                    unoptimized
                   />
-                </div>
-              )}
-              {obj.image_edit_status === 'outpainting' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-purple-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'enhancing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-green-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'editing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-amber-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'processing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-cyan-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'failed' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconAlertTriangle size={12} className="text-red-400" />
-                </div>
-              )}
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                    {initial}
+                  </div>
+                )}
+                {obj.status === 'processing' && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-blue-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'outpainting' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-purple-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'enhancing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-green-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'editing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-amber-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'processing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-cyan-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'failed' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconAlertTriangle size={12} className="text-red-400" />
+                  </div>
+                )}
+              </div>
+              <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
+                {obj.name}
+              </span>
             </div>
-            <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
-              {obj.name}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+
+      {/* Expandable asset preview dialog */}
+      <Dialog
+        open={!!previewObj}
+        onOpenChange={(open) => !open && setPreviewObj(null)}
+      >
+        <DialogContent
+          className="max-w-md p-4 bg-black/90 border-white/10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DialogTitle className="text-sm font-medium text-white">
+            {previewObj?.name}
+          </DialogTitle>
+          {previewSrc ? (
+            <img
+              src={previewSrc}
+              alt={previewObj?.name ?? 'Asset preview'}
+              className="w-full h-auto max-h-[70vh] object-contain rounded"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              No image available
+            </div>
+          )}
+          {previewObj?.description && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {previewObj.description}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1105,6 +1147,37 @@ export function SceneCard({
   };
 
   const hasVideo = scene.video_status === 'success' && !!scene.video_url;
+
+  const totalSceneObjects = scene.objects?.length ?? 0;
+  const mappedSceneObjects = (scene.objects ?? []).filter(
+    (object) => !!object.series_asset_variant_id
+  ).length;
+  const totalSceneBackgrounds = scene.backgrounds?.length ?? 0;
+  const mappedSceneBackgrounds = (scene.backgrounds ?? []).filter(
+    (background) => !!background.series_asset_variant_id
+  ).length;
+  const missingAssetLinksCount =
+    totalSceneObjects -
+    mappedSceneObjects +
+    (totalSceneBackgrounds - mappedSceneBackgrounds);
+
+  const missingObjectNames = Array.from(
+    new Set(
+      (scene.objects ?? [])
+        .filter((object) => !object.series_asset_variant_id)
+        .map((object) => object.name)
+        .filter((name): name is string => typeof name === 'string' && !!name)
+    )
+  );
+
+  const missingBackgroundNames = Array.from(
+    new Set(
+      (scene.backgrounds ?? [])
+        .filter((background) => !background.series_asset_variant_id)
+        .map((background) => background.name)
+        .filter((name): name is string => typeof name === 'string' && !!name)
+    )
+  );
 
   const voiceoverPreview = displayVoiceover
     ? displayVoiceover.slice(0, 35) +
@@ -1388,6 +1461,26 @@ export function SceneCard({
         <ObjectsRow objects={scene.objects} assetImageMap={assetImageMap} />
       )}
 
+      {/* Asset mapping status */}
+      {(totalSceneObjects > 0 || totalSceneBackgrounds > 0) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+            Assets {mappedSceneObjects + mappedSceneBackgrounds}/
+            {totalSceneObjects + totalSceneBackgrounds}
+          </span>
+          {missingAssetLinksCount > 0 ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30">
+              Needs {missingAssetLinksCount} new asset
+              {missingAssetLinksCount === 1 ? '' : 's'}
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              Fully mapped
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Video prompt info (collapsed) */}
       {!expanded && (
         <div className="mt-1.5 space-y-1">
@@ -1577,6 +1670,23 @@ export function SceneCard({
                       @E{idx + 1} {obj.name}
                     </span>
                   )
+                )}
+              </div>
+            )}
+
+            {(missingObjectNames.length > 0 ||
+              missingBackgroundNames.length > 0) && (
+              <div className="space-y-1 pt-1 border-t border-destructive/20 text-[9px] text-destructive/90">
+                {missingObjectNames.length > 0 && (
+                  <div>
+                    New object asset needed: {missingObjectNames.join(', ')}
+                  </div>
+                )}
+                {missingBackgroundNames.length > 0 && (
+                  <div>
+                    New background asset needed:{' '}
+                    {missingBackgroundNames.join(', ')}
+                  </div>
                 )}
               </div>
             )}

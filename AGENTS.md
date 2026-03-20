@@ -43,8 +43,8 @@ AI Video Editor (Octupost) — SaaS platform for AI-powered video creation and s
 |---|---|---|
 | `pnpm dev` | root | Start dev server |
 | `pnpm build` | `editor/` | Production build (**this is the test suite**) |
-| `turbo build` | root | Build all packages |
-| `turbo check-types` | root | TypeScript checks across monorepo |
+| `pnpm turbo build` | root | Build all packages |
+| `pnpm turbo check-types` | root | TypeScript checks across monorepo |
 | `pnpm biome check .` | any | Lint + format check |
 | `pnpm biome check . --write` | any | Auto-fix lint/format issues |
 

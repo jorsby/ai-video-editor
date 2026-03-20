@@ -42,7 +42,10 @@ export function getPostThumbnail(post: SocialPost): string | null {
   return post.media_url || null;
 }
 
-export function getPostTime(post: SocialPost, timezone?: string): string | null {
+export function getPostTime(
+  post: SocialPost,
+  timezone?: string
+): string | null {
   const dateStr = post.scheduled_at;
   if (!dateStr) return null;
   const date = new Date(dateStr.replace(' ', 'T'));
@@ -103,7 +106,11 @@ export const PostPill = React.memo(function PostPill({
           {accounts.length > 0 && (
             <div className="ml-auto flex items-center gap-0.5">
               {accounts.slice(0, MAX_ICONS).map((a) => (
-                <ProviderIcon key={a.octupost_account_id} provider={a.platform} className="h-3 w-3" />
+                <ProviderIcon
+                  key={a.octupost_account_id}
+                  provider={a.platform}
+                  className="h-3 w-3"
+                />
               ))}
               {accounts.length > MAX_ICONS && (
                 <span className="text-[9px] leading-none opacity-70">
@@ -129,10 +136,13 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
   timezone,
 }: CalendarDayCellProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const handlePopoverPostClick = useCallback((p: SocialPost) => {
-    setPopoverOpen(false);
-    onPostClick(p);
-  }, [onPostClick]);
+  const handlePopoverPostClick = useCallback(
+    (p: SocialPost) => {
+      setPopoverOpen(false);
+      onPostClick(p);
+    },
+    [onPostClick]
+  );
   const visiblePosts = posts.slice(0, MAX_VISIBLE);
   const overflowCount = posts.length - MAX_VISIBLE;
   const totalCount = posts.length + workflowRuns.length;
@@ -177,7 +187,12 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
         ))}
         {/* Solo post pills */}
         {visiblePosts.map((post) => (
-          <PostPill key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
+          <PostPill
+            key={post.id}
+            post={post}
+            onPostClick={onPostClick}
+            timezone={timezone}
+          />
         ))}
         {overflowCount > 0 && (
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
@@ -194,7 +209,11 @@ export const CalendarDayCell = React.memo(function CalendarDayCell({
               className="max-h-[300px] w-64 overflow-y-auto p-2"
             >
               <p className="mb-2 text-xs font-medium text-muted-foreground">
-                All posts &middot; {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                All posts &middot;{' '}
+                {date.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                })}
               </p>
               <div className="space-y-1">
                 {posts.map((post) => (

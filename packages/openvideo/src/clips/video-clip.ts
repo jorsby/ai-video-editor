@@ -1,5 +1,5 @@
 import type { MP4Info, MP4Sample } from 'wrapbox';
-import { file, tmpfile, write } from 'opfs-tools';
+import { type file, tmpfile, write } from 'opfs-tools';
 import { Log } from '../utils/log';
 import {
   createVFRotater,
@@ -10,7 +10,7 @@ import {
 import { audioResample, extractPCM4AudioData, sleep } from '../utils';
 import { BaseClip } from './base-clip';
 import { DEFAULT_AUDIO_CONF, type IClip, type IPlaybackCapable } from './iclip';
-import { type VideoJSON } from '../json-serialization';
+import type { VideoJSON } from '../json-serialization';
 import { ResourceManager } from '../studio/resource-manager';
 
 let CLIP_ID = 0;
@@ -413,7 +413,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
 
     return new Promise<Array<{ ts: number; img: Blob }>>(
       async (resolve, reject) => {
-        let pngPromises: Array<{ ts: number; img: Promise<Blob> }> = [];
+        const pngPromises: Array<{ ts: number; img: Promise<Blob> }> = [];
         const vc = this.decoderConf.video;
         if (vc == null || this.videoSamples.length === 0) {
           resolver();
@@ -1049,9 +1049,9 @@ function genDecoder(
 async function mp4FileToSamples(otFile: OPFSToolFile, opts: IMP4ClipOpts = {}) {
   let mp4Info: MP4Info | null = null;
   const decoderConf: MP4DecoderConf = { video: null, audio: null };
-  let videoSamples: ExtMP4Sample[] = [];
-  let audioSamples: ExtMP4Sample[] = [];
-  let headerBoxPos: Array<{ start: number; size: number }> = [];
+  const videoSamples: ExtMP4Sample[] = [];
+  const audioSamples: ExtMP4Sample[] = [];
+  const headerBoxPos: Array<{ start: number; size: number }> = [];
   const parsedMatrix = {
     perspective: 1,
     rotationRad: 0,
@@ -1076,7 +1076,7 @@ async function mp4FileToSamples(otFile: OPFSToolFile, opts: IMP4ClipOpts = {}) {
 
       Object.assign(parsedMatrix, parseMatrix(mp4Info.videoTracks[0]?.matrix));
 
-      let { videoDecoderConf: vc, audioDecoderConf: ac } = extractFileConfig(
+      const { videoDecoderConf: vc, audioDecoderConf: ac } = extractFileConfig(
         data.mp4boxFile,
         data.info
       );
@@ -1651,7 +1651,7 @@ function createAudioChunksDecoder(
   const resampleQ = createPromiseQueue<Float32Array[]>(outputHandler);
 
   const needResample = opts.resampleRate !== decoderConf.sampleRate;
-  let adec = new AudioDecoder({
+  const adec = new AudioDecoder({
     output: (ad) => {
       const pcm = extractPCM4AudioData(ad);
       if (needResample) {
@@ -1713,7 +1713,7 @@ function createAudioChunksDecoder(
 }
 
 // Parallel execution, but emit results in order
-function createPromiseQueue<T extends any>(onResult: (data: T) => void) {
+function createPromiseQueue<T>(onResult: (data: T) => void) {
   const rsCache: T[] = [];
   let waitingIdx = 0;
 
@@ -1957,7 +1957,7 @@ function fixFirstBlackFrame(samples: ExtMP4Sample[]) {
 
 function memoryUsageInfo() {
   try {
-    // @ts-ignore
+    // @ts-expect-error
     const mem = performance.memory;
     return {
       jsHeapSizeLimit: mem.jsHeapSizeLimit,

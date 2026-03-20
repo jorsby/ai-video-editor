@@ -191,7 +191,10 @@ Deno.serve(async (req: Request) => {
 
     const languages = Object.keys(voiceover_list);
     if (languages.length === 0) {
-      return errorResponse('voiceover_list must have at least one language', 400);
+      return errorResponse(
+        'voiceover_list must have at least one language',
+        400
+      );
     }
     for (const lang of languages) {
       if (voiceover_list[lang].length !== sceneCount) {

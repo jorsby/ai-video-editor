@@ -1,10 +1,10 @@
 import EventEmitter from '../event-emitter';
 import {
-  IAnimation,
-  AnimationTransform,
+  type IAnimation,
+  type AnimationTransform,
   animationRegistry,
 } from '../animation';
-import { IChromaKeyOpts } from '../clips/iclip';
+import type { IChromaKeyOpts } from '../clips/iclip';
 type IRectBaseProps = any;
 interface IAnimationOpts {
   duration: number;

@@ -1,4 +1,3 @@
-//@ts-ignore
 import glTransitions from 'gl-transitions';
 import { RADIAL_SWIPE_FRAGMENT } from './custom-glsl';
 

@@ -56,7 +56,9 @@ export function EditPostDialog({
     if (open) {
       setError(null);
       if (isYouTube) {
-        const ytOptions = options?.youtube as Record<string, string> | undefined;
+        const ytOptions = options?.youtube as
+          | Record<string, string>
+          | undefined;
         setTitle(ytOptions?.title || '');
         setDescription(body);
       } else {
@@ -122,7 +124,9 @@ export function EditPostDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <p className="text-sm font-medium text-foreground">Description</p>
+                <p className="text-sm font-medium text-foreground">
+                  Description
+                </p>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -145,9 +149,7 @@ export function EditPostDialog({
             </div>
           )}
 
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
         <DialogFooter>

@@ -1,7 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse, type NextRequest } from 'next/server';
 import { fetchToken } from '@/lib/octupost/client';
-import { fetchInstagramMedia, TokenExpiredError, RateLimitError, PlatformApiError } from '@/lib/social/providers/instagram';
+import type { OctupostToken } from '@/lib/octupost/types';
+import {
+  fetchInstagramMedia,
+  TokenExpiredError,
+  RateLimitError,
+  PlatformApiError,
+} from '@/lib/social/providers/instagram';
 import { fetchTikTokMedia } from '@/lib/social/providers/tiktok';
 import { fetchYouTubeMedia } from '@/lib/social/providers/youtube';
 import { fetchFacebookMedia } from '@/lib/social/providers/facebook';
@@ -46,10 +52,15 @@ export async function GET(req: NextRequest) {
     const limitParam = searchParams.get('limit');
 
     if (!accountId) {
-      return NextResponse.json({ error: 'Missing accountId parameter' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Missing accountId parameter' },
+        { status: 400 }
+      );
     }
 
-    const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 50, 100) : 50;
+    const limit = limitParam
+      ? Math.min(parseInt(limitParam, 10) || 50, 100)
+      : 50;
 
     // Verify account belongs to the authenticated user
     const socialSupabase = await createClient('social_auth');
@@ -64,7 +75,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    let token;
+    let token: OctupostToken;
     try {
       token = await fetchToken(accountId);
     } catch (err) {
@@ -72,9 +83,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
-    const { platform: provider, access_token: accessToken, account_id: providerId, account_name: name } = token;
+    const {
+      platform: provider,
+      access_token: accessToken,
+      account_id: providerId,
+      account_name: name,
+    } = token;
 
-    let items;
+    let items: PlatformMediaItem[];
     try {
       switch (provider) {
         case 'instagram':
@@ -98,7 +114,10 @@ export async function GET(req: NextRequest) {
       }
     } catch (err) {
       if (err instanceof TokenExpiredError) {
-        return NextResponse.json({ error: err.message, tokenExpired: true }, { status: 403 });
+        return NextResponse.json(
+          { error: err.message, tokenExpired: true },
+          { status: 403 }
+        );
       }
       if (err instanceof RateLimitError) {
         return NextResponse.json({ error: err.message }, { status: 502 });
@@ -106,8 +125,12 @@ export async function GET(req: NextRequest) {
       if (err instanceof PlatformApiError) {
         return NextResponse.json({ error: err.message }, { status: 502 });
       }
-      const message = err instanceof Error ? err.message : 'Unknown platform API error';
-      return NextResponse.json({ error: `Failed to fetch media from ${provider}. ${message}` }, { status: 502 });
+      const message =
+        err instanceof Error ? err.message : 'Unknown platform API error';
+      return NextResponse.json(
+        { error: `Failed to fetch media from ${provider}. ${message}` },
+        { status: 502 }
+      );
     }
 
     const posts = transformToPosts(items, {

@@ -19,10 +19,17 @@ async function deleteYouTube(
     return { success: true };
   }
   if (res.status === 401 || res.status === 403) {
-    return { success: false, error: 'YouTube token expired or insufficient permissions. Please re-authorize your account.' };
+    return {
+      success: false,
+      error:
+        'YouTube token expired or insufficient permissions. Please re-authorize your account.',
+    };
   }
   const body = await res.text();
-  return { success: false, error: `YouTube delete failed (${res.status}): ${body}` };
+  return {
+    success: false,
+    error: `YouTube delete failed (${res.status}): ${body}`,
+  };
 }
 
 async function deleteFacebook(
@@ -44,15 +51,29 @@ async function deleteFacebook(
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      let parsedError: { error?: { code?: number; message?: string } } | null = null;
-      try { parsedError = JSON.parse(body); } catch { /* ignore */ }
+      let parsedError: { error?: { code?: number; message?: string } } | null =
+        null;
+      try {
+        parsedError = JSON.parse(body);
+      } catch {
+        /* ignore */
+      }
       const fbCode = parsedError?.error?.code;
       if (fbCode === 200) {
-        return { success: false, error: `This post cannot be deleted because it was not published through this application. Facebook only allows deleting posts that were originally created via the app.` };
+        return {
+          success: false,
+          error: `This post cannot be deleted because it was not published through this application. Facebook only allows deleting posts that were originally created via the app.`,
+        };
       }
-      return { success: false, error: `Facebook token expired or insufficient permissions (${res.status}). Response: ${body}. Please re-authorize your account.` };
+      return {
+        success: false,
+        error: `Facebook token expired or insufficient permissions (${res.status}). Response: ${body}. Please re-authorize your account.`,
+      };
     }
-    return { success: false, error: `Facebook delete failed (${res.status}): ${body}` };
+    return {
+      success: false,
+      error: `Facebook delete failed (${res.status}): ${body}`,
+    };
   }
   return { success: true };
 }
@@ -68,11 +89,18 @@ async function updateYouTube(
   );
 
   if (getRes.status === 401 || getRes.status === 403) {
-    return { success: false, error: 'YouTube token expired or insufficient permissions. Please re-authorize your account.' };
+    return {
+      success: false,
+      error:
+        'YouTube token expired or insufficient permissions. Please re-authorize your account.',
+    };
   }
   if (!getRes.ok) {
     const body = await getRes.text();
-    return { success: false, error: `Failed to fetch video from YouTube: ${body}` };
+    return {
+      success: false,
+      error: `Failed to fetch video from YouTube: ${body}`,
+    };
   }
 
   const getData = await getRes.json();
@@ -83,7 +111,8 @@ async function updateYouTube(
 
   const snippet = { ...video.snippet };
   if (fields.title !== undefined) snippet.title = fields.title;
-  if (fields.description !== undefined) snippet.description = fields.description;
+  if (fields.description !== undefined)
+    snippet.description = fields.description;
 
   const putRes = await fetch(
     'https://www.googleapis.com/youtube/v3/videos?part=snippet',
@@ -122,17 +151,18 @@ async function updateFacebook(
     return { success: false, error: msg };
   }
 
-  const res = await fetch(
-    `https://graph.facebook.com/v24.0/${postId}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: fields.message, access_token: pageToken }),
-    }
-  );
+  const res = await fetch(`https://graph.facebook.com/v24.0/${postId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: fields.message, access_token: pageToken }),
+  });
 
   if (res.status === 401 || res.status === 403) {
-    return { success: false, error: 'Facebook token expired or insufficient permissions. Please re-authorize your account.' };
+    return {
+      success: false,
+      error:
+        'Facebook token expired or insufficient permissions. Please re-authorize your account.',
+    };
   }
   if (!res.ok) {
     const body = await res.text();
@@ -147,7 +177,9 @@ async function updateFacebook(
 export async function DELETE(req: NextRequest) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -156,7 +188,10 @@ export async function DELETE(req: NextRequest) {
     const { platformPostId, accountId } = body;
 
     if (!accountId || !platformPostId) {
-      return NextResponse.json({ error: 'accountId and platformPostId are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'accountId and platformPostId are required' },
+        { status: 400 }
+      );
     }
 
     const token = await fetchToken(accountId);
@@ -172,7 +207,10 @@ export async function DELETE(req: NextRequest) {
     } else if (provider === 'facebook_page' || provider === 'facebook') {
       result = await deleteFacebook(platformPostId, providerId, accessToken);
     } else {
-      return NextResponse.json({ error: `Deleting is not supported for ${provider}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Deleting is not supported for ${provider}` },
+        { status: 400 }
+      );
     }
 
     if (!result.success) {
@@ -182,7 +220,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Platform delete error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
@@ -192,14 +233,19 @@ export async function DELETE(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { platformPostId, accountId, fields } = await req.json();
     if (!platformPostId || !accountId || !fields) {
-      return NextResponse.json({ error: 'platformPostId, accountId, and fields are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'platformPostId, accountId, and fields are required' },
+        { status: 400 }
+      );
     }
 
     const token = await fetchToken(accountId);
@@ -212,9 +258,17 @@ export async function PUT(req: NextRequest) {
     if (provider === 'youtube') {
       result = await updateYouTube(platformPostId, accessToken, fields);
     } else if (provider === 'facebook_page' || provider === 'facebook') {
-      result = await updateFacebook(platformPostId, providerId, accessToken, fields);
+      result = await updateFacebook(
+        platformPostId,
+        providerId,
+        accessToken,
+        fields
+      );
     } else {
-      return NextResponse.json({ error: `Editing is not supported for ${provider}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Editing is not supported for ${provider}` },
+        { status: 400 }
+      );
     }
 
     if (!result.success) {
@@ -224,6 +278,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Platform edit error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
