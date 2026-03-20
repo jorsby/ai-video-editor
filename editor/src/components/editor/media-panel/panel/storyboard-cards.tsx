@@ -1775,6 +1775,9 @@ export function StoryboardCards({
     return !scene.prompt && !(scene.multi_prompt && scene.multi_prompt.length);
   });
 
+  const disableVideoGenerateForMissingPrompts =
+    isRefToVideoMode && !isRefI2VMode && selectedScenesMissingPrompt.length > 0;
+
   const handleSaveVoiceoverText = async (sceneId: string, newText: string) => {
     const scene = sortedScenes.find((s) => s.id === sceneId);
     const voiceover = scene?.voiceovers?.find(
@@ -3247,13 +3250,22 @@ export function StoryboardCards({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={selectedSceneIds.size === 0 || isGeneratingVideo}
+                    disabled={
+                      selectedSceneIds.size === 0 ||
+                      isGeneratingVideo ||
+                      disableVideoGenerateForMissingPrompts
+                    }
                     onClick={
                       isRefI2VMode
                         ? handleGenerateVideoFromFirstFrame
                         : handleGenerateVideo
                     }
                     className="h-9 text-xs flex-1"
+                    title={
+                      disableVideoGenerateForMissingPrompts
+                        ? 'Save prompts for selected scenes first'
+                        : undefined
+                    }
                   >
                     {isGeneratingVideo ? (
                       <IconLoader2 className="size-3.5 animate-spin mr-1" />

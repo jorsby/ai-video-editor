@@ -861,6 +861,8 @@ function ObjectsRow({
         {sorted.map((obj) => {
           const imgSrc = resolveAssetImageUrl(obj, assetImageMap);
           const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
+          const needsPrompt = !obj.series_asset_variant_id;
+          const hasPrompt = Boolean(obj.generation_prompt?.trim());
 
           return (
             <div
@@ -877,7 +879,7 @@ function ObjectsRow({
                   e.stopPropagation();
                   setPreviewObj(obj);
                 }}
-                title={`${obj.name} — click to enlarge`}
+                title={`${obj.name} — ${needsPrompt ? (hasPrompt ? 'prompt ready' : 'prompt missing') : 'series asset mapped'} — click to enlarge`}
               >
                 {imgSrc ? (
                   <Image
@@ -892,6 +894,15 @@ function ObjectsRow({
                     {initial}
                   </div>
                 )}
+                <div
+                  className={`absolute top-0.5 left-0.5 w-2 h-2 rounded-full border border-black/20 ${
+                    needsPrompt
+                      ? hasPrompt
+                        ? 'bg-emerald-400'
+                        : 'bg-amber-400'
+                      : 'bg-cyan-400'
+                  }`}
+                />
                 {obj.status === 'processing' && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <IconLoader2
@@ -974,6 +985,19 @@ function ObjectsRow({
               {previewObj.description}
             </p>
           )}
+          <div className="mt-2 space-y-1 text-xs">
+            <div>
+              <span className="text-cyan-300">Generation prompt:</span>{' '}
+              <span className="text-muted-foreground">
+                {previewObj?.generation_prompt?.trim() || 'No prompt saved'}
+              </span>
+            </div>
+            {previewObj?.feedback && (
+              <div className="text-amber-300">
+                Feedback: {previewObj.feedback}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </>
@@ -1179,6 +1203,10 @@ export function SceneCard({
     )
   );
 
+  const backgroundPromptPreview = background?.generation_prompt?.trim()
+    ? `${background.generation_prompt.slice(0, 80)}${background.generation_prompt.length > 80 ? '…' : ''}`
+    : null;
+
   const voiceoverPreview = displayVoiceover
     ? displayVoiceover.slice(0, 35) +
       (displayVoiceover.length > 35 ? '...' : '')
@@ -1187,6 +1215,43 @@ export function SceneCard({
   const collapsedVoiceoverDurationLabel = formatVoiceoverDuration(
     voiceover?.duration
   );
+
+  const hasVideoPrompt = Boolean(
+    scene.prompt?.trim() ||
+      (scene.multi_prompt ?? []).some((prompt) => prompt.trim().length > 0)
+  );
+
+  const hasVoiceoverPrompt = Boolean(voiceover?.text?.trim());
+
+  const requiredObjectsForPrompt = (scene.objects ?? []).filter(
+    (obj) => !obj.series_asset_variant_id
+  );
+  const missingObjectPromptCount = requiredObjectsForPrompt.filter(
+    (obj) => !obj.generation_prompt?.trim()
+  ).length;
+
+  const requiredBackgroundsForPrompt = (scene.backgrounds ?? []).filter(
+    (bg) => !bg.series_asset_variant_id
+  );
+  const missingBackgroundPromptCount = requiredBackgroundsForPrompt.filter(
+    (bg) => !bg.generation_prompt?.trim()
+  ).length;
+
+  const missingAssetPromptCount =
+    missingObjectPromptCount + missingBackgroundPromptCount;
+
+  const feedbackItems = [
+    scene.feedback ? `Scene: ${scene.feedback}` : null,
+    voiceover?.feedback ? `Voiceover: ${voiceover.feedback}` : null,
+    ...(scene.objects ?? [])
+      .filter((obj) => !!obj.feedback)
+      .slice(0, 2)
+      .map((obj) => `Object (${obj.name}): ${obj.feedback}`),
+    ...(scene.backgrounds ?? [])
+      .filter((bg) => !!bg.feedback)
+      .slice(0, 1)
+      .map((bg) => `Background (${bg.name}): ${bg.feedback}`),
+  ].filter((item): item is string => Boolean(item));
 
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
@@ -1259,6 +1324,59 @@ export function SceneCard({
           </button>
         )}
       </div>
+
+      <div className="mb-1.5 flex flex-wrap items-center gap-1">
+        <span
+          className={`text-[9px] px-1.5 py-0.5 rounded border ${hasVideoPrompt ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+          title={hasVideoPrompt ? 'Video prompt ready' : 'Video prompt missing'}
+        >
+          Prompt {hasVideoPrompt ? '●' : '○'}
+        </span>
+        {showVoiceover && (
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${hasVoiceoverPrompt ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+            title={
+              hasVoiceoverPrompt
+                ? 'Voiceover text ready'
+                : 'Voiceover text missing'
+            }
+          >
+            Voice {hasVoiceoverPrompt ? '●' : '○'}
+          </span>
+        )}
+        {(requiredObjectsForPrompt.length > 0 ||
+          requiredBackgroundsForPrompt.length > 0) && (
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${missingAssetPromptCount === 0 ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+            title={
+              missingAssetPromptCount === 0
+                ? 'All asset prompts ready'
+                : `${missingAssetPromptCount} asset prompt(s) missing`
+            }
+          >
+            Assets{' '}
+            {missingAssetPromptCount === 0
+              ? '●'
+              : `○ ${missingAssetPromptCount}`}
+          </span>
+        )}
+      </div>
+
+      {feedbackItems.length > 0 && (
+        <div className="mb-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 space-y-0.5">
+          {feedbackItems.slice(0, 2).map((feedback) => (
+            <p key={feedback} className="line-clamp-1">
+              {feedback}
+            </p>
+          ))}
+          {feedbackItems.length > 2 && (
+            <p className="text-[9px] text-amber-200/80">
+              +{feedbackItems.length - 2} more feedback item(s)
+            </p>
+          )}
+        </div>
+      )}
+
       {firstFrame || imageUrl ? (
         <SceneThumbnail
           imageUrl={imageUrl}
@@ -1478,8 +1596,26 @@ export function SceneCard({
               Fully mapped
             </span>
           )}
+          {missingAssetPromptCount > 0 ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+              {missingAssetPromptCount} prompt missing
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
+              Prompts ready
+            </span>
+          )}
         </div>
       )}
+
+      {background ? (
+        <div className="mt-1 text-[9px] text-foreground/60">
+          <span className="text-violet-300">Background prompt:</span>{' '}
+          {backgroundPromptPreview || (
+            <span className="text-amber-300/80">No prompt saved</span>
+          )}
+        </div>
+      ) : null}
 
       {/* Video prompt info (collapsed) */}
       {!expanded && (
@@ -1688,6 +1824,45 @@ export function SceneCard({
                     {missingBackgroundNames.join(', ')}
                   </div>
                 )}
+              </div>
+            )}
+
+            {(requiredObjectsForPrompt.length > 0 ||
+              requiredBackgroundsForPrompt.length > 0) && (
+              <div className="space-y-1 pt-1 border-t border-cyan-500/10">
+                <div className="text-[9px] text-cyan-300 uppercase tracking-wide">
+                  Asset Prompts
+                </div>
+                {requiredObjectsForPrompt.slice(0, 3).map((obj) => (
+                  <div
+                    key={`obj-prompt-${obj.id}`}
+                    className="text-[9px] text-foreground/75"
+                  >
+                    <span className="text-amber-300">{obj.name}:</span>{' '}
+                    {obj.generation_prompt?.trim() ? (
+                      <span className="line-clamp-1">
+                        {obj.generation_prompt}
+                      </span>
+                    ) : (
+                      <span className="text-amber-300/80">No prompt saved</span>
+                    )}
+                  </div>
+                ))}
+                {requiredBackgroundsForPrompt.slice(0, 2).map((bg) => (
+                  <div
+                    key={`bg-prompt-${bg.id}`}
+                    className="text-[9px] text-foreground/75"
+                  >
+                    <span className="text-violet-300">{bg.name}:</span>{' '}
+                    {bg.generation_prompt?.trim() ? (
+                      <span className="line-clamp-1">
+                        {bg.generation_prompt}
+                      </span>
+                    ) : (
+                      <span className="text-amber-300/80">No prompt saved</span>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
