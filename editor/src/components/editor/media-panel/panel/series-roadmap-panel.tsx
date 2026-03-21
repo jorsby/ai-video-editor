@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -548,6 +548,75 @@ export default function SeriesRoadmapPanel() {
     }
 
     load();
+  }, [projectId]);
+
+  // --- Realtime subscription for storyboard plan/status updates ---
+  const storyboardEpMapRef = useRef<Map<string, number>>(new Map());
+
+  // Keep the mapping up to date whenever storyboards state changes
+  useEffect(() => {
+    const map = new Map<string, number>();
+    for (const [epNum, sb] of storyboards) {
+      map.set(sb.id, epNum);
+    }
+    storyboardEpMapRef.current = map;
+  }, [storyboards]);
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    const supabase = createClient('studio');
+    const channel = supabase
+      .channel(`roadmap_sb_${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'studio',
+          table: 'storyboards',
+          filter: `project_id=eq.${projectId}`,
+        },
+        (payload) => {
+          const updated = payload.new as {
+            id: string;
+            plan_status?: string;
+            plan?: Record<string, unknown> | null;
+            voiceover?: string;
+            mode?: string;
+          };
+
+          const epNumber = storyboardEpMapRef.current.get(updated.id);
+          if (epNumber == null) return;
+
+          const voiceoverList = updated.plan?.voiceover_list;
+          const { language: scriptLanguage, lines: scriptLines } =
+            deriveScriptLines({
+              voiceover: updated.voiceover || '',
+              planVoiceoverList: voiceoverList,
+            });
+
+          setStoryboards((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(epNumber);
+            if (existing) {
+              next.set(epNumber, {
+                ...existing,
+                plan_status: updated.plan_status || existing.plan_status,
+                mode: updated.mode || existing.mode,
+                voiceover: updated.voiceover || existing.voiceover,
+                scriptLanguage,
+                scriptLines,
+              });
+            }
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [projectId]);
 
   const totalScenes = useMemo(() => {
