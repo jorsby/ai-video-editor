@@ -1,6 +1,7 @@
-import { fal } from '@fal-ai/client';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+
+const FAL_KEY = process.env.FAL_KEY!;
 
 // Aspect ratio options matching the API
 type AspectRatio = '16:9' | '9:16' | '1:1';
@@ -8,18 +9,13 @@ type AspectRatio = '16:9' | '9:16' | '1:1';
 // Default configuration (easily modifiable)
 const DEFAULTS = {
   aspectRatio: '9:16' as AspectRatio,
-  numFrames: 60,
-  numInferenceSteps: 12,
-  fps: 15,
-  enableSafetyChecker: true,
-  videoOutputType: 'X264 (.mp4)' as const,
-  videoQuality: 'high' as const,
-  videoWriteMode: 'balanced' as const,
 };
+
+const FAL_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, aspectRatio, project_id } = await req.json();
+    const { prompt, aspectRatio, project_id, image_url } = await req.json();
 
     if (!prompt || !project_id) {
       return NextResponse.json(
@@ -28,36 +24,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get aspect ratio (default to 16:9)
+    // Get aspect ratio (default to 9:16)
     const selectedRatio: AspectRatio =
       aspectRatio && ['16:9', '9:16', '1:1'].includes(aspectRatio)
         ? aspectRatio
         : DEFAULTS.aspectRatio;
 
-    // Configure fal client with API key
-    fal.config({
-      credentials: process.env.FAL_KEY || '',
+    const falUrl = new URL(`https://queue.fal.run/${FAL_ENDPOINT}`);
+
+    const falRes = await fetch(falUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${FAL_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        aspect_ratio: selectedRatio,
+        ...(image_url ? { image_url } : {}),
+      }),
     });
 
-    const result = await fal.subscribe(
-      'fal-ai/kling-video/o3/standard/reference-to-video',
-      {
-        input: {
-          prompt,
-          aspect_ratio: selectedRatio,
-        },
-      }
-    );
-
-    // Return the video URL directly
-    const videoUrl = result.data.video?.url;
-
-    if (!videoUrl) {
+    if (!falRes.ok) {
+      const errText = await falRes.text();
+      console.error('fal.ai video request failed:', falRes.status, errText);
       return NextResponse.json(
-        { error: 'No video generated' },
+        { error: 'Video generation request failed' },
         { status: 500 }
       );
     }
+
+    const falData = await falRes.json();
 
     // Save to Supabase
     const supabase = await createClient('studio');
@@ -75,20 +72,23 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         project_id,
         type: 'video',
-        url: videoUrl,
+        url: null,
         name: prompt.substring(0, 100),
         prompt: prompt,
+        metadata: {
+          fal_request_id: falData.request_id,
+          endpoint: FAL_ENDPOINT,
+        },
       })
       .select()
       .single();
 
     if (dbError) {
       console.error('Database error:', dbError);
-      // Still return the URL even if DB save fails
-      return NextResponse.json({ url: videoUrl });
+      return NextResponse.json({ request_id: falData.request_id });
     }
 
-    return NextResponse.json({ url: videoUrl, id: asset.id });
+    return NextResponse.json({ request_id: falData.request_id, id: asset.id });
   } catch (error) {
     console.error('Video generation error:', error);
     return NextResponse.json(

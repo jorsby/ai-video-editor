@@ -245,10 +245,14 @@ type TTSModelKey = keyof typeof TTS_MODELS;
 
 const OUTPAINT_MODELS = {
   banana: { label: 'Banana' },
+  fibo: { label: 'Fibo' },
+  grok: { label: 'Grok' },
 } as const;
 
 const FIRST_FRAME_MODELS = {
+  grok: { label: 'Grok' },
   banana: { label: 'Banana' },
+  fibo: { label: 'Fibo' },
 } as const;
 
 const FIRST_FRAME_ASPECT_RATIOS = {

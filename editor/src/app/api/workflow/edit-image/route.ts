@@ -8,7 +8,7 @@ const FAL_API_KEY = process.env.FAL_KEY!;
 
 interface EditImageInput {
   scene_ids: string[];
-  model?: 'banana';
+  model?: 'banana' | 'fibo' | 'grok';
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
@@ -18,6 +18,8 @@ interface EditImageInput {
 
 const EDIT_ENDPOINTS: Record<string, string> = {
   banana: 'fal-ai/nano-banana-2/edit',
+  fibo: 'bria/fibo-edit/edit',
+  grok: 'xai/grok-imagine-image/edit',
 };
 
 const EDIT_PROMPT =
@@ -215,7 +217,13 @@ async function sendEditRequest(
 
   let requestBody: Record<string, unknown>;
   if (referenceUrls && referenceUrls.length > 0) {
-    requestBody = { image_urls: referenceUrls, prompt };
+    if (model === 'fibo') {
+      requestBody = { image_url: referenceUrls[0], instruction: prompt };
+    } else {
+      requestBody = { image_urls: referenceUrls, prompt };
+    }
+  } else if (model === 'fibo') {
+    requestBody = { image_url: context.image_url, instruction: prompt };
   } else {
     requestBody = { image_urls: [context.image_url], prompt };
   }
