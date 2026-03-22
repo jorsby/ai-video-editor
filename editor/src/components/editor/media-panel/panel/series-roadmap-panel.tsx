@@ -232,23 +232,23 @@ function EpisodeCard({
           <IconChevronRight className="size-3.5 text-muted-foreground shrink-0" />
         )}
 
-        <span className="text-[10px] font-mono text-muted-foreground shrink-0 w-5">
+        <span className="text-xs font-mono text-muted-foreground shrink-0 w-5">
           {episode.number}
         </span>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium truncate">{episode.title}</p>
+          <p className="text-sm font-medium truncate">{episode.title}</p>
         </div>
 
         <Badge
           variant="outline"
-          className={`text-[7px] px-1 py-0 h-3.5 shrink-0 ${statusConfig.color} border-current/30`}
+          className={`text-[9px] px-1.5 py-0.5 h-4 shrink-0 ${statusConfig.color} border-current/30`}
         >
           {statusConfig.label}
         </Badge>
 
         {sceneCount > 0 && (
-          <span className="text-[9px] text-muted-foreground shrink-0">
+          <span className="text-[10px] text-muted-foreground shrink-0">
             {doneScenes}/{sceneCount}
           </span>
         )}
@@ -257,27 +257,29 @@ function EpisodeCard({
       {isExpanded && (
         <div className="px-2.5 pb-2.5 space-y-2">
           <div className="pl-6 space-y-1">
-            <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
               Bu bölümde ne olacak?
             </p>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               {episode.summary}
             </p>
-            <p className="text-[9px] text-muted-foreground">{simpleFlow}</p>
+            <p className="text-[10px] text-muted-foreground">{simpleFlow}</p>
           </div>
 
           {storyboard && storyboard.scriptLines.length > 0 && (
             <div className="pl-6 pt-1 space-y-1.5">
-              <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 Full Script ({storyboard.scriptLanguage.toUpperCase()})
               </p>
-              <div className="space-y-1.5 max-h-44 overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-2">
+              <div className="space-y-2 max-h-[70vh] overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-3">
                 {storyboard.scriptLines.map((line, idx) => (
                   <p
                     key={`${episode.number}-script-${idx}`}
-                    className="text-[10px] text-foreground/85 leading-relaxed"
+                    className="text-xs text-foreground/85 leading-relaxed"
                   >
-                    <span className="text-muted-foreground/70">{idx + 1}.</span>{' '}
+                    <span className="text-muted-foreground/70 font-mono">
+                      {idx + 1}.
+                    </span>{' '}
                     {line}
                   </p>
                 ))}
