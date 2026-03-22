@@ -268,14 +268,14 @@ function EpisodeCard({
 
           {storyboard && storyboard.scriptLines.length > 0 && (
             <div className="pl-6 pt-1 space-y-1.5">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Full Script ({storyboard.scriptLanguage.toUpperCase()})
               </p>
               <div className="space-y-2 max-h-[70vh] overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-3">
                 {storyboard.scriptLines.map((line, idx) => (
                   <p
                     key={`${episode.number}-script-${idx}`}
-                    className="text-xs text-foreground/85 leading-relaxed"
+                    className="text-sm text-foreground/90 leading-relaxed"
                   >
                     <span className="text-muted-foreground/70 font-mono">
                       {idx + 1}.
@@ -395,19 +395,27 @@ export default function SeriesRoadmapPanel() {
       if (series) {
         setSeriesName(series.name || '');
         setBible(series.bible || '');
-
-        const meta = series.metadata as { episodes?: Episode[] } | null;
-        if ((meta?.episodes?.length ?? 0) > 0) {
-          resolvedEpisodes = meta!.episodes!;
-        }
       }
 
-      // Load storyboards with scenes
-      const { data: sbs } = await supabase
-        .from('storyboards')
-        .select('id, plan_status, mode, voiceover, plan')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: true });
+      // Load only storyboards linked to episodes (not all project storyboards)
+      const linkedSbIds = (episodeRows ?? [])
+        .map((r) => r.storyboard_id)
+        .filter(Boolean) as string[];
+
+      const { data: sbs } = linkedSbIds.length
+        ? await supabase
+            .from('storyboards')
+            .select('id, plan_status, mode, voiceover, plan')
+            .in('id', linkedSbIds)
+        : {
+            data: [] as {
+              id: string;
+              plan_status: string | null;
+              mode: string | null;
+              voiceover: string | null;
+              plan: Record<string, unknown> | null;
+            }[],
+          };
 
       if (sbs) {
         const sbMap = new Map<number, StoryboardInfo>();
