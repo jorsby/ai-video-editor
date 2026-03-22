@@ -17,17 +17,15 @@ const FAL_API_KEY = process.env.FAL_KEY!;
 
 interface RefFirstFrameInput {
   scene_ids: string[];
-  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  model?: 'banana' | 'fibo' | 'grok';
   aspect_ratio?: GridAspectRatio;
   resolution?: GridResolution;
 }
 
 const ENDPOINTS: Record<NonNullable<RefFirstFrameInput['model']>, string> = {
-  kling: 'fal-ai/kling-image/o3/image-to-image',
   banana: 'fal-ai/nano-banana-2/edit',
   fibo: 'bria/fibo-edit/edit',
   grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 
 interface SceneRefContext {
@@ -222,10 +220,7 @@ async function queueFirstFrameRequest(
           prompt: refs.prompt,
         };
 
-  if (model === 'flux-pro') {
-    requestBody.enable_safety_checker = false;
-    requestBody.safety_tolerance = '5';
-  } else if (model === 'banana') {
+  if (model === 'banana') {
     requestBody.safety_tolerance = '6';
   }
 
@@ -291,7 +286,7 @@ export async function POST(req: NextRequest) {
     }
 
     const input: RefFirstFrameInput = await req.json();
-    const { scene_ids, model = 'grok', aspect_ratio, resolution } = input;
+    const { scene_ids, model = 'banana', aspect_ratio, resolution } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(

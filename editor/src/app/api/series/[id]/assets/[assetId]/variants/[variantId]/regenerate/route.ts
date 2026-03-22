@@ -9,8 +9,6 @@ const FAL_KEY = process.env.FAL_KEY!;
 
 const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
   'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
-  'flux-pro': { endpoint: 'fal-ai/flux-pro/v1.1', useImageSize: true },
-  'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
 };
 const DEFAULT_MODEL = 'nano-banana-2';
 

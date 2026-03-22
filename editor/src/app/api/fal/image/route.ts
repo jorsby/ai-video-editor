@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       credentials: process.env.FAL_KEY || '',
     });
 
-    const result = await fal.subscribe('fal-ai/z-image/turbo', {
+    const result = await fal.subscribe('fal-ai/nano-banana-2', {
       input: {
         prompt,
         image_size: { width, height },

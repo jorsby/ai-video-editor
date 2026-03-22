@@ -244,19 +244,11 @@ const TTS_MODELS = {
 type TTSModelKey = keyof typeof TTS_MODELS;
 
 const OUTPAINT_MODELS = {
-  kling: { label: 'Kling' },
   banana: { label: 'Banana' },
-  fibo: { label: 'Fibo' },
-  grok: { label: 'Grok' },
-  'flux-pro': { label: 'Flux Pro' },
 } as const;
 
 const FIRST_FRAME_MODELS = {
-  grok: { label: 'Grok' },
-  kling: { label: 'Kling' },
   banana: { label: 'Banana' },
-  fibo: { label: 'Fibo' },
-  'flux-pro': { label: 'Flux Pro' },
 } as const;
 
 const FIRST_FRAME_ASPECT_RATIOS = {
@@ -440,7 +432,7 @@ export function StoryboardCards({
   const [refPrompt, setRefPrompt] = useState('');
   const [isRefGenerating, setIsRefGenerating] = useState(false);
   const [outpaintModel, setOutpaintModel] =
-    useState<keyof typeof OUTPAINT_MODELS>('kling');
+    useState<keyof typeof OUTPAINT_MODELS>('banana');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
@@ -449,7 +441,7 @@ export function StoryboardCards({
 
   const [videoModel, setVideoModel] = useState('klingo3');
   const [firstFrameModel, setFirstFrameModel] =
-    useState<FirstFrameModelKey>('grok');
+    useState<FirstFrameModelKey>('banana');
   const [firstFrameAspectRatio, setFirstFrameAspectRatio] =
     useState<FirstFrameAspectRatioKey>('1:1');
   const [firstFrameResolution, setFirstFrameResolution] =

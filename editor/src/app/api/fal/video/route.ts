@@ -40,18 +40,11 @@ export async function POST(req: NextRequest) {
     });
 
     const result = await fal.subscribe(
-      'fal-ai/longcat-video/distilled/text-to-video/480p',
+      'fal-ai/kling-video/o3/standard/reference-to-video',
       {
         input: {
           prompt,
           aspect_ratio: selectedRatio,
-          num_frames: DEFAULTS.numFrames,
-          num_inference_steps: DEFAULTS.numInferenceSteps,
-          fps: DEFAULTS.fps,
-          enable_safety_checker: DEFAULTS.enableSafetyChecker,
-          video_output_type: DEFAULTS.videoOutputType,
-          video_quality: DEFAULTS.videoQuality,
-          video_write_mode: DEFAULTS.videoWriteMode,
         },
       }
     );

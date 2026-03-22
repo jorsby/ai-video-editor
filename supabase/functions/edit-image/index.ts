@@ -40,7 +40,7 @@ function errorResponse(error: string, status = 500): Response {
 
 interface EditImageInput {
   scene_ids: string[];
-  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  model?: 'banana';
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
@@ -49,11 +49,7 @@ interface EditImageInput {
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
-  kling: 'workflows/octupost/edit-image-kling',
   banana: 'workflows/octupost/edit-image-banana',
-  fibo: 'workflows/octupost/edit-image-fibo',
-  grok: 'workflows/octupost/edit-image-grok',
-  'flux-pro': 'workflows/octupost/edit-image-flux-pro',
 };
 
 const EDIT_PROMPT =

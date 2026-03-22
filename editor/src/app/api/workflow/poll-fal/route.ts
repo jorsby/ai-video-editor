@@ -8,10 +8,9 @@ const STALE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // fal.ai model endpoint for grid image generation
 const FAL_GRID_IMAGE_ENDPOINT = 'workflows/octupost/generategridimage';
-// NOTE: Kling O3 requests are submitted to a deeper endpoint, but request status/result
-// must be polled from the canonical kling-video endpoint.
-const DEFAULT_VIDEO_ENDPOINT = 'fal-ai/kling-video';
-const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/kling-image/o3/image-to-image';
+const DEFAULT_VIDEO_ENDPOINT =
+  'fal-ai/kling-video/o3/standard/reference-to-video';
+const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/nano-banana-2/edit';
 const TTS_ENDPOINTS = [
   'fal-ai/elevenlabs/tts/turbo-v2.5',
   'fal-ai/elevenlabs/tts/multilingual-v2',
@@ -19,15 +18,13 @@ const TTS_ENDPOINTS = [
 const SFX_ENDPOINT = 'mirelo-ai/sfx-v1.5/video-to-video';
 
 const VIDEO_MODEL_ENDPOINTS: Record<string, string> = {
-  klingo3: 'fal-ai/kling-video',
+  klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
 };
 
 const IMAGE_EDIT_MODEL_ENDPOINTS: Record<string, string> = {
-  kling: 'fal-ai/kling-image/o3/image-to-image',
   banana: 'fal-ai/nano-banana-2/edit',
   fibo: 'bria/fibo-edit/edit',
   grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 const IMAGE_EDIT_ENDPOINTS = Object.values(IMAGE_EDIT_MODEL_ENDPOINTS);
 

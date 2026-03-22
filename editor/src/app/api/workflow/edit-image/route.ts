@@ -8,7 +8,7 @@ const FAL_API_KEY = process.env.FAL_KEY!;
 
 interface EditImageInput {
   scene_ids: string[];
-  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  model?: 'banana';
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
@@ -17,11 +17,7 @@ interface EditImageInput {
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
-  kling: 'fal-ai/kling-image/o3/image-to-image',
   banana: 'fal-ai/nano-banana-2/edit',
-  fibo: 'bria/fibo-edit/edit',
-  grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 
 const EDIT_PROMPT =
@@ -219,22 +215,13 @@ async function sendEditRequest(
 
   let requestBody: Record<string, unknown>;
   if (referenceUrls && referenceUrls.length > 0) {
-    if (model === 'fibo') {
-      requestBody = { image_url: referenceUrls[0], instruction: prompt };
-    } else {
-      requestBody = { image_urls: referenceUrls, prompt };
-    }
-  } else if (model === 'fibo') {
-    requestBody = { image_url: context.image_url, instruction: prompt };
+    requestBody = { image_urls: referenceUrls, prompt };
   } else {
     requestBody = { image_urls: [context.image_url], prompt };
   }
 
   // Disable safety checkers where supported
-  if (model === 'flux-pro') {
-    requestBody.enable_safety_checker = false;
-    requestBody.safety_tolerance = '5';
-  } else if (model === 'banana') {
+  if (model === 'banana') {
     requestBody.safety_tolerance = '6';
   }
 
@@ -293,7 +280,7 @@ export async function POST(req: NextRequest) {
 
     log.info('Request received');
     const input: EditImageInput = await req.json();
-    const { scene_ids, model = 'kling', action = 'outpaint' } = input;
+    const { scene_ids, model = 'banana', action = 'outpaint' } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
@@ -340,7 +327,7 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createServiceClient();
-    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.kling;
+    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.banana;
 
     // --- ref_to_image: single request with multiple reference images ---
     if (action === 'ref_to_image') {

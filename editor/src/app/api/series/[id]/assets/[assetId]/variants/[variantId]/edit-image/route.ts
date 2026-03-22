@@ -10,10 +10,6 @@ const FAL_KEY = process.env.FAL_KEY!;
 // Models that support image editing on fal.ai
 const EDIT_MODELS: Record<string, string> = {
   banana: 'fal-ai/nano-banana-2/edit',
-  kling: 'fal-ai/kling-image/o3/image-to-image',
-  fibo: 'bria/fibo-edit/edit',
-  grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 
 type RouteContext = {
@@ -28,7 +24,7 @@ type RouteContext = {
  *
  * Body: {
  *   prompt: string,           // edit instruction
- *   model?: string,           // "banana" (default), "kling", "fibo", "grok", "flux-pro"
+ *   model?: string,           // "banana" (default)
  *   image_url?: string,       // source image URL (defaults to current variant image)
  *   resolution?: string,      // "1K" | "2K" (default "1K" for edits)
  * }
