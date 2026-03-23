@@ -539,16 +539,9 @@ export default function PanelStoryboard() {
         throw new Error(errorData.error || 'Failed to save plan changes');
       }
 
-      // Then approve and start scene generation
-      // Ref-to-video drafts use the v2 approve path, which reuses series assets
-      // and generates only missing objects/backgrounds.
-      const isRefDraft = draftMode === 'ref_to_video';
-      const approveEndpoint = isRefDraft
-        ? `/api/v2/storyboard/${draftStoryboardId}/approve`
-        : '/api/storyboard/approve';
-      const approveBody = isRefDraft
-        ? { resolution: '1k' as const }
-        : { storyboardId: draftStoryboardId };
+      // Then approve the storyboard (approve now only creates scenes + voiceovers).
+      const approveEndpoint = '/api/storyboard/approve';
+      const approveBody = { storyboardId: draftStoryboardId };
 
       const approveResponse = await fetch(approveEndpoint, {
         method: 'POST',
@@ -558,10 +551,10 @@ export default function PanelStoryboard() {
 
       if (!approveResponse.ok) {
         const errorData = await approveResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to start scene generation');
+        throw new Error(errorData.error || 'Failed to approve storyboard');
       }
 
-      console.log('[Storyboard] Draft approved, scenes generating', {
+      console.log('[Storyboard] Draft approved, scenes created', {
         mode: draftMode,
         endpoint: approveEndpoint,
       });

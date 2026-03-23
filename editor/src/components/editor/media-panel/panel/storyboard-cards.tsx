@@ -89,14 +89,10 @@ async function invokeWorkflow(
   }
 }
 import type {
-  GridImage,
   RefObject,
   Scene,
-  Storyboard,
   StoryboardWithScenes,
 } from '@/lib/supabase/workflow-service';
-import { GridImageReview } from './grid-image-review';
-import { RefGridImageReview } from './ref-grid-image-review';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 
 function buildScenePromptUpdate(editedPrompt: string): {
@@ -369,20 +365,14 @@ export function StoryboardCards({
   storyboardId,
   refreshTrigger,
 }: StoryboardCardsProps) {
-  const {
-    gridImage,
-    gridImages,
-    storyboard,
-    loading,
-    error,
-    isProcessing,
-    isSplitting,
-    refresh,
-  } = useWorkflow(projectId, {
-    realtime: true,
-    includeScenes: true,
-    storyboardId,
-  });
+  const { storyboard, loading, error, isProcessing, refresh } = useWorkflow(
+    projectId,
+    {
+      realtime: true,
+      includeScenes: true,
+      storyboardId,
+    }
+  );
 
   // Compute broader processing state that includes video/image-edit processing
   const hasAnyProcessing = useMemo(() => {
@@ -711,65 +701,6 @@ export function StoryboardCards({
       setFirstFrameAspectRatio(aspect);
     }
   }, [storyboard?.aspect_ratio]);
-
-  const splitProgress = useMemo(() => {
-    if (!isRefToVideoMode) return null;
-
-    const allObjects = sortedScenes.flatMap((scene) => scene.objects ?? []);
-    const allBackgrounds = sortedScenes.flatMap(
-      (scene) => scene.backgrounds ?? []
-    );
-
-    const countByStatus = (
-      items: Array<{ status: 'pending' | 'processing' | 'success' | 'failed' }>
-    ) => ({
-      total: items.length,
-      pending: items.filter((item) => item.status === 'pending').length,
-      processing: items.filter((item) => item.status === 'processing').length,
-      success: items.filter((item) => item.status === 'success').length,
-      failed: items.filter((item) => item.status === 'failed').length,
-    });
-
-    const objects = countByStatus(allObjects);
-    const backgrounds = countByStatus(allBackgrounds);
-
-    const total = objects.total + backgrounds.total;
-    const completed =
-      objects.success +
-      objects.failed +
-      backgrounds.success +
-      backgrounds.failed;
-    const processing = objects.processing + backgrounds.processing;
-    const pending = objects.pending + backgrounds.pending;
-
-    const isActive =
-      storyboard?.plan_status === 'splitting' ||
-      processing > 0 ||
-      (total > 0 && completed < total);
-
-    if (!isActive) return null;
-
-    const progressPercent =
-      total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
-
-    let stageLabel = 'Preparing split...';
-    if (sortedScenes.length === 0) {
-      stageLabel = 'Creating scenes and linking voiceovers...';
-    } else if (processing > 0) {
-      stageLabel = 'Splitting grid tiles and assigning scene assets...';
-    } else if (pending > 0) {
-      stageLabel = 'Queuing split asset updates...';
-    } else {
-      stageLabel = 'Finalizing split results...';
-    }
-
-    return {
-      progressPercent,
-      stageLabel,
-      objects,
-      backgrounds,
-    };
-  }, [isRefToVideoMode, sortedScenes, storyboard?.plan_status]);
 
   const assetCoverage = useMemo(() => {
     if (!isRefToVideoMode) return null;
@@ -2405,72 +2336,12 @@ export function StoryboardCards({
     );
   }
 
-  // Ref grid image review: show while grids are being generated/regenerated and when ready
-  if (isRefToVideoMode && sortedScenes.length === 0 && storyboard?.plan) {
-    const objectsGrid = gridImages.find((g) => g.type === 'objects');
-    const bgGrid = gridImages.find((g) => g.type === 'backgrounds');
-
-    if (objectsGrid && bgGrid) {
-      return (
-        <RefGridImageReview
-          objectsGrid={objectsGrid}
-          bgGrid={bgGrid}
-          storyboard={storyboard as Storyboard}
-          onApproveComplete={() => refresh()}
-          onRegenerateComplete={() => refresh()}
-        />
-      );
-    }
-  }
-
-  // I2V Grid image review: show when grid is generated but not yet split into scenes
-  if (
-    !isRefToVideoMode &&
-    gridImage?.status === 'generated' &&
-    sortedScenes.length === 0 &&
-    storyboard &&
-    'plan' in storyboard &&
-    storyboard.plan
-  ) {
-    return (
-      <GridImageReview
-        gridImage={gridImage as GridImage}
-        storyboard={storyboard as Storyboard}
-        onApproveComplete={() => refresh()}
-        onRegenerateComplete={() => refresh()}
-      />
-    );
-  }
-
-  // Grid image is being generated — show progress indicator
   if (isProcessing && sortedScenes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3">
         <IconLoader2 size={32} className="animate-spin text-blue-400" />
         <span className="text-sm text-center">
-          {isRefToVideoMode
-            ? 'Generating grid images...'
-            : 'Generating grid image...'}
-        </span>
-        <span className="text-xs text-center text-muted-foreground/60">
-          This may take a minute
-        </span>
-      </div>
-    );
-  }
-
-  // Splitting in progress — show loading state instead of "No scenes yet"
-  if (
-    sortedScenes.length === 0 &&
-    (isSplitting || storyboard?.plan_status === 'splitting')
-  ) {
-    return (
-      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3">
-        <IconLoader2 size={32} className="animate-spin text-blue-400" />
-        <span className="text-sm text-center">
-          {isRefToVideoMode
-            ? 'Preparing split (creating scenes + linking assets)...'
-            : 'Splitting grid image into scenes...'}
+          Preparing storyboard scenes...
         </span>
         <span className="text-xs text-center text-muted-foreground/60">
           This may take a minute
@@ -2592,45 +2463,6 @@ export function StoryboardCards({
 
   return (
     <div className="flex flex-col gap-3">
-      {splitProgress && (
-        <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs text-blue-300">
-              <IconLoader2 size={14} className="animate-spin" />
-              <span>Splitting references into scene assets</span>
-            </div>
-            <span className="text-xs text-blue-200">
-              {splitProgress.progressPercent}%
-            </span>
-          </div>
-
-          <div className="h-1.5 rounded-full bg-blue-950/40 overflow-hidden">
-            <div
-              className="h-full bg-blue-400 transition-all"
-              style={{ width: `${splitProgress.progressPercent}%` }}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px] text-blue-200/90">
-            <div>
-              Objects:{' '}
-              {splitProgress.objects.success + splitProgress.objects.failed}/
-              {splitProgress.objects.total}
-            </div>
-            <div>
-              Backgrounds:{' '}
-              {splitProgress.backgrounds.success +
-                splitProgress.backgrounds.failed}
-              /{splitProgress.backgrounds.total}
-            </div>
-          </div>
-
-          <div className="text-[11px] text-blue-200/80">
-            {splitProgress.stageLabel}
-          </div>
-        </div>
-      )}
-
       {assetCoverage && (
         <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 space-y-2">
           <div className="flex items-center justify-between">
@@ -3334,14 +3166,6 @@ export function StoryboardCards({
           <IconLoader2 className="size-4 animate-spin text-blue-500" />
           <span className="text-sm text-blue-500">
             Processing storyboard...
-          </span>
-        </div>
-      )}
-      {isSplitting && (
-        <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md flex items-center gap-2">
-          <IconLoader2 className="size-4 animate-spin text-blue-500" />
-          <span className="text-sm text-blue-500">
-            Splitting grid into scenes...
           </span>
         </div>
       )}
