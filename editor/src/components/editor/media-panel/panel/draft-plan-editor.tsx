@@ -534,10 +534,8 @@ export function DraftPlanEditor({
             >
               {isApproving ? (
                 <IconLoader2 className="size-4 animate-spin" />
-              ) : ref ? (
-                'Approve & Fill Missing Assets'
               ) : (
-                'Generate Scenes'
+                'Approve'
               )}
             </Button>
           </div>

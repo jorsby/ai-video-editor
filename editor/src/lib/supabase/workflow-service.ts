@@ -398,14 +398,21 @@ export async function getStoryboardsForProject(
     .from('storyboards')
     .select('*')
     .eq('project_id', projectId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
 
   if (error) {
     console.error('Failed to fetch storyboards:', error);
     return [];
   }
 
-  return (data as Storyboard[]) || [];
+  // Sort by episode number extracted from title (EP1, EP2, ... EP12)
+  const sorted = (data as Storyboard[]) || [];
+  sorted.sort((a, b) => {
+    const numA = parseInt(a.title?.match(/EP(\d+)/)?.[1] || '999', 10);
+    const numB = parseInt(b.title?.match(/EP(\d+)/)?.[1] || '999', 10);
+    return numA - numB;
+  });
+  return sorted;
 }
 
 /**

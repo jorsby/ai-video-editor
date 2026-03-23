@@ -206,8 +206,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
           return false;
         }
 
+        // Objects are optional (scenes can have only background)
         const objectsReady =
-          scene.objects.length > 0 &&
+          scene.objects.length === 0 ||
           scene.objects.every(
             (object) =>
               object.status === 'success' &&

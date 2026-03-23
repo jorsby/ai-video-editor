@@ -705,8 +705,8 @@ export default function PanelStoryboard() {
                 <SelectItem key={sb.id} value={sb.id}>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="truncate">
-                      {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
-                      {getStoryboardModeLabel(sb)}
+                      {sb.title || formatDate(sb.created_at)} ({sb.aspect_ratio}
+                      ) {getStoryboardModeLabel(sb)}
                     </span>
                     {getStoryboardVideoModeBadge(sb) && (
                       <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border bg-purple-500/10 text-purple-400 border-purple-500/30">
