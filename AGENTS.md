@@ -5,6 +5,17 @@ This file provides guidance to AI coding agents (Claude Code, Codex, etc.) worki
 
 ---
 
+## 📖 Before Any Task
+
+1. **Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md)** — the full production funnel (onboarding → publish)
+2. **If working on a project:**
+   - Read `docs/projects/<project>/PROJECT.md` — get IDs, rules, feedback history
+   - Query Supabase for live state — **never use cached/hardcoded IDs** (except series_id and project_id from PROJECT.md)
+3. **If generating videos:** Read [`docs/VIDEO_GENERATION_WORKFLOW.md`](docs/VIDEO_GENERATION_WORKFLOW.md) — step-by-step, skip nothing
+4. **Follow the workflow order** — don't jump ahead in the funnel
+
+---
+
 ## ⚠️ The #1 Mistake
 
 **Webhook URLs must point to Next.js API routes, NOT Supabase.**

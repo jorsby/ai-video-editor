@@ -20,7 +20,9 @@ const KLING_ENDPOINTS = {
   klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
 } as const;
 
-const COST_PER_5S = {
+const MAX_KLING_ELEMENTS = 3;
+
+const COST_PER_SECOND_USD = {
   withAudio: 0.112,
   withoutAudio: 0.084,
 };
@@ -29,10 +31,10 @@ function calculateSceneCost(
   durationSeconds: number,
   withAudio: boolean
 ): number {
-  const rate = withAudio ? COST_PER_5S.withAudio : COST_PER_5S.withoutAudio;
-  return (
-    Math.round(((durationSeconds / 5) * rate + Number.EPSILON) * 1000) / 1000
-  );
+  const rate = withAudio
+    ? COST_PER_SECOND_USD.withAudio
+    : COST_PER_SECOND_USD.withoutAudio;
+  return Math.round((durationSeconds * rate + Number.EPSILON) * 1000) / 1000;
 }
 
 function getMultiShotTotalDuration(
@@ -42,6 +44,21 @@ function getMultiShotTotalDuration(
     (sum, shot) => sum + Number(shot.duration),
     0
   );
+}
+
+function sanitizeKlingPrompt(prompt: string | null | undefined): string {
+  if (!prompt) {
+    return '';
+  }
+
+  return prompt
+    .replace(/@(?:Element|Image)\d+\b/gi, ' ')
+    .replace(
+      /(?:\s*[,.;:!?-]?\s*(?:9\s*:\s*16(?:\s*dikey)?|dikey)\s*)+$/gi,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 async function logSceneGenerationAttempt(params: {
@@ -237,6 +254,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       reason?: 'no_prompt' | 'already_generated' | 'missing_background';
     }> = [];
 
+    const webhookBase = confirm ? resolveWebhookBaseUrl(req) : null;
+    if (confirm && !webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+    const webhookBaseUrl = webhookBase ?? '';
+
     for (const scene of candidates as Array<{
       id: string;
       order: number;
@@ -271,9 +297,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
         prompt: string;
         duration: string;
       }> | null = null;
-      if (scene.multi_prompt && scene.multi_prompt.length > 1) {
+      const sanitizedMultiPrompts = (scene.multi_prompt ?? [])
+        .map((prompt) => sanitizeKlingPrompt(prompt))
+        .filter((prompt) => prompt.length > 0);
+
+      if (sanitizedMultiPrompts.length > 1) {
         multiPromptPayload = buildKlingMultiPromptPayload({
-          prompts: scene.multi_prompt,
+          prompts: sanitizedMultiPrompts,
           targetTotalSeconds: baseDuration,
           multiShots: scene.multi_shots,
         });
@@ -281,10 +311,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
 
       const estimatedCost = calculateSceneCost(actualDuration, withAudio);
-      const scenePrompt =
-        scene.multi_prompt?.find((p) => p.trim().length > 0) ??
-        scene.prompt?.trim() ??
-        '';
+      const sanitizedPrompt = sanitizeKlingPrompt(scene.prompt);
+      const scenePrompt = sanitizedMultiPrompts[0] ?? sanitizedPrompt;
 
       if (!scenePrompt) {
         await logSceneGenerationAttempt({
@@ -350,7 +378,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const objectUrls = [...scene.objects]
         .sort((a, b) => a.scene_order - b.scene_order)
         .map((object) => object.final_url ?? object.url)
-        .filter((url): url is string => Boolean(url));
+        .filter((url): url is string => Boolean(url))
+        .slice(0, MAX_KLING_ELEMENTS);
 
       const payload: Record<string, unknown> = {
         elements: objectUrls.map((url) => ({
@@ -368,7 +397,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       } else {
         payload.prompt =
           multiPromptPayload?.[0]?.prompt ??
-          scene.multi_prompt?.[0]?.trim() ??
+          sanitizedMultiPrompts[0] ??
           scenePrompt;
         payload.duration = String(baseDuration);
       }
@@ -381,18 +410,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         })
         .eq('id', scene.id);
 
-      const webhookBase = resolveWebhookBaseUrl(req);
-      if (!webhookBase) {
-        return NextResponse.json(
-          { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
-          { status: 500 }
-        );
-      }
-
       const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
       falUrl.searchParams.set(
         'fal_webhook',
-        `${webhookBase}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
+        `${webhookBaseUrl}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
       );
 
       const falRes = await fetch(falUrl.toString(), {
