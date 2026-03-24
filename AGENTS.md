@@ -109,13 +109,15 @@ const supabase = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 This is the core feature. Understand it before touching anything.
 
 1. **Plan** — User creates storyboard. LLM (via OpenRouter) generates a plan.
-2. **Approve** — User approves → API route writes to DB, queues fal.ai jobs.
-3. **Generate** — fal.ai processes (grid images, video gen, TTS, SFX).
-4. **Webhook** — fal.ai POSTs results to `/api/webhook/fal?step=GenGridImage` (etc.).
+2. **Approve** — User approves → API route writes to DB, creates scene + voiceover records.
+3. **Generate** — Video generation via `/api/v2/storyboard/{id}/generate-video` endpoint.
+4. **Webhook** — fal.ai POSTs results to `/api/webhook/fal?step=GenerateVideo` (etc.).
 5. **Update** — Webhook handler parses results, updates DB tables.
 6. **Subscribe** — Frontend subscribes via Supabase Realtime for status changes.
 
 **Modes:** `image_to_video` (generate images → animate) | `ref_to_video` (reference images → video)
+
+> **📖 For video generation details, read [`docs/VIDEO_GENERATION_WORKFLOW.md`](docs/VIDEO_GENERATION_WORKFLOW.md) BEFORE generating any videos.** It covers the exact API calls, payload format, prompt rules, and common mistakes. Skipping it costs real money.
 
 ## Database Schema (Key Tables)
 
