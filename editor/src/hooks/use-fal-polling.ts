@@ -10,14 +10,13 @@ interface PollResult {
 }
 
 /**
- * Hook that polls /api/workflow/poll-fal when items are in 'processing' state.
- * Acts as a safety net for when webhooks don't reach the server (e.g. local dev).
+ * Generic provider polling hook.
  *
- * @param isProcessing - Whether any workflow items are currently processing
- * @param storyboardId - Optional storyboard ID to scope polling
- * @param onCompleted - Callback fired when polling detects newly completed items (trigger refresh)
+ * Polls /api/workflow/poll-tasks when items are in a processing state.
+ * It acts as a safety net when webhook callbacks are delayed/missed
+ * (especially in local/tunnel environments).
  */
-export function useFalPolling(
+export function useProviderPolling(
   isProcessing: boolean,
   storyboardId?: string | null,
   onCompleted?: () => void
@@ -26,12 +25,12 @@ export function useFalPolling(
   const isPollingRef = useRef(false);
 
   const poll = useCallback(async () => {
-    // Prevent overlapping polls
+    // Prevent overlapping polls.
     if (isPollingRef.current) return;
     isPollingRef.current = true;
 
     try {
-      const res = await fetch('/api/workflow/poll-fal', {
+      const res = await fetch('/api/workflow/poll-tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storyboard_id: storyboardId || undefined }),
@@ -41,12 +40,11 @@ export function useFalPolling(
 
       const data: PollResult = await res.json();
 
-      // If any items completed, trigger a data refresh
       if (data.total_completed > 0 && onCompleted) {
         onCompleted();
       }
     } catch {
-      // Silently ignore — polling is best-effort
+      // Best-effort safety net — ignore polling errors.
     } finally {
       isPollingRef.current = false;
     }
@@ -54,7 +52,6 @@ export function useFalPolling(
 
   useEffect(() => {
     if (!isProcessing) {
-      // Nothing processing — stop polling
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -62,8 +59,6 @@ export function useFalPolling(
       return;
     }
 
-    // Start polling
-    // Do an immediate first poll, then every POLL_INTERVAL_MS
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
@@ -75,3 +70,6 @@ export function useFalPolling(
     };
   }, [isProcessing, poll]);
 }
+
+// Backward-compatible export during migration.
+export const useFalPolling = useProviderPolling;

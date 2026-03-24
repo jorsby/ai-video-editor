@@ -1,3 +1,5 @@
+// @deprecated use /api/workflow/poll-tasks for provider-agnostic polling.
+// This route is kept as rollback path while fal.ai is phased out.
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';

@@ -1,3 +1,5 @@
+// @deprecated fal.ai webhook handler is kept for rollback during kie.ai migration.
+// New integrations should prefer /api/webhook/kieai with provider routing.
 import type { NextRequest } from 'next/server';
 import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
