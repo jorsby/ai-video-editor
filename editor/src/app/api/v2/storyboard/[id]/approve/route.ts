@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
 import { getSeriesStyleForProject } from '@/lib/prompts/style-injector';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { matchAssetsWithAI } from '@/lib/supabase/series-asset-ai-matcher';
@@ -356,7 +361,24 @@ async function queueMissingAssetJob(params: {
   prompt: string;
   resolution: Resolution;
   webhookUrl: string;
+  provider: GenerationProvider;
 }) {
+  if (params.provider === 'kie') {
+    const queued = await queueKieImageTask({
+      prompt: params.prompt,
+      callbackUrl: params.webhookUrl,
+      aspectRatio: '1:1',
+      resolution: params.resolution,
+      outputFormat: 'png',
+    });
+
+    if (!queued.requestId) {
+      throw new Error('kie.ai response missing task_id');
+    }
+
+    return queued.requestId;
+  }
+
   const size = RESOLUTION_TO_SIZE[params.resolution];
   const falUrl = new URL(`https://queue.fal.run/${FAL_IMAGE_ENDPOINT}`);
   falUrl.searchParams.set('fal_webhook', params.webhookUrl);
@@ -413,6 +435,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const resolution = parsedBody.data.resolution ?? '1k';
     const retryFailed = parsedBody.data.retry_failed ?? false;
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: parsedBody.data,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
 
     const db = createServiceClient('studio');
 
@@ -532,7 +563,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         );
       }
 
-      if (!process.env.FAL_KEY) {
+      if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
         return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
@@ -640,6 +671,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       const assetJobs: AssetJobMeta[] = [];
       const skippedAssets: SkippedAssetMeta[] = [];
+      const callbackPath =
+        providerResolution.provider === 'kie'
+          ? '/api/webhook/kieai'
+          : '/api/webhook/fal';
 
       for (const [gridPosition, info] of objectFailedByPosition) {
         const prompt = info.generation_prompt?.trim() ?? '';
@@ -678,7 +713,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           const requestId = await queueMissingAssetJob({
             prompt,
             resolution,
-            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+            webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
+            provider: providerResolution.provider,
           });
 
           await db
@@ -699,7 +735,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model: FAL_IMAGE_ENDPOINT,
+              model:
+                providerResolution.provider === 'kie'
+                  ? 'nano-banana-2'
+                  : FAL_IMAGE_ENDPOINT,
+              provider: providerResolution.provider,
               output_format: 'png',
               resolution,
               generated_at: new Date().toISOString(),
@@ -782,7 +822,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           const requestId = await queueMissingAssetJob({
             prompt,
             resolution,
-            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+            webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
+            provider: providerResolution.provider,
           });
 
           await db
@@ -803,7 +844,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model: FAL_IMAGE_ENDPOINT,
+              model:
+                providerResolution.provider === 'kie'
+                  ? 'nano-banana-2'
+                  : FAL_IMAGE_ENDPOINT,
+              provider: providerResolution.provider,
               output_format: 'png',
               resolution,
               generated_at: new Date().toISOString(),
@@ -875,6 +920,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         scene_prompts: styledScenePrompts,
         v2_asset_jobs: {
           strategy: 'direct-asset',
+          provider: providerResolution.provider,
           resolution,
           queued: queuedJobsCount,
           failed: failedJobsCount,
@@ -892,6 +938,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       return NextResponse.json({
         status: nextStatus,
+        provider: providerResolution.provider,
         retried: true,
         asset_jobs: assetJobs,
         skipped: skippedAssets,
@@ -1082,7 +1129,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
           generation_prompt: generationPrompt,
           generation_meta: generationPrompt
             ? {
-                model: FAL_IMAGE_ENDPOINT,
+                model:
+                  providerResolution.provider === 'kie'
+                    ? 'nano-banana-2'
+                    : FAL_IMAGE_ENDPOINT,
+                provider: providerResolution.provider,
                 output_format: 'png',
                 resolution,
                 use_case: 'missing_object_generation',
@@ -1118,7 +1169,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         generation_prompt: generationPrompt,
         generation_meta: generationPrompt
           ? {
-              model: FAL_IMAGE_ENDPOINT,
+              model:
+                providerResolution.provider === 'kie'
+                  ? 'nano-banana-2'
+                  : FAL_IMAGE_ENDPOINT,
+              provider: providerResolution.provider,
               output_format: 'png',
               resolution,
               use_case: 'missing_background_generation',
@@ -1148,7 +1203,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         );
       }
 
-      if (!process.env.FAL_KEY) {
+      if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
         return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
@@ -1225,6 +1280,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         });
       }
 
+      const callbackPath =
+        providerResolution.provider === 'kie'
+          ? '/api/webhook/kieai'
+          : '/api/webhook/fal';
+
       for (const gridPosition of missingObjectPositions) {
         const info = pendingObjectByGrid.get(gridPosition);
         if (!info) continue;
@@ -1274,7 +1334,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           const requestId = await queueMissingAssetJob({
             prompt,
             resolution,
-            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+            webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
+            provider: providerResolution.provider,
           });
 
           await db
@@ -1291,7 +1352,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model: FAL_IMAGE_ENDPOINT,
+              model:
+                providerResolution.provider === 'kie'
+                  ? 'nano-banana-2'
+                  : FAL_IMAGE_ENDPOINT,
+              provider: providerResolution.provider,
               output_format: 'png',
               resolution,
               generated_at: new Date().toISOString(),
@@ -1385,7 +1450,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           const requestId = await queueMissingAssetJob({
             prompt,
             resolution,
-            webhookUrl: `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`,
+            webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
+            provider: providerResolution.provider,
           });
 
           await db
@@ -1402,7 +1468,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model: FAL_IMAGE_ENDPOINT,
+              model:
+                providerResolution.provider === 'kie'
+                  ? 'nano-banana-2'
+                  : FAL_IMAGE_ENDPOINT,
+              provider: providerResolution.provider,
               output_format: 'png',
               resolution,
               generated_at: new Date().toISOString(),
@@ -1485,6 +1555,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
       v2_asset_jobs: {
         strategy: 'direct-asset',
+        provider: providerResolution.provider,
         resolution,
         queued: queuedJobsCount,
         failed: failedJobsCount,
@@ -1511,6 +1582,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     return NextResponse.json({
       status: nextPlanStatus,
+      provider: providerResolution.provider,
       asset_jobs: assetJobs,
       skipped: skippedAssets,
       match_summary: {

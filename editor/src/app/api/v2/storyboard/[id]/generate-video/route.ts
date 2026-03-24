@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { createTask, uploadFile } from '@/lib/kieai';
+import { resolveProvider } from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
@@ -19,6 +21,7 @@ const bodySchema = z.object({
 const KLING_ENDPOINTS = {
   klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
 } as const;
+const KIE_VIDEO_MODEL = 'kling-3.0/video';
 
 const MAX_KLING_ELEMENTS = 3;
 
@@ -59,6 +62,20 @@ function sanitizeKlingPrompt(prompt: string | null | undefined): string {
     )
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function inferUploadFileName(sourceUrl: string, fallback: string): string {
+  try {
+    const pathname = new URL(sourceUrl).pathname;
+    const candidate = pathname.split('/').pop()?.trim();
+    if (candidate && candidate.length > 0) {
+      return candidate;
+    }
+  } catch {
+    // Ignore parse errors and use fallback.
+  }
+
+  return fallback;
 }
 
 async function logSceneGenerationAttempt(params: {
@@ -130,6 +147,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const aspectRatioOverride = parsedBody.data.aspect_ratio;
     const model = parsedBody.data.model ?? 'klingo3';
     const endpoint = KLING_ENDPOINTS[model];
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: parsedBody.data,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
 
     const db = createServiceClient('studio');
 
@@ -249,7 +275,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       scene_index: number;
       duration_seconds: number;
       estimated_cost_usd: number;
+      request_id?: string;
       fal_request_id?: string;
+      provider?: 'fal' | 'kie';
       status: 'queued' | 'skipped' | 'estimate';
       reason?: 'no_prompt' | 'already_generated' | 'missing_background';
     }> = [];
@@ -410,47 +438,113 @@ export async function POST(req: NextRequest, context: RouteContext) {
         })
         .eq('id', scene.id);
 
-      const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-      falUrl.searchParams.set(
-        'fal_webhook',
-        `${webhookBaseUrl}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
-      );
+      let requestId: string | null = null;
 
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      if (providerResolution.provider === 'kie') {
+        const webhookUrl = `${webhookBaseUrl}/api/webhook/kieai?step=GenerateVideo&scene_id=${scene.id}`;
 
-      if (!falRes.ok) {
-        await db
-          .from('scenes')
-          .update({
-            video_status: 'failed',
-            video_error_message: 'request_error',
-          })
-          .eq('id', scene.id);
+        try {
+          const [uploadedBackgroundUrl, uploadedObjectUrls] = await Promise.all(
+            [
+              uploadFile(
+                backgroundUrl,
+                inferUploadFileName(
+                  backgroundUrl,
+                  `scene-${scene.id}-background.jpg`
+                )
+              ).then((uploaded) => uploaded.fileUrl),
+              Promise.all(
+                objectUrls.map((objectUrl, index) =>
+                  uploadFile(
+                    objectUrl,
+                    inferUploadFileName(
+                      objectUrl,
+                      `scene-${scene.id}-element-${index + 1}.jpg`
+                    )
+                  ).then((uploaded) => uploaded.fileUrl)
+                )
+              ),
+            ]
+          );
 
-        await logSceneGenerationAttempt({
-          db,
-          sceneId: scene.id,
-          storyboardId,
-          prompt: scenePrompt,
-          status: 'failed',
-          feedback: `Failed to queue scene ${scene.order}`,
+          const input: Record<string, unknown> = {
+            image_urls: [uploadedBackgroundUrl],
+            aspect_ratio:
+              aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
+            mode: 'std',
+            sound: false,
+            kling_elements: uploadedObjectUrls.map((uploadedUrl, index) => ({
+              name: `Element ${index + 1}`,
+              description: `Scene ${scene.order + 1} element ${index + 1}`,
+              element_input_urls: [uploadedUrl],
+            })),
+          };
+
+          if (multiPromptPayload && multiPromptPayload.length > 1) {
+            input.multi_shots = true;
+            input.multi_prompt = multiPromptPayload;
+          } else {
+            input.prompt =
+              multiPromptPayload?.[0]?.prompt ??
+              sanitizedMultiPrompts[0] ??
+              scenePrompt;
+            input.duration = String(baseDuration);
+          }
+
+          const result = await createTask({
+            model: KIE_VIDEO_MODEL,
+            callbackUrl: webhookUrl,
+            input,
+          });
+
+          requestId = result.taskId;
+        } catch {
+          requestId = null;
+        }
+      } else {
+        const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
+        falUrl.searchParams.set(
+          'fal_webhook',
+          `${webhookBaseUrl}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
+        );
+
+        const falRes = await fetch(falUrl.toString(), {
+          method: 'POST',
+          headers: {
+            Authorization: `Key ${process.env.FAL_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
         });
 
-        return NextResponse.json(
-          { error: `Failed to queue scene ${scene.order}` },
-          { status: 500 }
-        );
-      }
+        if (!falRes.ok) {
+          await db
+            .from('scenes')
+            .update({
+              video_status: 'failed',
+              video_error_message: 'request_error',
+            })
+            .eq('id', scene.id);
 
-      const falData = await falRes.json();
-      const requestId = falData.request_id as string | undefined;
+          await logSceneGenerationAttempt({
+            db,
+            sceneId: scene.id,
+            storyboardId,
+            prompt: scenePrompt,
+            status: 'failed',
+            feedback: `Failed to queue scene ${scene.order}`,
+          });
+
+          return NextResponse.json(
+            { error: `Failed to queue scene ${scene.order}` },
+            { status: 500 }
+          );
+        }
+
+        const falData = await falRes.json();
+        requestId =
+          typeof falData?.request_id === 'string' ? falData.request_id : null;
+      }
 
       if (!requestId) {
         await db
@@ -472,7 +566,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
         return NextResponse.json(
           {
-            error: `fal.ai response missing request_id for scene ${scene.order}`,
+            error: `${providerResolution.provider === 'kie' ? 'kie.ai' : 'fal.ai'} response missing request_id for scene ${scene.order}`,
           },
           { status: 500 }
         );
@@ -489,7 +583,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         storyboardId,
         prompt: scenePrompt,
         generationMeta: {
-          model: endpoint,
+          model:
+            providerResolution.provider === 'kie' ? KIE_VIDEO_MODEL : endpoint,
+          provider: providerResolution.provider,
           aspect_ratio:
             aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
           duration_seconds: actualDuration,
@@ -505,7 +601,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         scene_index: scene.order,
         duration_seconds: actualDuration,
         estimated_cost_usd: estimatedCost,
+        request_id: requestId,
         fal_request_id: requestId,
+        provider: providerResolution.provider,
         status: 'queued',
       });
     }
@@ -516,6 +614,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       ) / 1000;
 
     return NextResponse.json({
+      provider: providerResolution.provider,
       jobs,
       total_estimated_cost_usd: totalEstimatedCost,
     });

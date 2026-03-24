@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { createTask, uploadFile } from '@/lib/kieai';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
@@ -14,6 +19,7 @@ import {
 } from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
+const KIE_IMAGE_MODEL = 'nano-banana-2';
 
 interface RefFirstFrameInput {
   scene_ids: string[];
@@ -46,6 +52,34 @@ function applyFirstFrameGenerationSettings(
   const dimensions = getGridOutputDimensions(aspectRatio, resolution);
 
   return `${prompt}\n\nOutput requirements:\n- Final image aspect ratio must be ${aspectRatio}.\n- Target output resolution around ${dimensions.width}x${dimensions.height} (${resolution.replace('_', '.').toUpperCase()}).\n- Keep composition natural and avoid cropped heads/limbs unless explicitly requested.`;
+}
+
+function inferUploadFileName(sourceUrl: string, fallback: string): string {
+  try {
+    const pathname = new URL(sourceUrl).pathname;
+    const candidate = pathname.split('/').pop()?.trim();
+    if (candidate && candidate.length > 0) {
+      return candidate;
+    }
+  } catch {
+    // Ignore parse errors and use fallback.
+  }
+
+  return fallback;
+}
+
+function normalizeKieResolution(
+  resolution: GridResolution
+): '1K' | '2K' | '4K' {
+  switch (resolution) {
+    case '4k':
+    case '3k':
+      return '4K';
+    case '2k':
+      return '2K';
+    default:
+      return '1K';
+  }
 }
 
 async function getSceneRefContext(
@@ -193,6 +227,7 @@ async function queueFirstFrameRequest(
   refs: SceneRefContext,
   endpoint: string,
   model: NonNullable<RefFirstFrameInput['model']>,
+  provider: GenerationProvider,
   aspectRatio: GridAspectRatio,
   resolution: GridResolution,
   webhookBase: string,
@@ -204,6 +239,57 @@ async function queueFirstFrameRequest(
     aspect_ratio: aspectRatio,
     resolution,
   });
+
+  if (provider === 'kie') {
+    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+
+    log.api('kie.ai', KIE_IMAGE_MODEL, {
+      scene_id: refs.sceneId,
+      first_frame_id: firstFrameId,
+      refs_count: refs.imageUrls.length,
+    });
+
+    log.startTiming('kie_ref_first_frame_request');
+
+    try {
+      const uploadedReferenceUrls = await Promise.all(
+        refs.imageUrls.map((referenceUrl, index) =>
+          uploadFile(
+            referenceUrl,
+            inferUploadFileName(
+              referenceUrl,
+              `first-frame-${firstFrameId}-ref-${index + 1}.jpg`
+            )
+          ).then((uploaded) => uploaded.fileUrl)
+        )
+      );
+
+      const result = await createTask({
+        model: KIE_IMAGE_MODEL,
+        callbackUrl: webhookUrl,
+        input: {
+          prompt: refs.prompt,
+          image_input: uploadedReferenceUrls.slice(0, 14),
+          aspect_ratio: aspectRatio,
+          resolution: normalizeKieResolution(resolution),
+          output_format: 'jpg',
+        },
+      });
+
+      log.success('kie.ai ref-first-frame request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_ref_first_frame_request'),
+      });
+
+      return { requestId: result.taskId, error: null };
+    } catch (error) {
+      log.error('kie.ai ref-first-frame request exception', {
+        error: error instanceof Error ? error.message : String(error),
+        time_ms: log.endTiming('kie_ref_first_frame_request'),
+      });
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
 
   const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
@@ -287,10 +373,32 @@ export async function POST(req: NextRequest) {
 
     const input: RefFirstFrameInput = await req.json();
     const { scene_ids, model = 'banana', aspect_ratio, resolution } = input;
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: input,
+    });
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scene_ids must be a non-empty array' },
+        { status: 400 }
+      );
+    }
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json(
+        { success: false, error: 'Missing FAL_KEY' },
+        { status: 500 }
+      );
+    }
+
+    if (providerResolution.provider === 'kie' && model !== 'banana') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'kie provider currently supports only banana model',
+        },
         { status: 400 }
       );
     }
@@ -418,6 +526,7 @@ export async function POST(req: NextRequest) {
         queueContext,
         endpoint,
         model,
+        providerResolution.provider,
         selectedAspectRatio,
         selectedResolution,
         webhookBase,
@@ -462,6 +571,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      provider: providerResolution.provider,
       results,
       summary: {
         total: scene_ids.length,

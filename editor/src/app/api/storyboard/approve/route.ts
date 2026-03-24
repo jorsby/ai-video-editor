@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { queueKieImageTask } from '@/lib/kie-image';
 import type { createLogger } from '@/lib/logger';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
   DEFAULT_GRID_RESOLUTION,
@@ -28,10 +33,53 @@ interface FalRequestResult {
 }
 
 async function sendFalRequest(
-  falUrl: URL,
+  provider: GenerationProvider,
+  webhookUrl: string,
   prompt: string,
+  gridAspectRatio: GridAspectRatio,
+  gridResolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<FalRequestResult> {
+  if (provider === 'kie') {
+    log.api('kie.ai', 'nano-banana-2', {
+      prompt_length: prompt.length,
+      grid_aspect_ratio: gridAspectRatio,
+      grid_resolution: gridResolution,
+    });
+    log.startTiming('kie_request');
+
+    try {
+      const queued = await queueKieImageTask({
+        prompt,
+        callbackUrl: webhookUrl,
+        aspectRatio: gridAspectRatio,
+        resolution: gridResolution,
+        outputFormat: 'jpg',
+      });
+
+      log.success('kie.ai request accepted', {
+        request_id: queued.requestId,
+        time_ms: log.endTiming('kie_request'),
+      });
+      return { requestId: queued.requestId, error: null };
+    } catch (error) {
+      log.error('kie.ai request failed', {
+        error: error instanceof Error ? error.message : String(error),
+        time_ms: log.endTiming('kie_request'),
+      });
+
+      return {
+        requestId: null,
+        error: 'kie.ai request failed',
+      };
+    }
+  }
+
+  const falUrl = new URL(
+    'https://queue.fal.run/workflows/octupost/generategridimage'
+  );
+  falUrl.searchParams.set('fal_webhook', webhookUrl);
+
   log.api('fal.ai', 'octupost/generategridimage', {
     prompt_length: prompt.length,
   });
@@ -141,6 +189,7 @@ function validateWorkflowInput(input: WorkflowInput): string | null {
  */
 async function executeStartWorkflow(
   input: WorkflowInput,
+  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{
@@ -230,11 +279,9 @@ async function executeStartWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
-  const falUrl = new URL(
-    'https://queue.fal.run/workflows/octupost/generategridimage'
-  );
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
+  const callbackPath =
+    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const resolvedWebhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
   const selectedGridAspectRatio = isGridAspectRatio(
     grid_generation_aspect_ratio
@@ -251,7 +298,14 @@ async function executeStartWorkflow(
     selectedGridResolution
   );
 
-  const falResult = await sendFalRequest(falUrl, falPrompt, log);
+  const falResult = await sendFalRequest(
+    provider,
+    resolvedWebhookUrl,
+    falPrompt,
+    selectedGridAspectRatio,
+    selectedGridResolution,
+    log
+  );
   if (falResult.error) {
     await supabase
       .from('grid_images')
@@ -392,22 +446,58 @@ function validateRefWorkflowInput(input: RefWorkflowInput): string | null {
 }
 
 async function sendFalGridRequest(
+  provider: GenerationProvider,
   prompt: string,
   webhookUrl: string,
   gridAspectRatio: GridAspectRatio,
   gridResolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<FalRequestResult> {
-  const falUrl = new URL(
-    'https://queue.fal.run/workflows/octupost/generategridimage'
-  );
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
   const falPrompt = applyGridGenerationSettingsToPrompt(
     prompt,
     gridAspectRatio,
     gridResolution
   );
+
+  if (provider === 'kie') {
+    log.api('kie.ai', 'nano-banana-2', {
+      prompt_length: falPrompt.length,
+      grid_aspect_ratio: gridAspectRatio,
+      grid_resolution: gridResolution,
+    });
+    log.startTiming('kie_request');
+
+    try {
+      const queued = await queueKieImageTask({
+        prompt: falPrompt,
+        callbackUrl: webhookUrl,
+        aspectRatio: gridAspectRatio,
+        resolution: gridResolution,
+        outputFormat: 'jpg',
+      });
+
+      log.success('kie.ai request accepted', {
+        request_id: queued.requestId,
+        time_ms: log.endTiming('kie_request'),
+      });
+      return { requestId: queued.requestId, error: null };
+    } catch (error) {
+      log.error('kie.ai request failed', {
+        error: error instanceof Error ? error.message : String(error),
+        time_ms: log.endTiming('kie_request'),
+      });
+
+      return {
+        requestId: null,
+        error: 'kie.ai request failed',
+      };
+    }
+  }
+
+  const falUrl = new URL(
+    'https://queue.fal.run/workflows/octupost/generategridimage'
+  );
+  falUrl.searchParams.set('fal_webhook', webhookUrl);
 
   log.api('fal.ai', 'octupost/generategridimage', {
     prompt_length: falPrompt.length,
@@ -453,6 +543,7 @@ async function sendFalGridRequest(
  */
 async function executeStartRefWorkflow(
   input: RefWorkflowInput,
+  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{
@@ -592,7 +683,9 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const objectsWebhookUrl = `${webhookBase}/api/webhook/fal?${objectsWebhookParams.toString()}`;
+  const callbackPath =
+    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const objectsWebhookUrl = `${webhookBase}${callbackPath}?${objectsWebhookParams.toString()}`;
 
   const bgWebhookParams = new URLSearchParams({
     step: 'GenGridImage',
@@ -603,7 +696,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const bgWebhookUrl = `${webhookBase}/api/webhook/fal?${bgWebhookParams.toString()}`;
+  const bgWebhookUrl = `${webhookBase}${callbackPath}?${bgWebhookParams.toString()}`;
 
   const selectedGridAspectRatio = isGridAspectRatio(
     grid_generation_aspect_ratio
@@ -616,6 +709,7 @@ async function executeStartRefWorkflow(
 
   const [objectsResult, bgResult] = await Promise.all([
     sendFalGridRequest(
+      provider,
       objects_grid_prompt,
       objectsWebhookUrl,
       selectedGridAspectRatio,
@@ -623,6 +717,7 @@ async function executeStartRefWorkflow(
       log
     ),
     sendFalGridRequest(
+      provider,
       backgrounds_grid_prompt,
       bgWebhookUrl,
       selectedGridAspectRatio,
@@ -742,7 +837,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { storyboardId } = await req.json();
+    const body = await req.json();
+    const { storyboardId } = body;
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
     parsedStoryboardId = storyboardId;
 
     if (!storyboardId) {
@@ -821,6 +926,7 @@ export async function POST(req: NextRequest) {
         success: true,
         storyboard_id: storyboardId,
         status: 'approved',
+        provider: providerResolution.provider,
         already_approved: true,
         scenes_created: 0,
       });
@@ -918,6 +1024,7 @@ export async function POST(req: NextRequest) {
       success: true,
       storyboard_id: storyboardId,
       status: 'approved',
+      provider: providerResolution.provider,
       scenes_created: createdScenes.length,
     });
   } catch (error) {

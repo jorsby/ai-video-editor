@@ -2,7 +2,12 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createTask, uploadFile } from '@/lib/kieai';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
@@ -12,6 +17,7 @@ import {
 import { resolveSeriesAssetsForProject } from '@/lib/supabase/series-asset-resolver';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
+const KIE_VIDEO_MODEL = 'kling-3.0/video';
 
 // ── Model configuration ───────────────────────────────────────────────
 
@@ -184,6 +190,12 @@ interface LibraryElement {
   reference_image_urls: string[];
 }
 
+interface RefObjectElement {
+  url: string;
+  name: string;
+  description: string | null;
+}
+
 interface RefVideoContext {
   scene_id: string;
   storyboard_id: string;
@@ -192,6 +204,7 @@ interface RefVideoContext {
   multi_prompt?: string[];
   multi_shots?: Array<{ duration?: string }> | null;
   object_urls: string[];
+  object_elements: RefObjectElement[];
   background_url: string;
   duration: number;
   /** When set, these replace the naive single-image elements for Kling. */
@@ -321,12 +334,19 @@ async function getRefVideoContext(
 
   const { data: objects } = await supabase
     .from('objects')
-    .select('final_url, character_id, series_asset_variant_id')
+    .select(
+      'final_url, character_id, series_asset_variant_id, name, description'
+    )
     .eq('scene_id', sceneId)
     .order('scene_order', { ascending: true });
 
   // Resolve element images: prefer live series asset image, fallback to static final_url
-  const resolvedObjects: Array<{ url: string; variantId: string | null }> = [];
+  const resolvedObjects: Array<{
+    url: string;
+    variantId: string | null;
+    name: string | null;
+    description: string | null;
+  }> = [];
   for (const obj of objects || []) {
     let url = obj.final_url;
     // Try live series asset image if variant linked
@@ -341,9 +361,33 @@ async function getRefVideoContext(
       if (liveImg?.url) url = liveImg.url;
     }
     if (url)
-      resolvedObjects.push({ url, variantId: obj.series_asset_variant_id });
+      resolvedObjects.push({
+        url,
+        variantId: obj.series_asset_variant_id,
+        name: typeof obj.name === 'string' ? obj.name : null,
+        description:
+          typeof obj.description === 'string' ? obj.description : null,
+      });
   }
   const objectUrls: string[] = resolvedObjects.map((o) => o.url);
+  const objectElements: RefObjectElement[] = resolvedObjects.map(
+    (objectRef, index) => {
+      const trimmedName = objectRef.name?.trim();
+      const trimmedDescription = objectRef.description?.trim();
+
+      return {
+        url: objectRef.url,
+        name:
+          trimmedName && trimmedName.length > 0
+            ? trimmedName
+            : `Element ${index + 1}`,
+        description:
+          trimmedDescription && trimmedDescription.length > 0
+            ? trimmedDescription
+            : null,
+      };
+    }
+  );
 
   // Check for library characters (via project_characters)
   let libraryElements: LibraryElement[] | undefined;
@@ -578,6 +622,7 @@ async function getRefVideoContext(
         ? (scene.multi_shots as Array<{ duration?: string }>)
         : null,
       object_urls: objectUrls,
+      object_elements: objectElements,
       background_url: bg.final_url,
       duration: targetDuration,
       library_elements: libraryElements,
@@ -593,10 +638,36 @@ async function getRefVideoContext(
       ? (scene.multi_shots as Array<{ duration?: string }>)
       : null,
     object_urls: objectUrls,
+    object_elements: objectElements,
     background_url: bg.final_url,
     duration: bucketDuration(targetDuration),
     library_elements: libraryElements,
   };
+}
+
+function inferUploadFileName(sourceUrl: string, fallback: string): string {
+  try {
+    const pathname = new URL(sourceUrl).pathname;
+    const candidate = pathname.split('/').pop()?.trim();
+    if (candidate && candidate.length > 0) {
+      return candidate;
+    }
+  } catch {
+    // Ignore parse errors and use fallback.
+  }
+
+  return fallback;
+}
+
+async function uploadUrlForKie(
+  sourceUrl: string,
+  fallbackName: string
+): Promise<string> {
+  const uploaded = await uploadFile(
+    sourceUrl,
+    inferUploadFileName(sourceUrl, fallbackName)
+  );
+  return uploaded.fileUrl;
 }
 
 async function sendRefVideoRequest(
@@ -606,6 +677,7 @@ async function sendRefVideoRequest(
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
   enableAudio: boolean,
+  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
@@ -613,8 +685,83 @@ async function sendRefVideoRequest(
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
+  if (provider === 'kie') {
+    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+
+    log.api('kie.ai', KIE_VIDEO_MODEL, {
+      scene_id: context.scene_id,
+      model,
+      resolution,
+      duration: context.duration,
+      aspect_ratio,
+      enable_audio: enableAudio,
+    });
+    log.startTiming('kie_video_request');
+
+    try {
+      const [uploadedBackgroundUrl, uploadedObjectUrls] = await Promise.all([
+        uploadUrlForKie(
+          context.background_url,
+          `scene-${context.scene_id}-bg.jpg`
+        ),
+        Promise.all(
+          context.object_elements.map((objectElement, index) =>
+            uploadUrlForKie(
+              objectElement.url,
+              `scene-${context.scene_id}-element-${index + 1}.jpg`
+            )
+          )
+        ),
+      ]);
+
+      const input: Record<string, unknown> = {
+        image_urls: [uploadedBackgroundUrl],
+        aspect_ratio: aspect_ratio ?? '16:9',
+        mode: 'std',
+        sound: false,
+        kling_elements: uploadedObjectUrls.map((uploadedUrl, index) => ({
+          name: context.object_elements[index]?.name ?? `Element ${index + 1}`,
+          description:
+            context.object_elements[index]?.description ??
+            `Scene element ${index + 1}`,
+          element_input_urls: [uploadedUrl],
+        })),
+      };
+
+      if (context.multi_prompt && context.multi_prompt.length > 1) {
+        input.multi_shots = true;
+        input.multi_prompt = buildKlingMultiPromptPayload({
+          prompts: context.multi_prompt,
+          targetTotalSeconds: context.duration,
+          multiShots: context.multi_shots,
+        });
+      } else {
+        input.prompt = context.prompt;
+        input.duration = String(context.duration);
+      }
+
+      const result = await createTask({
+        model: KIE_VIDEO_MODEL,
+        callbackUrl: webhookUrl,
+        input,
+      });
+
+      log.success('kie.ai ref video request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_video_request'),
+      });
+      return { requestId: result.taskId, error: null };
+    } catch (err) {
+      log.error('kie.ai ref video request exception', {
+        error: err instanceof Error ? err.message : String(err),
+        time_ms: log.endTiming('kie_video_request'),
+      });
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
+
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
@@ -694,6 +841,7 @@ async function sendVideoRequest(
   resolution: string,
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
+  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<{ requestId: string | null; error: string | null }> {
@@ -701,8 +849,55 @@ async function sendVideoRequest(
     step: 'GenerateVideo',
     scene_id: context.scene_id,
   });
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
+  if (provider === 'kie') {
+    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+
+    log.api('kie.ai', KIE_VIDEO_MODEL, {
+      scene_id: context.scene_id,
+      resolution,
+      duration: context.duration,
+      aspect_ratio,
+    });
+    log.startTiming('kie_video_request');
+
+    try {
+      const uploadedImageUrl = await uploadUrlForKie(
+        context.final_url,
+        `scene-${context.scene_id}-first-frame.jpg`
+      );
+
+      const input: Record<string, unknown> = {
+        prompt: context.visual_prompt,
+        image_urls: [uploadedImageUrl],
+        duration: String(context.duration),
+        aspect_ratio: aspect_ratio ?? '16:9',
+        mode: 'std',
+        sound: false,
+      };
+
+      const result = await createTask({
+        model: KIE_VIDEO_MODEL,
+        callbackUrl: webhookUrl,
+        input,
+      });
+
+      log.success('kie.ai video request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_video_request'),
+      });
+
+      return { requestId: result.taskId, error: null };
+    } catch (err) {
+      log.error('kie.ai video request exception', {
+        error: err instanceof Error ? err.message : String(err),
+        time_ms: log.endTiming('kie_video_request'),
+      });
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
+
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
@@ -764,6 +959,7 @@ async function queueDirectRefVideo(
   modelConfig: ModelConfig,
   aspect_ratio: string | undefined,
   enableAudio: boolean,
+  provider: GenerationProvider,
   durationOverride: number | undefined,
   webhookBase: string,
   log: ReturnType<typeof createLogger>,
@@ -809,6 +1005,7 @@ async function queueDirectRefVideo(
     modelConfig,
     aspect_ratio,
     enableAudio,
+    provider,
     webhookBase,
     log
   );
@@ -851,7 +1048,8 @@ async function queueDirectRefVideo(
     storyboardId: refContext.storyboard_id,
     prompt: refContext.prompt_for_log,
     generationMeta: {
-      model: modelConfig.endpoint,
+      model: provider === 'kie' ? KIE_VIDEO_MODEL : modelConfig.endpoint,
+      provider,
       resolution,
       aspect_ratio,
       duration_seconds: refContext.duration,
@@ -911,6 +1109,19 @@ export async function POST(req: NextRequest) {
       enable_audio = true,
       duration_overrides,
     } = input;
+
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: input,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json(
+        { success: false, error: 'Missing FAL_KEY' },
+        { status: 500 }
+      );
+    }
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
@@ -1100,6 +1311,8 @@ export async function POST(req: NextRequest) {
       scene_count: scene_ids.length,
       resolution,
       model,
+      provider: providerResolution.provider,
+      provider_source: providerResolution.source,
       mode: isRefMode
         ? 'ref_to_video'
         : forceI2v
@@ -1157,6 +1370,7 @@ export async function POST(req: NextRequest) {
           resolution,
           modelConfig,
           aspect_ratio,
+          providerResolution.provider,
           webhookBase,
           log
         );
@@ -1200,7 +1414,11 @@ export async function POST(req: NextRequest) {
           storyboardId: i2vContext.storyboard_id,
           prompt: i2vContext.visual_prompt,
           generationMeta: {
-            model: modelConfig.endpoint,
+            model:
+              providerResolution.provider === 'kie'
+                ? KIE_VIDEO_MODEL
+                : modelConfig.endpoint,
+            provider: providerResolution.provider,
             resolution,
             aspect_ratio,
             duration_seconds: i2vContext.duration,
@@ -1232,6 +1450,7 @@ export async function POST(req: NextRequest) {
           MODEL_CONFIG[effectiveDirectRefModel],
           aspect_ratio,
           effectiveEnableAudio,
+          providerResolution.provider,
           durationOverrideForScene,
           webhookBase,
           log,
@@ -1271,6 +1490,7 @@ export async function POST(req: NextRequest) {
         resolution,
         modelConfig,
         aspect_ratio,
+        providerResolution.provider,
         webhookBase,
         log
       );
@@ -1312,7 +1532,11 @@ export async function POST(req: NextRequest) {
         storyboardId: context.storyboard_id,
         prompt: context.visual_prompt,
         generationMeta: {
-          model: modelConfig.endpoint,
+          model:
+            providerResolution.provider === 'kie'
+              ? KIE_VIDEO_MODEL
+              : modelConfig.endpoint,
+          provider: providerResolution.provider,
           resolution,
           aspect_ratio,
           duration_seconds: context.duration,
@@ -1344,6 +1568,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      provider: providerResolution.provider,
       results,
       summary: {
         total: scene_ids.length,

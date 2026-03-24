@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { queueKieImageTask } from '@/lib/kie-image';
 import { createLogger } from '@/lib/logger';
+import { resolveProvider } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
@@ -27,12 +29,26 @@ export async function POST(req: NextRequest) {
 
     const { storyboardId, gridImagePrompt, gridAspectRatio, gridResolution } =
       await req.json();
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: {
+        storyboardId,
+        gridImagePrompt,
+        gridAspectRatio,
+        gridResolution,
+      },
+    });
 
     if (!storyboardId) {
       return NextResponse.json(
         { error: 'storyboardId is required' },
         { status: 400 }
       );
+    }
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
     }
 
     // Fetch storyboard, validate plan_status === 'grid_ready'
@@ -218,36 +234,85 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
-    const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
-    const falUrl = new URL(
-      'https://queue.fal.run/workflows/octupost/generategridimage'
-    );
-    falUrl.searchParams.set('fal_webhook', webhookUrl);
+    const callbackPath =
+      providerResolution.provider === 'kie'
+        ? '/api/webhook/kieai'
+        : '/api/webhook/fal';
+    const webhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
-    log.api('fal.ai', 'octupost/generategridimage', {
-      prompt_length: falPrompt.length,
-      grid_aspect_ratio: finalGridAspectRatio,
-      grid_resolution: finalGridResolution,
-    });
-    log.startTiming('fal_request');
+    let requestId: string | null = null;
 
-    const falResponse = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt: falPrompt, web_search: true }),
-    });
+    if (providerResolution.provider === 'kie') {
+      log.api('kie.ai', 'nano-banana-2', {
+        prompt_length: falPrompt.length,
+        grid_aspect_ratio: finalGridAspectRatio,
+        grid_resolution: finalGridResolution,
+      });
+      log.startTiming('kie_request');
 
-    if (!falResponse.ok) {
-      const errorText = await falResponse.text();
-      log.error('fal.ai request failed', {
-        status: falResponse.status,
-        error: errorText,
-        time_ms: log.endTiming('fal_request'),
+      try {
+        const queued = await queueKieImageTask({
+          prompt: falPrompt,
+          callbackUrl: webhookUrl,
+          aspectRatio: finalGridAspectRatio,
+          resolution: finalGridResolution,
+          outputFormat: 'jpg',
+        });
+
+        requestId = queued.requestId;
+        log.success('kie.ai request accepted', {
+          request_id: requestId,
+          time_ms: log.endTiming('kie_request'),
+        });
+      } catch (error) {
+        log.error('kie.ai request failed', {
+          error: error instanceof Error ? error.message : String(error),
+          time_ms: log.endTiming('kie_request'),
+        });
+      }
+    } else {
+      const falUrl = new URL(
+        'https://queue.fal.run/workflows/octupost/generategridimage'
+      );
+      falUrl.searchParams.set('fal_webhook', webhookUrl);
+
+      log.api('fal.ai', 'octupost/generategridimage', {
+        prompt_length: falPrompt.length,
+        grid_aspect_ratio: finalGridAspectRatio,
+        grid_resolution: finalGridResolution,
+      });
+      log.startTiming('fal_request');
+
+      const falResponse = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${FAL_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: falPrompt, web_search: true }),
       });
 
+      if (!falResponse.ok) {
+        const errorText = await falResponse.text();
+        log.error('fal.ai request failed', {
+          status: falResponse.status,
+          error: errorText,
+          time_ms: log.endTiming('fal_request'),
+        });
+      } else {
+        const falResult = await falResponse.json();
+        requestId =
+          typeof falResult?.request_id === 'string'
+            ? falResult.request_id
+            : null;
+        log.success('fal.ai request accepted', {
+          request_id: requestId,
+          time_ms: log.endTiming('fal_request'),
+        });
+      }
+    }
+
+    if (!requestId) {
       await adminSupabase
         .from('grid_images')
         .update({ status: 'failed', error_message: 'request_error' })
@@ -264,21 +329,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const falResult = await falResponse.json();
-    log.success('fal.ai request accepted', {
-      request_id: falResult.request_id,
-      time_ms: log.endTiming('fal_request'),
-    });
-
     await adminSupabase
       .from('grid_images')
-      .update({ status: 'processing', request_id: falResult.request_id })
+      .update({ status: 'processing', request_id: requestId })
       .eq('id', grid_image_id);
 
     return NextResponse.json({
       success: true,
       storyboard_id: storyboardId,
       grid_image_id,
+      provider: providerResolution.provider,
       grid_aspect_ratio: finalGridAspectRatio,
       grid_resolution: finalGridResolution,
     });

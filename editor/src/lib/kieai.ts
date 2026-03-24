@@ -4,6 +4,7 @@ const KIE_API_BASE = process.env.KIE_API_BASE_URL ?? 'https://api.kie.ai';
 const KIE_UPLOAD_BASE =
   process.env.KIE_UPLOAD_BASE_URL ?? 'https://kieai.redpandaai.co';
 const DEFAULT_WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+const uploadFileCache = new Map<string, Promise<KieUploadResult>>();
 
 export type KieTaskState =
   | 'waiting'
@@ -133,28 +134,49 @@ export async function uploadFile(
   fileName: string,
   uploadPath = 'series-assets'
 ): Promise<KieUploadResult> {
-  const response = await fetch(`${KIE_UPLOAD_BASE}/api/file-url-upload`, {
-    method: 'POST',
-    headers: buildAuthHeaders(),
-    body: JSON.stringify({
-      fileUrl: sourceUrl,
-      fileName,
-      uploadPath,
-    }),
-  });
-
-  const data = (await response.json().catch(() => null)) as {
-    data?: { fileUrl?: string };
-    msg?: string;
-  } | null;
-
-  if (!response.ok || !data?.data?.fileUrl) {
-    throw new Error(
-      `kie.ai upload failed (${response.status})${data?.msg ? `: ${data.msg}` : ''}`
-    );
+  const normalizedSourceUrl = sourceUrl.trim();
+  if (!normalizedSourceUrl) {
+    throw new Error('kie.ai upload failed: sourceUrl is required');
   }
 
-  return { fileUrl: data.data.fileUrl, response: data };
+  const cached = uploadFileCache.get(normalizedSourceUrl);
+  if (cached) {
+    return cached;
+  }
+
+  const uploadPromise = (async (): Promise<KieUploadResult> => {
+    const response = await fetch(`${KIE_UPLOAD_BASE}/api/file-url-upload`, {
+      method: 'POST',
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({
+        fileUrl: normalizedSourceUrl,
+        fileName,
+        uploadPath,
+      }),
+    });
+
+    const data = (await response.json().catch(() => null)) as {
+      data?: { fileUrl?: string };
+      msg?: string;
+    } | null;
+
+    if (!response.ok || !data?.data?.fileUrl) {
+      throw new Error(
+        `kie.ai upload failed (${response.status})${data?.msg ? `: ${data.msg}` : ''}`
+      );
+    }
+
+    return { fileUrl: data.data.fileUrl, response: data };
+  })();
+
+  uploadFileCache.set(normalizedSourceUrl, uploadPromise);
+
+  try {
+    return await uploadPromise;
+  } catch (error) {
+    uploadFileCache.delete(normalizedSourceUrl);
+    throw error;
+  }
 }
 
 export async function getTaskStatus(taskId: string): Promise<KieTaskResponse> {
