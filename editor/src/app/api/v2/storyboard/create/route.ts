@@ -9,7 +9,9 @@ const createStoryboardBodySchema = z.object({
   episode_id: z.string().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   mode: z.enum(['narrative', 'cinematic']),
-  plan: klingO3PlanSchema,
+  plan: klingO3PlanSchema.optional(),
+  synopsis: z.string().optional(),
+  episode_number: z.number().int().min(1).optional(),
 });
 
 function validatePlanConsistency(plan: z.infer<typeof klingO3PlanSchema>) {
@@ -88,11 +90,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { project_id, episode_id, title, mode, plan } = parsed.data;
+    const {
+      project_id,
+      episode_id,
+      title,
+      mode,
+      plan,
+      synopsis,
+      episode_number,
+    } = parsed.data;
 
-    const consistencyError = validatePlanConsistency(plan);
-    if (consistencyError) {
-      return NextResponse.json({ error: consistencyError }, { status: 400 });
+    if (plan) {
+      const consistencyError = validatePlanConsistency(plan);
+      if (consistencyError) {
+        return NextResponse.json({ error: consistencyError }, { status: 400 });
+      }
     }
 
     const db = createServiceClient('studio');
@@ -118,18 +130,28 @@ export async function POST(req: NextRequest) {
 
     const nextSort = (maxSort?.sort_order ?? -1) + 1;
 
-    const planWithMode = {
-      ...plan,
-      agent_mode: mode,
-      video_mode:
-        plan.video_mode ??
-        (mode === 'cinematic' ? 'dialogue_scene' : 'narrative'),
-    };
+    let planWithMode: Record<string, unknown> | null = null;
+    let voiceoverText: string | null = null;
 
-    const firstVoiceoverLanguage = Object.keys(plan.voiceover_list)[0] ?? 'en';
-    const voiceoverText = (
-      plan.voiceover_list[firstVoiceoverLanguage] ?? []
-    ).join('\n');
+    if (plan) {
+      planWithMode = {
+        ...plan,
+        agent_mode: mode,
+        video_mode:
+          plan.video_mode ??
+          (mode === 'cinematic' ? 'dialogue_scene' : 'narrative'),
+      };
+
+      const firstVoiceoverLanguage =
+        Object.keys(plan.voiceover_list)[0] ?? 'en';
+      voiceoverText = (plan.voiceover_list[firstVoiceoverLanguage] ?? []).join(
+        '\n'
+      );
+    }
+
+    const metadata: Record<string, unknown> = {};
+    if (synopsis) metadata.synopsis = synopsis;
+    if (episode_number) metadata.episode_number = episode_number;
 
     const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
@@ -137,7 +159,7 @@ export async function POST(req: NextRequest) {
         project_id,
         title: title ?? null,
         plan: planWithMode,
-        plan_status: 'draft',
+        plan_status: plan ? 'draft' : 'empty',
         mode: 'ref_to_video',
         model: 'klingo3',
         voiceover: voiceoverText,
@@ -145,6 +167,7 @@ export async function POST(req: NextRequest) {
           mode === 'cinematic' ? 'cinematic_flow' : 'voiceover_script',
         sort_order: nextSort,
         is_active: nextSort === 0,
+        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
       })
       .select('id')
       .single();
@@ -205,7 +228,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { storyboard_id: storyboardId, status: 'draft' },
+      {
+        storyboard_id: storyboardId,
+        status: plan ? 'draft' : 'empty',
+      },
       { status: 201 }
     );
   } catch (error) {

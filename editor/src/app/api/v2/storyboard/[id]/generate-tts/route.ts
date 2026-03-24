@@ -1,17 +1,30 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { createTask } from '@/lib/kieai';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam
+const DEFAULT_TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
+
+const FAL_TTS_MODELS: Record<string, string> = {
+  'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
+  'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
+};
+const DEFAULT_FAL_TTS_MODEL = 'turbo-v2.5';
 
 const bodySchema = z.object({
   voice_id: z.string().min(1).optional(),
   language: z.string().min(1).optional(),
   speed: z.number().optional(),
+  tts_model: z.enum(['turbo-v2.5', 'multilingual-v2']).optional(),
 });
 
 type SceneRow = {
@@ -111,6 +124,7 @@ function parseInput(reqBody: unknown) {
       voiceId: parsedBody.data.voice_id ?? DEFAULT_VOICE_ID,
       language: parsedBody.data.language ?? 'en',
       speed: Math.min(1.2, Math.max(0.7, parsedBody.data.speed ?? 1.0)),
+      ttsModel: parsedBody.data.tts_model ?? DEFAULT_FAL_TTS_MODEL,
     },
   };
 }
@@ -155,12 +169,42 @@ async function queueTtsRequest(params: {
   voiceId: string;
   speed: number;
   webhookBase: string;
+  provider: GenerationProvider;
+  ttsModel: string;
 }) {
+  if (params.provider === 'kie') {
+    const callbackUrl = `${params.webhookBase}/api/webhook/kieai?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
+
+    try {
+      const result = await createTask({
+        model: DEFAULT_TTS_MODEL,
+        callbackUrl,
+        input: {
+          text: params.scene.text,
+          voice: params.voiceId,
+          speed: params.speed,
+          previous_text: params.scene.previous_text,
+          next_text: params.scene.next_text,
+        },
+      });
+
+      return { requestId: result.taskId, error: null };
+    } catch (error) {
+      return {
+        requestId: null,
+        error:
+          error instanceof Error
+            ? `kie.ai request failed: ${error.message}`
+            : 'kie.ai request failed',
+      };
+    }
+  }
+
   const webhookUrl = `${params.webhookBase}/api/webhook/fal?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
 
-  const falUrl = new URL(
-    'https://queue.fal.run/fal-ai/elevenlabs/tts/turbo-v2.5'
-  );
+  const falEndpoint =
+    FAL_TTS_MODELS[params.ttsModel] ?? FAL_TTS_MODELS[DEFAULT_FAL_TTS_MODEL];
+  const falUrl = new URL(`https://queue.fal.run/${falEndpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
   const falResponse = await fetch(falUrl.toString(), {
@@ -205,8 +249,10 @@ async function processSceneTts(params: {
   voiceId: string;
   speed: number;
   webhookBase: string;
+  provider: GenerationProvider;
   storyboardId: string;
   language: string;
+  ttsModel: string;
 }): Promise<TtsResult> {
   if (!params.scene.voiceover_id) {
     return {
@@ -249,6 +295,8 @@ async function processSceneTts(params: {
     voiceId: params.voiceId,
     speed: params.speed,
     webhookBase: params.webhookBase,
+    provider: params.provider,
+    ttsModel: params.ttsModel,
   });
 
   if (!queued.requestId) {
@@ -272,9 +320,27 @@ async function processSceneTts(params: {
     };
   }
 
+  const generationMeta = {
+    provider: params.provider,
+    model:
+      params.provider === 'kie'
+        ? DEFAULT_TTS_MODEL
+        : (FAL_TTS_MODELS[params.ttsModel] ??
+          FAL_TTS_MODELS[DEFAULT_FAL_TTS_MODEL]),
+    tts_model: params.ttsModel,
+    voice_id: params.voiceId,
+    speed: params.speed,
+    language: params.language,
+    generated_at: new Date().toISOString(),
+    generated_by: 'system',
+  };
+
   await params.db
     .from('voiceovers')
-    .update({ request_id: queued.requestId })
+    .update({
+      request_id: queued.requestId,
+      generation_meta: generationMeta,
+    })
     .eq('id', params.scene.voiceover_id);
 
   await logVoiceoverGenerationAttempt({
@@ -282,14 +348,7 @@ async function processSceneTts(params: {
     voiceoverId: params.scene.voiceover_id,
     storyboardId: params.storyboardId,
     prompt: params.scene.text,
-    generationMeta: {
-      model: 'fal-ai/elevenlabs/tts/turbo-v2.5',
-      voice_id: params.voiceId,
-      speed: params.speed,
-      language: params.language,
-      generated_at: new Date().toISOString(),
-      generated_by: 'system',
-    },
+    generationMeta,
     status: 'pending',
   });
 
@@ -323,7 +382,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    if (!process.env.FAL_KEY) {
+    const providerResolution = await resolveProvider({
+      service: 'tts',
+      req,
+      body: input.data,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
       return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
     }
 
@@ -382,8 +447,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         voiceId: input.data.voiceId,
         speed: input.data.speed,
         webhookBase,
+        provider: providerResolution.provider,
         storyboardId,
         language: input.data.language,
+        ttsModel: input.data.ttsModel,
       });
 
       results.push(result);
@@ -394,6 +461,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     ).length;
 
     return NextResponse.json({
+      provider: providerResolution.provider,
       results,
       summary: {
         total: queueItems.length,
