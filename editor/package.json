@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "check-types": "tsc --noEmit",
     "test:smoke": "tsx scripts/smoke-test.ts"
   },
   "dependencies": {
@@ -76,7 +77,7 @@
     "zustand": "^5.0.4"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.2.0",
+    "@biomejs/biome": "2.4.6",
     "@tailwindcss/postcss": "^4",
     "@types/color": "^4.2.0",
     "@types/lodash": "^4.17.21",
