@@ -14,7 +14,14 @@ const DEFAULTS = {
 
 const FAL_ENDPOINT = 'fal-ai/nano-banana-2';
 
+/**
+ * @deprecated This legacy fal.ai route will be removed. Use kie.ai provider routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   try {
     const { prompt, aspectRatio, project_id } = await req.json();
 

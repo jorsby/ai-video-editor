@@ -58,7 +58,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * @deprecated This legacy fal.ai route will be removed. Use kie.ai provider routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   const log = createLogger();
   log.setContext({ step: 'GenerateSFX' });
 

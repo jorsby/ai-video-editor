@@ -71,5 +71,7 @@ export function useProviderPolling(
   }, [isProcessing, poll]);
 }
 
-// Backward-compatible export during migration.
+/**
+ * @deprecated Use useProviderPolling instead.
+ */
 export const useFalPolling = useProviderPolling;

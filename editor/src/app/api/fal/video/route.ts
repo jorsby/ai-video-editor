@@ -13,7 +13,14 @@ const DEFAULTS = {
 
 const FAL_ENDPOINT = 'fal-ai/kling-video/o3/standard/reference-to-video';
 
+/**
+ * @deprecated This legacy fal.ai route will be removed. Use kie.ai provider routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   try {
     const { prompt, aspectRatio, project_id, image_url } = await req.json();
 

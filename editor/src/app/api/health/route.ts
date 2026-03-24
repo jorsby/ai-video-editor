@@ -73,12 +73,12 @@ export async function GET() {
     (routing) => routing.provider === 'kie'
   );
 
-  const falOk = !falNeeded || checkFalKey();
-  const kieCheck = kieNeeded
-    ? checkKieConfig()
-    : ({ ok: true, missing: [] } as const);
+  const falConfigured = checkFalKey();
+  const kieCheck = checkKieConfig();
+  const falOk = !falNeeded || falConfigured;
+  const kieOk = !kieNeeded || kieCheck.ok;
 
-  const providerOk = falOk && kieCheck.ok;
+  const providerOk = falOk && kieOk;
   const allOk = envOk && dbOk && providerOk;
 
   const status = allOk
@@ -101,11 +101,13 @@ export async function GET() {
           },
           fal: {
             required: falNeeded,
+            configured: falConfigured,
             ok: falOk,
           },
           kie: {
             required: kieNeeded,
-            ok: kieCheck.ok,
+            configured: kieCheck.ok,
+            ok: kieOk,
             missing: kieCheck.missing,
           },
         },

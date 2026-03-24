@@ -909,7 +909,14 @@ async function pollBackgroundEdits(
 
 // ── Main Handler ────────────────────────────────────────────────────
 
+/**
+ * @deprecated This legacy fal.ai polling route will be removed. Use provider-agnostic polling routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   const log = createLogger();
   log.setContext({ step: 'PollFal' });
 
