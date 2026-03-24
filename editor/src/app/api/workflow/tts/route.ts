@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { createTask } from '@/lib/kieai';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
@@ -9,6 +14,11 @@ const FAL_API_KEY = process.env.FAL_KEY!;
 const TTS_ENDPOINTS: Record<string, string> = {
   'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
+};
+
+const KIE_TTS_MODELS: Record<string, string> = {
+  'turbo-v2.5': 'elevenlabs/text-to-speech-turbo-2-5',
+  'multilingual-v2': 'elevenlabs/text-to-speech-multilingual-v2',
 };
 
 const DEFAULT_TTS_MODEL = 'turbo-v2.5';
@@ -164,20 +174,64 @@ async function getSceneContext(
   };
 }
 
-async function sendTTSRequest(
-  context: SceneContext,
-  voice: string,
-  endpoint: string,
-  speed: number,
-  webhookBase: string,
-  log: ReturnType<typeof createLogger>
-): Promise<{ requestId: string | null; error: string | null }> {
+async function sendTTSRequest(params: {
+  context: SceneContext;
+  voice: string;
+  model: 'turbo-v2.5' | 'multilingual-v2';
+  provider: GenerationProvider;
+  speed: number;
+  webhookBase: string;
+  log: ReturnType<typeof createLogger>;
+}): Promise<{ requestId: string | null; error: string | null }> {
+  const { context, voice, model, provider, speed, webhookBase, log } = params;
+
   const webhookParams = new URLSearchParams({
     step: 'GenerateTTS',
     voiceover_id: context.voiceover_id,
   });
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
+  if (provider === 'kie') {
+    const kieModel = KIE_TTS_MODELS[model] ?? KIE_TTS_MODELS['turbo-v2.5'];
+    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+
+    log.api('kie.ai', kieModel, {
+      text_length: context.text.length,
+      has_previous: !!context.previous_text,
+      has_next: !!context.next_text,
+    });
+    log.startTiming('kie_tts_request');
+
+    try {
+      const result = await createTask({
+        model: kieModel,
+        callbackUrl: webhookUrl,
+        input: {
+          text: context.text,
+          voice,
+          speed,
+          previous_text: context.previous_text,
+          next_text: context.next_text,
+        },
+      });
+
+      log.success('kie.ai TTS request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_tts_request'),
+      });
+
+      return { requestId: result.taskId, error: null };
+    } catch (err) {
+      log.error('kie.ai TTS request exception', {
+        error: err instanceof Error ? err.message : String(err),
+        time_ms: log.endTiming('kie_tts_request'),
+      });
+
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
+
+  const endpoint = TTS_ENDPOINTS[model] ?? TTS_ENDPOINTS['turbo-v2.5'];
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
@@ -282,8 +336,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const endpoint = TTS_ENDPOINTS[model];
-    if (!endpoint) {
+    if (!TTS_ENDPOINTS[model] || !KIE_TTS_MODELS[model]) {
       log.error('Invalid TTS model', { model });
       return NextResponse.json(
         {
@@ -306,9 +359,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const providerResolution = await resolveProvider({
+      service: 'tts',
+      req,
+      body: input,
+    });
+
     log.info('Processing TTS requests', {
       scene_count: scene_ids.length,
       model,
+      provider: providerResolution.provider,
+      provider_source: providerResolution.source,
       webhook_base: webhookBase,
     });
 
@@ -381,14 +442,15 @@ export async function POST(req: NextRequest) {
         .update({ status: 'processing' })
         .eq('id', context.voiceover_id);
 
-      const { requestId, error } = await sendTTSRequest(
+      const { requestId, error } = await sendTTSRequest({
         context,
         voice,
-        endpoint,
+        model,
+        provider: providerResolution.provider,
         speed,
         webhookBase,
-        log
-      );
+        log,
+      });
 
       if (error || !requestId) {
         await supabase
@@ -427,7 +489,11 @@ export async function POST(req: NextRequest) {
         storyboardId: context.storyboard_id,
         prompt: context.text,
         generationMeta: {
-          model: endpoint,
+          provider: providerResolution.provider,
+          model:
+            providerResolution.provider === 'kie'
+              ? KIE_TTS_MODELS[model]
+              : TTS_ENDPOINTS[model],
           voice_id: voice,
           speed,
           language,
@@ -462,6 +528,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      provider: providerResolution.provider,
       results,
       summary: {
         total: scene_ids.length,

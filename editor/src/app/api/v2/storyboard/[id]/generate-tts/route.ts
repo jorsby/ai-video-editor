@@ -13,6 +13,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam
 const DEFAULT_TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
+const KIE_TTS_MODELS: Record<string, string> = {
+  'turbo-v2.5': 'elevenlabs/text-to-speech-turbo-2-5',
+  'multilingual-v2': 'elevenlabs/text-to-speech-multilingual-v2',
+};
 
 const FAL_TTS_MODELS: Record<string, string> = {
   'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
@@ -176,8 +180,10 @@ async function queueTtsRequest(params: {
     const callbackUrl = `${params.webhookBase}/api/webhook/kieai?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
 
     try {
+      const kieModel = KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL;
+
       const result = await createTask({
-        model: DEFAULT_TTS_MODEL,
+        model: kieModel,
         callbackUrl,
         input: {
           text: params.scene.text,
@@ -324,7 +330,7 @@ async function processSceneTts(params: {
     provider: params.provider,
     model:
       params.provider === 'kie'
-        ? DEFAULT_TTS_MODEL
+        ? (KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL)
         : (FAL_TTS_MODELS[params.ttsModel] ??
           FAL_TTS_MODELS[DEFAULT_FAL_TTS_MODEL]),
     tts_model: params.ttsModel,

@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
+import { resolveProvider } from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
@@ -102,6 +104,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const safetyTolerance = parsedBody.data.safety_tolerance ?? '4';
     const limitGenerations = parsedBody.data.limit_generations ?? true;
 
+    const providerResolution = await resolveProvider({
+      service: 'image',
+      req,
+      body: parsedBody.data,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
+
     const db = createServiceClient('studio');
 
     const { data: series, error: seriesError } = await db
@@ -172,15 +184,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    if (!process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
     const jobs: Array<{
       asset_id: string;
       asset_name: string;
       type: string;
+      request_id: string;
       fal_request_id: string;
+      provider: 'fal' | 'kie';
       status: 'queued';
     }> = [];
 
@@ -221,53 +231,88 @@ export async function POST(req: NextRequest, context: RouteContext) {
           : asset.name;
       const prompt = `${prefix}${basePrompt}`;
 
-      const webhookUrl = `${webhookBase}/api/webhook/fal?step=SeriesAssetImage&variant_id=${variantId}`;
+      const callbackPath =
+        providerResolution.provider === 'kie'
+          ? '/api/webhook/kieai'
+          : '/api/webhook/fal';
+      const webhookUrl = `${webhookBase}${callbackPath}?step=SeriesAssetImage&variant_id=${variantId}`;
 
-      const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
-      falUrl.searchParams.set('fal_webhook', webhookUrl);
+      let requestId: string | null = null;
+      let modelForJob = 'fal-ai/nano-banana-2';
 
-      const falPayload: Record<string, unknown> = {
-        prompt,
-        num_images: 1,
-        resolution,
-        aspect_ratio: aspectRatio,
-        output_format: outputFormat,
-        safety_tolerance: safetyTolerance,
-        limit_generations: limitGenerations,
-      };
+      if (providerResolution.provider === 'kie') {
+        try {
+          const queued = await queueKieImageTask({
+            prompt,
+            callbackUrl: webhookUrl,
+            aspectRatio,
+            resolution,
+            outputFormat,
+          });
 
-      if (parsedBody.data.enable_web_search !== undefined) {
-        falPayload.enable_web_search = parsedBody.data.enable_web_search;
+          requestId = queued.requestId;
+          modelForJob = queued.model;
+        } catch (error) {
+          return NextResponse.json(
+            {
+              error: `kie.ai request failed for asset ${asset.id}: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            { status: 500 }
+          );
+        }
+      } else {
+        const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
+        falUrl.searchParams.set('fal_webhook', webhookUrl);
+
+        const falPayload: Record<string, unknown> = {
+          prompt,
+          num_images: 1,
+          resolution,
+          aspect_ratio: aspectRatio,
+          output_format: outputFormat,
+          safety_tolerance: safetyTolerance,
+          limit_generations: limitGenerations,
+        };
+
+        if (parsedBody.data.enable_web_search !== undefined) {
+          falPayload.enable_web_search = parsedBody.data.enable_web_search;
+        }
+
+        if (parsedBody.data.thinking_level) {
+          falPayload.thinking_level = parsedBody.data.thinking_level;
+        }
+
+        const falRes = await fetch(falUrl.toString(), {
+          method: 'POST',
+          headers: {
+            Authorization: `Key ${process.env.FAL_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(falPayload),
+        });
+
+        if (!falRes.ok) {
+          const errText = await falRes.text();
+          return NextResponse.json(
+            {
+              error: `fal.ai request failed for asset ${asset.id}: ${errText}`,
+            },
+            { status: 500 }
+          );
+        }
+
+        const result = await falRes.json();
+        requestId =
+          typeof result?.request_id === 'string' ? result.request_id : null;
       }
-
-      if (parsedBody.data.thinking_level) {
-        falPayload.thinking_level = parsedBody.data.thinking_level;
-      }
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(falPayload),
-      });
-
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        return NextResponse.json(
-          { error: `fal.ai request failed for asset ${asset.id}: ${errText}` },
-          { status: 500 }
-        );
-      }
-
-      const result = await falRes.json();
-      const requestId =
-        typeof result?.request_id === 'string' ? result.request_id : null;
 
       if (!requestId) {
+        const providerName =
+          providerResolution.provider === 'kie' ? 'kie.ai' : 'fal.ai';
         return NextResponse.json(
-          { error: `fal.ai response missing request_id for asset ${asset.id}` },
+          {
+            error: `${providerName} response missing request/task id for asset ${asset.id}`,
+          },
           { status: 500 }
         );
       }
@@ -279,8 +324,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
           request_id: requestId,
           type: 'asset_image',
           prompt,
-          model: 'fal-ai/nano-banana-2',
+          model: modelForJob,
           config: {
+            provider: providerResolution.provider,
             asset_id: asset.id,
             variant_id: variantId,
             asset_type: asset.type,
@@ -305,12 +351,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
         asset_id: asset.id,
         asset_name: asset.name,
         type: asset.type,
+        request_id: requestId,
         fal_request_id: requestId,
+        provider: providerResolution.provider,
         status: 'queued',
       });
     }
 
-    return NextResponse.json({ jobs });
+    return NextResponse.json({
+      provider: providerResolution.provider,
+      jobs,
+    });
   } catch (error) {
     console.error('[v2/series/generate-assets] Unexpected error:', error);
     return NextResponse.json(

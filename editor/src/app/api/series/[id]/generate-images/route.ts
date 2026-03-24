@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
+import { resolveProvider } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -118,6 +120,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const body = await req.json();
     const { asset_id, variant_id, prompt: customPrompt } = body;
 
+    const providerResolution = await resolveProvider({
+      service: 'image',
+      req,
+      body,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
+
     if (!asset_id || !variant_id) {
       return NextResponse.json(
         { error: 'asset_id and variant_id are required' },
@@ -200,40 +212,69 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = `${webhookBase}/api/webhook/fal?step=SeriesAssetImage&variant_id=${variant_id}`;
+    const callbackPath =
+      providerResolution.provider === 'kie'
+        ? '/api/webhook/kieai'
+        : '/api/webhook/fal';
+    const webhookUrl = `${webhookBase}${callbackPath}?step=SeriesAssetImage&variant_id=${variant_id}`;
 
-    // Submit to fal.ai queue
-    const falUrl = new URL(`https://queue.fal.run/${FAL_IMAGE_ENDPOINT}`);
-    falUrl.searchParams.set('fal_webhook', webhookUrl);
+    let requestId: string;
+    let modelForJob = FAL_IMAGE_ENDPOINT;
 
-    const falRes = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${process.env.FAL_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        num_images: 1,
-        resolution: config.resolution,
-        aspect_ratio: config.aspect_ratio,
-        output_format: 'jpeg',
-        safety_tolerance: '4',
-        limit_generations: true,
-      }),
-    });
+    if (providerResolution.provider === 'kie') {
+      try {
+        const queued = await queueKieImageTask({
+          prompt,
+          callbackUrl: webhookUrl,
+          aspectRatio: config.aspect_ratio,
+          resolution: config.resolution,
+          outputFormat: 'jpg',
+        });
 
-    if (!falRes.ok) {
-      const errText = await falRes.text();
-      console.error('fal.ai request failed:', falRes.status, errText);
-      return NextResponse.json(
-        { error: 'Image generation request failed' },
-        { status: 500 }
-      );
+        requestId = queued.requestId;
+        modelForJob = queued.model;
+      } catch (error) {
+        console.error('kie.ai request failed:', error);
+        return NextResponse.json(
+          { error: 'Image generation request failed' },
+          { status: 500 }
+        );
+      }
+    } else {
+      // Submit to fal.ai queue
+      const falUrl = new URL(`https://queue.fal.run/${FAL_IMAGE_ENDPOINT}`);
+      falUrl.searchParams.set('fal_webhook', webhookUrl);
+
+      const falRes = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${process.env.FAL_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          num_images: 1,
+          resolution: config.resolution,
+          aspect_ratio: config.aspect_ratio,
+          output_format: 'jpeg',
+          safety_tolerance: '4',
+          limit_generations: true,
+        }),
+      });
+
+      if (!falRes.ok) {
+        const errText = await falRes.text();
+        console.error('fal.ai request failed:', falRes.status, errText);
+        return NextResponse.json(
+          { error: 'Image generation request failed' },
+          { status: 500 }
+        );
+      }
+
+      const falData = await falRes.json();
+      requestId = falData.request_id;
+      modelForJob = FAL_IMAGE_ENDPOINT;
     }
-
-    const falData = await falRes.json();
-    const requestId = falData.request_id;
 
     // Store generation job so webhook can persist prompt/model metadata
     await dbClient.from('series_generation_jobs').insert({
@@ -241,8 +282,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       request_id: requestId,
       type: 'asset_image',
       prompt,
-      model: FAL_IMAGE_ENDPOINT,
+      model: modelForJob,
       config: {
+        provider: providerResolution.provider,
         asset_id,
         variant_id,
         asset_type: assetType,
@@ -272,7 +314,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             jobs: [
               {
                 request_id: requestId,
-                model: FAL_IMAGE_ENDPOINT,
+                provider: providerResolution.provider,
+                model: modelForJob,
                 type: 'single',
                 variant_ids: [variant_id],
                 cols: 1,
@@ -289,8 +332,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({
       request_id: requestId,
       prompt,
-      model: FAL_IMAGE_ENDPOINT,
-      provider: 'banana',
+      model: modelForJob,
+      provider: providerResolution.provider,
       resolution: config.resolution,
       aspect_ratio: config.aspect_ratio,
       custom_prompt:

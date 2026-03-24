@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
+import { resolveProvider } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -204,6 +206,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       skip_genre?: boolean;
       custom_suffix?: string;
     };
+
+    const providerResolution = await resolveProvider({
+      service: 'image',
+      req,
+      body,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
 
     if (!type || !['character', 'location', 'prop'].includes(type)) {
       return NextResponse.json(
@@ -458,89 +470,121 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = new URL(`${webhookBase}/api/webhook/fal`);
+    const callbackPath =
+      providerResolution.provider === 'kie'
+        ? '/api/webhook/kieai'
+        : '/api/webhook/fal';
+    const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesGridImage');
     webhookUrl.searchParams.set('variant_ids', variantIds.join(','));
     webhookUrl.searchParams.set('cols', String(cols));
     webhookUrl.searchParams.set('rows', String(rows));
 
-    // ── Submit to fal.ai (with resolution fallback) ───────────────────────
+    // ── Submit to provider (with fal-specific resolution fallback) ─────────
     const modelKey =
       modelOverride && MODELS[modelOverride] ? modelOverride : DEFAULT_MODEL;
     const modelConfig = MODELS[modelKey];
 
-    async function submitToFal(
-      res: string
-    ): Promise<{ request_id: string; resolution_used: string }> {
-      const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
-
-      // Models use different size params
-      const sizeParams = modelConfig.useImageSize
-        ? { image_size: { width: gridWidth, height: gridHeight } }
-        : { resolution: res, aspect_ratio: gridAspect };
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          num_images: 1,
-          ...sizeParams,
-          output_format: 'jpeg',
-          safety_tolerance: '6',
-        }),
-      });
-
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        throw new Error(
-          `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
-        );
-      }
-
-      const data = await falRes.json();
-      return { request_id: data.request_id, resolution_used: res };
-    }
-
     let requestId: string;
     let resolutionUsed = resolution;
+    let modelForJob = modelKey;
+    let endpointForJob = modelConfig.endpoint;
 
-    try {
-      const result = await submitToFal(resolution);
-      requestId = result.request_id;
-      resolutionUsed = result.resolution_used;
-    } catch (err) {
-      // If 2K/4K fails, retry at 1K
-      if (resolution !== '1K') {
-        console.warn(`[SeriesGrid] ${resolution} failed, retrying at 1K:`, err);
-        try {
-          const result = await submitToFal('1K');
-          requestId = result.request_id;
-          resolutionUsed = '1K';
-        } catch (retryErr) {
-          console.error('[SeriesGrid] 1K retry also failed:', retryErr);
-          return NextResponse.json(
-            { error: 'Image generation failed at all resolutions' },
-            { status: 500 }
-          );
-        }
-      } else {
-        console.error('[SeriesGrid] fal.ai request failed:', err);
+    if (providerResolution.provider === 'kie') {
+      try {
+        const queued = await queueKieImageTask({
+          prompt,
+          callbackUrl: webhookUrl.toString(),
+          aspectRatio: gridAspect,
+          resolution,
+          outputFormat: 'jpg',
+        });
+
+        requestId = queued.requestId;
+        modelForJob = queued.model;
+        endpointForJob = queued.endpoint;
+      } catch (error) {
+        console.error('[SeriesGrid] kie.ai request failed:', error);
         return NextResponse.json(
           { error: 'Image generation request failed' },
           { status: 500 }
         );
       }
+    } else {
+      async function submitToFal(
+        res: string
+      ): Promise<{ request_id: string; resolution_used: string }> {
+        const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
+        falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
+
+        // Models use different size params
+        const sizeParams = modelConfig.useImageSize
+          ? { image_size: { width: gridWidth, height: gridHeight } }
+          : { resolution: res, aspect_ratio: gridAspect };
+
+        const falRes = await fetch(falUrl.toString(), {
+          method: 'POST',
+          headers: {
+            Authorization: `Key ${process.env.FAL_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt,
+            num_images: 1,
+            ...sizeParams,
+            output_format: 'jpeg',
+            safety_tolerance: '6',
+          }),
+        });
+
+        if (!falRes.ok) {
+          const errText = await falRes.text();
+          throw new Error(
+            `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
+          );
+        }
+
+        const data = await falRes.json();
+        return { request_id: data.request_id, resolution_used: res };
+      }
+
+      try {
+        const result = await submitToFal(resolution);
+        requestId = result.request_id;
+        resolutionUsed = result.resolution_used;
+      } catch (err) {
+        // If 2K/4K fails, retry at 1K
+        if (resolution !== '1K') {
+          console.warn(
+            `[SeriesGrid] ${resolution} failed, retrying at 1K:`,
+            err
+          );
+          try {
+            const result = await submitToFal('1K');
+            requestId = result.request_id;
+            resolutionUsed = '1K';
+          } catch (retryErr) {
+            console.error('[SeriesGrid] 1K retry also failed:', retryErr);
+            return NextResponse.json(
+              { error: 'Image generation failed at all resolutions' },
+              { status: 500 }
+            );
+          }
+        } else {
+          console.error('[SeriesGrid] fal.ai request failed:', err);
+          return NextResponse.json(
+            { error: 'Image generation request failed' },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     console.log('[SeriesGrid] Submitted', {
       request_id: requestId,
-      model: modelKey,
-      endpoint: modelConfig.endpoint,
+      provider: providerResolution.provider,
+      model: modelForJob,
+      endpoint: endpointForJob,
       type,
       items: count,
       grid: `${cols}x${rows}`,
@@ -559,8 +603,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       request_id: requestId,
       type: 'grid',
       prompt,
-      model: modelKey,
+      model: modelForJob,
       config: {
+        provider: providerResolution.provider,
         type,
         items,
         cols,
@@ -598,7 +643,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             jobs: [
               {
                 request_id: requestId,
-                model: modelConfig.endpoint,
+                provider: providerResolution.provider,
+                model: modelForJob,
                 type: 'grid',
                 variant_ids: variantIds,
                 cols,
@@ -631,8 +677,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       variant_ids: variantIds,
       config: {
         type,
-        model: modelKey,
-        endpoint: modelConfig.endpoint,
+        provider: providerResolution.provider,
+        model: modelForJob,
+        endpoint: endpointForJob,
         allow_text: !!allow_text,
         skip_genre: shouldSkipGenre,
         resolution_requested: resolution,
