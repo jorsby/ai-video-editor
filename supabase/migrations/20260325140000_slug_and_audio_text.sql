@@ -51,7 +51,13 @@ CREATE TRIGGER trg_series_assets_generate_slug
   FOR EACH ROW
   EXECUTE FUNCTION studio.generate_asset_slug();
 
--- ── 3. Rename voiceover_text → audio_text on scenes ─────────────────────────
+-- ── 3. Add scene-level columns (audio_text, visual_direction, etc.) ──────────
+-- These columns support the new single-prompt scene model.
 
-ALTER TABLE studio.scenes
-  RENAME COLUMN voiceover_text TO audio_text;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS audio_text TEXT;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS visual_direction TEXT;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS shot_durations JSONB;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS duration INTEGER;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS background_name TEXT;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS object_names JSONB;
+ALTER TABLE studio.scenes ADD COLUMN IF NOT EXISTS language VARCHAR(5);

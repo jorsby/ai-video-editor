@@ -46,8 +46,30 @@ function normalizeAssets(input: unknown): AssetInput[] {
     .filter((item): item is AssetInput => !!item);
 }
 
+/** Generate a URL-safe slug from asset name. Handles Turkish characters. */
 function generateAssetSlug(name: string): string {
-  return name
+  // Turkish-specific transliteration first
+  const turkishMap: Record<string, string> = {
+    ı: 'i',
+    İ: 'I',
+    ğ: 'g',
+    Ğ: 'G',
+    ü: 'u',
+    Ü: 'U',
+    ş: 's',
+    Ş: 'S',
+    ö: 'o',
+    Ö: 'O',
+    ç: 'c',
+    Ç: 'C',
+  };
+  const transliterated = name.replace(
+    /[ıİğĞüÜşŞöÖçÇ]/g,
+    (ch) => turkishMap[ch] ?? ch
+  );
+  return transliterated
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accents
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_')
