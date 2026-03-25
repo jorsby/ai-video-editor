@@ -12,9 +12,17 @@ const assetPromptSchema = z.object({
   feedback: z.string().nullable().optional(),
 });
 
+const workflowAssetPromptSchema = z.object({
+  asset_id: z.string().uuid(),
+  prompt: z.string().nullable(),
+  generation_meta: z.record(z.string(), z.unknown()).optional(),
+  feedback: z.string().nullable().optional(),
+});
+
 const bodySchema = z.object({
   objects: z.array(assetPromptSchema).optional(),
   backgrounds: z.array(assetPromptSchema).optional(),
+  assets: z.array(workflowAssetPromptSchema).optional(),
 });
 
 function normalizePrompt(value: string | null | undefined) {
@@ -23,7 +31,7 @@ function normalizePrompt(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export async function PUT(req: NextRequest, context: RouteContext) {
+async function handleUpsertPrompts(req: NextRequest, context: RouteContext) {
   try {
     const { id: seriesId } = await context.params;
 
@@ -65,6 +73,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (storyboardIds.length === 0) {
       return NextResponse.json({
         success: true,
+        updated_assets: 0,
         updated_objects: 0,
         updated_backgrounds: 0,
       });
@@ -79,11 +88,13 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (sceneIds.length === 0) {
       return NextResponse.json({
         success: true,
+        updated_assets: 0,
         updated_objects: 0,
         updated_backgrounds: 0,
       });
     }
 
+    let updatedAssets = 0;
     let updatedObjects = 0;
     let updatedBackgrounds = 0;
 
@@ -143,9 +154,70 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       updatedBackgrounds++;
     }
 
+    for (const patch of parsed.data.assets ?? []) {
+      const updates: Record<string, unknown> = {
+        generation_prompt: normalizePrompt(patch.prompt),
+      };
+
+      if (patch.generation_meta !== undefined) {
+        updates.generation_meta = patch.generation_meta;
+      }
+      if (patch.feedback !== undefined) {
+        updates.feedback = normalizePrompt(patch.feedback);
+      }
+
+      const { data: objectRow, error: objectError } = await db
+        .from('objects')
+        .update(updates)
+        .eq('id', patch.asset_id)
+        .in('scene_id', sceneIds)
+        .select('id')
+        .maybeSingle();
+
+      if (objectError) {
+        return NextResponse.json(
+          { error: `Failed to update asset prompt ${patch.asset_id}` },
+          { status: 500 }
+        );
+      }
+
+      if (objectRow?.id) {
+        updatedAssets++;
+        updatedObjects++;
+        continue;
+      }
+
+      const { data: backgroundRow, error: backgroundError } = await db
+        .from('backgrounds')
+        .update(updates)
+        .eq('id', patch.asset_id)
+        .in('scene_id', sceneIds)
+        .select('id')
+        .maybeSingle();
+
+      if (backgroundError) {
+        return NextResponse.json(
+          { error: `Failed to update asset prompt ${patch.asset_id}` },
+          { status: 500 }
+        );
+      }
+
+      if (backgroundRow?.id) {
+        updatedAssets++;
+        updatedBackgrounds++;
+        continue;
+      }
+
+      return NextResponse.json(
+        { error: `Asset not found in series scenes: ${patch.asset_id}` },
+        { status: 404 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       series_id: seriesId,
+      updated_assets: updatedAssets,
       updated_objects: updatedObjects,
       updated_backgrounds: updatedBackgrounds,
     });
@@ -156,4 +228,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       { status: 500 }
     );
   }
+}
+
+export async function PUT(req: NextRequest, context: RouteContext) {
+  return handleUpsertPrompts(req, context);
+}
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  return handleUpsertPrompts(req, context);
 }
