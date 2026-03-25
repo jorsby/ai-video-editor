@@ -414,6 +414,301 @@ async function queueMissingAssetJob(params: {
   return requestId;
 }
 
+type StoryboardScene = {
+  id: string;
+  order: number;
+  prompt: string | null;
+  multi_prompt: string[] | null;
+  shot_durations: number[] | null;
+  duration: number | null;
+  background_name: string | null;
+  object_names: string[] | null;
+  voiceover_text: string | null;
+  language: string | null;
+};
+
+function getScenePromptList(scene: StoryboardScene): string[] {
+  if (Array.isArray(scene.multi_prompt) && scene.multi_prompt.length > 0) {
+    return scene.multi_prompt
+      .map((prompt) => (typeof prompt === 'string' ? prompt.trim() : ''))
+      .filter((prompt) => prompt.length > 0);
+  }
+
+  if (typeof scene.prompt === 'string' && scene.prompt.trim().length > 0) {
+    return [scene.prompt.trim()];
+  }
+
+  return [];
+}
+
+async function approveExistingStoryboardScenes(params: {
+  db: ReturnType<typeof createServiceClient>;
+  storyboardId: string;
+  projectId: string;
+  planStatus: string;
+  userId: string;
+}) {
+  const { db, storyboardId, projectId, planStatus, userId } = params;
+
+  if (planStatus !== 'draft') {
+    return NextResponse.json(
+      { error: 'Storyboard must be in draft status to approve' },
+      { status: 409 }
+    );
+  }
+
+  const { data: scenes, error: scenesError } = await db
+    .from('scenes')
+    .select(
+      'id, order, prompt, multi_prompt, shot_durations, duration, background_name, object_names, voiceover_text, language'
+    )
+    .eq('storyboard_id', storyboardId)
+    .order('order', { ascending: true });
+
+  if (scenesError) {
+    return NextResponse.json(
+      { error: 'Failed to load storyboard scenes' },
+      { status: 500 }
+    );
+  }
+
+  const storyboardScenes = (scenes ?? []) as StoryboardScene[];
+
+  if (storyboardScenes.length === 0) {
+    return NextResponse.json(
+      { error: 'Storyboard must contain at least one scene' },
+      { status: 400 }
+    );
+  }
+
+  const validationErrors: string[] = [];
+
+  for (const scene of storyboardScenes) {
+    const sceneLabel = `scene ${scene.order + 1}`;
+    const shotPrompts = getScenePromptList(scene);
+    const shotDurations = Array.isArray(scene.shot_durations)
+      ? scene.shot_durations.map((value) => Number(value))
+      : [];
+    const duration = Number(scene.duration ?? 0);
+    const backgroundName =
+      typeof scene.background_name === 'string'
+        ? scene.background_name.trim()
+        : '';
+
+    if (shotPrompts.length === 0) {
+      validationErrors.push(`${sceneLabel}: shot_prompts is required`);
+    }
+
+    if (
+      shotDurations.length === 0 ||
+      shotDurations.some((value) => value <= 0)
+    ) {
+      validationErrors.push(`${sceneLabel}: shot_durations is required`);
+    }
+
+    if (!backgroundName) {
+      validationErrors.push(`${sceneLabel}: background_name is required`);
+    }
+
+    if (!Number.isFinite(duration) || duration <= 0) {
+      validationErrors.push(`${sceneLabel}: duration is required`);
+    }
+
+    if (shotPrompts.length > 0 && shotDurations.length > 0) {
+      if (shotPrompts.length !== shotDurations.length) {
+        validationErrors.push(
+          `${sceneLabel}: shot_prompts and shot_durations length must match`
+        );
+      }
+
+      const totalDuration = shotDurations.reduce(
+        (sum, value) => sum + value,
+        0
+      );
+      if (
+        Number.isFinite(duration) &&
+        duration > 0 &&
+        totalDuration !== duration
+      ) {
+        validationErrors.push(
+          `${sceneLabel}: duration must equal sum of shot_durations`
+        );
+      }
+    }
+  }
+
+  if (validationErrors.length > 0) {
+    return NextResponse.json(
+      {
+        error: 'Scene validation failed',
+        details: validationErrors,
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data: series, error: seriesError } = await db
+    .from('series')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (seriesError || !series?.id) {
+    return NextResponse.json(
+      { error: 'Series not found for storyboard project' },
+      { status: 404 }
+    );
+  }
+
+  const { data: seriesAssets, error: assetError } = await db
+    .from('series_assets')
+    .select('name, type')
+    .eq('series_id', series.id);
+
+  if (assetError) {
+    return NextResponse.json(
+      { error: 'Failed to load series assets' },
+      { status: 500 }
+    );
+  }
+
+  const locationNames = new Set(
+    (seriesAssets ?? [])
+      .filter((asset: { type: string }) => asset.type === 'location')
+      .map((asset: { name: string }) => asset.name)
+  );
+
+  const objectNames = new Set(
+    (seriesAssets ?? [])
+      .filter(
+        (asset: { type: string }) =>
+          asset.type === 'character' || asset.type === 'prop'
+      )
+      .map((asset: { name: string }) => asset.name)
+  );
+
+  const assetValidationErrors: string[] = [];
+
+  for (const scene of storyboardScenes) {
+    const sceneLabel = `scene ${scene.order + 1}`;
+    const backgroundName =
+      typeof scene.background_name === 'string'
+        ? scene.background_name.trim()
+        : '';
+
+    if (backgroundName && !locationNames.has(backgroundName)) {
+      assetValidationErrors.push(
+        `${sceneLabel}: background_name "${backgroundName}" not found in series location assets`
+      );
+    }
+
+    const sceneObjects = Array.isArray(scene.object_names)
+      ? scene.object_names
+          .map((name) => (typeof name === 'string' ? name.trim() : ''))
+          .filter((name) => name.length > 0)
+      : [];
+
+    for (const objectName of sceneObjects) {
+      if (!objectNames.has(objectName)) {
+        assetValidationErrors.push(
+          `${sceneLabel}: object "${objectName}" not found in series assets`
+        );
+      }
+    }
+  }
+
+  if (assetValidationErrors.length > 0) {
+    return NextResponse.json(
+      {
+        error: 'Asset validation failed',
+        details: assetValidationErrors,
+      },
+      { status: 400 }
+    );
+  }
+
+  const sceneIds = storyboardScenes.map((scene) => scene.id);
+
+  if (sceneIds.length > 0) {
+    const { error: deleteVoiceoversError } = await db
+      .from('voiceovers')
+      .delete()
+      .in('scene_id', sceneIds);
+
+    if (deleteVoiceoversError) {
+      return NextResponse.json(
+        { error: 'Failed to refresh scene voiceovers' },
+        { status: 500 }
+      );
+    }
+  }
+
+  const voiceoverRows = storyboardScenes
+    .map((scene) => {
+      const text =
+        typeof scene.voiceover_text === 'string'
+          ? scene.voiceover_text.trim()
+          : '';
+      if (!text) return null;
+
+      const language =
+        typeof scene.language === 'string' && scene.language.trim().length > 0
+          ? scene.language.trim()
+          : 'tr';
+
+      return {
+        scene_id: scene.id,
+        text,
+        language,
+        status: 'success',
+      };
+    })
+    .filter(
+      (
+        row
+      ): row is {
+        scene_id: string;
+        text: string;
+        language: string;
+        status: 'success';
+      } => !!row
+    );
+
+  if (voiceoverRows.length > 0) {
+    const { error: voiceoverInsertError } = await db
+      .from('voiceovers')
+      .insert(voiceoverRows);
+
+    if (voiceoverInsertError) {
+      return NextResponse.json(
+        { error: 'Failed to create scene voiceovers' },
+        { status: 500 }
+      );
+    }
+  }
+
+  const { error: approveError } = await db
+    .from('storyboards')
+    .update({ plan_status: 'approved' })
+    .eq('id', storyboardId)
+    .eq('plan_status', 'draft');
+
+  if (approveError) {
+    return NextResponse.json(
+      { error: 'Failed to approve storyboard' },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    status: 'approved',
+    storyboard_id: storyboardId,
+    validated_scenes: storyboardScenes.length,
+    created_voiceovers: voiceoverRows.length,
+  });
+}
+
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id: storyboardId } = await context.params;
@@ -435,15 +730,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const resolution = parsedBody.data.resolution ?? '1k';
     const retryFailed = parsedBody.data.retry_failed ?? false;
-    const providerResolution = await resolveProvider({
-      service: 'video',
-      req,
-      body: parsedBody.data,
-    });
-
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
 
     const db = createServiceClient('studio');
 
@@ -471,6 +757,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    const { data: existingScenes, error: existingScenesError } = await db
+      .from('scenes')
+      .select('id')
+      .eq('storyboard_id', storyboardId)
+      .limit(1);
+
+    if (existingScenesError) {
+      return NextResponse.json(
+        { error: 'Failed to load storyboard scenes' },
+        { status: 500 }
+      );
+    }
+
+    if ((existingScenes ?? []).length > 0) {
+      return approveExistingStoryboardScenes({
+        db,
+        storyboardId,
+        projectId: storyboard.project_id as string,
+        planStatus: storyboard.plan_status,
+        userId: user.id,
+      });
+    }
+
     const parsedPlan = klingO3PlanSchema.safeParse(storyboard.plan);
     if (!parsedPlan.success) {
       return NextResponse.json(
@@ -480,6 +789,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const plan = parsedPlan.data;
+
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: parsedBody.data,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
 
     const existingAssetJobs =
       isRecord(storyboard.plan) && isRecord(storyboard.plan.v2_asset_jobs)
