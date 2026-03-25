@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger, type Logger } from '@/lib/logger';
-import { parseResultJson, verifyWebhook } from '@/lib/kieai';
+import { parseResultJson, verifyWebhookSignature } from '@/lib/kieai';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -33,7 +33,6 @@ interface SeriesGenerationJobMeta {
 }
 
 async function loadSeriesGenerationJob(
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any,
   taskId: string
 ): Promise<SeriesGenerationJobMeta | null> {
@@ -46,11 +45,7 @@ async function loadSeriesGenerationJob(
   return (data ?? null) as SeriesGenerationJobMeta | null;
 }
 
-async function clearVariantImages(
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
-  supabase: any,
-  variantId: string
-) {
+async function clearVariantImages(supabase: any, variantId: string) {
   const { data: oldImages } = await supabase
     .from('series_asset_variant_images')
     .select('storage_path')
@@ -74,7 +69,6 @@ async function clearVariantImages(
 }
 
 async function uploadVariantImage(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   variantId: string;
   imageBuffer: Buffer;
@@ -204,7 +198,6 @@ function extractAudioUrl(result: Record<string, unknown>): string | null {
 }
 
 async function guardRequest(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   table: string;
   idColumn: string;
@@ -277,7 +270,6 @@ async function guardRequest(params: {
 }
 
 async function handleGenerateVideo(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -357,7 +349,6 @@ async function handleGenerateVideo(params: {
 }
 
 async function handleGenerateTts(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -437,7 +428,6 @@ async function handleGenerateTts(params: {
 }
 
 async function handleGenerateImage(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -513,7 +503,6 @@ async function handleGenerateImage(params: {
 }
 
 async function handleSeriesAssetImage(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -629,8 +618,8 @@ async function handleSeriesAssetImage(params: {
   });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: grid cell loop
 async function handleSeriesGridImage(params: {
-  // biome-ignore lint/suspicious/noExplicitAny: Supabase client type is generated outside this repo.
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -771,26 +760,29 @@ export async function OPTIONS() {
   return new Response(null, { headers: CORS_HEADERS });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: webhook router
 export async function POST(req: NextRequest) {
   const log = createLogger();
   log.setContext({ step: 'KieWebhook' });
 
   try {
     const payload = (await req.json()) as KieWebhookPayload;
-    const taskId = payload.data?.task_id ?? null;
+    const taskId = payload.data?.task_id ?? payload.data?.taskId ?? null;
 
     const signature = req.headers.get('x-webhook-signature');
     const timestamp = req.headers.get('x-webhook-timestamp');
-    const verification = verifyWebhook({
+    const verification = verifyWebhookSignature({
       payload,
       signature,
       timestamp,
+      hmacKey: process.env.KIE_WEBHOOK_HMAC_KEY?.trim() ?? '',
+      nowSeconds: Math.floor(Date.now() / 1000),
     });
 
     if (!verification.ok) {
       log.warn('Rejected webhook: invalid signature', {
         reason: verification.reason,
-        task_id: taskId,
+        task_id: verification.taskId ?? taskId,
       });
       return new Response(
         JSON.stringify({

@@ -50,6 +50,15 @@ export interface KieWebhookVerificationResult {
   reason?: string;
 }
 
+export interface VerifyWebhookSignatureParams {
+  payload: unknown;
+  signature: string | null;
+  timestamp: string | null;
+  hmacKey: string;
+  nowSeconds: number;
+  toleranceSeconds?: number;
+}
+
 function getApiKey(): string {
   const key = process.env.KIE_API_KEY?.trim();
   if (!key) {
@@ -218,7 +227,28 @@ export function verifyWebhook(params: {
   timestamp: string | null;
   toleranceSeconds?: number;
 }): KieWebhookVerificationResult {
-  const { payload, signature, timestamp, toleranceSeconds } = params;
+  return verifyWebhookSignature({
+    ...params,
+    hmacKey: getWebhookHmacKey(),
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+}
+
+export function verifyWebhookSignature(
+  params: VerifyWebhookSignatureParams
+): KieWebhookVerificationResult {
+  const {
+    payload,
+    signature,
+    timestamp,
+    hmacKey,
+    nowSeconds,
+    toleranceSeconds,
+  } = params;
+
+  if (!hmacKey) {
+    throw new Error('KIE_WEBHOOK_HMAC_KEY is not configured');
+  }
 
   if (!signature || !timestamp) {
     return { ok: false, taskId: null, reason: 'missing_signature_headers' };
@@ -229,7 +259,6 @@ export function verifyWebhook(params: {
     return { ok: false, taskId: null, reason: 'invalid_timestamp' };
   }
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const tolerance = toleranceSeconds ?? DEFAULT_WEBHOOK_TOLERANCE_SECONDS;
   if (Math.abs(nowSeconds - ts) > tolerance) {
     return { ok: false, taskId: null, reason: 'timestamp_out_of_range' };
@@ -241,7 +270,7 @@ export function verifyWebhook(params: {
   }
 
   const signingInput = `${taskId}.${timestamp}`;
-  const expected = createHmac('sha256', getWebhookHmacKey())
+  const expected = createHmac('sha256', hmacKey)
     .update(signingInput)
     .digest('base64');
 

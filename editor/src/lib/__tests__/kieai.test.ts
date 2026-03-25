@@ -169,59 +169,76 @@ describe('kieai', () => {
     ).rejects.toThrow('network down');
   });
 
-  it('verifyWebhook returns ok for a valid signature', async () => {
-    const { verifyWebhook } = await import('../kieai');
+  it('verifyWebhookSignature returns true for a valid signature', async () => {
+    const { verifyWebhookSignature } = await import('../kieai');
     const taskId = 'task-999';
-    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const timestamp = String(nowSeconds);
     const signature = createHmac('sha256', 'test-hmac-key')
       .update(`${taskId}.${timestamp}`)
       .digest('base64');
 
-    const result = verifyWebhook({
+    const result = verifyWebhookSignature({
       payload: { data: { taskId } },
       signature,
       timestamp,
+      hmacKey: 'test-hmac-key',
+      nowSeconds,
     });
 
-    expect(result).toEqual({ ok: true, taskId });
+    expect(result.ok).toBe(true);
   });
 
-  it('verifyWebhook rejects an invalid signature', async () => {
-    const { verifyWebhook } = await import('../kieai');
-    const timestamp = String(Math.floor(Date.now() / 1000));
+  it('verifyWebhookSignature returns false for an invalid signature', async () => {
+    const { verifyWebhookSignature } = await import('../kieai');
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const timestamp = String(nowSeconds);
 
-    const result = verifyWebhook({
+    const result = verifyWebhookSignature({
       payload: { data: { taskId: 'task-999' } },
       signature: 'invalid-signature',
       timestamp,
+      hmacKey: 'test-hmac-key',
+      nowSeconds,
     });
 
-    expect(result).toEqual({
-      ok: false,
-      taskId: 'task-999',
-      reason: 'signature_mismatch',
-    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('signature_mismatch');
   });
 
-  it('verifyWebhook rejects an expired timestamp', async () => {
-    const { verifyWebhook } = await import('../kieai');
+  it('verifyWebhookSignature returns false for an expired timestamp', async () => {
+    const { verifyWebhookSignature } = await import('../kieai');
     const taskId = 'task-999';
     const timestamp = '1000';
     const signature = createHmac('sha256', 'test-hmac-key')
       .update(`${taskId}.${timestamp}`)
       .digest('base64');
 
-    const result = verifyWebhook({
+    const result = verifyWebhookSignature({
       payload: { data: { taskId } },
       signature,
       timestamp,
+      hmacKey: 'test-hmac-key',
+      nowSeconds: 5000,
     });
 
-    expect(result).toEqual({
-      ok: false,
-      taskId: null,
-      reason: 'timestamp_out_of_range',
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('timestamp_out_of_range');
+  });
+
+  it('verifyWebhookSignature returns false when signature headers are missing', async () => {
+    const { verifyWebhookSignature } = await import('../kieai');
+
+    const result = verifyWebhookSignature({
+      payload: { data: { taskId: 'task-999' } },
+      signature: null,
+      timestamp: null,
+      hmacKey: 'test-hmac-key',
+      nowSeconds: Math.floor(Date.now() / 1000),
     });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('missing_signature_headers');
   });
 
   it('parseResultJson parses valid JSON string', async () => {
