@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -58,6 +58,23 @@ interface StoryboardInfo {
   scriptLanguage: string;
   scriptLines: string[];
   scenes: StoryboardScene[];
+}
+
+interface SeriesMetadata {
+  scene_mode?: string | null;
+  episode_count?: number | null;
+  aspect_ratio?: string | null;
+  language?: string | null;
+  tts_settings?: {
+    voice_id?: string | null;
+    speed?: number | null;
+    model?: string | null;
+  } | null;
+  style?: {
+    visual_style?: string | null;
+    setting?: string | null;
+    custom_notes?: string | null;
+  } | null;
 }
 
 const STATUS_CONFIG = {
@@ -326,6 +343,9 @@ export default function SeriesRoadmapPanel() {
   const [showBible, setShowBible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [seriesName, setSeriesName] = useState('');
+  const [seriesMetadata, setSeriesMetadata] = useState<SeriesMetadata | null>(
+    null
+  );
 
   useEffect(() => {
     if (!projectId) return;
@@ -358,6 +378,7 @@ export default function SeriesRoadmapPanel() {
       }
 
       if (!seriesId) {
+        setSeriesMetadata(null);
         setLoading(false);
         return;
       }
@@ -395,6 +416,15 @@ export default function SeriesRoadmapPanel() {
       if (series) {
         setSeriesName(series.name || '');
         setBible(series.bible || '');
+        setSeriesMetadata(
+          series.metadata &&
+            typeof series.metadata === 'object' &&
+            !Array.isArray(series.metadata)
+            ? (series.metadata as SeriesMetadata)
+            : null
+        );
+      } else {
+        setSeriesMetadata(null);
       }
 
       // Load only storyboards linked to episodes (not all project storyboards)
@@ -662,6 +692,55 @@ export default function SeriesRoadmapPanel() {
     [episodes]
   );
 
+  const metadataBadges = useMemo(() => {
+    if (!seriesMetadata) return [];
+
+    const badges: string[] = [];
+    if (seriesMetadata.scene_mode) badges.push(seriesMetadata.scene_mode);
+    if (seriesMetadata.aspect_ratio) badges.push(seriesMetadata.aspect_ratio);
+    if (seriesMetadata.language) badges.push(seriesMetadata.language);
+    if (typeof seriesMetadata.episode_count === 'number') {
+      badges.push(`${seriesMetadata.episode_count} episodes`);
+    }
+
+    return badges;
+  }, [seriesMetadata]);
+
+  const metadataStyleText = useMemo(() => {
+    if (!seriesMetadata?.style) return '';
+
+    const parts: string[] = [];
+    if (seriesMetadata.style.visual_style) {
+      parts.push(seriesMetadata.style.visual_style);
+    }
+    if (seriesMetadata.style.setting) {
+      parts.push(seriesMetadata.style.setting);
+    }
+
+    return parts.join(' • ');
+  }, [seriesMetadata]);
+
+  const metadataCustomNotes = seriesMetadata?.style?.custom_notes?.trim() ?? '';
+
+  const metadataTtsText = useMemo(() => {
+    if (!seriesMetadata?.tts_settings) return '';
+
+    const model = seriesMetadata.tts_settings.model?.trim();
+    const speed = seriesMetadata.tts_settings.speed;
+    const speedText =
+      typeof speed === 'number' && Number.isFinite(speed) ? `${speed}x` : null;
+
+    if (!model && !speedText) return '';
+    if (model && speedText) return `${model} • ${speedText}`;
+    return model || speedText || '';
+  }, [seriesMetadata]);
+
+  const hasMetadataSection =
+    metadataBadges.length > 0 ||
+    Boolean(metadataStyleText) ||
+    Boolean(metadataCustomNotes) ||
+    Boolean(metadataTtsText);
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -708,6 +787,45 @@ export default function SeriesRoadmapPanel() {
             />
           </div>
         </div>
+
+        {hasMetadataSection && (
+          <div className="rounded border border-border/30 bg-muted/15 p-2 space-y-1">
+            <p className="text-[10px] font-medium">Series Metadata</p>
+
+            {metadataBadges.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                {metadataBadges.map((badge, index) => (
+                  <Badge
+                    key={`${badge}-${index}`}
+                    variant="outline"
+                    className="h-4 px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground bg-muted/20 border-border/40"
+                  >
+                    {badge}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {metadataStyleText && (
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                {metadataStyleText}
+              </p>
+            )}
+
+            {metadataCustomNotes && (
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                <span className="mr-1">⚠️</span>
+                {metadataCustomNotes}
+              </p>
+            )}
+
+            {metadataTtsText && (
+              <p className="text-[10px] text-muted-foreground">
+                TTS: {metadataTtsText}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Genel akış */}
         <div className="rounded border border-border/30 bg-muted/15 p-2 space-y-1.5">

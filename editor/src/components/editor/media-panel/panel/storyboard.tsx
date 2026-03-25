@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
-  IconCopy,
   IconLayoutGrid,
   IconLoader2,
   IconPlus,
@@ -42,23 +40,9 @@ import {
   type RefPlan,
   type StoryboardMode,
   type VideoModel,
-  type RefVideoMode,
 } from '@/lib/supabase/workflow-service';
 import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
-import {
-  DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
-  type StoryboardContentTemplate,
-} from '@/lib/storyboard-content-template';
-
-const STORYBOARD_MODELS = [
-  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
-  { value: 'anthropic/claude-opus-4.6', label: 'Claude Opus 4.6' },
-  { value: 'openai/gpt-5.2-pro', label: 'GPT 5.2 Pro' },
-  { value: 'z-ai/glm-5', label: 'GLM-5' },
-] as const;
-
-type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
 
 type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
 
@@ -217,19 +201,10 @@ export default function PanelStoryboard() {
     string | null
   >(null);
 
-  // Form state (for create mode) — most settings now inherited from series metadata
-  const [formVoiceover, setFormVoiceover] = useState('');
-  const [formModel, setFormModel] = useState<StoryboardModel>(
-    'google/gemini-3.1-pro-preview'
-  );
-  const [formContentTemplate, setFormContentTemplate] =
-    useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
-
   // Generation state
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<StoryboardResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [error, _setError] = useState<string | null>(null);
+  const [workflowError, _setWorkflowError] = useState<string | null>(null);
   const [workflowStarted, setWorkflowStarted] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -252,19 +227,6 @@ export default function PanelStoryboard() {
   const selectedStoryboard = storyboards.find(
     (sb) => sb.id === selectedStoryboardId
   );
-  const selectedStoryboardRefVariant = selectedStoryboard
-    ? getRefWorkflowVariant(selectedStoryboard.plan)
-    : null;
-  const selectedStoryboardVideoMode =
-    selectedStoryboard?.mode === 'ref_to_video' &&
-    selectedStoryboard.plan &&
-    typeof selectedStoryboard.plan === 'object' &&
-    'video_mode' in selectedStoryboard.plan
-      ? (selectedStoryboard.plan.video_mode as RefVideoMode | undefined)
-      : undefined;
-  const isSelectedStoryboardCinematic =
-    selectedStoryboard?.mode === 'ref_to_video' &&
-    selectedStoryboardVideoMode === 'dialogue_scene';
 
   const selectedStoryboardAssetJobs = selectedStoryboard
     ? getV2AssetJobs(selectedStoryboard.plan)
@@ -409,114 +371,6 @@ export default function PanelStoryboard() {
     }
   };
 
-  const handleGenerate = async () => {
-    if (!formVoiceover.trim()) return;
-
-    if (!projectId) {
-      setError(
-        'No project selected. Create or select a project before generating a storyboard.'
-      );
-      console.error('[Storyboard] Generate blocked: projectId is null');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setWorkflowStarted(false);
-    setWorkflowError(null);
-    setDraftError(null);
-
-    try {
-      // Settings now inherited from series metadata
-      const resolvedMode: StoryboardMode = 'ref_to_video';
-      const resolvedVideoModel = 'klingo3';
-      const workflowVariant: RefWorkflowVariant = 'direct_ref_to_video';
-      // TODO: read scene_mode + aspect_ratio from series metadata
-      const resolvedRefVideoMode: RefVideoMode = 'narrative';
-      const resolvedAspectRatio = '9:16';
-
-      console.log('[Storyboard] Generating storyboard plan...', {
-        projectId,
-        aspectRatio: resolvedAspectRatio,
-        voiceoverLength: formVoiceover.length,
-      });
-
-      // Generate storyboard with AI and create draft record
-      const response = await fetch('/api/storyboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          voiceoverText: formVoiceover,
-          model: formModel,
-          projectId,
-          aspectRatio: resolvedAspectRatio,
-          mode: resolvedMode,
-          contentTemplate: formContentTemplate,
-          videoModel: resolvedVideoModel,
-          workflowVariant,
-          videoMode: resolvedRefVideoMode,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[Storyboard] AI generation failed:', {
-          status: response.status,
-          errorData,
-        });
-        throw new Error(errorData.error || 'Failed to generate storyboard');
-      }
-
-      const data = await response.json();
-      const voiceoverMap = (data.voiceover_list ?? {}) as Record<
-        string,
-        string[]
-      >;
-      const firstLangArr = Object.values(voiceoverMap)[0] as
-        | string[]
-        | undefined;
-      const sceneCount =
-        data.mode === 'ref_to_video'
-          ? (firstLangArr?.length ?? data.scene_prompts?.length ?? 0)
-          : (firstLangArr?.length ?? 0);
-      console.log('[Storyboard] Plan generated:', {
-        mode: data.mode || 'image_to_video',
-        scenes: sceneCount,
-        storyboard_id: data.storyboard_id,
-      });
-
-      // Set draft state and switch to draft mode for review
-      if (data.mode === 'ref_to_video') {
-        // Ref plan — store the entire plan object
-        const { storyboard_id, mode, model, ...planData } = data;
-        setDraftPlan(planData as RefPlan);
-        setDraftMode('ref_to_video');
-        setDraftVideoModel(model || 'klingo3');
-      } else {
-        setDraftPlan({
-          rows: data.rows,
-          cols: data.cols,
-          grid_image_prompt: data.grid_image_prompt,
-          voiceover_list: data.voiceover_list,
-          visual_flow: data.visual_flow,
-        });
-        setDraftMode(
-          data.mode === 'quick_video' ? 'quick_video' : 'image_to_video'
-        );
-        setDraftVideoModel(null);
-      }
-      setDraftStoryboardId(data.storyboard_id);
-      setViewMode('draft');
-      setResult(data);
-    } catch (err) {
-      console.error('[Storyboard] Generate error:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleApproveDraft = async () => {
     if (!draftStoryboardId || !draftPlan) return;
 
@@ -642,13 +496,15 @@ export default function PanelStoryboard() {
       console.error('[Storyboard] Failed to delete draft:', err);
     }
 
-    // Clear draft state and regenerate
+    // Clear draft state and fall back to view mode
     setDraftPlan(null);
     setDraftStoryboardId(null);
-    setViewMode('create');
-
-    // Trigger regeneration
-    handleGenerate();
+    setDraftMode('image_to_video');
+    setDraftVideoModel(null);
+    setDraftError(null);
+    setResult(null);
+    setViewMode('view');
+    await refreshStoryboardsAfterCreate();
   };
 
   const handleCancelDraft = async () => {
@@ -742,13 +598,7 @@ export default function PanelStoryboard() {
             size="sm"
             className="h-8 gap-1"
             onClick={() => {
-              setSelectedStoryboardId(null);
-              setViewMode('create');
-              setFormVoiceover('');
-              setFormModel('google/gemini-3.1-pro-preview');
-              setResult(null);
-              setError(null);
-              setWorkflowStarted(false);
+              setViewMode('view');
             }}
           >
             <IconPlus className="size-3" />
@@ -953,139 +803,6 @@ export default function PanelStoryboard() {
           </div>
         )}
       </ScrollArea>
-
-      {/* Input Section - Fixed at Bottom (hidden in draft mode) */}
-      {viewMode !== 'draft' && (
-        <div className="flex-none border-t border-border/50">
-          {viewMode === 'view' && selectedStoryboard ? (
-            isSelectedStoryboardCinematic ? (
-              <div className="px-4 py-2 text-xs text-muted-foreground">
-                Cinematic mode — no voiceover script.
-              </div>
-            ) : (
-              <Collapsible>
-                <CollapsibleTrigger asChild>
-                  <button className="group w-full flex items-center justify-between px-4 py-2 hover:bg-secondary/20 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Voiceover Script
-                      </span>
-                      <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
-                        {selectedStoryboard.aspect_ratio}
-                      </span>
-                      {selectedStoryboard.mode === 'ref_to_video' &&
-                        selectedStoryboardRefVariant === 'i2v_from_refs' && (
-                          <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
-                            I2V
-                          </span>
-                        )}
-                      {selectedStoryboard.mode === 'ref_to_video' &&
-                        selectedStoryboardRefVariant !== 'i2v_from_refs' && (
-                          <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
-                            Ref
-                          </span>
-                        )}
-                      {selectedStoryboard.mode === 'image_to_video' && (
-                        <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
-                          I2V Legacy
-                        </span>
-                      )}
-                      {selectedStoryboard.mode === 'quick_video' && (
-                        <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
-                          Quick
-                        </span>
-                      )}
-                      {selectedStoryboardVideoMode === 'narrative' && (
-                        <span className="text-xs px-2 py-0.5 bg-slate-500/10 text-slate-300 rounded-md">
-                          Narrative · Audio OFF
-                        </span>
-                      )}
-                      {selectedStoryboardVideoMode === 'dialogue_scene' && (
-                        <span className="text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-md">
-                          Cinematic · Audio ON
-                        </span>
-                      )}
-                    </div>
-                    <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
-                    <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="px-4 pb-3">
-                    <div className="relative group/vo">
-                      <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
-                        {selectedStoryboard.voiceover || (
-                          <span className="text-muted-foreground italic">
-                            No voiceover
-                          </span>
-                        )}
-                      </div>
-                      {selectedStoryboard.voiceover && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
-                          onClick={() => {
-                            navigator.clipboard.writeText(
-                              selectedStoryboard.voiceover!
-                            );
-                            toast.success('Copied to clipboard');
-                          }}
-                        >
-                          <IconCopy className="size-3" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )
-          ) : (
-            /* Create Mode — simplified: agent writes prompts, settings from series metadata */
-            <div className="p-4 flex flex-col gap-3">
-              {/* Voiceover Text Input (manual fallback — agent usually writes this) */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Voiceover Script
-                </span>
-                <Textarea
-                  placeholder="Enter voiceover script or let the agent write it..."
-                  className="resize-none text-sm min-h-[80px] max-h-[200px] overflow-y-auto"
-                  value={formVoiceover}
-                  onChange={(e) => setFormVoiceover(e.target.value)}
-                />
-              </div>
-
-              {/* Series settings badge (read-only) */}
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span className="px-2 py-0.5 bg-secondary rounded-md">
-                  Ref to Video
-                </span>
-                <span className="px-2 py-0.5 bg-secondary rounded-md">
-                  Kling O3
-                </span>
-                <span className="px-2 py-0.5 bg-secondary rounded-md">
-                  9:16
-                </span>
-              </div>
-
-              {/* Generate Button */}
-              <Button
-                className="h-9 rounded-full text-sm w-full"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={loading || !formVoiceover.trim()}
-              >
-                {loading ? (
-                  <IconLoader2 className="size-4 animate-spin" />
-                ) : (
-                  'Generate Storyboard'
-                )}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
