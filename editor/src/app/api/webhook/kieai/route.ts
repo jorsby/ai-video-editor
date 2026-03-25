@@ -141,6 +141,13 @@ function extractImageUrl(result: Record<string, unknown>): string | null {
     return direct;
   }
 
+  // kie.ai returns image URLs in "resultUrls" array
+  const resultUrls = result.resultUrls;
+  if (Array.isArray(resultUrls) && resultUrls.length > 0) {
+    const first = resultUrls[0];
+    if (typeof first === 'string' && first.length > 0) return first;
+  }
+
   const images = result.images;
   if (Array.isArray(images) && images.length > 0) {
     const first = images[0];

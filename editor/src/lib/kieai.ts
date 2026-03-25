@@ -130,6 +130,13 @@ export async function createTask(
     );
   }
 
+  // kie.ai returns HTTP 200 with error codes in the body (e.g. code: 402 for insufficient credits)
+  if (typeof data.code === 'number' && data.code !== 200 && data.code !== 0) {
+    throw new Error(
+      `kie.ai createTask failed (code ${data.code})${data.msg ? `: ${data.msg}` : ''}`
+    );
+  }
+
   const taskId = extractTaskId(data);
   if (!taskId) {
     throw new Error('kie.ai createTask response missing task_id');
