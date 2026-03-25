@@ -40,7 +40,7 @@ function errorResponse(error: string, status = 500): Response {
 
 interface EditImageInput {
   scene_ids: string[];
-  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  model?: 'banana' | 'fibo' | 'grok';
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
@@ -49,11 +49,9 @@ interface EditImageInput {
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
-  kling: 'workflows/octupost/edit-image-kling',
   banana: 'workflows/octupost/edit-image-banana',
   fibo: 'workflows/octupost/edit-image-fibo',
   grok: 'workflows/octupost/edit-image-grok',
-  'flux-pro': 'workflows/octupost/edit-image-flux-pro',
 };
 
 const EDIT_PROMPT =
@@ -352,7 +350,7 @@ Deno.serve(async (req: Request) => {
     log.info('Request received', { method: req.method });
 
     const input: EditImageInput = await req.json();
-    const { scene_ids, model = 'kling', action = 'outpaint' } = input;
+    const { scene_ids, model = 'banana', action = 'outpaint' } = input;
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       log.error('Invalid input', { scene_ids });
@@ -377,7 +375,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.kling;
+    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.banana;
 
     // --- ref_to_image: single request with multiple reference images ---
     if (action === 'ref_to_image') {

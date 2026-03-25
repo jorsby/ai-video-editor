@@ -36,7 +36,12 @@ export function ProviderIcon({ provider, className }: ProviderIconProps) {
       );
     default:
       return (
-        <span className={cn('inline-flex items-center justify-center rounded-full bg-muted text-[10px] font-medium', className)}>
+        <span
+          className={cn(
+            'inline-flex items-center justify-center rounded-full bg-muted text-[10px] font-medium',
+            className
+          )}
+        >
           {provider.charAt(0).toUpperCase()}
         </span>
       );

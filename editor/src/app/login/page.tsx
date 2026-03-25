@@ -172,9 +172,7 @@ export default function LoginPage() {
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() =>
-                setMode(mode === 'login' ? 'signup' : 'login')
-              }
+              onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
               disabled={isLoading}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >

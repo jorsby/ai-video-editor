@@ -2,10 +2,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 interface GenerateSfxInput {
   scene_ids: string[];
@@ -59,7 +58,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * @deprecated This legacy fal.ai route will be removed. Use kie.ai provider routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   const log = createLogger();
   log.setContext({ step: 'GenerateSFX' });
 
@@ -85,7 +91,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    log.info('Processing SFX requests', { scene_count: scene_ids.length });
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      log.error('Missing webhook base URL');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
+    log.info('Processing SFX requests', {
+      scene_count: scene_ids.length,
+      webhook_base: webhookBase,
+    });
 
     const supabase = createServiceClient();
 
@@ -131,7 +152,7 @@ export async function POST(req: NextRequest) {
         step: 'GenerateSFX',
         scene_id: context.scene_id,
       });
-      const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+      const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
 
       const falUrl = new URL(
         'https://queue.fal.run/mirelo-ai/sfx-v1.5/video-to-video'

@@ -14,12 +14,7 @@ import {
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+// DropdownMenu removed — series-level settings no longer selectable per storyboard
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,6 +32,7 @@ import type { LanguageCode } from '@/lib/constants/languages';
 import { useLanguageStore } from '@/stores/language-store';
 import { useProjectId } from '@/contexts/project-context';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { useMediaPanelStore } from '../store';
 import { toast } from 'sonner';
 import {
   getDraftStoryboard,
@@ -52,17 +48,8 @@ import { StoryboardCards } from './storyboard-cards';
 import { DraftPlanEditor } from './draft-plan-editor';
 import {
   DEFAULT_STORYBOARD_CONTENT_TEMPLATE,
-  STORYBOARD_CONTENT_TEMPLATE_OPTIONS,
   type StoryboardContentTemplate,
 } from '@/lib/storyboard-content-template';
-
-const ASPECT_RATIOS = [
-  { value: '16:9', label: '16:9', width: 1920, height: 1080 },
-  { value: '9:16', label: '9:16', width: 1080, height: 1920 },
-  { value: '1:1', label: '1:1', width: 1080, height: 1080 },
-] as const;
-
-type AspectRatio = (typeof ASPECT_RATIOS)[number]['value'];
 
 const STORYBOARD_MODELS = [
   { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
@@ -72,35 +59,6 @@ const STORYBOARD_MODELS = [
 ] as const;
 
 type StoryboardModel = (typeof STORYBOARD_MODELS)[number]['value'];
-
-type CreateVideoMode =
-  | 'image_to_video'
-  | 'image_to_video_legacy'
-  | 'ref_to_video'
-  | 'quick_video';
-
-const VIDEO_MODES = [
-  {
-    value: 'image_to_video' as const,
-    label: 'Image to Video',
-  },
-  {
-    value: 'image_to_video_legacy' as const,
-    label: 'Image to Video (Legacy)',
-  },
-  { value: 'ref_to_video' as const, label: 'Ref to Video' },
-] as const;
-
-const VIDEO_MODELS = [
-  { value: 'klingo3' as const, label: 'Kling O3' },
-  { value: 'wan26flash' as const, label: 'WAN 2.6 Flash' },
-  { value: 'skyreels' as const, label: 'SkyReels' },
-] as const;
-
-const REF_VIDEO_MODE_OPTIONS = [
-  { value: 'narrative' as const, label: 'Narrative (No Audio)' },
-  { value: 'dialogue_scene' as const, label: 'Cinematic Dialogue' },
-] as const;
 
 type RefWorkflowVariant = 'i2v_from_refs' | 'direct_ref_to_video';
 
@@ -134,6 +92,94 @@ function getStoryboardModeLabel(storyboard: Storyboard): string {
   return '[Ref]';
 }
 
+function getStoryboardVideoModeBadge(
+  storyboard: Storyboard
+): 'Narrative' | 'Cinematic' | null {
+  if (
+    storyboard.mode === 'ref_to_video' &&
+    storyboard.plan &&
+    typeof storyboard.plan === 'object' &&
+    'video_mode' in storyboard.plan
+  ) {
+    if (storyboard.plan.video_mode === 'dialogue_scene') {
+      return 'Cinematic';
+    }
+
+    if (storyboard.plan.video_mode === 'narrative') {
+      return 'Narrative';
+    }
+  }
+
+  return null;
+}
+
+function pickPreferredStoryboard(storyboards: Storyboard[]): Storyboard | null {
+  if (storyboards.length === 0) return null;
+
+  const approved = storyboards.find((sb) => sb.plan_status === 'approved');
+  if (approved) return approved;
+
+  const nonDraft = storyboards.find((sb) => sb.plan_status !== 'draft');
+  if (nonDraft) return nonDraft;
+
+  return storyboards[0];
+}
+
+function getStatusBadgeClasses(status: Storyboard['plan_status']) {
+  if (status === 'approved') {
+    return 'bg-green-500/10 text-green-400 border-green-500/30';
+  }
+
+  if (status === 'draft') {
+    return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+  }
+
+  if (status === 'failed') {
+    return 'bg-red-500/10 text-red-400 border-red-500/30';
+  }
+
+  return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+}
+
+type V2AssetJob = {
+  asset_type: 'object' | 'background';
+  grid_position: number;
+  name: string;
+  request_id: string | null;
+  status: 'queued' | 'failed';
+  error?: string;
+};
+
+function getV2AssetJobs(plan: Storyboard['plan']): V2AssetJob[] {
+  if (!plan || typeof plan !== 'object' || !('v2_asset_jobs' in plan)) {
+    return [];
+  }
+
+  const assetJobs = (plan as Record<string, unknown>).v2_asset_jobs;
+  if (
+    !assetJobs ||
+    typeof assetJobs !== 'object' ||
+    !('jobs' in assetJobs) ||
+    !Array.isArray((assetJobs as { jobs?: unknown }).jobs)
+  ) {
+    return [];
+  }
+
+  return ((assetJobs as { jobs: unknown[] }).jobs ?? []).filter(
+    (job): job is V2AssetJob => {
+      if (!job || typeof job !== 'object') return false;
+      const cast = job as Partial<V2AssetJob>;
+
+      return (
+        (cast.asset_type === 'object' || cast.asset_type === 'background') &&
+        typeof cast.grid_position === 'number' &&
+        typeof cast.name === 'string' &&
+        (cast.status === 'queued' || cast.status === 'failed')
+      );
+    }
+  );
+}
+
 interface StoryboardResponse {
   rows: number;
   cols: number;
@@ -157,6 +203,12 @@ const formatDate = (dateStr: string) => {
 export default function PanelStoryboard() {
   const projectId = useProjectId();
   const { confirm } = useDeleteConfirmation();
+  const selectedStoryboardIdFromStore = useMediaPanelStore(
+    (state) => state.selectedStoryboardId
+  );
+  const setSelectedStoryboardIdInStore = useMediaPanelStore(
+    (state) => state.setSelectedStoryboardId
+  );
 
   // Storyboard navigation state
   const [viewMode, setViewMode] = useState<ViewMode>('create');
@@ -165,17 +217,11 @@ export default function PanelStoryboard() {
     string | null
   >(null);
 
-  // Form state (for create mode)
+  // Form state (for create mode) — most settings now inherited from series metadata
   const [formVoiceover, setFormVoiceover] = useState('');
-  const [formAspectRatio, setFormAspectRatio] = useState<AspectRatio>('9:16');
   const [formModel, setFormModel] = useState<StoryboardModel>(
     'google/gemini-3.1-pro-preview'
   );
-  const [formVideoMode, setFormVideoMode] =
-    useState<CreateVideoMode>('image_to_video');
-  const [formVideoModel, setFormVideoModel] = useState<VideoModel>('klingo3');
-  const [formRefVideoMode, setFormRefVideoMode] =
-    useState<RefVideoMode>('narrative');
   const [formContentTemplate, setFormContentTemplate] =
     useState<StoryboardContentTemplate>(DEFAULT_STORYBOARD_CONTENT_TEMPLATE);
 
@@ -199,6 +245,7 @@ export default function PanelStoryboard() {
     null
   );
   const [isApprovingDraft, setIsApprovingDraft] = useState(false);
+  const [isRetryingAssets, setIsRetryingAssets] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
 
   // Derived state
@@ -208,6 +255,26 @@ export default function PanelStoryboard() {
   const selectedStoryboardRefVariant = selectedStoryboard
     ? getRefWorkflowVariant(selectedStoryboard.plan)
     : null;
+  const selectedStoryboardVideoMode =
+    selectedStoryboard?.mode === 'ref_to_video' &&
+    selectedStoryboard.plan &&
+    typeof selectedStoryboard.plan === 'object' &&
+    'video_mode' in selectedStoryboard.plan
+      ? (selectedStoryboard.plan.video_mode as RefVideoMode | undefined)
+      : undefined;
+  const isSelectedStoryboardCinematic =
+    selectedStoryboard?.mode === 'ref_to_video' &&
+    selectedStoryboardVideoMode === 'dialogue_scene';
+
+  const selectedStoryboardAssetJobs = selectedStoryboard
+    ? getV2AssetJobs(selectedStoryboard.plan)
+    : [];
+  const selectedStoryboardQueuedJobs = selectedStoryboardAssetJobs.filter(
+    (job) => job.status === 'queued'
+  );
+  const selectedStoryboardFailedJobs = selectedStoryboardAssetJobs.filter(
+    (job) => job.status === 'failed'
+  );
 
   // Fetch storyboards on mount and when projectId changes
   useEffect(() => {
@@ -217,36 +284,42 @@ export default function PanelStoryboard() {
       const data = await getStoryboardsForProject(projectId);
       setStoryboards(data);
 
-      // Approved storyboards = everything except drafts
-      const approvedStoryboards = data.filter(
-        (sb) => sb.plan_status !== 'draft'
-      );
+      const preferredStoryboard = pickPreferredStoryboard(data);
+      const currentStillExists = selectedStoryboardId
+        ? data.some((sb) => sb.id === selectedStoryboardId)
+        : false;
 
-      // Auto-select most recent approved storyboard if exists
-      if (approvedStoryboards.length > 0) {
-        setSelectedStoryboardId(approvedStoryboards[0].id);
+      if (!currentStillExists) {
+        setSelectedStoryboardId(preferredStoryboard?.id ?? null);
       }
 
-      // Check for existing draft
-      const draft = await getDraftStoryboard(projectId);
+      const inlineDraft = data.find((sb) => sb.plan_status === 'draft');
+      const fallbackDraft = inlineDraft
+        ? null
+        : await getDraftStoryboard(projectId);
+      const draft = inlineDraft ?? fallbackDraft;
+
       if (draft?.plan) {
-        // Store draft state so user can resume later
         setDraftPlan(draft.plan);
         setDraftStoryboardId(draft.id);
         setDraftMode(draft.mode || 'image_to_video');
         setDraftVideoModel(draft.model || null);
 
-        // Only auto-enter draft mode when no approved storyboards exist.
-        // Otherwise default to viewing the most recent approved one —
-        // the user can still access the draft via "New Storyboard".
-        if (approvedStoryboards.length === 0) {
+        const nonDraftStoryboards = data.filter(
+          (sb) => sb.plan_status !== 'draft'
+        );
+        if (nonDraftStoryboards.length === 0) {
           setViewMode('draft');
           return;
         }
+      } else {
+        setDraftPlan(null);
+        setDraftStoryboardId(null);
+        setDraftMode('image_to_video');
+        setDraftVideoModel(null);
       }
 
-      // Set view mode based on storyboard existence
-      if (approvedStoryboards.length > 0) {
+      if (preferredStoryboard) {
         setViewMode('view');
       } else {
         setViewMode('create');
@@ -254,16 +327,45 @@ export default function PanelStoryboard() {
     };
 
     loadStoryboards();
-  }, [projectId]);
+  }, [projectId, selectedStoryboardId]);
+
+  useEffect(() => {
+    if (!selectedStoryboardIdFromStore) return;
+
+    const existsInCurrentList = storyboards.some(
+      (storyboard) => storyboard.id === selectedStoryboardIdFromStore
+    );
+
+    if (!existsInCurrentList) {
+      if (storyboards.length > 0) {
+        setSelectedStoryboardIdInStore(null);
+      }
+      return;
+    }
+
+    setSelectedStoryboardId(selectedStoryboardIdFromStore);
+    setViewMode('view');
+    setSelectedStoryboardIdInStore(null);
+  }, [
+    selectedStoryboardIdFromStore,
+    setSelectedStoryboardIdInStore,
+    storyboards,
+  ]);
 
   const refreshStoryboardsAfterCreate = async () => {
     if (!projectId) return;
     const newStoryboards = await getStoryboardsForProject(projectId);
     setStoryboards(newStoryboards);
-    if (newStoryboards.length > 0) {
-      setSelectedStoryboardId(newStoryboards[0].id);
+
+    const preferredStoryboard = pickPreferredStoryboard(newStoryboards);
+    if (preferredStoryboard) {
+      setSelectedStoryboardId(preferredStoryboard.id);
       setViewMode('view');
+      return;
     }
+
+    setSelectedStoryboardId(null);
+    setViewMode('create');
   };
 
   const handleDeleteStoryboard = async () => {
@@ -294,8 +396,9 @@ export default function PanelStoryboard() {
       setStoryboards(updatedStoryboards);
 
       // Select next storyboard or switch to create mode
-      if (updatedStoryboards.length > 0) {
-        setSelectedStoryboardId(updatedStoryboards[0].id);
+      const preferredStoryboard = pickPreferredStoryboard(updatedStoryboards);
+      if (preferredStoryboard) {
+        setSelectedStoryboardId(preferredStoryboard.id);
         setViewMode('view');
       } else {
         setSelectedStoryboardId(null);
@@ -325,36 +428,19 @@ export default function PanelStoryboard() {
     setDraftError(null);
 
     try {
+      // Settings now inherited from series metadata
+      const resolvedMode: StoryboardMode = 'ref_to_video';
+      const resolvedVideoModel = 'klingo3';
+      const workflowVariant: RefWorkflowVariant = 'direct_ref_to_video';
+      // TODO: read scene_mode + aspect_ratio from series metadata
+      const resolvedRefVideoMode: RefVideoMode = 'narrative';
+      const resolvedAspectRatio = '9:16';
+
       console.log('[Storyboard] Generating storyboard plan...', {
         projectId,
-        aspectRatio: formAspectRatio,
+        aspectRatio: resolvedAspectRatio,
         voiceoverLength: formVoiceover.length,
       });
-
-      const resolvedMode: StoryboardMode =
-        formVideoMode === 'image_to_video'
-          ? 'ref_to_video'
-          : formVideoMode === 'image_to_video_legacy'
-            ? 'image_to_video'
-            : formVideoMode;
-
-      const workflowVariant: RefWorkflowVariant | undefined =
-        formVideoMode === 'image_to_video'
-          ? 'i2v_from_refs'
-          : formVideoMode === 'ref_to_video'
-            ? 'direct_ref_to_video'
-            : undefined;
-
-      const resolvedVideoModel =
-        formVideoMode === 'image_to_video' ? 'wan26flash' : formVideoModel;
-
-      const resolvedRefVideoMode: RefVideoMode =
-        resolvedMode === 'ref_to_video' &&
-        (resolvedVideoModel === 'wan26flash' ||
-          resolvedVideoModel === 'klingo3' ||
-          resolvedVideoModel === 'klingo3pro')
-          ? formRefVideoMode
-          : 'narrative';
 
       // Generate storyboard with AI and create draft record
       const response = await fetch('/api/storyboard', {
@@ -364,14 +450,12 @@ export default function PanelStoryboard() {
           voiceoverText: formVoiceover,
           model: formModel,
           projectId,
-          aspectRatio: formAspectRatio,
+          aspectRatio: resolvedAspectRatio,
           mode: resolvedMode,
           contentTemplate: formContentTemplate,
-          ...(resolvedMode === 'ref_to_video' && {
-            videoModel: resolvedVideoModel,
-            workflowVariant,
-            videoMode: resolvedRefVideoMode,
-          }),
+          videoModel: resolvedVideoModel,
+          workflowVariant,
+          videoMode: resolvedRefVideoMode,
         }),
       });
 
@@ -408,11 +492,7 @@ export default function PanelStoryboard() {
         const { storyboard_id, mode, model, ...planData } = data;
         setDraftPlan(planData as RefPlan);
         setDraftMode('ref_to_video');
-
-        const variant = getRefWorkflowVariant(planData);
-        setDraftVideoModel(
-          variant === 'direct_ref_to_video' ? model || formVideoModel : null
-        );
+        setDraftVideoModel(model || 'klingo3');
       } else {
         setDraftPlan({
           rows: data.rows,
@@ -459,19 +539,25 @@ export default function PanelStoryboard() {
         throw new Error(errorData.error || 'Failed to save plan changes');
       }
 
-      // Then approve and start scene generation
-      const approveResponse = await fetch('/api/storyboard/approve', {
+      // Then approve the storyboard (approve now only creates scenes + voiceovers).
+      const approveEndpoint = '/api/storyboard/approve';
+      const approveBody = { storyboardId: draftStoryboardId };
+
+      const approveResponse = await fetch(approveEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboardId: draftStoryboardId }),
+        body: JSON.stringify(approveBody),
       });
 
       if (!approveResponse.ok) {
         const errorData = await approveResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to start scene generation');
+        throw new Error(errorData.error || 'Failed to approve storyboard');
       }
 
-      console.log('[Storyboard] Draft approved, scenes generating');
+      console.log('[Storyboard] Draft approved, scenes created', {
+        mode: draftMode,
+        endpoint: approveEndpoint,
+      });
 
       // Sync language store with storyboard's source language
       const voiceoverList = (
@@ -505,6 +591,42 @@ export default function PanelStoryboard() {
       setDraftError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsApprovingDraft(false);
+    }
+  };
+
+  const handleRetryFailedAssets = async () => {
+    if (!selectedStoryboardId) return;
+
+    setIsRetryingAssets(true);
+
+    try {
+      const response = await fetch(
+        `/api/v2/storyboard/${selectedStoryboardId}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resolution: '1k',
+            retry_failed: true,
+          }),
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to retry failed assets');
+      }
+
+      toast.success('Retry started for failed assets');
+      setRefreshTrigger((prev) => prev + 1);
+      await refreshStoryboardsAfterCreate();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Retry failed to start'
+      );
+    } finally {
+      setIsRetryingAssets(false);
     }
   };
 
@@ -559,26 +681,48 @@ export default function PanelStoryboard() {
           <Select
             value={selectedStoryboardId || ''}
             onValueChange={(value) => {
+              const selected = storyboards.find((sb) => sb.id === value);
               setSelectedStoryboardId(value);
+
+              if (selected?.plan_status === 'draft' && selected.plan) {
+                setDraftPlan(selected.plan);
+                setDraftStoryboardId(selected.id);
+                setDraftMode(selected.mode || 'image_to_video');
+                setDraftVideoModel(selected.model || null);
+                setViewMode('draft');
+                return;
+              }
+
               setViewMode('view');
             }}
-            disabled={
-              storyboards.filter((sb) => sb.plan_status !== 'draft').length ===
-              0
-            }
+            disabled={storyboards.length === 0}
           >
             <SelectTrigger className="flex-1 h-8 text-xs">
               <SelectValue placeholder="No storyboards yet" />
             </SelectTrigger>
             <SelectContent>
-              {storyboards
-                .filter((sb) => sb.plan_status !== 'draft')
-                .map((sb) => (
-                  <SelectItem key={sb.id} value={sb.id}>
-                    {formatDate(sb.created_at)} ({sb.aspect_ratio}){' '}
-                    {getStoryboardModeLabel(sb)}
-                  </SelectItem>
-                ))}
+              {storyboards.map((sb) => (
+                <SelectItem key={sb.id} value={sb.id}>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">
+                      {sb.title || formatDate(sb.created_at)} ({sb.aspect_ratio}
+                      ) {getStoryboardModeLabel(sb)}
+                    </span>
+                    {getStoryboardVideoModeBadge(sb) && (
+                      <span className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border bg-purple-500/10 text-purple-400 border-purple-500/30">
+                        {getStoryboardVideoModeBadge(sb)}
+                      </span>
+                    )}
+                    <span
+                      className={`text-[9px] uppercase tracking-wide px-1 py-0.5 rounded border ${getStatusBadgeClasses(
+                        sb.plan_status
+                      )}`}
+                    >
+                      {sb.plan_status ?? 'unknown'}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -601,11 +745,7 @@ export default function PanelStoryboard() {
               setSelectedStoryboardId(null);
               setViewMode('create');
               setFormVoiceover('');
-              setFormAspectRatio('9:16');
               setFormModel('google/gemini-3.1-pro-preview');
-              setFormVideoMode('image_to_video');
-              setFormVideoModel('klingo3');
-              setFormRefVideoMode('narrative');
               setResult(null);
               setError(null);
               setWorkflowStarted(false);
@@ -675,11 +815,11 @@ export default function PanelStoryboard() {
                 type="button"
                 className="w-full mb-2 px-2 py-1 text-[10px] text-muted-foreground bg-muted/30 border border-border/50 rounded hover:bg-muted/50 transition-colors text-left"
                 onClick={() => {
-                  const approved = storyboards.find(
-                    (sb) => sb.plan_status !== 'draft'
+                  const preferred = pickPreferredStoryboard(
+                    storyboards.filter((sb) => sb.plan_status !== 'draft')
                   );
-                  if (approved) {
-                    setSelectedStoryboardId(approved.id);
+                  if (preferred) {
+                    setSelectedStoryboardId(preferred.id);
                     setViewMode('view');
                   }
                 }}
@@ -697,6 +837,7 @@ export default function PanelStoryboard() {
               onCancel={handleCancelDraft}
               isApproving={isApprovingDraft}
               error={draftError}
+              hideAssetSections
             />
           </>
         )}
@@ -732,10 +873,63 @@ export default function PanelStoryboard() {
                 mode={selectedStoryboard.mode || 'image_to_video'}
                 videoModel={selectedStoryboard.model}
                 readOnly
+                hideAssetSections
               />
             </CollapsibleContent>
           </Collapsible>
         )}
+
+        {viewMode === 'view' &&
+          selectedStoryboard?.mode === 'ref_to_video' &&
+          (selectedStoryboard.plan_status === 'generating' ||
+            selectedStoryboard.plan_status === 'failed') &&
+          selectedStoryboardAssetJobs.length > 0 && (
+            <div className="mb-3 rounded-md border border-border/60 bg-secondary/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-medium">
+                    Missing asset generation
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Queued: {selectedStoryboardQueuedJobs.length} • Failed:{' '}
+                    {selectedStoryboardFailedJobs.length}
+                  </div>
+                </div>
+                {selectedStoryboardFailedJobs.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handleRetryFailedAssets}
+                    disabled={isRetryingAssets}
+                  >
+                    {isRetryingAssets && (
+                      <IconLoader2 className="mr-1.5 size-3 animate-spin" />
+                    )}
+                    Retry failed
+                  </Button>
+                )}
+              </div>
+              {selectedStoryboardFailedJobs.length > 0 && (
+                <div className="mt-2 space-y-1 text-[11px] text-red-400">
+                  {selectedStoryboardFailedJobs.slice(0, 5).map((job) => (
+                    <div
+                      key={`${job.asset_type}-${job.grid_position}-${job.name}`}
+                    >
+                      {job.asset_type}: {job.name}
+                      {job.error ? ` — ${job.error}` : ''}
+                    </div>
+                  ))}
+                  {selectedStoryboardFailedJobs.length > 5 && (
+                    <div className="text-muted-foreground">
+                      +{selectedStoryboardFailedJobs.length - 5} more failed
+                      items
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
         {/* Scene Cards - show only when viewing a selected storyboard */}
         {projectId && viewMode === 'view' && selectedStoryboardId && (
@@ -764,218 +958,115 @@ export default function PanelStoryboard() {
       {viewMode !== 'draft' && (
         <div className="flex-none border-t border-border/50">
           {viewMode === 'view' && selectedStoryboard ? (
-            /* View Mode - Read-only display of saved storyboard settings */
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <button className="group w-full flex items-center justify-between px-4 py-2 hover:bg-secondary/20 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Voiceover Script
-                    </span>
-                    <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
-                      {selectedStoryboard.aspect_ratio}
-                    </span>
-                    {selectedStoryboard.mode === 'ref_to_video' &&
-                      selectedStoryboardRefVariant === 'i2v_from_refs' && (
-                        <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
-                          I2V
+            isSelectedStoryboardCinematic ? (
+              <div className="px-4 py-2 text-xs text-muted-foreground">
+                Cinematic mode — no voiceover script.
+              </div>
+            ) : (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="group w-full flex items-center justify-between px-4 py-2 hover:bg-secondary/20 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Voiceover Script
+                      </span>
+                      <span className="text-xs px-2 py-0.5 bg-secondary rounded-md">
+                        {selectedStoryboard.aspect_ratio}
+                      </span>
+                      {selectedStoryboard.mode === 'ref_to_video' &&
+                        selectedStoryboardRefVariant === 'i2v_from_refs' && (
+                          <span className="text-xs px-2 py-0.5 bg-violet-500/10 text-violet-500 rounded-md">
+                            I2V
+                          </span>
+                        )}
+                      {selectedStoryboard.mode === 'ref_to_video' &&
+                        selectedStoryboardRefVariant !== 'i2v_from_refs' && (
+                          <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
+                            Ref
+                          </span>
+                        )}
+                      {selectedStoryboard.mode === 'image_to_video' && (
+                        <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
+                          I2V Legacy
                         </span>
                       )}
-                    {selectedStoryboard.mode === 'ref_to_video' &&
-                      selectedStoryboardRefVariant !== 'i2v_from_refs' && (
-                        <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-md">
-                          Ref
+                      {selectedStoryboard.mode === 'quick_video' && (
+                        <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
+                          Quick
                         </span>
                       )}
-                    {selectedStoryboard.mode === 'image_to_video' && (
-                      <span className="text-xs px-2 py-0.5 bg-amber-500/10 text-amber-500 rounded-md">
-                        I2V Legacy
-                      </span>
-                    )}
-                    {selectedStoryboard.mode === 'quick_video' && (
-                      <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-500 rounded-md">
-                        Quick
-                      </span>
-                    )}
-                  </div>
-                  <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
-                  <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-4 pb-3">
-                  <div className="relative group/vo">
-                    <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
-                      {selectedStoryboard.voiceover || (
-                        <span className="text-muted-foreground italic">
-                          No voiceover
+                      {selectedStoryboardVideoMode === 'narrative' && (
+                        <span className="text-xs px-2 py-0.5 bg-slate-500/10 text-slate-300 rounded-md">
+                          Narrative · Audio OFF
+                        </span>
+                      )}
+                      {selectedStoryboardVideoMode === 'dialogue_scene' && (
+                        <span className="text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-md">
+                          Cinematic · Audio ON
                         </span>
                       )}
                     </div>
-                    {selectedStoryboard.voiceover && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            selectedStoryboard.voiceover!
-                          );
-                          toast.success('Copied to clipboard');
-                        }}
-                      >
-                        <IconCopy className="size-3" />
-                      </Button>
-                    )}
+                    <IconChevronDown className="size-3 text-muted-foreground transition-transform duration-200 group-data-[state=open]:hidden" />
+                    <IconChevronUp className="size-3 text-muted-foreground hidden group-data-[state=open]:block" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-4 pb-3">
+                    <div className="relative group/vo">
+                      <div className="p-2 bg-background/50 rounded-md text-sm max-h-[120px] overflow-y-auto whitespace-pre-wrap">
+                        {selectedStoryboard.voiceover || (
+                          <span className="text-muted-foreground italic">
+                            No voiceover
+                          </span>
+                        )}
+                      </div>
+                      {selectedStoryboard.voiceover && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover/vo:opacity-100 transition-opacity"
+                          onClick={() => {
+                            navigator.clipboard.writeText(
+                              selectedStoryboard.voiceover!
+                            );
+                            toast.success('Copied to clipboard');
+                          }}
+                        >
+                          <IconCopy className="size-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
+                </CollapsibleContent>
+              </Collapsible>
+            )
           ) : (
-            /* Create Mode - Editable form */
+            /* Create Mode — simplified: agent writes prompts, settings from series metadata */
             <div className="p-4 flex flex-col gap-3">
-              {/* Voiceover Text Input */}
+              {/* Voiceover Text Input (manual fallback — agent usually writes this) */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                   Voiceover Script
                 </span>
                 <Textarea
-                  placeholder="Enter your voiceover script..."
+                  placeholder="Enter voiceover script or let the agent write it..."
                   className="resize-none text-sm min-h-[80px] max-h-[200px] overflow-y-auto"
                   value={formVoiceover}
                   onChange={(e) => setFormVoiceover(e.target.value)}
                 />
               </div>
 
-              {/* Controls Row: Dropdowns */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="secondary" size="sm" className="gap-1">
-                        {formAspectRatio}
-                        <IconChevronDown className="size-3 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      {ASPECT_RATIOS.map((option) => (
-                        <DropdownMenuItem
-                          key={option.value}
-                          onClick={() => setFormAspectRatio(option.value)}
-                        >
-                          {option.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  <Select
-                    value={formVideoMode}
-                    onValueChange={(v) =>
-                      setFormVideoMode(v as CreateVideoMode)
-                    }
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VIDEO_MODES.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={formModel}
-                    onValueChange={(v) => setFormModel(v as StoryboardModel)}
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STORYBOARD_MODELS.map((m) => (
-                        <SelectItem key={m.value} value={m.value}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {formVideoMode === 'ref_to_video' && (
-                    <Select
-                      value={formVideoModel}
-                      onValueChange={(v) => setFormVideoModel(v as VideoModel)}
-                    >
-                      <SelectTrigger className="h-8 w-[130px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VIDEO_MODELS.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              </div>
-
-              {(formVideoMode === 'image_to_video' ||
-                (formVideoMode === 'ref_to_video' &&
-                  (formVideoModel === 'wan26flash' ||
-                    formVideoModel === 'klingo3' ||
-                    formVideoModel === 'klingo3pro'))) && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Scene Mode
-                  </span>
-                  <Select
-                    value={formRefVideoMode}
-                    onValueChange={(value) =>
-                      setFormRefVideoMode(value as RefVideoMode)
-                    }
-                  >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {REF_VIDEO_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Content template */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Content Template
+              {/* Series settings badge (read-only) */}
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  Ref to Video
                 </span>
-                <Select
-                  value={formContentTemplate}
-                  onValueChange={(value) =>
-                    setFormContentTemplate(value as StoryboardContentTemplate)
-                  }
-                >
-                  <SelectTrigger className="h-8 flex-1 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STORYBOARD_CONTENT_TEMPLATE_OPTIONS.map((template) => (
-                      <SelectItem key={template.value} value={template.value}>
-                        {template.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  Kling O3
+                </span>
+                <span className="px-2 py-0.5 bg-secondary rounded-md">
+                  9:16
+                </span>
               </div>
 
               {/* Generate Button */}

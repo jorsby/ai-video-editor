@@ -1,11 +1,11 @@
 import { createServiceClient } from '@/lib/supabase/admin';
+import { resolveProvider } from '@/lib/provider-routing';
 import { NextResponse } from 'next/server';
 
 const REQUIRED_ENV_VARS = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
-  'FAL_KEY',
   'NEXT_PUBLIC_APP_URL',
   'OPENROUTER_API_KEY',
   'DEEPGRAM_API_KEY',
@@ -16,6 +16,25 @@ const REQUIRED_ENV_VARS = [
   'R2_PUBLIC_DOMAIN',
   'SKYREELS_API_KEY',
 ] as const;
+
+function checkFalKey(): boolean {
+  const key = process.env.FAL_KEY ?? '';
+  return key.includes(':');
+}
+
+function checkKieConfig(): { ok: boolean; missing: string[] } {
+  const missing: string[] = [];
+
+  if (!process.env.KIE_API_KEY) {
+    missing.push('KIE_API_KEY');
+  }
+
+  if (!process.env.KIE_WEBHOOK_HMAC_KEY) {
+    missing.push('KIE_WEBHOOK_HMAC_KEY');
+  }
+
+  return { ok: missing.length === 0, missing };
+}
 
 export async function GET() {
   const missing: string[] = [];
@@ -40,13 +59,31 @@ export async function GET() {
     dbError = e instanceof Error ? e.message : 'Unknown error';
   }
 
-  const falKey = process.env.FAL_KEY ?? '';
-  const falOk = falKey.includes(':');
+  const [videoRouting, ttsRouting, imageRouting] = await Promise.all([
+    resolveProvider({ service: 'video' }),
+    resolveProvider({ service: 'tts' }),
+    resolveProvider({ service: 'image' }),
+  ]);
 
-  const allOk = envOk && dbOk && falOk;
+  const falNeeded = [videoRouting, ttsRouting, imageRouting].some(
+    (routing) => routing.provider === 'fal'
+  );
+
+  const kieNeeded = [videoRouting, ttsRouting, imageRouting].some(
+    (routing) => routing.provider === 'kie'
+  );
+
+  const falConfigured = checkFalKey();
+  const kieCheck = checkKieConfig();
+  const falOk = !falNeeded || falConfigured;
+  const kieOk = !kieNeeded || kieCheck.ok;
+
+  const providerOk = falOk && kieOk;
+  const allOk = envOk && dbOk && providerOk;
+
   const status = allOk
     ? 'healthy'
-    : envOk && (dbOk || falOk)
+    : envOk && (dbOk || providerOk)
       ? 'degraded'
       : 'unhealthy';
 
@@ -56,7 +93,24 @@ export async function GET() {
       checks: {
         env: { ok: envOk, missing },
         db: { ok: dbOk, error: dbError },
-        fal: { ok: falOk },
+        providers: {
+          routing: {
+            video: videoRouting,
+            tts: ttsRouting,
+            image: imageRouting,
+          },
+          fal: {
+            required: falNeeded,
+            configured: falConfigured,
+            ok: falOk,
+          },
+          kie: {
+            required: kieNeeded,
+            configured: kieCheck.ok,
+            ok: kieOk,
+            missing: kieCheck.missing,
+          },
+        },
       },
     },
     { status: allOk ? 200 : 503 }

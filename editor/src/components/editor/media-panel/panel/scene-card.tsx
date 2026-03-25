@@ -27,6 +27,10 @@ import {
   PopoverContent,
 } from '@/components/ui/popover';
 import { StatusBadge } from './status-badge';
+import {
+  resolveAssetImageUrl,
+  type AssetImageMap,
+} from '@/hooks/use-asset-image-resolver';
 import { useStudioStore } from '@/stores/studio-store';
 import {
   findCompatibleTrack,
@@ -87,19 +91,21 @@ function formatVoiceoverDuration(
   return `${seconds.toFixed(1)}s`;
 }
 
+interface SceneBackgroundOption {
+  name: string;
+  url: string;
+  final_url: string;
+  series_asset_variant_id?: string | null;
+}
+
 interface SceneCardProps {
   scene: Scene;
+  showVoiceover?: boolean;
+  showVisual?: boolean;
   onClick?: () => void;
   compact?: boolean;
   isSelected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
-  skyreelsTiming?: {
-    voiceoverSeconds: number | null;
-    generatedSeconds: number;
-    playbackRate: number | null;
-    warnSlowdown: boolean;
-    mode: 'auto' | 'fixed';
-  };
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   onReadScene?: (sceneId: string, newVoiceoverText: string) => Promise<void>;
@@ -123,25 +129,17 @@ interface SceneCardProps {
   aspectRatio?: string;
   onAddVideoToTimeline?: (sceneId: string) => Promise<void>;
   onAddVoiceoverToTimeline?: (sceneId: string) => Promise<void>;
-  availableBackgrounds?: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds?: Map<number, SceneBackgroundOption>;
+  assetImageMap?: AssetImageMap;
   onChangeBackground?: (
     sceneId: string,
     newGridPosition: number
   ) => Promise<void>;
-  wanDurationSeconds?: 5 | 10;
-  wanDurationSelection?: 'auto' | '5' | '10';
-  wanVoiceoverSeconds?: number;
-  onChangeWanDurationSelection?: (
-    sceneId: string,
-    selection: 'auto' | '5' | '10'
-  ) => void;
-  dialogueDurationSeconds?: number;
-  dialogueDurationLlmDefault?: number;
-  onChangeDialogueDuration?: (sceneId: string, seconds: number) => void;
   isDialogueMode?: boolean;
+  onUpdateShotDurations?: (
+    sceneId: string,
+    durations: Array<{ duration: string }>
+  ) => void;
 }
 
 interface SceneThumbnailProps {
@@ -155,10 +153,7 @@ interface SceneThumbnailProps {
   onAddToCanvas?: () => void;
   onPreviewImage?: () => void;
   aspectRatio?: string;
-  availableBackgrounds?: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds?: Map<number, SceneBackgroundOption>;
   onChangeBackground?: (gridPosition: number) => void;
 }
 
@@ -413,6 +408,8 @@ interface ExpandedContentProps {
   voiceover: Voiceover | null;
   displayVoiceover: string | null | undefined;
   displayVisualPrompt: string | null | undefined;
+  showVoiceover?: boolean;
+  showVisual?: boolean;
   playingVoiceoverId?: string | null;
   setPlayingVoiceoverId?: (id: string | null) => void;
   sceneId: string;
@@ -453,6 +450,8 @@ function ExpandedContent({
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
   isDialogueMode: isDialogueModeExpanded,
+  showVoiceover = true,
+  showVisual = true,
 }: ExpandedContentProps) {
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
@@ -538,243 +537,258 @@ function ExpandedContent({
 
   return (
     <div className="mt-2 flex flex-col gap-2">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <IconMicrophone size={12} className="text-blue-400" />
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
-          </span>
-          {renderVoiceoverStatus()}
-          {voiceoverDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
-              {voiceoverDurationLabel}
+      {showVoiceover && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <IconMicrophone size={12} className="text-blue-400" />
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
+              {isDialogueModeExpanded ? 'Dialogue' : 'Voiceover'}
             </span>
-          )}
-          {isSavingVoiceover && (
-            <IconLoader2 size={10} className="animate-spin text-blue-400" />
+            {renderVoiceoverStatus()}
+            {voiceoverDurationLabel && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300">
+                {voiceoverDurationLabel}
+              </span>
+            )}
+            {isSavingVoiceover && (
+              <IconLoader2 size={10} className="animate-spin text-blue-400" />
+            )}
+          </div>
+          {isEditingVoiceover ? (
+            <div
+              className="pl-5 flex flex-col gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Textarea
+                autoFocus
+                value={editedVoiceover}
+                onChange={(e) => setEditedVoiceover(e.target.value)}
+                onBlur={() => {
+                  // Delay to allow button clicks to register before blur saves
+                  setTimeout(() => {
+                    if (!isReadingTts && !isTranslating && !isReadingAllTts)
+                      handleSaveVoiceover();
+                  }, 150);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsEditingVoiceover(false);
+                  }
+                }}
+                className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-blue-400/30 focus-visible:border-blue-400/50"
+                placeholder="Voiceover text..."
+              />
+              {(onReadScene || onTranslateScene || onReadSceneAllLanguages) && (
+                <div className="flex justify-end gap-1">
+                  {onTranslateScene && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsTranslating(true);
+                        onTranslateScene(sceneId, editedVoiceover).finally(
+                          () => {
+                            setIsTranslating(false);
+                          }
+                        );
+                      }}
+                    >
+                      {isTranslating ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconSwitchHorizontal size={10} className="mr-1" />
+                      )}
+                      Translate
+                    </Button>
+                  )}
+                  {onReadScene && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsReadingTts(true);
+                        onReadScene(sceneId, editedVoiceover).finally(() => {
+                          setIsReadingTts(false);
+                          setIsEditingVoiceover(false);
+                        });
+                      }}
+                    >
+                      {isReadingTts ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconMicrophone size={10} className="mr-1" />
+                      )}
+                      Read
+                    </Button>
+                  )}
+                  {onReadSceneAllLanguages && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-6 text-[10px] px-2"
+                      disabled={
+                        isReadingTts || isTranslating || isReadingAllTts
+                      }
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setIsReadingAllTts(true);
+                        onReadSceneAllLanguages(
+                          sceneId,
+                          editedVoiceover
+                        ).finally(() => {
+                          setIsReadingAllTts(false);
+                          setIsEditingVoiceover(false);
+                        });
+                      }}
+                    >
+                      {isReadingAllTts ? (
+                        <IconLoader2 size={10} className="animate-spin mr-1" />
+                      ) : (
+                        <IconVolume size={10} className="mr-1" />
+                      )}
+                      Read ALL
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p
+              className={`text-[11px] text-foreground/80 leading-relaxed pl-5 ${onSaveVoiceoverText ? 'cursor-pointer hover:text-foreground hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVoiceoverText) return;
+                e.stopPropagation();
+                setEditedVoiceover(displayVoiceover || '');
+                setIsEditingVoiceover(true);
+              }}
+              title={onSaveVoiceoverText ? 'Click to edit' : undefined}
+            >
+              {displayVoiceover || (
+                <span className="italic text-muted-foreground">
+                  {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {isEditingVoiceover ? (
-          <div
-            className="pl-5 flex flex-col gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Textarea
-              autoFocus
-              value={editedVoiceover}
-              onChange={(e) => setEditedVoiceover(e.target.value)}
-              onBlur={() => {
-                // Delay to allow button clicks to register before blur saves
-                setTimeout(() => {
-                  if (!isReadingTts && !isTranslating && !isReadingAllTts)
-                    handleSaveVoiceover();
-                }, 150);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsEditingVoiceover(false);
-                }
-              }}
-              className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-blue-400/30 focus-visible:border-blue-400/50"
-              placeholder="Voiceover text..."
-            />
-            {(onReadScene || onTranslateScene || onReadSceneAllLanguages) && (
-              <div className="flex justify-end gap-1">
-                {onTranslateScene && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setIsTranslating(true);
-                      onTranslateScene(sceneId, editedVoiceover).finally(() => {
-                        setIsTranslating(false);
-                      });
-                    }}
-                  >
-                    {isTranslating ? (
-                      <IconLoader2 size={10} className="animate-spin mr-1" />
-                    ) : (
-                      <IconSwitchHorizontal size={10} className="mr-1" />
-                    )}
-                    Translate
-                  </Button>
-                )}
-                {onReadScene && (
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setIsReadingTts(true);
-                      onReadScene(sceneId, editedVoiceover).finally(() => {
-                        setIsReadingTts(false);
-                        setIsEditingVoiceover(false);
-                      });
-                    }}
-                  >
-                    {isReadingTts ? (
-                      <IconLoader2 size={10} className="animate-spin mr-1" />
-                    ) : (
-                      <IconMicrophone size={10} className="mr-1" />
-                    )}
-                    Read
-                  </Button>
-                )}
-                {onReadSceneAllLanguages && (
+      )}
+      {showVisual && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1.5">
+            <IconEye size={12} className="text-purple-400" />
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
+              {promptLabel ?? 'Visual'}
+            </span>
+            {isSaving && (
+              <IconLoader2 size={10} className="animate-spin text-purple-400" />
+            )}
+          </div>
+          {isEditingPrompt ? (
+            <div
+              className="pl-5 flex flex-col gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Textarea
+                autoFocus
+                value={editedPrompt}
+                onChange={(e) => setEditedPrompt(e.target.value)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    if (!isGeneratingVideo) handleSavePrompt();
+                  }, 150);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsEditingPrompt(false);
+                  }
+                }}
+                className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-purple-400/30 focus-visible:border-purple-400/50"
+                placeholder="Visual prompt..."
+              />
+              {onGenerateSceneVideo && (
+                <div className="flex justify-end">
                   <Button
                     size="sm"
                     variant="secondary"
                     className="h-6 text-[10px] px-2"
-                    disabled={isReadingTts || isTranslating || isReadingAllTts}
+                    disabled={isGeneratingVideo}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      setIsReadingAllTts(true);
-                      onReadSceneAllLanguages(sceneId, editedVoiceover).finally(
+                      setIsGeneratingVideo(true);
+                      onGenerateSceneVideo(sceneId, editedPrompt).finally(
                         () => {
-                          setIsReadingAllTts(false);
-                          setIsEditingVoiceover(false);
+                          setIsGeneratingVideo(false);
+                          setIsEditingPrompt(false);
                         }
                       );
                     }}
                   >
-                    {isReadingAllTts ? (
+                    {isGeneratingVideo ? (
                       <IconLoader2 size={10} className="animate-spin mr-1" />
                     ) : (
-                      <IconVolume size={10} className="mr-1" />
+                      <IconVideo size={10} className="mr-1" />
                     )}
-                    Read ALL
+                    Generate Video
                   </Button>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <p
-            className={`text-[11px] text-foreground/80 leading-relaxed pl-5 ${onSaveVoiceoverText ? 'cursor-pointer hover:text-foreground hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVoiceoverText) return;
-              e.stopPropagation();
-              setEditedVoiceover(displayVoiceover || '');
-              setIsEditingVoiceover(true);
-            }}
-            title={onSaveVoiceoverText ? 'Click to edit' : undefined}
-          >
-            {displayVoiceover || (
-              <span className="italic text-muted-foreground">
-                {isDialogueModeExpanded ? 'No dialogue' : 'No voiceover'}
+                </div>
+              )}
+            </div>
+          ) : parseMultiShotPrompt(displayVisualPrompt) ? (
+            <div
+              className={`pl-5 flex flex-col gap-1 ${onSaveVisualPrompt ? 'cursor-pointer hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVisualPrompt) return;
+                e.stopPropagation();
+                setEditedPrompt(displayVisualPrompt || '');
+                setIsEditingPrompt(true);
+              }}
+              title={onSaveVisualPrompt ? 'Click to edit' : undefined}
+            >
+              <span className="text-[9px] text-cyan-500 font-medium">
+                {parseMultiShotPrompt(displayVisualPrompt)!.length}-shot
               </span>
-            )}
-          </p>
-        )}
-      </div>
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <IconEye size={12} className="text-purple-400" />
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
-            {promptLabel ?? 'Visual'}
-          </span>
-          {isSaving && (
-            <IconLoader2 size={10} className="animate-spin text-purple-400" />
+              {parseMultiShotPrompt(displayVisualPrompt)!.map((shot, i) => (
+                <p
+                  key={i}
+                  className="text-[11px] text-foreground/60 leading-relaxed"
+                >
+                  <span className="text-muted-foreground font-medium">
+                    {i + 1}.{' '}
+                  </span>
+                  {shot}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p
+              className={`text-[11px] text-foreground/60 leading-relaxed pl-5 ${onSaveVisualPrompt ? 'cursor-pointer hover:text-foreground/80 hover:bg-secondary/30 rounded transition-colors' : ''}`}
+              onClick={(e) => {
+                if (!onSaveVisualPrompt) return;
+                e.stopPropagation();
+                setEditedPrompt(displayVisualPrompt || '');
+                setIsEditingPrompt(true);
+              }}
+              title={onSaveVisualPrompt ? 'Click to edit' : undefined}
+            >
+              {displayVisualPrompt || (
+                <span className="italic text-muted-foreground">
+                  No visual prompt
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {isEditingPrompt ? (
-          <div
-            className="pl-5 flex flex-col gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Textarea
-              autoFocus
-              value={editedPrompt}
-              onChange={(e) => setEditedPrompt(e.target.value)}
-              onBlur={() => {
-                setTimeout(() => {
-                  if (!isGeneratingVideo) handleSavePrompt();
-                }, 150);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsEditingPrompt(false);
-                }
-              }}
-              className="text-[11px] min-h-[40px] resize-none p-1.5 bg-background/50 border-purple-400/30 focus-visible:border-purple-400/50"
-              placeholder="Visual prompt..."
-            />
-            {onGenerateSceneVideo && (
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-6 text-[10px] px-2"
-                  disabled={isGeneratingVideo}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsGeneratingVideo(true);
-                    onGenerateSceneVideo(sceneId, editedPrompt).finally(() => {
-                      setIsGeneratingVideo(false);
-                      setIsEditingPrompt(false);
-                    });
-                  }}
-                >
-                  {isGeneratingVideo ? (
-                    <IconLoader2 size={10} className="animate-spin mr-1" />
-                  ) : (
-                    <IconVideo size={10} className="mr-1" />
-                  )}
-                  Generate Video
-                </Button>
-              </div>
-            )}
-          </div>
-        ) : parseMultiShotPrompt(displayVisualPrompt) ? (
-          <div
-            className={`pl-5 flex flex-col gap-1 ${onSaveVisualPrompt ? 'cursor-pointer hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVisualPrompt) return;
-              e.stopPropagation();
-              setEditedPrompt(displayVisualPrompt || '');
-              setIsEditingPrompt(true);
-            }}
-            title={onSaveVisualPrompt ? 'Click to edit' : undefined}
-          >
-            <span className="text-[9px] text-cyan-500 font-medium">
-              {parseMultiShotPrompt(displayVisualPrompt)!.length}-shot
-            </span>
-            {parseMultiShotPrompt(displayVisualPrompt)!.map((shot, i) => (
-              <p
-                key={i}
-                className="text-[11px] text-foreground/60 leading-relaxed"
-              >
-                <span className="text-muted-foreground font-medium">
-                  {i + 1}.{' '}
-                </span>
-                {shot}
-              </p>
-            ))}
-          </div>
-        ) : (
-          <p
-            className={`text-[11px] text-foreground/60 leading-relaxed pl-5 ${onSaveVisualPrompt ? 'cursor-pointer hover:text-foreground/80 hover:bg-secondary/30 rounded transition-colors' : ''}`}
-            onClick={(e) => {
-              if (!onSaveVisualPrompt) return;
-              e.stopPropagation();
-              setEditedPrompt(displayVisualPrompt || '');
-              setIsEditingPrompt(true);
-            }}
-            title={onSaveVisualPrompt ? 'Click to edit' : undefined}
-          >
-            {displayVisualPrompt || (
-              <span className="italic text-muted-foreground">
-                No visual prompt
-              </span>
-            )}
-          </p>
-        )}
-      </div>
+      )}
       {/* Timeline actions */}
       {(hasVideo ||
         (voiceover?.status === 'success' && voiceover?.audio_url)) && (
@@ -797,7 +811,8 @@ function ExpandedContent({
               Video
             </Button>
           )}
-          {!isDialogueModeExpanded &&
+          {showVoiceover &&
+            !isDialogueModeExpanded &&
             voiceover?.status === 'success' &&
             voiceover?.audio_url &&
             onAddVoiceoverToTimeline && (
@@ -827,93 +842,165 @@ function ExpandedContent({
   );
 }
 
-function ObjectsRow({ objects }: { objects: RefObject[] }) {
+function ObjectsRow({
+  objects,
+  assetImageMap,
+}: {
+  objects: RefObject[];
+  assetImageMap: AssetImageMap;
+}) {
   const sorted = [...objects].sort((a, b) => a.scene_order - b.scene_order);
+  const [previewObj, setPreviewObj] = useState<RefObject | null>(null);
+  const previewSrc = previewObj
+    ? resolveAssetImageUrl(previewObj, assetImageMap)
+    : null;
 
   return (
-    <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
-      {sorted.map((obj) => {
-        const imgSrc = obj.final_url ?? obj.url;
-        const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
+    <>
+      <div className="mt-1.5 flex items-start gap-2 overflow-x-auto">
+        {sorted.map((obj) => {
+          const imgSrc = resolveAssetImageUrl(obj, assetImageMap);
+          const initial = obj.name?.charAt(0)?.toUpperCase() ?? '?';
+          const needsPrompt = !obj.series_asset_variant_id;
+          const hasPrompt = Boolean(obj.generation_prompt?.trim());
 
-        return (
-          <div
-            key={obj.id}
-            className="flex flex-col items-center gap-0.5 flex-shrink-0"
-          >
+          return (
             <div
-              className={`relative w-7 h-7 rounded-full overflow-hidden bg-background/50 border ${
-                obj.status === 'failed'
-                  ? 'border-red-500/60'
-                  : 'border-border/40'
-              }`}
+              key={obj.id}
+              className="flex flex-col items-center gap-0.5 flex-shrink-0"
             >
-              {imgSrc ? (
-                <Image
-                  src={imgSrc}
-                  alt={obj.name}
-                  fill
-                  className="object-cover"
-                  unoptimized
+              <div
+                className={`relative w-7 h-7 rounded-full overflow-hidden bg-background/50 border cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all ${
+                  obj.status === 'failed'
+                    ? 'border-red-500/60'
+                    : 'border-border/40'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPreviewObj(obj);
+                }}
+                title={`${obj.name} — ${needsPrompt ? (hasPrompt ? 'prompt ready' : 'prompt missing') : 'series asset mapped'} — click to enlarge`}
+              >
+                {imgSrc ? (
+                  <Image
+                    src={imgSrc}
+                    alt={obj.name}
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                    {initial}
+                  </div>
+                )}
+                <div
+                  className={`absolute top-0.5 left-0.5 w-2 h-2 rounded-full border border-black/20 ${
+                    needsPrompt
+                      ? hasPrompt
+                        ? 'bg-emerald-400'
+                        : 'bg-amber-400'
+                      : 'bg-cyan-400'
+                  }`}
                 />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
-                  {initial}
-                </div>
-              )}
-              {obj.status === 'processing' && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-blue-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'outpainting' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-purple-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'enhancing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-green-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'editing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-amber-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'processing' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconLoader2
-                    size={12}
-                    className="text-cyan-400 animate-spin"
-                  />
-                </div>
-              )}
-              {obj.image_edit_status === 'failed' && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  <IconAlertTriangle size={12} className="text-red-400" />
-                </div>
-              )}
+                {obj.status === 'processing' && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-blue-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'outpainting' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-purple-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'enhancing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-green-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'editing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-amber-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'processing' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconLoader2
+                      size={12}
+                      className="text-cyan-400 animate-spin"
+                    />
+                  </div>
+                )}
+                {obj.image_edit_status === 'failed' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <IconAlertTriangle size={12} className="text-red-400" />
+                  </div>
+                )}
+              </div>
+              <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
+                {obj.name}
+              </span>
             </div>
-            <span className="text-[9px] text-muted-foreground truncate max-w-[40px]">
-              {obj.name}
-            </span>
+          );
+        })}
+      </div>
+
+      {/* Expandable asset preview dialog */}
+      <Dialog
+        open={!!previewObj}
+        onOpenChange={(open) => !open && setPreviewObj(null)}
+      >
+        <DialogContent
+          className="max-w-md p-4 bg-black/90 border-white/10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DialogTitle className="text-sm font-medium text-white">
+            {previewObj?.name}
+          </DialogTitle>
+          {previewSrc ? (
+            <img
+              src={previewSrc}
+              alt={previewObj?.name ?? 'Asset preview'}
+              className="w-full h-auto max-h-[70vh] object-contain rounded"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              No image available
+            </div>
+          )}
+          {previewObj?.description && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {previewObj.description}
+            </p>
+          )}
+          <div className="mt-2 space-y-1 text-xs">
+            <div>
+              <span className="text-cyan-300">Generation prompt:</span>{' '}
+              <span className="text-muted-foreground">
+                {previewObj?.generation_prompt?.trim() || 'No prompt saved'}
+              </span>
+            </div>
+            {previewObj?.feedback && (
+              <div className="text-amber-300">
+                Feedback: {previewObj.feedback}
+              </div>
+            )}
           </div>
-        );
-      })}
-    </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -923,10 +1010,7 @@ function BackgroundPicker({
   onSelect,
 }: {
   currentGridPosition: number;
-  availableBackgrounds: Map<
-    number,
-    { name: string; url: string; final_url: string }
-  >;
+  availableBackgrounds: Map<number, SceneBackgroundOption>;
   onSelect: (gridPosition: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -993,9 +1077,10 @@ function BackgroundPicker({
 
 export function SceneCard({
   scene,
+  showVoiceover = true,
+  showVisual = true,
   isSelected,
   onSelectionChange,
-  skyreelsTiming,
   playingVoiceoverId,
   setPlayingVoiceoverId,
   onReadScene,
@@ -1014,15 +1099,10 @@ export function SceneCard({
   onAddVideoToTimeline,
   onAddVoiceoverToTimeline,
   availableBackgrounds,
+  assetImageMap = {},
   onChangeBackground,
-  wanDurationSeconds,
-  wanDurationSelection,
-  wanVoiceoverSeconds,
-  onChangeWanDurationSelection,
-  dialogueDurationSeconds,
-  dialogueDurationLlmDefault,
-  onChangeDialogueDuration,
   isDialogueMode,
+  onUpdateShotDurations,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1036,7 +1116,7 @@ export function SceneCard({
       firstFrame.url ??
       firstFrame.out_padded_url ??
       null)
-    : (background?.final_url ?? background?.url ?? null);
+    : resolveAssetImageUrl(background, assetImageMap);
   const displayVoiceover = voiceover?.text;
   // For ref_to_video scenes, prefer explicit override (first-frame prompt), then multi_prompt, then scene/first-frame prompt.
   const displayVisualPrompt =
@@ -1092,6 +1172,41 @@ export function SceneCard({
 
   const hasVideo = scene.video_status === 'success' && !!scene.video_url;
 
+  const totalSceneObjects = scene.objects?.length ?? 0;
+  const mappedSceneObjects = (scene.objects ?? []).filter(
+    (object) => !!object.series_asset_variant_id
+  ).length;
+  const totalSceneBackgrounds = scene.backgrounds?.length ?? 0;
+  const mappedSceneBackgrounds = (scene.backgrounds ?? []).filter(
+    (background) => !!background.series_asset_variant_id
+  ).length;
+  const missingAssetLinksCount =
+    totalSceneObjects -
+    mappedSceneObjects +
+    (totalSceneBackgrounds - mappedSceneBackgrounds);
+
+  const missingObjectNames = Array.from(
+    new Set(
+      (scene.objects ?? [])
+        .filter((object) => !object.series_asset_variant_id)
+        .map((object) => object.name)
+        .filter((name): name is string => typeof name === 'string' && !!name)
+    )
+  );
+
+  const missingBackgroundNames = Array.from(
+    new Set(
+      (scene.backgrounds ?? [])
+        .filter((background) => !background.series_asset_variant_id)
+        .map((background) => background.name)
+        .filter((name): name is string => typeof name === 'string' && !!name)
+    )
+  );
+
+  const backgroundPromptPreview = background?.generation_prompt?.trim()
+    ? `${background.generation_prompt.slice(0, 80)}${background.generation_prompt.length > 80 ? '…' : ''}`
+    : null;
+
   const voiceoverPreview = displayVoiceover
     ? displayVoiceover.slice(0, 35) +
       (displayVoiceover.length > 35 ? '...' : '')
@@ -1101,10 +1216,42 @@ export function SceneCard({
     voiceover?.duration
   );
 
-  const wanDurationLabel =
-    typeof wanDurationSeconds === 'number'
-      ? `${wanDurationSelection === 'auto' ? 'Auto ' : ''}${wanDurationSeconds}s`
-      : null;
+  const hasVideoPrompt = Boolean(
+    scene.prompt?.trim() ||
+      (scene.multi_prompt ?? []).some((prompt) => prompt.trim().length > 0)
+  );
+
+  const hasVoiceoverPrompt = Boolean(voiceover?.text?.trim());
+
+  const requiredObjectsForPrompt = (scene.objects ?? []).filter(
+    (obj) => !obj.series_asset_variant_id
+  );
+  const missingObjectPromptCount = requiredObjectsForPrompt.filter(
+    (obj) => !obj.generation_prompt?.trim()
+  ).length;
+
+  const requiredBackgroundsForPrompt = (scene.backgrounds ?? []).filter(
+    (bg) => !bg.series_asset_variant_id
+  );
+  const missingBackgroundPromptCount = requiredBackgroundsForPrompt.filter(
+    (bg) => !bg.generation_prompt?.trim()
+  ).length;
+
+  const missingAssetPromptCount =
+    missingObjectPromptCount + missingBackgroundPromptCount;
+
+  const feedbackItems = [
+    scene.feedback ? `Scene: ${scene.feedback}` : null,
+    voiceover?.feedback ? `Voiceover: ${voiceover.feedback}` : null,
+    ...(scene.objects ?? [])
+      .filter((obj) => !!obj.feedback)
+      .slice(0, 2)
+      .map((obj) => `Object (${obj.name}): ${obj.feedback}`),
+    ...(scene.backgrounds ?? [])
+      .filter((bg) => !!bg.feedback)
+      .slice(0, 1)
+      .map((bg) => `Background (${bg.name}): ${bg.feedback}`),
+  ].filter((item): item is string => Boolean(item));
 
   const showSelection = onSelectionChange !== undefined;
   const isPlaying = voiceover ? playingVoiceoverId === voiceover.id : false;
@@ -1177,6 +1324,59 @@ export function SceneCard({
           </button>
         )}
       </div>
+
+      <div className="mb-1.5 flex flex-wrap items-center gap-1">
+        <span
+          className={`text-[9px] px-1.5 py-0.5 rounded border ${hasVideoPrompt ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+          title={hasVideoPrompt ? 'Video prompt ready' : 'Video prompt missing'}
+        >
+          Prompt {hasVideoPrompt ? '●' : '○'}
+        </span>
+        {showVoiceover && (
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${hasVoiceoverPrompt ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+            title={
+              hasVoiceoverPrompt
+                ? 'Voiceover text ready'
+                : 'Voiceover text missing'
+            }
+          >
+            Voice {hasVoiceoverPrompt ? '●' : '○'}
+          </span>
+        )}
+        {(requiredObjectsForPrompt.length > 0 ||
+          requiredBackgroundsForPrompt.length > 0) && (
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${missingAssetPromptCount === 0 ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}
+            title={
+              missingAssetPromptCount === 0
+                ? 'All asset prompts ready'
+                : `${missingAssetPromptCount} asset prompt(s) missing`
+            }
+          >
+            Assets{' '}
+            {missingAssetPromptCount === 0
+              ? '●'
+              : `○ ${missingAssetPromptCount}`}
+          </span>
+        )}
+      </div>
+
+      {feedbackItems.length > 0 && (
+        <div className="mb-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 space-y-0.5">
+          {feedbackItems.slice(0, 2).map((feedback) => (
+            <p key={feedback} className="line-clamp-1">
+              {feedback}
+            </p>
+          ))}
+          {feedbackItems.length > 2 && (
+            <p className="text-[9px] text-amber-200/80">
+              +{feedbackItems.length - 2} more feedback item(s)
+            </p>
+          )}
+        </div>
+      )}
+
       {firstFrame || imageUrl ? (
         <SceneThumbnail
           imageUrl={imageUrl}
@@ -1233,7 +1433,7 @@ export function SceneCard({
                   </div>
                 </div>
               )}
-              {scene.video_status === 'processing' && (
+              {scene.video_status === 'processing' && !scene.video_url && (
                 <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
                   <IconLoader2
                     size={20}
@@ -1332,7 +1532,7 @@ export function SceneCard({
                     Splitting...
                   </span>
                 </div>
-              ) : scene.video_status === 'processing' ? (
+              ) : scene.video_status === 'processing' && !scene.video_url ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-1">
                   <IconLoader2
                     size={20}
@@ -1375,144 +1575,310 @@ export function SceneCard({
       )}
 
       {/* Objects row (ref_to_video characters/items) */}
-      {scene.objects?.length > 0 && <ObjectsRow objects={scene.objects} />}
+      {scene.objects?.length > 0 && (
+        <ObjectsRow objects={scene.objects} assetImageMap={assetImageMap} />
+      )}
 
-      {skyreelsTiming && (
-        <div
-          className={`mt-1.5 px-1.5 py-1 rounded text-[9px] ${skyreelsTiming.warnSlowdown ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'}`}
-        >
-          <div>
-            SkyReels ({skyreelsTiming.mode === 'fixed' ? 'fixed' : 'auto'}):{' '}
-            {skyreelsTiming.voiceoverSeconds
-              ? `VO ${skyreelsTiming.voiceoverSeconds.toFixed(1)}s → Gen ${skyreelsTiming.generatedSeconds}s`
-              : `No VO → Gen ${skyreelsTiming.generatedSeconds}s`}
-            {skyreelsTiming.playbackRate
-              ? ` → ${skyreelsTiming.playbackRate.toFixed(2)}x`
-              : ''}
-          </div>
-          {skyreelsTiming.warnSlowdown && (
-            <div className="mt-0.5">Heavy slowdown may feel unnatural.</div>
+      {/* Asset mapping status */}
+      {(totalSceneObjects > 0 || totalSceneBackgrounds > 0) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+            Assets {mappedSceneObjects + mappedSceneBackgrounds}/
+            {totalSceneObjects + totalSceneBackgrounds}
+          </span>
+          {missingAssetLinksCount > 0 ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive border border-destructive/30">
+              Needs {missingAssetLinksCount} new asset
+              {missingAssetLinksCount === 1 ? '' : 's'}
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              Fully mapped
+            </span>
+          )}
+          {missingAssetPromptCount > 0 ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+              {missingAssetPromptCount} prompt missing
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
+              Prompts ready
+            </span>
           )}
         </div>
       )}
 
+      {background ? (
+        <div className="mt-1 text-[9px] text-foreground/60">
+          <span className="text-violet-300">Background prompt:</span>{' '}
+          {backgroundPromptPreview || (
+            <span className="text-amber-300/80">No prompt saved</span>
+          )}
+        </div>
+      ) : null}
+
+      {/* Video prompt info (collapsed) */}
       {!expanded && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <IconMicrophone size={10} className="text-blue-400 flex-shrink-0" />
-          <p className="text-[10px] text-foreground/70 truncate flex-1">
-            {voiceoverPreview || (
-              <span className="italic text-muted-foreground">
-                {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+        <div className="mt-1.5 space-y-1">
+          {/* Shot type + duration badge */}
+          <div className="flex items-center gap-1.5">
+            <IconVideo size={10} className="text-cyan-400 flex-shrink-0" />
+            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                {scene.multi_prompt.length}-shot
+              </span>
+            ) : (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                Single shot
               </span>
             )}
-          </p>
-          {renderCollapsedVoiceoverStatus()}
-          {collapsedVoiceoverDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
-              {collapsedVoiceoverDurationLabel}
-            </span>
+            <p className="text-[9px] text-foreground/50 truncate flex-1">
+              {scene.multi_prompt?.[0]
+                ? scene.multi_prompt[0].slice(0, 50) +
+                  (scene.multi_prompt[0].length > 50 ? '...' : '')
+                : scene.prompt
+                  ? scene.prompt.slice(0, 50) +
+                    ((scene.prompt?.length ?? 0) > 50 ? '...' : '')
+                  : 'No prompt'}
+            </p>
+          </div>
+          {/* Voiceover line */}
+          {showVoiceover && (
+            <div className="flex items-center gap-1.5">
+              <IconMicrophone
+                size={10}
+                className="text-blue-400 flex-shrink-0"
+              />
+              <p className="text-[10px] text-foreground/70 truncate flex-1">
+                {voiceoverPreview || (
+                  <span className="italic text-muted-foreground">
+                    {isDialogueMode ? 'No dialogue' : 'No voiceover'}
+                  </span>
+                )}
+              </p>
+              {renderCollapsedVoiceoverStatus()}
+              {collapsedVoiceoverDurationLabel && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 flex-shrink-0">
+                  {collapsedVoiceoverDurationLabel}
+                </span>
+              )}
+            </div>
           )}
-          {wanDurationLabel && (
-            <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-300 flex-shrink-0">
-              {wanDurationLabel}
-            </span>
-          )}
-          <IconChevronDown
-            size={12}
-            className="text-muted-foreground flex-shrink-0"
-          />
         </div>
       )}
 
       {expanded && (
         <>
-          {wanDurationLabel && onChangeWanDurationSelection && (
-            <div
-              className="mt-2 p-1.5 rounded border border-cyan-500/20 bg-cyan-500/5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-[10px] text-cyan-300">WAN Duration</span>
-                <span className="text-[10px] text-muted-foreground">
-                  VO {Math.max(0, wanVoiceoverSeconds ?? 0).toFixed(1)}s →{' '}
-                  {wanDurationSeconds}s
+          {/* Video Prompt (expanded) */}
+          <div
+            className="mt-2 p-2 rounded border border-cyan-500/20 bg-cyan-500/5 space-y-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-cyan-300 font-medium flex items-center gap-1">
+                <IconVideo size={12} />
+                Video Prompt
+              </span>
+              {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                  {scene.multi_prompt.length}-shot
                 </span>
-              </div>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={
-                    wanDurationSelection === 'auto' ? 'secondary' : 'ghost'
-                  }
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, 'auto')}
-                >
-                  Auto
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={wanDurationSelection === '5' ? 'secondary' : 'ghost'}
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, '5')}
-                >
-                  5s
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={
-                    wanDurationSelection === '10' ? 'secondary' : 'ghost'
-                  }
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChangeWanDurationSelection(scene.id, '10')}
-                >
-                  10s
-                </Button>
-              </div>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/20">
+                  Single shot
+                </span>
+              )}
             </div>
-          )}
+            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+              <div className="space-y-1">
+                {scene.multi_prompt.map((shot: string, idx: number) => (
+                  <div
+                    key={`shot-${scene.id}-${idx}`}
+                    className="text-[10px] text-foreground/80 leading-relaxed pl-2 border-l-2 border-purple-500/30"
+                  >
+                    <span className="text-purple-400 font-medium">
+                      Shot {idx + 1}:
+                    </span>{' '}
+                    {shot}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-foreground/80 leading-relaxed">
+                {scene.prompt || 'No prompt set'}
+              </p>
+            )}
+            {/* Duration stepper */}
+            {onUpdateShotDurations &&
+              (() => {
+                const sd = (
+                  Array.isArray(scene.multi_shots) ? scene.multi_shots : null
+                ) as Array<{ duration?: string }> | null;
+                const isMulti =
+                  scene.multi_prompt && scene.multi_prompt.length > 1;
+                const shotCount = isMulti ? scene.multi_prompt!.length : 1;
 
-          {typeof dialogueDurationSeconds === 'number' &&
-            onChangeDialogueDuration && (
-              <div
-                className="mt-2 p-1.5 rounded border border-amber-500/20 bg-amber-500/5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="text-[10px] text-amber-300">
-                    Scene Duration
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {dialogueDurationSeconds}s
-                    {dialogueDurationLlmDefault &&
-                      dialogueDurationSeconds !== dialogueDurationLlmDefault &&
-                      ` (AI: ${dialogueDurationLlmDefault}s)`}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={3}
-                  max={15}
-                  step={1}
-                  value={dialogueDurationSeconds}
-                  onChange={(e) =>
-                    onChangeDialogueDuration(scene.id, Number(e.target.value))
-                  }
-                  className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-400 bg-amber-500/20"
-                />
-                <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
-                  <span>3s</span>
-                  <span>15s</span>
-                </div>
+                // Default: ceil(voiceover) total split across shots
+                const voDur = voiceover?.duration
+                  ? Math.ceil(Number(voiceover.duration))
+                  : null;
+                const defaultPerShot = voDur
+                  ? Math.max(3, Math.min(15, Math.round(voDur / shotCount)))
+                  : 5;
+
+                const getDur = (idx: number) =>
+                  Number(sd?.[idx]?.duration ?? String(defaultPerShot));
+
+                const setDur = (idx: number, delta: number) => {
+                  const shots = Array.from({ length: shotCount }, (_, i) => ({
+                    duration: String(
+                      Math.max(
+                        3,
+                        Math.min(15, getDur(i) + (i === idx ? delta : 0))
+                      )
+                    ),
+                  }));
+                  onUpdateShotDurations(scene.id, shots);
+                };
+
+                const totalDur = Array.from({ length: shotCount }, (_, i) =>
+                  getDur(i)
+                ).reduce((a, b) => a + b, 0);
+
+                return (
+                  <div className="pt-1 border-t border-cyan-500/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                        Duration
+                      </span>
+                      {isMulti && (
+                        <span className="text-[9px] text-muted-foreground">
+                          {totalDur}s total
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {Array.from({ length: shotCount }, (_, idx) => (
+                        <div
+                          key={`dur-${scene.id}-${idx}`}
+                          className="inline-flex items-center gap-1 rounded bg-muted/30 border border-border/40 px-1 py-0.5"
+                        >
+                          {isMulti && (
+                            <span className="text-[8px] text-purple-400">
+                              S{idx + 1}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className="w-4 h-4 rounded bg-muted/60 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            disabled={getDur(idx) <= 3}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDur(idx, -1);
+                            }}
+                          >
+                            −
+                          </button>
+                          <span className="text-[10px] text-foreground/85 font-mono min-w-[24px] text-center">
+                            {getDur(idx)}s
+                          </span>
+                          <button
+                            type="button"
+                            className="w-4 h-4 rounded bg-muted/60 hover:bg-muted text-[10px] text-foreground/70 hover:text-foreground flex items-center justify-center disabled:opacity-30"
+                            disabled={getDur(idx) >= 15}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDur(idx, 1);
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            {/* Elements summary */}
+            {scene.objects && scene.objects.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1 border-t border-cyan-500/10">
+                {scene.objects.map(
+                  (obj: { name?: string; id?: string }, idx: number) => (
+                    <span
+                      key={obj.id || idx}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                    >
+                      @E{idx + 1} {obj.name}
+                    </span>
+                  )
+                )}
               </div>
             )}
+
+            {(missingObjectNames.length > 0 ||
+              missingBackgroundNames.length > 0) && (
+              <div className="space-y-1 pt-1 border-t border-destructive/20 text-[9px] text-destructive/90">
+                {missingObjectNames.length > 0 && (
+                  <div>
+                    New object asset needed: {missingObjectNames.join(', ')}
+                  </div>
+                )}
+                {missingBackgroundNames.length > 0 && (
+                  <div>
+                    New background asset needed:{' '}
+                    {missingBackgroundNames.join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(requiredObjectsForPrompt.length > 0 ||
+              requiredBackgroundsForPrompt.length > 0) && (
+              <div className="space-y-1 pt-1 border-t border-cyan-500/10">
+                <div className="text-[9px] text-cyan-300 uppercase tracking-wide">
+                  Asset Prompts
+                </div>
+                {requiredObjectsForPrompt.slice(0, 3).map((obj) => (
+                  <div
+                    key={`obj-prompt-${obj.id}`}
+                    className="text-[9px] text-foreground/75"
+                  >
+                    <span className="text-amber-300">{obj.name}:</span>{' '}
+                    {obj.generation_prompt?.trim() ? (
+                      <span className="line-clamp-1">
+                        {obj.generation_prompt}
+                      </span>
+                    ) : (
+                      <span className="text-amber-300/80">No prompt saved</span>
+                    )}
+                  </div>
+                ))}
+                {requiredBackgroundsForPrompt.slice(0, 2).map((bg) => (
+                  <div
+                    key={`bg-prompt-${bg.id}`}
+                    className="text-[9px] text-foreground/75"
+                  >
+                    <span className="text-violet-300">{bg.name}:</span>{' '}
+                    {bg.generation_prompt?.trim() ? (
+                      <span className="line-clamp-1">
+                        {bg.generation_prompt}
+                      </span>
+                    ) : (
+                      <span className="text-amber-300/80">No prompt saved</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <ExpandedContent
             voiceover={voiceover}
             displayVoiceover={displayVoiceover}
             displayVisualPrompt={displayVisualPrompt}
+            showVoiceover={showVoiceover}
+            showVisual={showVisual}
             playingVoiceoverId={playingVoiceoverId}
             setPlayingVoiceoverId={setPlayingVoiceoverId}
             sceneId={scene.id}

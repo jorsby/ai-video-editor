@@ -1,15 +1,20 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { createTask, uploadFile } from '@/lib/kieai';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
+const KIE_IMAGE_MODEL = 'nano-banana-2';
 
 interface EditImageInput {
   scene_ids: string[];
-  model?: 'kling' | 'banana' | 'fibo' | 'grok' | 'flux-pro';
+  model?: 'banana' | 'fibo' | 'grok';
   action?: 'outpaint' | 'enhance' | 'custom_edit' | 'ref_to_image';
   prompt?: string;
   target_scene_id?: string;
@@ -18,11 +23,9 @@ interface EditImageInput {
 }
 
 const EDIT_ENDPOINTS: Record<string, string> = {
-  kling: 'fal-ai/kling-image/o3/image-to-image',
   banana: 'fal-ai/nano-banana-2/edit',
   fibo: 'bria/fibo-edit/edit',
   grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 
 const EDIT_PROMPT =
@@ -46,6 +49,20 @@ interface ObjectContext {
   grid_image_id: string;
   grid_position: number;
   image_url: string;
+}
+
+function inferUploadFileName(sourceUrl: string, fallback: string): string {
+  try {
+    const pathname = new URL(sourceUrl).pathname;
+    const candidate = pathname.split('/').pop()?.trim();
+    if (candidate && candidate.length > 0) {
+      return candidate;
+    }
+  } catch {
+    // Ignore parse errors and use fallback.
+  }
+
+  return fallback;
 }
 
 async function getFirstFrameContext(
@@ -186,6 +203,8 @@ async function sendEditRequest(
   model: string,
   prompt: string,
   webhookStep: string,
+  provider: GenerationProvider,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>,
   referenceUrls?: string[]
 ): Promise<{ requestId: string | null; error: string | null }> {
@@ -205,17 +224,18 @@ async function sendEditRequest(
     step: webhookStep,
     [entityKey]: entityId,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
+  const callbackPath =
+    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const webhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
-  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  log.api('fal.ai', endpoint, {
+  log.api(provider === 'kie' ? 'kie.ai' : 'fal.ai', endpoint, {
     [entityKey]: entityId,
     has_image_url: !!context.image_url,
     reference_count: referenceUrls?.length ?? 0,
   });
-  log.startTiming('fal_outpaint_request');
+  log.startTiming(
+    provider === 'kie' ? 'kie_outpaint_request' : 'fal_outpaint_request'
+  );
 
   let requestBody: Record<string, unknown>;
   if (referenceUrls && referenceUrls.length > 0) {
@@ -231,12 +251,54 @@ async function sendEditRequest(
   }
 
   // Disable safety checkers where supported
-  if (model === 'flux-pro') {
-    requestBody.enable_safety_checker = false;
-    requestBody.safety_tolerance = '5';
-  } else if (model === 'banana') {
+  if (model === 'banana') {
     requestBody.safety_tolerance = '6';
   }
+
+  if (provider === 'kie') {
+    try {
+      const inputUrls =
+        referenceUrls && referenceUrls.length > 0
+          ? referenceUrls
+          : [context.image_url];
+      const uploadedReferenceUrls = await Promise.all(
+        inputUrls.map((sourceUrl, index) =>
+          uploadFile(
+            sourceUrl,
+            inferUploadFileName(
+              sourceUrl,
+              `${entityId}-image-input-${index + 1}.jpg`
+            )
+          ).then((uploaded) => uploaded.fileUrl)
+        )
+      );
+
+      const result = await createTask({
+        model: KIE_IMAGE_MODEL,
+        callbackUrl: webhookUrl,
+        input: {
+          prompt,
+          image_input: uploadedReferenceUrls.slice(0, 14),
+          output_format: 'jpg',
+        },
+      });
+
+      log.success('kie.ai outpaint request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_outpaint_request'),
+      });
+      return { requestId: result.taskId, error: null };
+    } catch (err) {
+      log.error('kie.ai outpaint request exception', {
+        error: err instanceof Error ? err.message : String(err),
+        time_ms: log.endTiming('kie_outpaint_request'),
+      });
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
+
+  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
+  falUrl.searchParams.set('fal_webhook', webhookUrl);
 
   try {
     const falResponse = await fetch(falUrl.toString(), {
@@ -293,11 +355,33 @@ export async function POST(req: NextRequest) {
 
     log.info('Request received');
     const input: EditImageInput = await req.json();
-    const { scene_ids, model = 'kling', action = 'outpaint' } = input;
+    const { scene_ids, model = 'banana', action = 'outpaint' } = input;
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body: input,
+    });
 
     if (!scene_ids || !Array.isArray(scene_ids) || scene_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: 'scene_ids must be a non-empty array' },
+        { status: 400 }
+      );
+    }
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json(
+        { success: false, error: 'Missing FAL_KEY' },
+        { status: 500 }
+      );
+    }
+
+    if (providerResolution.provider === 'kie' && model !== 'banana') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'kie provider currently supports only banana model',
+        },
         { status: 400 }
       );
     }
@@ -328,8 +412,19 @@ export async function POST(req: NextRequest) {
         );
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
     const supabase = createServiceClient();
-    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.kling;
+    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.banana;
 
     // --- ref_to_image: single request with multiple reference images ---
     if (action === 'ref_to_image') {
@@ -373,6 +468,8 @@ export async function POST(req: NextRequest) {
         model,
         input.prompt as string,
         'EnhanceImage',
+        providerResolution.provider,
+        webhookBase,
         log,
         referenceUrls
       );
@@ -398,6 +495,7 @@ export async function POST(req: NextRequest) {
         .eq('id', targetContext.first_frame_id);
       return NextResponse.json({
         success: true,
+        provider: providerResolution.provider,
         target_scene_id: input.target_scene_id,
         first_frame_id: targetContext.first_frame_id,
         request_id: requestId,
@@ -458,6 +556,8 @@ export async function POST(req: NextRequest) {
           model,
           objPrompt,
           'EnhanceImage',
+          providerResolution.provider,
+          webhookBase,
           log
         );
 
@@ -497,6 +597,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
+        provider: providerResolution.provider,
         results,
         summary: {
           total: input.object_ids.length,
@@ -573,6 +674,8 @@ export async function POST(req: NextRequest) {
         model,
         prompt,
         webhookStep,
+        providerResolution.provider,
+        webhookBase,
         log
       );
 
@@ -612,6 +715,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      provider: providerResolution.provider,
       results,
       summary: {
         total: scene_ids.length,

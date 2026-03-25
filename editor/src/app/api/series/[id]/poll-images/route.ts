@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { getSeries } from '@/lib/supabase/series-service';
+import { getTaskStatus, parseResultJson } from '@/lib/kieai';
 import { type NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 
@@ -12,6 +13,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 interface PendingJobInput {
   request_id: string;
+  provider?: 'fal' | 'kie';
   model?: string;
   type?: 'grid' | 'single';
   variant_ids?: string[];
@@ -24,6 +26,7 @@ interface JobMeta {
   model?: string | null;
   type?: string | null;
   config?: {
+    provider?: 'fal' | 'kie';
     variant_id?: string;
     variant_ids?: string[];
     cols?: number;
@@ -35,27 +38,45 @@ interface JobMeta {
 function resolveModelEndpoint(model?: string | null): string {
   if (!model) return 'fal-ai/nano-banana-2';
 
-  // Normalize known status/result endpoints
-  const normalized = model
-    .replace('fal-ai/flux-pro/v1.1', 'fal-ai/flux-pro')
-    .replace('fal-ai/flux-pro/v1', 'fal-ai/flux-pro');
-
-  if (normalized.includes('/')) return normalized;
+  if (model.includes('/')) return model;
 
   const aliases: Record<string, string> = {
     'nano-banana-2': 'fal-ai/nano-banana-2',
-    'flux-pro': 'fal-ai/flux-pro',
-    'flux-2-pro': 'fal-ai/flux-2-pro',
     banana: 'fal-ai/nano-banana-2',
   };
 
-  return aliases[normalized] ?? normalized;
+  return aliases[model] ?? model;
 }
 
 function extractImages(payload: any): Array<{ url?: string }> {
   if (Array.isArray(payload?.images)) return payload.images;
   if (Array.isArray(payload?.output?.images)) return payload.output.images;
   return [];
+}
+
+function extractKieImageUrl(result: Record<string, unknown>): string | null {
+  const direct = [
+    result.image_url,
+    result.imageUrl,
+    result.url,
+    result.output,
+  ].find((candidate) => typeof candidate === 'string' && candidate.length > 0);
+
+  if (typeof direct === 'string') {
+    return direct;
+  }
+
+  const images = result.images;
+  if (Array.isArray(images) && images.length > 0) {
+    const first = images[0];
+    if (typeof first === 'string' && first.length > 0) return first;
+    if (first && typeof first === 'object' && 'url' in first) {
+      const url = (first as { url?: unknown }).url;
+      if (typeof url === 'string' && url.length > 0) return url;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -131,6 +152,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
           .maybeSingle();
         const jobMeta = (jobMetaRaw ?? null) as JobMeta | null;
 
+        const provider =
+          job.provider ?? jobMeta?.config?.provider ?? ('fal' as 'fal' | 'kie');
         const modelEndpoint = resolveModelEndpoint(job.model ?? jobMeta?.model);
         const type = (job.type ?? jobMeta?.type ?? 'single') as
           | 'grid'
@@ -151,66 +174,117 @@ export async function POST(req: NextRequest, context: RouteContext) {
           jobMeta?.config?.rows ??
           Math.ceil(inferredVariantIds.length / cols);
 
-        // Check fal.ai status
-        const statusUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}/status`;
-        const statusRes = await fetch(statusUrl, {
-          headers: { Authorization: `Key ${FAL_KEY}` },
-        });
+        let images: Array<{ url?: string }> = [];
+        let remoteStatus = 'COMPLETED';
 
-        if (!statusRes.ok) {
-          const errText = await statusRes.text();
-          results.push({
-            request_id: job.request_id,
-            status: 'ERROR',
-            images_saved: 0,
-            error: `Status check failed: ${statusRes.status} ${errText.slice(0, 120)}`,
+        if (provider === 'kie') {
+          try {
+            const taskResult = await getTaskStatus(job.request_id);
+            const state = taskResult.data?.state ?? 'unknown';
+
+            if (state !== 'success') {
+              results.push({
+                request_id: job.request_id,
+                status: state,
+                images_saved: 0,
+                error:
+                  state === 'fail'
+                    ? (taskResult.msg ?? 'kie.ai task failed')
+                    : undefined,
+              });
+              continue;
+            }
+
+            const result = parseResultJson(taskResult.data?.resultJson);
+            const imageUrl = extractKieImageUrl(result);
+
+            if (!imageUrl) {
+              results.push({
+                request_id: job.request_id,
+                status: state,
+                images_saved: 0,
+                error: 'No images in kie.ai response',
+              });
+              continue;
+            }
+
+            images = [{ url: imageUrl }];
+            remoteStatus = state;
+          } catch (error) {
+            results.push({
+              request_id: job.request_id,
+              status: 'ERROR',
+              images_saved: 0,
+              error:
+                error instanceof Error
+                  ? `kie.ai status check failed: ${error.message}`
+                  : 'kie.ai status check failed',
+            });
+            continue;
+          }
+        } else {
+          // Check fal.ai status
+          const statusUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}/status`;
+          const statusRes = await fetch(statusUrl, {
+            headers: { Authorization: `Key ${FAL_KEY}` },
           });
-          continue;
-        }
 
-        const statusData = await statusRes.json();
+          if (!statusRes.ok) {
+            const errText = await statusRes.text();
+            results.push({
+              request_id: job.request_id,
+              status: 'ERROR',
+              images_saved: 0,
+              error: `Status check failed: ${statusRes.status} ${errText.slice(0, 120)}`,
+            });
+            continue;
+          }
 
-        if (statusData.status !== 'COMPLETED') {
-          results.push({
-            request_id: job.request_id,
-            status: statusData.status ?? 'UNKNOWN',
-            images_saved: 0,
-            error:
-              statusData.status === 'ERROR'
-                ? (statusData.error ?? 'fal.ai error')
-                : undefined,
+          const statusData = await statusRes.json();
+
+          if (statusData.status !== 'COMPLETED') {
+            results.push({
+              request_id: job.request_id,
+              status: statusData.status ?? 'UNKNOWN',
+              images_saved: 0,
+              error:
+                statusData.status === 'ERROR'
+                  ? (statusData.error ?? 'fal.ai error')
+                  : undefined,
+            });
+            continue;
+          }
+
+          // Fetch result
+          const resultUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}`;
+          const resultRes = await fetch(resultUrl, {
+            headers: { Authorization: `Key ${FAL_KEY}` },
           });
-          continue;
-        }
 
-        // Fetch result
-        const resultUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}`;
-        const resultRes = await fetch(resultUrl, {
-          headers: { Authorization: `Key ${FAL_KEY}` },
-        });
+          if (!resultRes.ok) {
+            const errText = await resultRes.text();
+            results.push({
+              request_id: job.request_id,
+              status: 'COMPLETED',
+              images_saved: 0,
+              error: `Result fetch failed: ${resultRes.status} ${errText.slice(0, 120)}`,
+            });
+            continue;
+          }
 
-        if (!resultRes.ok) {
-          const errText = await resultRes.text();
-          results.push({
-            request_id: job.request_id,
-            status: 'COMPLETED',
-            images_saved: 0,
-            error: `Result fetch failed: ${resultRes.status} ${errText.slice(0, 120)}`,
-          });
-          continue;
-        }
+          const resultData = await resultRes.json();
+          images = extractImages(resultData);
+          remoteStatus = statusData.status ?? 'COMPLETED';
 
-        const resultData = await resultRes.json();
-        const images = extractImages(resultData);
-
-        if (!images.length || !images[0]?.url) {
-          results.push({
-            request_id: job.request_id,
-            status: 'COMPLETED',
-            images_saved: 0,
-            error: 'No images in fal.ai response',
-          });
-          continue;
+          if (!images.length || !images[0]?.url) {
+            results.push({
+              request_id: job.request_id,
+              status: remoteStatus,
+              images_saved: 0,
+              error: 'No images in fal.ai response',
+            });
+            continue;
+          }
         }
 
         if (type === 'grid') {
@@ -224,7 +298,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
             continue;
           }
 
-          const imgRes = await fetch(images[0].url);
+          const gridUrl = images[0]?.url;
+          if (!gridUrl) {
+            results.push({
+              request_id: job.request_id,
+              status: remoteStatus,
+              images_saved: 0,
+              error: 'Missing image URL for grid',
+            });
+            continue;
+          }
+
+          const imgRes = await fetch(gridUrl);
           const imgBuf = Buffer.from(await imgRes.arrayBuffer());
           const meta = await sharp(imgBuf).metadata();
           const cellW = Math.floor((meta.width ?? cols * 1024) / cols);
@@ -288,7 +373,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
               storage_path: storagePath,
               source: 'generated',
               metadata: {
-                fal_request_id: job.request_id,
+                provider,
+                request_id: job.request_id,
+                ...(provider === 'fal'
+                  ? { fal_request_id: job.request_id }
+                  : { kie_task_id: job.request_id }),
                 grid_position: idx,
                 source: 'poll_fallback',
                 generation_mode: 'grid',
@@ -303,7 +392,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
           results.push({
             request_id: job.request_id,
-            status: 'COMPLETED',
+            status: remoteStatus,
             images_saved: saved,
           });
         } else {
@@ -311,7 +400,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           if (!vid) {
             results.push({
               request_id: job.request_id,
-              status: 'COMPLETED',
+              status: remoteStatus,
               images_saved: 0,
               error: 'No variant_id available for single job',
             });
@@ -335,7 +424,18 @@ export async function POST(req: NextRequest, context: RouteContext) {
               .eq('variant_id', vid);
           }
 
-          const imgRes = await fetch(images[0].url);
+          const singleUrl = images[0]?.url;
+          if (!singleUrl) {
+            results.push({
+              request_id: job.request_id,
+              status: remoteStatus,
+              images_saved: 0,
+              error: 'Missing image URL for single',
+            });
+            continue;
+          }
+
+          const imgRes = await fetch(singleUrl);
           const imgBuf = Buffer.from(await imgRes.arrayBuffer());
           const storagePath = `generated/${vid}/${Date.now()}_poll.jpg`;
           const { error: upErr } = await dbClient.storage
@@ -344,7 +444,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           if (upErr) {
             results.push({
               request_id: job.request_id,
-              status: 'COMPLETED',
+              status: remoteStatus,
               images_saved: 0,
               error: upErr.message,
             });
@@ -365,7 +465,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storage_path: storagePath,
             source: 'generated',
             metadata: {
-              fal_request_id: job.request_id,
+              provider,
+              request_id: job.request_id,
+              ...(provider === 'fal'
+                ? { fal_request_id: job.request_id }
+                : { kie_task_id: job.request_id }),
               source: 'poll_fallback',
               prompt: jobMeta?.prompt ?? null,
               model: jobMeta?.model ?? modelEndpoint,
@@ -374,7 +478,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
           results.push({
             request_id: job.request_id,
-            status: 'COMPLETED',
+            status: remoteStatus,
             images_saved: 1,
           });
         }

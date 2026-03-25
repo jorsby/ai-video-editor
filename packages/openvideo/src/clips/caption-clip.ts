@@ -253,7 +253,12 @@ export interface ICaptionOpts {
    * Vertical alignment ('top', 'top-quarter', 'center', 'bottom-quarter', 'bottom')
    * @default 'bottom'
    */
-  verticalAlign?: 'top' | 'top-quarter' | 'center' | 'bottom-quarter' | 'bottom';
+  verticalAlign?:
+    | 'top'
+    | 'top-quarter'
+    | 'center'
+    | 'bottom-quarter'
+    | 'bottom';
   /**
    * Line height (multiplier)
    * @default 1
@@ -1304,7 +1309,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       const contentHeightWithPadding = logicalContentHeight + paddingY * 2;
 
       let targetWidth = contentWidthWithPadding;
-      let targetHeight = contentHeightWithPadding;
+      const targetHeight = contentHeightWithPadding;
 
       if (this._isWidthConstrained) {
         if (textChanged) {
@@ -1333,9 +1338,11 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       if (finalVAlign === 'top') {
         startY = paddingY;
       } else if (finalVAlign === 'top-quarter') {
-        startY = paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.25;
+        startY =
+          paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.25;
       } else if (finalVAlign === 'bottom-quarter') {
-        startY = paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.75;
+        startY =
+          paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.75;
       } else if (finalVAlign === 'bottom') {
         startY = containerHeight - textBlockHeight - paddingY;
       } else {

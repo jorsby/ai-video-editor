@@ -2,50 +2,124 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
+import { resolveProvider } from '@/lib/provider-routing';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 // ── Model configuration ───────────────────────────────────────────────────────
 const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
   'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
-  'flux-pro': { endpoint: 'fal-ai/flux-pro/v1.1', useImageSize: true },
-  'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
 };
 const DEFAULT_MODEL = 'nano-banana-2';
 
-// ── Aspect ratio → fal.ai value mapping ───────────────────────────────────────
-const ASPECT_RATIOS: Record<string, string> = {
-  '1:1': '1:1',
-  '16:9': '16:9',
-  '9:16': '9:16',
-  '3:4': '3:4',
-  '4:3': '4:3',
-};
+// ── nano-banana-2 supported aspect ratios (per docs) ─────────────────────────
+const NANO_ASPECT_RATIOS = [
+  '21:9',
+  '16:9',
+  '3:2',
+  '4:3',
+  '5:4',
+  '1:1',
+  '4:5',
+  '3:4',
+  '2:3',
+  '9:16',
+  '4:1',
+  '1:4',
+  '8:1',
+  '1:8',
+] as const;
+const NANO_ASPECT_RATIO_SET = new Set<string>(NANO_ASPECT_RATIOS);
+
+type NanoAspectRatio = (typeof NANO_ASPECT_RATIOS)[number];
+
+function parseRatio(ratio: string): { w: number; h: number } | null {
+  const [wRaw, hRaw] = ratio.split(':');
+  const w = Number(wRaw);
+  const h = Number(hRaw);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return null;
+  }
+  return { w, h };
+}
+
+function resolutionBasePx(resolution: string): number {
+  switch (resolution) {
+    case '0.5K':
+      return 384;
+    case '1K':
+      return 512;
+    case '4K':
+      return 1365;
+    case '2K':
+    default:
+      return 1024;
+  }
+}
 
 // ── Cell pixel sizes per aspect ratio ─────────────────────────────────────────
 function cellPixels(
   ratio: string,
   resolution: string
 ): { w: number; h: number } {
-  const base = resolution === '4K' ? 1365 : resolution === '1K' ? 512 : 1024;
-  switch (ratio) {
-    case '16:9':
-      return { w: Math.round(base * (16 / 9)), h: base };
-    case '9:16':
-      return { w: base, h: Math.round(base * (16 / 9)) };
-    case '3:4':
-      return { w: base, h: Math.round(base * (4 / 3)) };
-    case '4:3':
-      return { w: Math.round(base * (4 / 3)), h: base };
-    default:
-      return { w: base, h: base }; // 1:1
+  const parsed = parseRatio(ratio);
+  const base = resolutionBasePx(resolution);
+
+  if (!parsed) {
+    return { w: base, h: base };
   }
+
+  // Keep shorter edge at `base`, scale the longer edge by ratio
+  if (parsed.w >= parsed.h) {
+    return { w: Math.round(base * (parsed.w / parsed.h)), h: base };
+  }
+
+  return { w: base, h: Math.round(base * (parsed.h / parsed.w)) };
 }
 
-// ── Position labels for up to 4×4 ────────────────────────────────────────────
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+function closestNanoAspect(width: number, height: number): NanoAspectRatio {
+  const g = gcd(width, height);
+  const reduced = `${Math.floor(width / g)}:${Math.floor(height / g)}`;
+
+  if (NANO_ASPECT_RATIO_SET.has(reduced)) {
+    return reduced as NanoAspectRatio;
+  }
+
+  const target = width / height;
+  let best: NanoAspectRatio = '1:1';
+  let bestDelta = Number.POSITIVE_INFINITY;
+
+  for (const ratio of NANO_ASPECT_RATIOS) {
+    const parsed = parseRatio(ratio);
+    if (!parsed) continue;
+    const value = parsed.w / parsed.h;
+    const delta = Math.abs(target - value);
+    if (delta < bestDelta) {
+      best = ratio;
+      bestDelta = delta;
+    }
+  }
+
+  return best;
+}
+
+// ── Position labels for up to 6×6 ────────────────────────────────────────────
 function positionLabel(idx: number, cols: number, rows: number): string {
   if (rows === 1) {
-    const labels = ['left', 'center-left', 'center-right', 'right'];
+    const labels = [
+      'left',
+      'left-center',
+      'center',
+      'right-center',
+      'right',
+      'far-right',
+    ];
     return labels[idx] ?? `position ${idx + 1}`;
   }
   const row = Math.floor(idx / cols);
@@ -133,6 +207,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       custom_suffix?: string;
     };
 
+    const providerResolution = await resolveProvider({
+      service: 'image',
+      req,
+      body,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
+
     if (!type || !['character', 'location', 'prop'].includes(type)) {
       return NextResponse.json(
         { error: 'type must be "character", "location", or "prop"' },
@@ -154,20 +238,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // Grid configuration with smart defaults
     const cellRatio = gridOpts?.cell_ratio ?? '1:1';
-    const resolution = gridOpts?.resolution ?? '2K';
+    const resolutionRaw = gridOpts?.resolution ?? '2K';
+    const resolution =
+      typeof resolutionRaw === 'string' ? resolutionRaw.toUpperCase() : '2K';
 
-    if (!ASPECT_RATIOS[cellRatio]) {
+    if (!NANO_ASPECT_RATIO_SET.has(cellRatio)) {
       return NextResponse.json(
         {
-          error: `cell_ratio must be one of: ${Object.keys(ASPECT_RATIOS).join(', ')}`,
+          error: `cell_ratio must be one of: ${NANO_ASPECT_RATIOS.join(', ')}`,
         },
         { status: 400 }
       );
     }
 
-    if (!['1K', '2K', '4K'].includes(resolution)) {
+    if (!['0.5K', '1K', '2K', '4K'].includes(resolution)) {
       return NextResponse.json(
-        { error: 'resolution must be "1K", "2K", or "4K"' },
+        { error: 'resolution must be "0.5K", "1K", "2K", or "4K"' },
         { status: 400 }
       );
     }
@@ -210,9 +296,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    if (cols < 1 || cols > 4 || rows < 1 || rows > 4) {
+    if (cols < 1 || cols > 6 || rows < 1 || rows > 6) {
       return NextResponse.json(
-        { error: 'cols and rows must be between 1 and 4' },
+        { error: 'cols and rows must be between 1 and 6' },
         { status: 400 }
       );
     }
@@ -373,100 +459,132 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const prompt = promptParts.join('. ');
 
     // ── Compute fal.ai aspect ratio from total grid dimensions ──────────────
-    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-    const g = gcd(gridWidth, gridHeight);
-    const ratioW = gridWidth / g;
-    const ratioH = gridHeight / g;
-    // Map to closest fal.ai supported ratio
-    const gridAspect =
-      ratioW === ratioH ? '1:1' : ratioW > ratioH ? '16:9' : '9:16';
+    const gridAspect = closestNanoAspect(gridWidth, gridHeight);
 
     // ── Build webhook URL ───────────────────────────────────────────────────
-    const webhookUrl = new URL(
-      `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal`
-    );
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
+    const callbackPath =
+      providerResolution.provider === 'kie'
+        ? '/api/webhook/kieai'
+        : '/api/webhook/fal';
+    const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesGridImage');
     webhookUrl.searchParams.set('variant_ids', variantIds.join(','));
     webhookUrl.searchParams.set('cols', String(cols));
     webhookUrl.searchParams.set('rows', String(rows));
 
-    // ── Submit to fal.ai (with resolution fallback) ───────────────────────
+    // ── Submit to provider (with fal-specific resolution fallback) ─────────
     const modelKey =
       modelOverride && MODELS[modelOverride] ? modelOverride : DEFAULT_MODEL;
     const modelConfig = MODELS[modelKey];
 
-    async function submitToFal(
-      res: string
-    ): Promise<{ request_id: string; resolution_used: string }> {
-      const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
-
-      // Models use different size params
-      const sizeParams = modelConfig.useImageSize
-        ? { image_size: { width: gridWidth, height: gridHeight } }
-        : { resolution: res, aspect_ratio: gridAspect };
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          num_images: 1,
-          ...sizeParams,
-          output_format: 'jpeg',
-          safety_tolerance: '6',
-        }),
-      });
-
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        throw new Error(
-          `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
-        );
-      }
-
-      const data = await falRes.json();
-      return { request_id: data.request_id, resolution_used: res };
-    }
-
     let requestId: string;
     let resolutionUsed = resolution;
+    let modelForJob = modelKey;
+    let endpointForJob = modelConfig.endpoint;
 
-    try {
-      const result = await submitToFal(resolution);
-      requestId = result.request_id;
-      resolutionUsed = result.resolution_used;
-    } catch (err) {
-      // If 2K/4K fails, retry at 1K
-      if (resolution !== '1K') {
-        console.warn(`[SeriesGrid] ${resolution} failed, retrying at 1K:`, err);
-        try {
-          const result = await submitToFal('1K');
-          requestId = result.request_id;
-          resolutionUsed = '1K';
-        } catch (retryErr) {
-          console.error('[SeriesGrid] 1K retry also failed:', retryErr);
-          return NextResponse.json(
-            { error: 'Image generation failed at all resolutions' },
-            { status: 500 }
-          );
-        }
-      } else {
-        console.error('[SeriesGrid] fal.ai request failed:', err);
+    if (providerResolution.provider === 'kie') {
+      try {
+        const queued = await queueKieImageTask({
+          prompt,
+          callbackUrl: webhookUrl.toString(),
+          aspectRatio: gridAspect,
+          resolution,
+          outputFormat: 'jpg',
+        });
+
+        requestId = queued.requestId;
+        modelForJob = queued.model;
+        endpointForJob = queued.endpoint;
+      } catch (error) {
+        console.error('[SeriesGrid] kie.ai request failed:', error);
         return NextResponse.json(
           { error: 'Image generation request failed' },
           { status: 500 }
         );
       }
+    } else {
+      async function submitToFal(
+        res: string
+      ): Promise<{ request_id: string; resolution_used: string }> {
+        const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
+        falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
+
+        // Models use different size params
+        const sizeParams = modelConfig.useImageSize
+          ? { image_size: { width: gridWidth, height: gridHeight } }
+          : { resolution: res, aspect_ratio: gridAspect };
+
+        const falRes = await fetch(falUrl.toString(), {
+          method: 'POST',
+          headers: {
+            Authorization: `Key ${process.env.FAL_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt,
+            num_images: 1,
+            ...sizeParams,
+            output_format: 'jpeg',
+            safety_tolerance: '6',
+          }),
+        });
+
+        if (!falRes.ok) {
+          const errText = await falRes.text();
+          throw new Error(
+            `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
+          );
+        }
+
+        const data = await falRes.json();
+        return { request_id: data.request_id, resolution_used: res };
+      }
+
+      try {
+        const result = await submitToFal(resolution);
+        requestId = result.request_id;
+        resolutionUsed = result.resolution_used;
+      } catch (err) {
+        // If 2K/4K fails, retry at 1K
+        if (resolution !== '1K') {
+          console.warn(
+            `[SeriesGrid] ${resolution} failed, retrying at 1K:`,
+            err
+          );
+          try {
+            const result = await submitToFal('1K');
+            requestId = result.request_id;
+            resolutionUsed = '1K';
+          } catch (retryErr) {
+            console.error('[SeriesGrid] 1K retry also failed:', retryErr);
+            return NextResponse.json(
+              { error: 'Image generation failed at all resolutions' },
+              { status: 500 }
+            );
+          }
+        } else {
+          console.error('[SeriesGrid] fal.ai request failed:', err);
+          return NextResponse.json(
+            { error: 'Image generation request failed' },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     console.log('[SeriesGrid] Submitted', {
       request_id: requestId,
-      model: modelKey,
-      endpoint: modelConfig.endpoint,
+      provider: providerResolution.provider,
+      model: modelForJob,
+      endpoint: endpointForJob,
       type,
       items: count,
       grid: `${cols}x${rows}`,
@@ -485,8 +603,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       request_id: requestId,
       type: 'grid',
       prompt,
-      model: modelKey,
+      model: modelForJob,
       config: {
+        provider: providerResolution.provider,
         type,
         items,
         cols,
@@ -504,8 +623,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // ── Background polling fallback ─────────────────────────────────────────
     // Fire a delayed poll after 60s in case the webhook doesn't land.
     // Uses waitUntil-style fire-and-forget via setTimeout in the runtime.
-    const pollUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/series/${id}/poll-images`;
+    const pollUrl = `${req.nextUrl.origin}/api/series/${id}/poll-images`;
     const authHeader = req.headers.get('authorization') ?? '';
+    const fallbackAuth =
+      authHeader ||
+      (process.env.OCTUPOST_API_KEY
+        ? `Bearer ${process.env.OCTUPOST_API_KEY}`
+        : '');
 
     setTimeout(async () => {
       try {
@@ -513,13 +637,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: authHeader,
+            ...(fallbackAuth ? { Authorization: fallbackAuth } : {}),
           },
           body: JSON.stringify({
             jobs: [
               {
                 request_id: requestId,
-                model: modelConfig.endpoint,
+                provider: providerResolution.provider,
+                model: modelForJob,
                 type: 'grid',
                 variant_ids: variantIds,
                 cols,
@@ -552,8 +677,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
       variant_ids: variantIds,
       config: {
         type,
-        model: modelKey,
-        endpoint: modelConfig.endpoint,
+        provider: providerResolution.provider,
+        model: modelForJob,
+        endpoint: endpointForJob,
         allow_text: !!allow_text,
         skip_genre: shouldSkipGenre,
         resolution_requested: resolution,

@@ -227,16 +227,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Clamp scene_object_indices to max 3 per scene for SkyReels
-    if (
-      storyboard.model === 'skyreels' &&
-      Array.isArray(plan.scene_object_indices)
-    ) {
-      plan.scene_object_indices = plan.scene_object_indices.map(
-        (indices: number[]) => indices.slice(0, 3)
-      );
-    }
-
     const objectNames: string[] = Array.isArray(plan.objects)
       ? plan.objects.map((o: { name: string }) => o.name)
       : plan.object_names;
@@ -467,6 +457,7 @@ export async function POST(req: NextRequest) {
                 .update({
                   url: match.url,
                   final_url: match.url,
+                  series_asset_variant_id: match.variantId,
                   status: 'success',
                 })
                 .eq('grid_image_id', objectsGrid.id)
@@ -489,6 +480,7 @@ export async function POST(req: NextRequest) {
               .update({
                 url: match.url,
                 final_url: match.url,
+                series_asset_variant_id: match.variantId,
                 status: 'success',
               })
               .eq('grid_image_id', bgGrid.id)

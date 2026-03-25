@@ -11,9 +11,10 @@ import {
   IconPhoto,
   IconVideo,
   IconMessageCircle,
-  IconLayoutGrid,
   IconDeviceTv,
-  IconCategory,
+  IconPackage,
+  IconMovie,
+  IconLayoutList,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -25,25 +26,29 @@ export type Tab =
   | 'text'
   | 'captions'
   | 'effects'
-  // | 'elements'
   | 'voiceovers'
   | 'sfx'
   | 'transitions'
   | 'assistant'
+  | 'assets'
+  | 'roadmap'
   | 'storyboard'
-  | 'library'
   | 'renders';
 
 export const tabs: {
   [key in Tab]: { icon: React.FC<IconProps>; label: string };
 } = {
-  storyboard: {
-    icon: IconLayoutGrid,
-    label: 'Storyboard',
+  assets: {
+    icon: IconPackage,
+    label: 'Assets',
   },
-  library: {
-    icon: IconCategory,
-    label: 'Library',
+  roadmap: {
+    icon: IconMovie,
+    label: 'Roadmap',
+  },
+  storyboard: {
+    icon: IconLayoutList,
+    label: 'Storyboard',
   },
   renders: {
     icon: IconDeviceTv,
@@ -65,10 +70,6 @@ export const tabs: {
     icon: IconLetterT,
     label: 'Text',
   },
-  // elements: {
-  //   icon: IconCircleSquare,
-  //   label: 'Elements',
-  // },
   captions: {
     icon: IconSubtitles,
     label: 'Captions',
@@ -105,12 +106,14 @@ interface MediaPanelStore {
   highlightMediaId: string | null;
   requestRevealMedia: (mediaId: string) => void;
   clearHighlight: () => void;
+  selectedStoryboardId: string | null;
+  setSelectedStoryboardId: (id: string | null) => void;
   showProperties: boolean;
   setShowProperties: (show: boolean) => void;
 }
 
 export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
-  activeTab: 'storyboard',
+  activeTab: 'roadmap',
   setActiveTab: (tab) => set({ activeTab: tab, showProperties: false }),
   highlightMediaId: null,
   requestRevealMedia: (mediaId) =>
@@ -120,6 +123,8 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
       showProperties: false,
     }),
   clearHighlight: () => set({ highlightMediaId: null }),
+  selectedStoryboardId: null,
+  setSelectedStoryboardId: (id) => set({ selectedStoryboardId: id }),
   showProperties: false,
   setShowProperties: (show) => set({ showProperties: show }),
 }));

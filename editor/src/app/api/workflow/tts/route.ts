@@ -2,14 +2,23 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
+import { createTask } from '@/lib/kieai';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 const TTS_ENDPOINTS: Record<string, string> = {
   'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
+};
+
+const KIE_TTS_MODELS: Record<string, string> = {
+  'turbo-v2.5': 'elevenlabs/text-to-speech-turbo-2-5',
+  'multilingual-v2': 'elevenlabs/text-to-speech-multilingual-v2',
 };
 
 const DEFAULT_TTS_MODEL = 'turbo-v2.5';
@@ -25,9 +34,62 @@ interface GenerateTTSInput {
 interface SceneContext {
   voiceover_id: string;
   scene_id: string;
+  storyboard_id: string;
   text: string;
   previous_text: string | null;
   next_text: string | null;
+}
+
+async function logVoiceoverGenerationAttempt(params: {
+  db: ReturnType<typeof createServiceClient>;
+  voiceoverId: string;
+  storyboardId: string;
+  prompt: string | null;
+  generationMeta?: Record<string, unknown>;
+  feedback?: string | null;
+  resultUrl?: string | null;
+  status: 'pending' | 'failed' | 'skipped';
+  log: ReturnType<typeof createLogger>;
+}) {
+  const {
+    db,
+    voiceoverId,
+    storyboardId,
+    prompt,
+    generationMeta,
+    feedback,
+    resultUrl,
+    status,
+    log,
+  } = params;
+
+  try {
+    const { data: latest } = await db
+      .from('generation_logs')
+      .select('version')
+      .eq('entity_type', 'voiceover')
+      .eq('entity_id', voiceoverId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await db.from('generation_logs').insert({
+      entity_type: 'voiceover',
+      entity_id: voiceoverId,
+      storyboard_id: storyboardId,
+      version: (latest?.version ?? 0) + 1,
+      prompt,
+      generation_meta: generationMeta ?? null,
+      feedback: feedback ?? null,
+      result_url: resultUrl ?? null,
+      status,
+    });
+  } catch (error) {
+    log.warn('Failed to write generation log row (non-fatal)', {
+      voiceover_id: voiceoverId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function getSceneContext(
@@ -75,6 +137,7 @@ async function getSceneContext(
     return {
       voiceover_id: voiceover.id,
       scene_id: sceneId,
+      storyboard_id: scene.storyboard_id,
       text: voiceover.text || '',
       previous_text: null,
       next_text: null,
@@ -104,25 +167,71 @@ async function getSceneContext(
   return {
     voiceover_id: voiceover.id,
     scene_id: sceneId,
+    storyboard_id: scene.storyboard_id,
     text: voiceover.text || '',
     previous_text,
     next_text,
   };
 }
 
-async function sendTTSRequest(
-  context: SceneContext,
-  voice: string,
-  endpoint: string,
-  speed: number,
-  log: ReturnType<typeof createLogger>
-): Promise<{ requestId: string | null; error: string | null }> {
+async function sendTTSRequest(params: {
+  context: SceneContext;
+  voice: string;
+  model: 'turbo-v2.5' | 'multilingual-v2';
+  provider: GenerationProvider;
+  speed: number;
+  webhookBase: string;
+  log: ReturnType<typeof createLogger>;
+}): Promise<{ requestId: string | null; error: string | null }> {
+  const { context, voice, model, provider, speed, webhookBase, log } = params;
+
   const webhookParams = new URLSearchParams({
     step: 'GenerateTTS',
     voiceover_id: context.voiceover_id,
   });
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
 
+  if (provider === 'kie') {
+    const kieModel = KIE_TTS_MODELS[model] ?? KIE_TTS_MODELS['turbo-v2.5'];
+    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+
+    log.api('kie.ai', kieModel, {
+      text_length: context.text.length,
+      has_previous: !!context.previous_text,
+      has_next: !!context.next_text,
+    });
+    log.startTiming('kie_tts_request');
+
+    try {
+      const result = await createTask({
+        model: kieModel,
+        callbackUrl: webhookUrl,
+        input: {
+          text: context.text,
+          voice,
+          speed,
+          previous_text: context.previous_text,
+          next_text: context.next_text,
+        },
+      });
+
+      log.success('kie.ai TTS request accepted', {
+        request_id: result.taskId,
+        time_ms: log.endTiming('kie_tts_request'),
+      });
+
+      return { requestId: result.taskId, error: null };
+    } catch (err) {
+      log.error('kie.ai TTS request exception', {
+        error: err instanceof Error ? err.message : String(err),
+        time_ms: log.endTiming('kie_tts_request'),
+      });
+
+      return { requestId: null, error: 'Request exception' };
+    }
+  }
+
+  const endpoint = TTS_ENDPOINTS[model] ?? TTS_ENDPOINTS['turbo-v2.5'];
+  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
   const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
   falUrl.searchParams.set('fal_webhook', webhookUrl);
 
@@ -190,8 +299,19 @@ export async function POST(req: NextRequest) {
   try {
     const authClient = await createClient();
     const {
-      data: { user },
+      data: { user: sessionUser },
     } = await authClient.auth.getUser();
+
+    // Support API key auth for agent access
+    let user = sessionUser;
+    if (!user) {
+      const { validateApiKey } = await import('@/lib/auth/api-key');
+      const apiKeyResult = validateApiKey(req);
+      if (apiKeyResult.valid && apiKeyResult.userId) {
+        user = { id: apiKeyResult.userId } as typeof sessionUser;
+      }
+    }
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -216,8 +336,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const endpoint = TTS_ENDPOINTS[model];
-    if (!endpoint) {
+    if (!TTS_ENDPOINTS[model] || !KIE_TTS_MODELS[model]) {
       log.error('Invalid TTS model', { model });
       return NextResponse.json(
         {
@@ -228,9 +347,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      log.error('Missing webhook base URL');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL',
+        },
+        { status: 500 }
+      );
+    }
+
+    const providerResolution = await resolveProvider({
+      service: 'tts',
+      req,
+      body: input,
+    });
+
     log.info('Processing TTS requests', {
       scene_count: scene_ids.length,
       model,
+      provider: providerResolution.provider,
+      provider_source: providerResolution.source,
+      webhook_base: webhookBase,
     });
 
     const supabase = createServiceClient();
@@ -276,6 +416,17 @@ export async function POST(req: NextRequest) {
           .from('voiceovers')
           .update({ status: 'failed', error_message: 'request_error' })
           .eq('id', context.voiceover_id);
+
+        await logVoiceoverGenerationAttempt({
+          db: supabase,
+          voiceoverId: context.voiceover_id,
+          storyboardId: context.storyboard_id,
+          prompt: null,
+          status: 'skipped',
+          feedback: 'Skipped: voiceover text empty',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           voiceover_id: context.voiceover_id,
@@ -291,19 +442,32 @@ export async function POST(req: NextRequest) {
         .update({ status: 'processing' })
         .eq('id', context.voiceover_id);
 
-      const { requestId, error } = await sendTTSRequest(
+      const { requestId, error } = await sendTTSRequest({
         context,
         voice,
-        endpoint,
+        model,
+        provider: providerResolution.provider,
         speed,
-        log
-      );
+        webhookBase,
+        log,
+      });
 
       if (error || !requestId) {
         await supabase
           .from('voiceovers')
           .update({ status: 'failed', error_message: 'request_error' })
           .eq('id', context.voiceover_id);
+
+        await logVoiceoverGenerationAttempt({
+          db: supabase,
+          voiceoverId: context.voiceover_id,
+          storyboardId: context.storyboard_id,
+          prompt: context.text,
+          status: 'failed',
+          feedback: error || 'Unknown error',
+          log,
+        });
+
         results.push({
           scene_id: sceneId,
           voiceover_id: context.voiceover_id,
@@ -318,6 +482,27 @@ export async function POST(req: NextRequest) {
         .from('voiceovers')
         .update({ request_id: requestId })
         .eq('id', context.voiceover_id);
+
+      await logVoiceoverGenerationAttempt({
+        db: supabase,
+        voiceoverId: context.voiceover_id,
+        storyboardId: context.storyboard_id,
+        prompt: context.text,
+        generationMeta: {
+          provider: providerResolution.provider,
+          model:
+            providerResolution.provider === 'kie'
+              ? KIE_TTS_MODELS[model]
+              : TTS_ENDPOINTS[model],
+          voice_id: voice,
+          speed,
+          language,
+          generated_at: new Date().toISOString(),
+          generated_by: 'system',
+        },
+        status: 'pending',
+        log,
+      });
 
       results.push({
         scene_id: sceneId,
@@ -343,6 +528,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      provider: providerResolution.provider,
       results,
       summary: {
         total: scene_ids.length,

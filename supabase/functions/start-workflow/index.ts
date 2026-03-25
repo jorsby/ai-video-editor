@@ -89,7 +89,8 @@ function validateInput(input: WorkflowInput): string | null {
   // voiceover_list and visual_prompt_list must match grid dimensions
   const expectedScenes = rows * cols;
   const languages = Object.keys(voiceover_list);
-  if (languages.length === 0) return 'voiceover_list must have at least one language';
+  if (languages.length === 0)
+    return 'voiceover_list must have at least one language';
   for (const lang of languages) {
     if (voiceover_list[lang].length !== expectedScenes) {
       return `voiceover_list.${lang} length must equal rows*cols (${expectedScenes})`;

@@ -315,7 +315,7 @@ export function makeTransition({ name, renderer }: TransitionOptions) {
 
   const transitionGlitchDisplace =
     transition.name === 'GlitchDisplace' ||
-    name.toLowerCase() === 'glitchDisplace' ||
+    name.toLowerCase() === 'glitchdisplace' ||
     transition.label === 'GlitchDisplace';
 
   const transitionCrossZoom =

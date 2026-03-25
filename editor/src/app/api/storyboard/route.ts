@@ -15,20 +15,7 @@ import {
   REF_OBJECTS_GRID_PREFIX,
   REF_BACKGROUNDS_GRID_PREFIX,
 } from '@/lib/schemas/kling-o3-plan';
-import {
-  wan26FlashPlanSchema,
-  wan26FlashContentSchema,
-  WAN26_FLASH_SYSTEM_PROMPT,
-  wan26FlashReviewerOutputSchema,
-  WAN26_FLASH_REVIEWER_SYSTEM_PROMPT,
-} from '@/lib/schemas/wan26-flash-plan';
-import {
-  skyreelsPlanSchema,
-  skyreelsContentSchema,
-  SKYREELS_SYSTEM_PROMPT,
-  skyreelsReviewerOutputSchema,
-  SKYREELS_REVIEWER_SYSTEM_PROMPT,
-} from '@/lib/schemas/skyreels-plan';
+
 import {
   i2vPlanSchema,
   i2vContentSchema,
@@ -106,6 +93,7 @@ async function generateObjectWithFallback<T>(params: {
       schema,
       system,
       prompt,
+      maxOutputTokens: 16384,
     });
   } catch (primaryError) {
     console.warn(
@@ -119,6 +107,7 @@ async function generateObjectWithFallback<T>(params: {
       schema,
       system,
       prompt,
+      maxOutputTokens: 16384,
     });
   }
 }
@@ -130,12 +119,7 @@ const VALID_MODELS = [
   'z-ai/glm-5',
 ] as const;
 
-const VALID_VIDEO_MODELS = [
-  'klingo3',
-  'klingo3pro',
-  'wan26flash',
-  'skyreels',
-] as const;
+const VALID_VIDEO_MODELS = ['klingo3'] as const;
 
 const VALID_REF_WORKFLOW_VARIANTS = [
   'i2v_from_refs',
@@ -152,41 +136,6 @@ function isRefVideoMode(value: unknown): value is RefVideoMode {
     typeof value === 'string' &&
     (VALID_REF_VIDEO_MODES as readonly string[]).includes(value)
   );
-}
-
-function buildWanModeSystemPrompt(videoMode: RefVideoMode): string {
-  if (videoMode === 'dialogue_scene') {
-    return `
-
-MODE: dialogue_scene
-- This is a dialogue scene mode. Characters are in conversation, with separate audio track added later.
-- Generate scene prompts that visually stage conversation (two-shots, over-the-shoulder, reaction framing, gestures, eye contact).
-- Do NOT mention lip-sync, mouth-sync, phonemes, or exact mouth movement matching.
-- You MUST include scene_dialogue with EXACTLY one array per scene.
-- Each scene_dialogue[i] must include 1-3 lines using objects like {"speaker":"Name","line":"Text"}.
-
-SCENE DURATIONS (dialogue mode only):
-- You MUST include "scene_durations" — an array of integers (one per scene), each 5 or 10 seconds (WAN only supports 5s or 10s).
-- 5s for short exchanges (1-2 lines) or quick reaction beats.
-- 10s for longer conversations (3+ lines), dramatic moments, or scenes with significant action.
-- scene_durations.length MUST equal scene_prompts.length.
-`;
-  }
-
-  return `
-
-MODE: narrative
-- This is narrative mode. No character speaking is rendered in-scene.
-- Scene prompts must avoid explicit speech wording like "says", "talks", quoted dialogue, or conversation staging.
-- Keep focus on action, emotion, body language, framing, and environment.
-- scene_dialogue should be omitted or empty for all scenes.
-`;
-}
-
-function buildWanModeReviewerConstraint(videoMode: RefVideoMode): string {
-  return videoMode === 'dialogue_scene'
-    ? `- Keep dialogue_scene constraints: conversation framing allowed, no lip-sync language, preserve scene_dialogue as generated.`
-    : `- Keep narrative constraints: no explicit speaking/talking/quoted dialogue in scene prompts.`;
 }
 
 function buildKlingModeSystemPrompt(videoMode: RefVideoMode): string {
@@ -229,28 +178,6 @@ function buildKlingModeReviewerConstraint(videoMode: RefVideoMode): string {
     : `- Keep narrative constraints: no speaking, talking, quoted dialogue, or conversation staging in scene prompts. Characters must not appear to be having dialogue.`;
 }
 
-function normalizeDialogueLine(
-  line: unknown
-): { speaker: string; line: string } | null {
-  if (!line || typeof line !== 'object') return null;
-
-  const speakerRaw = (line as { speaker?: unknown }).speaker;
-  const textRaw = (line as { line?: unknown }).line;
-
-  const speaker = typeof speakerRaw === 'string' ? speakerRaw.trim() : '';
-  const text = typeof textRaw === 'string' ? textRaw.trim() : '';
-
-  if (!speaker || !text) return null;
-
-  return { speaker, line: text };
-}
-
-function toDialogueVoiceoverText(
-  lines: Array<{ speaker: string; line: string }>
-): string {
-  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join(' ');
-}
-
 // --- Ref-to-Video plan generation ---
 async function generateRefToVideoPlan(
   voiceoverText: string,
@@ -261,27 +188,26 @@ async function generateRefToVideoPlan(
   videoMode: RefVideoMode,
   seriesContext?: string
 ) {
-  const isKling = videoModel === 'klingo3' || videoModel === 'klingo3pro';
-  const isSkyReels = videoModel === 'skyreels';
-  const baseSystemPrompt = isSkyReels
-    ? SKYREELS_SYSTEM_PROMPT
-    : isKling
-      ? `${KLING_O3_SYSTEM_PROMPT}${buildKlingModeSystemPrompt(videoMode)}`
-      : `${WAN26_FLASH_SYSTEM_PROMPT}${buildWanModeSystemPrompt(videoMode)}`;
+  const isKling = videoModel === 'klingo3';
+  if (!isKling) {
+    throw new Error(`Unsupported ref video model: ${videoModel}`);
+  }
+
+  const baseSystemPrompt = `${KLING_O3_SYSTEM_PROMPT}${buildKlingModeSystemPrompt(videoMode)}`;
   const templatePrompt = applyStoryboardTemplateToSystemPrompt(
     baseSystemPrompt,
     contentTemplate
   );
-  const systemPrompt = seriesContext
-    ? `${templatePrompt}\n\n--- SERIES CONTEXT ---\nThis episode is part of a series. Use the following context to maintain consistency:\n${seriesContext}\n--- END SERIES CONTEXT ---`
-    : templatePrompt;
-  const contentSchemaForModel = isSkyReels
-    ? skyreelsContentSchema
-    : isKling
-      ? klingO3ContentSchema
-      : wan26FlashContentSchema;
+  const seriesAssetReuseRules = seriesContext
+    ? `\n\nASSET REUSE RULES (CRITICAL):\n- Reuse existing series assets first.\n- Keep canonical asset names exactly as provided in series context (do not rename or translate existing asset names).\n- For locations/background_names, keep canonical timeless names only (no night/day/morning/evening/weather variants in the name).\n- Put lighting/time-of-day/weather per scene in scene_prompts, not in reusable location names.\n- Only introduce a new object/background when it is truly new and required by the story.`
+    : '';
 
-  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\nVideo mode: ${videoMode}\n\nGenerate the storyboard.`;
+  const systemPrompt = seriesContext
+    ? `${templatePrompt}\n\n--- SERIES CONTEXT ---\nThis episode is part of a series. Use the following context to maintain consistency:\n${seriesContext}\n--- END SERIES CONTEXT ---${seriesAssetReuseRules}`
+    : templatePrompt;
+  const contentSchemaForModel = klingO3ContentSchema;
+
+  const userPrompt = `Voiceover Script:\n${voiceoverText}\n\nSelected content template: ${contentTemplate}\nVideo mode: ${videoMode}\n\nGenerate the storyboard.${seriesContext ? '\n\nPrioritize series asset reuse and keep canonical asset names unchanged. Keep location names timeless/canonical (no time-of-day in background_names) and place lighting/time details in scene_prompts.' : ''}`;
 
   // --- Call 1: Content generation ---
   console.log('[Storyboard][ref_to_video] Content LLM request:', {
@@ -308,11 +234,8 @@ async function generateRefToVideoPlan(
 
   // Compute counts from frozen fields
   const expectedObjects = content.objects_rows * content.objects_cols;
-  const objectCount = isSkyReels
-    ? (content as z.infer<typeof skyreelsContentSchema>).objects.length
-    : isKling
-      ? (content as z.infer<typeof klingO3ContentSchema>).objects.length
-      : (content as z.infer<typeof wan26FlashContentSchema>).objects.length;
+  const objectCount = (content as z.infer<typeof klingO3ContentSchema>).objects
+    .length;
   const expectedBgs = content.bg_rows * content.bg_cols;
   const sceneCount = content.voiceover_list.length;
 
@@ -330,38 +253,13 @@ async function generateRefToVideoPlan(
 
   // --- Call 1.5: Review & Fix (both Kling and WAN) ---
   {
-    const reviewerSystemPrompt = isSkyReels
-      ? SKYREELS_REVIEWER_SYSTEM_PROMPT
-      : isKling
-        ? KLING_O3_REVIEWER_SYSTEM_PROMPT
-        : WAN26_FLASH_REVIEWER_SYSTEM_PROMPT;
-    const reviewerSchema = isSkyReels
-      ? skyreelsReviewerOutputSchema
-      : isKling
-        ? klingO3ReviewerOutputSchema
-        : wan26FlashReviewerOutputSchema;
+    const reviewerSystemPrompt = KLING_O3_REVIEWER_SYSTEM_PROMPT;
+    const reviewerSchema = klingO3ReviewerOutputSchema;
 
-    const frozenContext = isSkyReels
-      ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof skyreelsContentSchema>).objects)}`
-      : isKling
-        ? `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof klingO3ContentSchema>).objects)}`
-        : `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).objects)}`;
+    const frozenContext = `- objects (${objectCount} items): ${JSON.stringify((content as z.infer<typeof klingO3ContentSchema>).objects)}`;
 
-    const mutableMultiShots =
-      isKling || isSkyReels
-        ? ''
-        : `\n- scene_multi_shots: ${JSON.stringify((content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots)}`;
-
-    const modelLabel = isSkyReels
-      ? 'SkyReels'
-      : isKling
-        ? 'Kling O3'
-        : 'WAN 2.6 Flash';
-    const modeConstraint = isSkyReels
-      ? ''
-      : isKling
-        ? `\nMODE CONSTRAINT:\n${buildKlingModeReviewerConstraint(videoMode)}\n`
-        : `\nMODE CONSTRAINT:\n${buildWanModeReviewerConstraint(videoMode)}\n`;
+    const modelLabel = 'Kling O3';
+    const modeConstraint = `\nMODE CONSTRAINT:\n${buildKlingModeReviewerConstraint(videoMode)}\n`;
 
     const reviewerUserPrompt = `Review and improve this ${modelLabel} storyboard plan.
 
@@ -375,7 +273,7 @@ ${frozenContext}
 MUTABLE (fix and improve):
 - scene_prompts: ${JSON.stringify(content.scene_prompts)}
 - scene_bg_indices: ${JSON.stringify(content.scene_bg_indices)}
-- scene_object_indices: ${JSON.stringify(content.scene_object_indices)}${mutableMultiShots}
+- scene_object_indices: ${JSON.stringify(content.scene_object_indices)}
 
 FROZEN (keep as generated):
 - scene_first_frame_prompts: ${JSON.stringify(content.scene_first_frame_prompts)}
@@ -405,24 +303,18 @@ Return the corrected fields.`;
     content.scene_prompts = reviewed.scene_prompts;
     content.scene_bg_indices = reviewed.scene_bg_indices;
     content.scene_object_indices = reviewed.scene_object_indices;
-
-    // Merge scene_multi_shots for WAN (not for Kling or SkyReels)
-    if (!isKling && !isSkyReels && 'scene_multi_shots' in reviewed) {
-      (content as z.infer<typeof wan26FlashContentSchema>).scene_multi_shots = (
-        reviewed as z.infer<typeof wan26FlashReviewerOutputSchema>
-      ).scene_multi_shots;
-    }
   }
 
   // Validate scene counts match (safety net after reviewer)
   if (
     content.scene_prompts.length !== sceneCount ||
-    content.scene_first_frame_prompts.length !== sceneCount ||
+    (content.scene_first_frame_prompts &&
+      content.scene_first_frame_prompts.length !== sceneCount) ||
     content.scene_bg_indices.length !== sceneCount ||
     content.scene_object_indices.length !== sceneCount
   ) {
     throw new Error(
-      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts.length}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
+      `Scene count mismatch: scene_prompts=${content.scene_prompts.length}, scene_first_frame_prompts=${content.scene_first_frame_prompts?.length ?? 0}, scene_bg_indices=${content.scene_bg_indices.length}, scene_object_indices=${content.scene_object_indices.length}, voiceover_list=${sceneCount}`
     );
   }
 
@@ -437,54 +329,6 @@ Return the corrected fields.`;
       `[Storyboard] scene_durations length mismatch: got ${(content as any).scene_durations.length} but expected ${sceneCount}. Dropping scene_durations.`
     );
     delete (content as any).scene_durations;
-  }
-
-  // Validate scene_multi_shots length for WAN (not for Kling or SkyReels)
-  let normalizedSceneDialogue:
-    | Array<Array<{ speaker: string; line: string }>>
-    | undefined;
-
-  if (!isKling && !isSkyReels) {
-    const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
-    if (wanContent.scene_multi_shots.length !== sceneCount) {
-      throw new Error(
-        `scene_multi_shots length mismatch: got ${wanContent.scene_multi_shots.length} but expected ${sceneCount}`
-      );
-    }
-
-    if (videoMode === 'dialogue_scene') {
-      normalizedSceneDialogue = Array.from({ length: sceneCount }, (_, i) => {
-        const rawSceneLines = Array.isArray(wanContent.scene_dialogue?.[i])
-          ? wanContent.scene_dialogue[i]
-          : [];
-        const normalizedLines = rawSceneLines
-          .map(normalizeDialogueLine)
-          .filter(
-            (line): line is { speaker: string; line: string } => line !== null
-          )
-          .slice(0, 3);
-
-        if (normalizedLines.length > 0) return normalizedLines;
-
-        const fallbackVoiceover = String(
-          wanContent.voiceover_list[i] ?? ''
-        ).trim();
-        if (!fallbackVoiceover) {
-          throw new Error(
-            `Scene ${i} in dialogue mode must have at least one dialogue line`
-          );
-        }
-
-        return [{ speaker: 'Narrator', line: fallbackVoiceover }];
-      });
-
-      // Keep TTS source text aligned with dialogue metadata in V1.
-      wanContent.voiceover_list = normalizedSceneDialogue.map(
-        toDialogueVoiceoverText
-      );
-    } else {
-      normalizedSceneDialogue = undefined;
-    }
   }
 
   // Validate indices are within bounds
@@ -536,109 +380,32 @@ Return the corrected fields.`;
     }
   }
 
-  // Validate max 3 objects per scene for SkyReels
-  if (isSkyReels) {
-    for (let i = 0; i < sceneCount; i++) {
-      if (content.scene_object_indices[i].length > 3) {
-        throw new Error(
-          `Scene ${i} has ${content.scene_object_indices[i].length} objects but SkyReels max is 3`
-        );
-      }
-    }
-  }
-
-  // Validate @ElementN references for WAN plans
-  // @Element1 = background, @Element2+ = characters from scene_object_indices
-  if (!isKling && !isSkyReels) {
-    for (let i = 0; i < sceneCount; i++) {
-      const prompt = content.scene_prompts[i] as string;
-      const maxElement = content.scene_object_indices[i].length + 1; // +1 for background as @Element1
-
-      const elementRefs = [...prompt.matchAll(/@Element(\d+)/g)];
-      for (const match of elementRefs) {
-        const n = parseInt(match[1], 10);
-        if (n < 1 || n > maxElement) {
-          throw new Error(
-            `Scene ${i} references @Element${n} but max is @Element${maxElement} (1 bg + ${content.scene_object_indices[i].length} object(s)). Use @Element1 to @Element${maxElement} only.`
-          );
-        }
-      }
-    }
-  }
-
   // Build voiceover_list with source language only
   const voiceover_list: Record<string, string[]> = {
     [sourceLanguage]: content.voiceover_list,
   };
 
-  // Build final plan — shape depends on video model
-  if (isSkyReels) {
-    const skyContent = content as z.infer<typeof skyreelsContentSchema>;
-    return {
-      objects_rows: skyContent.objects_rows,
-      objects_cols: skyContent.objects_cols,
-      objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${skyContent.objects_grid_prompt}`,
-      objects: skyContent.objects,
-      bg_rows: skyContent.bg_rows,
-      bg_cols: skyContent.bg_cols,
-      backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${skyContent.backgrounds_grid_prompt}`,
-      background_names: skyContent.background_names,
-      scene_prompts: skyContent.scene_prompts,
-      scene_first_frame_prompts: skyContent.scene_first_frame_prompts,
-      scene_bg_indices: skyContent.scene_bg_indices,
-      scene_object_indices: skyContent.scene_object_indices,
-      voiceover_list,
-      content_template: contentTemplate,
-    };
-  } else if (isKling) {
-    const klingContent = content as z.infer<typeof klingO3ContentSchema>;
-    return {
-      objects_rows: klingContent.objects_rows,
-      objects_cols: klingContent.objects_cols,
-      objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${klingContent.objects_grid_prompt}`,
-      objects: klingContent.objects,
-      bg_rows: klingContent.bg_rows,
-      bg_cols: klingContent.bg_cols,
-      backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${klingContent.backgrounds_grid_prompt}`,
-      background_names: klingContent.background_names,
-      scene_prompts: klingContent.scene_prompts,
-      scene_first_frame_prompts: klingContent.scene_first_frame_prompts,
-      scene_bg_indices: klingContent.scene_bg_indices,
-      scene_object_indices: klingContent.scene_object_indices,
-      voiceover_list,
-      video_mode: videoMode,
-      ...(klingContent.scene_durations
-        ? { scene_durations: klingContent.scene_durations }
-        : {}),
-      content_template: contentTemplate,
-    };
-  } else {
-    const wanContent = content as z.infer<typeof wan26FlashContentSchema>;
-    return {
-      objects_rows: wanContent.objects_rows,
-      objects_cols: wanContent.objects_cols,
-      objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${wanContent.objects_grid_prompt}`,
-      objects: wanContent.objects,
-      bg_rows: wanContent.bg_rows,
-      bg_cols: wanContent.bg_cols,
-      backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${wanContent.backgrounds_grid_prompt}`,
-      background_names: wanContent.background_names,
-      scene_prompts: wanContent.scene_prompts,
-      scene_first_frame_prompts: wanContent.scene_first_frame_prompts,
-      scene_bg_indices: wanContent.scene_bg_indices,
-      scene_object_indices: wanContent.scene_object_indices,
-      scene_multi_shots: wanContent.scene_multi_shots,
-      voiceover_list,
-      video_mode: videoMode,
-      ...(normalizedSceneDialogue
-        ? { scene_dialogue: normalizedSceneDialogue }
-        : {}),
-      ...(wanContent.scene_durations
-        ? { scene_durations: wanContent.scene_durations }
-        : {}),
-      content_template: contentTemplate,
-    };
-  }
+  const klingContent = content as z.infer<typeof klingO3ContentSchema>;
+  return {
+    objects_rows: klingContent.objects_rows,
+    objects_cols: klingContent.objects_cols,
+    objects_grid_prompt: `${REF_OBJECTS_GRID_PREFIX} ${klingContent.objects_grid_prompt}`,
+    objects: klingContent.objects,
+    bg_rows: klingContent.bg_rows,
+    bg_cols: klingContent.bg_cols,
+    backgrounds_grid_prompt: `${REF_BACKGROUNDS_GRID_PREFIX} ${klingContent.backgrounds_grid_prompt}`,
+    background_names: klingContent.background_names,
+    scene_prompts: klingContent.scene_prompts,
+    scene_first_frame_prompts: klingContent.scene_first_frame_prompts,
+    scene_bg_indices: klingContent.scene_bg_indices,
+    scene_object_indices: klingContent.scene_object_indices,
+    voiceover_list,
+    video_mode: videoMode,
+    ...(klingContent.scene_durations
+      ? { scene_durations: klingContent.scene_durations }
+      : {}),
+    content_template: contentTemplate,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -788,10 +555,7 @@ export async function POST(req: NextRequest) {
           : 'direct_ref_to_video';
 
       const resolvedVideoMode: RefVideoMode =
-        (videoModel === 'wan26flash' ||
-          videoModel === 'klingo3' ||
-          videoModel === 'klingo3pro') &&
-        isRefVideoMode(videoModeInput)
+        videoModel === 'klingo3' && isRefVideoMode(videoModeInput)
           ? videoModeInput
           : 'narrative';
 
@@ -860,6 +624,8 @@ export async function POST(req: NextRequest) {
             if (assets?.length) {
               const characters = assets.filter((a) => a.type === 'character');
               const locations = assets.filter((a) => a.type === 'location');
+              const props = assets.filter((a) => a.type === 'prop');
+
               if (characters.length) {
                 parts.push(
                   `Characters:\n${characters.map((c) => `- ${c.name}: ${c.description || 'No description'}`).join('\n')}`
@@ -870,6 +636,15 @@ export async function POST(req: NextRequest) {
                   `Locations:\n${locations.map((l) => `- ${l.name}: ${l.description || 'No description'}`).join('\n')}`
                 );
               }
+              if (props.length) {
+                parts.push(
+                  `Props:\n${props.map((p) => `- ${p.name}: ${p.description || 'No description'}`).join('\n')}`
+                );
+              }
+
+              parts.push(
+                'Canonical naming rule: if a character/location/prop already exists above, reuse that exact name in objects/background_names. Do not rename or translate existing asset names. For locations, keep timeless canonical names (no night/day/morning/weather variants in the location name); scene lighting/time belongs in scene_prompts.'
+              );
             }
 
             parts.push(
@@ -897,7 +672,7 @@ export async function POST(req: NextRequest) {
             );
           }
         }
-      } catch (err) {
+      } catch (_err) {
         // No series link — that's fine, standalone project
         console.log('[Storyboard] No series context (standalone project)');
       }
@@ -1215,12 +990,7 @@ export async function PATCH(req: NextRequest) {
     let normalizedPlan = plan;
 
     if (storyboard.mode === 'ref_to_video') {
-      const schema =
-        storyboard.model === 'skyreels'
-          ? skyreelsPlanSchema
-          : storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro'
-            ? klingO3PlanSchema
-            : wan26FlashPlanSchema;
+      const schema = klingO3PlanSchema;
       const planValidation = schema.safeParse(plan);
       if (!planValidation.success) {
         return NextResponse.json(
@@ -1271,8 +1041,7 @@ export async function PATCH(req: NextRequest) {
 
       // Kling generates native dialogue audio from prompts — no scene_dialogue needed.
       // Only WAN requires scene_dialogue for dialogue_scene mode.
-      const isKlingModel =
-        storyboard.model === 'klingo3' || storyboard.model === 'klingo3pro';
+      const isKlingModel = storyboard.model === 'klingo3';
       if (resolvedVideoMode === 'dialogue_scene' && !isKlingModel) {
         if (
           !Array.isArray(resolvedSceneDialogue) ||

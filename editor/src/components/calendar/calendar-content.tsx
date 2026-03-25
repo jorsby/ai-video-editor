@@ -112,11 +112,17 @@ function buildNavLabel(date: Date, view: CalendarView): string {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
   const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
-  const startStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const startStr = weekStart.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
   if (sameMonth) {
     return `${startStr} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
   }
-  const endStr = weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const endStr = weekEnd.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
   return `${startStr} – ${endStr}, ${weekEnd.getFullYear()}`;
 }
 
@@ -185,8 +191,12 @@ export function CalendarContent() {
 
   const [accounts, setAccounts] = useState<OctupostAccount[]>([]);
   const [groups, setGroups] = useState<AccountGroupWithMembers[]>([]);
-  const [selectedAccountUuids, setSelectedAccountUuids] = useState<Set<string>>(new Set());
-  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+  const [selectedAccountUuids, setSelectedAccountUuids] = useState<Set<string>>(
+    new Set()
+  );
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(
+    new Set()
+  );
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
   // SWR: fetch posts + workflow runs with caching and keepPreviousData
@@ -213,26 +223,45 @@ export function CalendarContent() {
 
   const posts = calendarData?.posts ?? EMPTY_POSTS;
   const workflowRuns = calendarData?.workflowRuns ?? EMPTY_RUNS;
-  const error = swrError instanceof Error ? swrError.message : swrError ? String(swrError) : null;
+  const error =
+    swrError instanceof Error
+      ? swrError.message
+      : swrError
+        ? String(swrError)
+        : null;
 
   useEffect(() => {
     Promise.all([
       fetch('/api/v2/accounts').then((r) => r.json()),
       fetch('/api/account-groups').then((r) => r.json()),
-    ]).then(([a, g]) => {
-      setAccounts(a.accounts ?? []);
-      setGroups(g.groups ?? []);
-    }).catch((err) => console.error('Failed to fetch filter data:', err));
+    ])
+      .then(([a, g]) => {
+        setAccounts(a.accounts ?? []);
+        setGroups(g.groups ?? []);
+      })
+      .catch((err) => console.error('Failed to fetch filter data:', err));
   }, []);
 
   const toggleAccount = useCallback((uuid: string) => {
-    setSelectedAccountUuids((prev) => { const n = new Set(prev); n.has(uuid) ? n.delete(uuid) : n.add(uuid); return n; });
+    setSelectedAccountUuids((prev) => {
+      const n = new Set(prev);
+      n.has(uuid) ? n.delete(uuid) : n.add(uuid);
+      return n;
+    });
   }, []);
   const toggleGroup = useCallback((id: string) => {
-    setSelectedGroupIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelectedGroupIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   }, []);
   const toggleTag = useCallback((tag: string) => {
-    setSelectedTags((prev) => { const n = new Set(prev); n.has(tag) ? n.delete(tag) : n.add(tag); return n; });
+    setSelectedTags((prev) => {
+      const n = new Set(prev);
+      n.has(tag) ? n.delete(tag) : n.add(tag);
+      return n;
+    });
   }, []);
   const clearAllFilters = useCallback(() => {
     setSelectedAccountUuids(new Set());
@@ -262,9 +291,9 @@ export function CalendarContent() {
 
   const filteredPosts = useMemo<SocialPost[]>(() => {
     const noChannel = selectedAccountUuids.size === 0;
-    const noGroup   = selectedGroupIds.size === 0;
-    const noTag     = selectedTags.size === 0;
-    const noStatus  = statusFilter === 'all';
+    const noGroup = selectedGroupIds.size === 0;
+    const noTag = selectedTags.size === 0;
+    const noStatus = statusFilter === 'all';
     if (noChannel && noGroup && noTag && noStatus) return posts;
 
     return posts.filter((post) => {
@@ -275,8 +304,10 @@ export function CalendarContent() {
       }
       if (!noChannel || !noGroup) {
         const uuids = (post.accounts || []).map((a) => a.octupost_account_id);
-        const matchesChannel = !noChannel && uuids.some((u) => selectedAccountUuids.has(u));
-        const matchesGroup   = !noGroup   && uuids.some((u) => groupAccountUuids.has(u));
+        const matchesChannel =
+          !noChannel && uuids.some((u) => selectedAccountUuids.has(u));
+        const matchesGroup =
+          !noGroup && uuids.some((u) => groupAccountUuids.has(u));
         if (!matchesChannel && !matchesGroup) return false;
       }
       if (!noTag) {
@@ -284,7 +315,14 @@ export function CalendarContent() {
       }
       return true;
     });
-  }, [posts, statusFilter, selectedAccountUuids, selectedGroupIds, selectedTags, groupAccountUuids]);
+  }, [
+    posts,
+    statusFilter,
+    selectedAccountUuids,
+    selectedGroupIds,
+    selectedTags,
+    groupAccountUuids,
+  ]);
 
   // IDs of posts that belong to a workflow run — excluded from solo post display
   const groupedUuids = useMemo<Set<string>>(() => {
@@ -297,7 +335,7 @@ export function CalendarContent() {
 
   // Posts not belonging to any workflow run — displayed as individual PostPills
   const soloFilteredPosts = useMemo<SocialPost[]>(
-    () => filteredPosts.filter(p => !groupedUuids.has(p.id)),
+    () => filteredPosts.filter((p) => !groupedUuids.has(p.id)),
     [filteredPosts, groupedUuids]
   );
 
@@ -312,9 +350,10 @@ export function CalendarContent() {
   const workflowRunsByDate = useMemo<Map<string, WorkflowRun[]>>(() => {
     const map = new Map<string, WorkflowRun[]>();
     for (const run of workflowRuns) {
-      const dateKey = run.schedule_type === 'scheduled' && run.base_date
-        ? run.base_date
-        : run.created_at.slice(0, 10);
+      const dateKey =
+        run.schedule_type === 'scheduled' && run.base_date
+          ? run.base_date
+          : run.created_at.slice(0, 10);
       const existing = map.get(dateKey) ?? [];
       existing.push(run);
       map.set(dateKey, existing);
@@ -323,10 +362,14 @@ export function CalendarContent() {
   }, [workflowRuns]);
 
   const hasActiveFilters =
-    selectedAccountUuids.size > 0 || selectedGroupIds.size > 0 || selectedTags.size > 0;
+    selectedAccountUuids.size > 0 ||
+    selectedGroupIds.size > 0 ||
+    selectedTags.size > 0;
 
   const counts = useMemo(() => {
-    let queued = 0, published = 0, failed = 0;
+    let queued = 0,
+      published = 0,
+      failed = 0;
     for (const p of filteredPosts) {
       if (p.status === 'scheduled') queued++;
       else if (p.status === 'published') published++;
@@ -351,7 +394,8 @@ export function CalendarContent() {
   const goToPrev = useCallback(() => {
     setCurrentDate((prev) => {
       const d = new Date(prev);
-      if (calendarView === 'month') return new Date(d.getFullYear(), d.getMonth() - 1, 1);
+      if (calendarView === 'month')
+        return new Date(d.getFullYear(), d.getMonth() - 1, 1);
       d.setDate(d.getDate() - (calendarView === 'week' ? 7 : 1));
       return d;
     });
@@ -360,7 +404,8 @@ export function CalendarContent() {
   const goToNext = useCallback(() => {
     setCurrentDate((prev) => {
       const d = new Date(prev);
-      if (calendarView === 'month') return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      if (calendarView === 'month')
+        return new Date(d.getFullYear(), d.getMonth() + 1, 1);
       d.setDate(d.getDate() + (calendarView === 'week' ? 7 : 1));
       return d;
     });
@@ -368,15 +413,19 @@ export function CalendarContent() {
 
   const goToToday = useCallback(() => setCurrentDate(new Date()), []);
 
-  const handlePostDeleted = useCallback((id: string) => {
-    mutate(
-      (prev) => prev
-        ? { ...prev, posts: prev.posts.filter((p) => p.id !== id) }
-        : prev,
-      { revalidate: false }
-    );
-    setSelectedPost(null);
-  }, [mutate]);
+  const handlePostDeleted = useCallback(
+    (id: string) => {
+      mutate(
+        (prev) =>
+          prev
+            ? { ...prev, posts: prev.posts.filter((p) => p.id !== id) }
+            : prev,
+        { revalidate: false }
+      );
+      setSelectedPost(null);
+    },
+    [mutate]
+  );
 
   const handlePostUpdated = useCallback(() => {
     setSelectedPost(null);
@@ -397,11 +446,7 @@ export function CalendarContent() {
     return (
       <div className="space-y-2 py-12 text-center">
         <p className="text-sm text-destructive">{error}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => mutate()}
-        >
+        <Button variant="outline" size="sm" onClick={() => mutate()}>
           Retry
         </Button>
       </div>
@@ -467,7 +512,11 @@ export function CalendarContent() {
               </SelectTrigger>
               <SelectContent align="end" className="max-h-[300px]">
                 {COMMON_TIMEZONES.map((tz) => (
-                  <SelectItem key={tz.value} value={tz.value} className="text-xs">
+                  <SelectItem
+                    key={tz.value}
+                    value={tz.value}
+                    className="text-xs"
+                  >
                     {tz.label}
                   </SelectItem>
                 ))}
@@ -520,7 +569,8 @@ export function CalendarContent() {
         <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span className="font-medium">
-            {counts.failed} post{counts.failed !== 1 ? 's' : ''} failed to publish
+            {counts.failed} post{counts.failed !== 1 ? 's' : ''} failed to
+            publish
           </span>
           <button
             type="button"
@@ -550,7 +600,9 @@ export function CalendarContent() {
           )}
           {calendarView === 'month' ? (
             <CalendarGrid
-              currentMonth={new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)}
+              currentMonth={
+                new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+              }
               postsByDate={postsByDate}
               workflowRunsByDate={workflowRunsByDate}
               onPostClick={setSelectedPost}
@@ -599,7 +651,10 @@ function CalendarGridSkeleton() {
     <div className="space-y-1">
       <div className="grid grid-cols-7 gap-1">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-          <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
+          <div
+            key={d}
+            className="py-2 text-center text-xs font-medium text-muted-foreground"
+          >
             {d}
           </div>
         ))}

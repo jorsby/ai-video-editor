@@ -13,8 +13,9 @@ import PanelCaptions from './panel/captions';
 import PanelMusic from './panel/music';
 import PanelVoiceovers from './panel/voiceovers';
 import PanelSFX from './panel/sfx';
+import SeriesAssetsPanel from './panel/series-assets-panel';
+import SeriesRoadmapPanel from './panel/series-roadmap-panel';
 import PanelStoryboard from './panel/storyboard';
-import PanelProjectLibrary from './panel/project-library';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -36,8 +37,9 @@ const viewMap: Record<Tab, React.ReactNode> = {
   transitions: <PanelTransition />,
   effects: <PanelEffect />,
   assistant: <Assistant />,
+  assets: <SeriesAssetsPanel />,
+  roadmap: <SeriesRoadmapPanel />,
   storyboard: <PanelStoryboard />,
-  library: <PanelProjectLibrary />,
   renders: <PanelRenders />,
 };
 
@@ -49,7 +51,6 @@ export function MediaPanel() {
   const { fetchAssets } = useAssetStore();
   const projectId = useProjectId();
 
-  // Fetch all assets from Supabase on mount
   useEffect(() => {
     if (projectId) {
       fetchAssets(projectId);

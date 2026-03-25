@@ -5,6 +5,17 @@ This file provides guidance to AI coding agents (Claude Code, Codex, etc.) worki
 
 ---
 
+## 📖 Before Any Task
+
+1. **Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md)** — the full production funnel (onboarding → publish)
+2. **If working on a project:**
+   - Read `docs/projects/<project>/PROJECT.md` — get IDs, rules, feedback history
+   - Query Supabase for live state — **never use cached/hardcoded IDs** (except series_id and project_id from PROJECT.md)
+3. **If generating videos:** Read [`docs/VIDEO_GENERATION_WORKFLOW.md`](docs/VIDEO_GENERATION_WORKFLOW.md) — step-by-step, skip nothing
+4. **Follow the workflow order** — don't jump ahead in the funnel
+
+---
+
 ## ⚠️ The #1 Mistake
 
 **Webhook URLs must point to Next.js API routes, NOT Supabase.**
@@ -43,8 +54,8 @@ AI Video Editor (Octupost) — SaaS platform for AI-powered video creation and s
 |---|---|---|
 | `pnpm dev` | root | Start dev server |
 | `pnpm build` | `editor/` | Production build (**this is the test suite**) |
-| `turbo build` | root | Build all packages |
-| `turbo check-types` | root | TypeScript checks across monorepo |
+| `pnpm turbo build` | root | Build all packages |
+| `pnpm turbo check-types` | root | TypeScript checks across monorepo |
 | `pnpm biome check .` | any | Lint + format check |
 | `pnpm biome check . --write` | any | Auto-fix lint/format issues |
 
@@ -109,13 +120,15 @@ const supabase = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 This is the core feature. Understand it before touching anything.
 
 1. **Plan** — User creates storyboard. LLM (via OpenRouter) generates a plan.
-2. **Approve** — User approves → API route writes to DB, queues fal.ai jobs.
-3. **Generate** — fal.ai processes (grid images, video gen, TTS, SFX).
-4. **Webhook** — fal.ai POSTs results to `/api/webhook/fal?step=GenGridImage` (etc.).
+2. **Approve** — User approves → API route writes to DB, creates scene + voiceover records.
+3. **Generate** — Video generation via `/api/v2/storyboard/{id}/generate-video` endpoint.
+4. **Webhook** — fal.ai POSTs results to `/api/webhook/fal?step=GenerateVideo` (etc.).
 5. **Update** — Webhook handler parses results, updates DB tables.
 6. **Subscribe** — Frontend subscribes via Supabase Realtime for status changes.
 
 **Modes:** `image_to_video` (generate images → animate) | `ref_to_video` (reference images → video)
+
+> **📖 For video generation details, read [`docs/VIDEO_GENERATION_WORKFLOW.md`](docs/VIDEO_GENERATION_WORKFLOW.md) BEFORE generating any videos.** It covers the exact API calls, payload format, prompt rules, and common mistakes. Skipping it costs real money.
 
 ## Database Schema (Key Tables)
 

@@ -21,9 +21,6 @@ import type {
   RefPlan,
   StoryboardMode,
   VideoModel,
-  KlingO3RefPlan,
-  Wan26FlashRefPlan,
-  SceneDialogueLine,
 } from '@/lib/supabase/workflow-service';
 import { getLanguageName } from '@/lib/constants/languages';
 
@@ -38,44 +35,11 @@ interface DraftPlanEditorProps {
   isApproving?: boolean;
   error?: string | null;
   readOnly?: boolean;
+  hideAssetSections?: boolean;
 }
 
 function isRefPlan(plan: StoryboardPlan | RefPlan): plan is RefPlan {
   return 'scene_prompts' in plan;
-}
-
-function isKlingPlan(plan: RefPlan): plan is KlingO3RefPlan {
-  return 'objects' in plan;
-}
-
-function isWanPlan(plan: RefPlan): plan is Wan26FlashRefPlan {
-  return 'scene_multi_shots' in plan || 'object_names' in plan;
-}
-
-function serializeSceneDialogue(
-  lines: SceneDialogueLine[] | undefined
-): string {
-  if (!Array.isArray(lines) || lines.length === 0) return '';
-  return lines.map((entry) => `${entry.speaker}: ${entry.line}`).join('\n');
-}
-
-function parseSceneDialogue(value: string): SceneDialogueLine[] {
-  return value
-    .split('\n')
-    .map((raw) => raw.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const colon = line.indexOf(':');
-      if (colon <= 0) {
-        return { speaker: 'Narrator', line };
-      }
-
-      const speaker = line.slice(0, colon).trim();
-      const text = line.slice(colon + 1).trim();
-      if (!speaker || !text) return null;
-      return { speaker, line: text };
-    })
-    .filter((line): line is SceneDialogueLine => line !== null);
 }
 
 export function DraftPlanEditor({
@@ -89,6 +53,7 @@ export function DraftPlanEditor({
   isApproving,
   error,
   readOnly,
+  hideAssetSections = false,
 }: DraftPlanEditorProps) {
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [isGridPromptOpen, setIsGridPromptOpen] = useState(false);
@@ -150,15 +115,6 @@ export function DraftPlanEditor({
     onPlanChange?.({ ...plan, backgrounds_grid_prompt: value } as RefPlan);
   };
 
-  const handleMultiShotsToggle = (index: number) => {
-    if (!ref || !isWanPlan(plan as RefPlan)) return;
-    const wanPlan = plan as Wan26FlashRefPlan;
-    const current = wanPlan.scene_multi_shots ?? Array(sceneCount).fill(false);
-    const newMultiShots = [...current];
-    newMultiShots[index] = !newMultiShots[index];
-    onPlanChange?.({ ...wanPlan, scene_multi_shots: newMultiShots });
-  };
-
   const handleScenePromptChange = (
     index: number,
     value: string,
@@ -179,47 +135,14 @@ export function DraftPlanEditor({
   // --- Ref plan header info ---
   const refPlan = ref ? (plan as RefPlan) : null;
   const objectNames: string[] = refPlan
-    ? (refPlan.objects?.map((o) => o.name) ??
-      ('object_names' in refPlan
-        ? ((refPlan as Wan26FlashRefPlan).object_names ?? [])
-        : []))
+    ? (refPlan.objects?.map((o) => o.name) ?? [])
     : [];
 
   const refVideoMode =
     refPlan && 'video_mode' in refPlan
       ? (refPlan.video_mode ?? 'narrative')
       : 'narrative';
-  const isDialogueMode =
-    ref && isWanPlan(refPlan as RefPlan) && refVideoMode === 'dialogue_scene';
-
-  const handleSceneDialogueChange = (index: number, value: string) => {
-    if (!ref || !isWanPlan(plan as RefPlan)) return;
-
-    const wanPlan = plan as Wan26FlashRefPlan;
-    const newSceneDialogue = Array.from(
-      { length: sceneCount },
-      (_, i) => wanPlan.scene_dialogue?.[i] ?? []
-    );
-
-    const parsedLines = parseSceneDialogue(value).slice(0, 3);
-    newSceneDialogue[index] = parsedLines;
-
-    const sourceLanguage = Object.keys(wanPlan.voiceover_list)[0] ?? 'en';
-    const nextVoiceovers = {
-      ...wanPlan.voiceover_list,
-      [sourceLanguage]: [...(wanPlan.voiceover_list[sourceLanguage] ?? [])],
-    };
-
-    nextVoiceovers[sourceLanguage][index] = parsedLines
-      .map((line) => `${line.speaker}: ${line.line}`)
-      .join(' ');
-
-    onPlanChange?.({
-      ...wanPlan,
-      scene_dialogue: newSceneDialogue,
-      voiceover_list: nextVoiceovers,
-    });
-  };
+  const isDialogueMode = ref && refVideoMode === 'dialogue_scene';
 
   // --- Render ---
   return (
@@ -235,14 +158,10 @@ export function DraftPlanEditor({
             </span>
             {videoModel && (
               <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded">
-                {videoModel === 'skyreels'
-                  ? 'SkyReels'
-                  : videoModel === 'klingo3' || videoModel === 'klingo3pro'
-                    ? 'Kling O3'
-                    : 'WAN 2.6'}
+                Kling O3
               </span>
             )}
-            {ref && isWanPlan(refPlan as RefPlan) && (
+            {ref && (
               <span className="text-xs px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded">
                 {isDialogueMode ? 'Dialogue Scene' : 'Narrative'}
               </span>
@@ -267,45 +186,47 @@ export function DraftPlanEditor({
           )}
 
           {/* Objects Grid Prompt (ref) / Grid Image Prompt (i2v) */}
-          <Collapsible
-            open={isGridPromptOpen}
-            onOpenChange={setIsGridPromptOpen}
-          >
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
-              >
-                {ref ? 'Objects Grid Prompt' : 'Grid Image Prompt'}
-                {isGridPromptOpen ? (
-                  <IconChevronUp className="size-3" />
-                ) : (
-                  <IconChevronDown className="size-3" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <Textarea
-                value={
-                  ref
-                    ? (plan as RefPlan).objects_grid_prompt
-                    : (plan as StoryboardPlan).grid_image_prompt
-                }
-                onChange={(e) => handleGridPromptChange(e.target.value)}
-                readOnly={readOnly}
-                className="text-xs min-h-[100px] mt-1"
-                placeholder={
-                  ref
-                    ? 'Objects grid image prompt...'
-                    : 'Grid image generation prompt...'
-                }
-              />
-            </CollapsibleContent>
-          </Collapsible>
+          {(!ref || !hideAssetSections) && (
+            <Collapsible
+              open={isGridPromptOpen}
+              onOpenChange={setIsGridPromptOpen}
+            >
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-between h-8 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {ref ? 'Objects Grid Prompt' : 'Grid Image Prompt'}
+                  {isGridPromptOpen ? (
+                    <IconChevronUp className="size-3" />
+                  ) : (
+                    <IconChevronDown className="size-3" />
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <Textarea
+                  value={
+                    ref
+                      ? (plan as RefPlan).objects_grid_prompt
+                      : (plan as StoryboardPlan).grid_image_prompt
+                  }
+                  onChange={(e) => handleGridPromptChange(e.target.value)}
+                  readOnly={readOnly}
+                  className="text-xs min-h-[100px] mt-1"
+                  placeholder={
+                    ref
+                      ? 'Objects grid image prompt...'
+                      : 'Grid image generation prompt...'
+                  }
+                />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           {/* Backgrounds Grid Prompt (ref only) */}
-          {ref && (
+          {ref && !hideAssetSections && (
             <Collapsible
               open={isBgGridPromptOpen}
               onOpenChange={setIsBgGridPromptOpen}
@@ -337,7 +258,7 @@ export function DraftPlanEditor({
           )}
 
           {/* Objects List (ref only) */}
-          {ref && (
+          {ref && !hideAssetSections && (
             <Collapsible open={isObjectsOpen} onOpenChange={setIsObjectsOpen}>
               <CollapsibleTrigger asChild>
                 <Button
@@ -374,8 +295,8 @@ export function DraftPlanEditor({
             </Collapsible>
           )}
 
-          {/* Backgrounds List (ref only) */}
-          {ref && (
+          {/* Backgrounds List (ref only) — moved to Assets tab */}
+          {ref && !hideAssetSections && (
             <Collapsible open={isBgNamesOpen} onOpenChange={setIsBgNamesOpen}>
               <CollapsibleTrigger asChild>
                 <Button
@@ -437,15 +358,6 @@ export function DraftPlanEditor({
                       Scene {index + 1}
                     </span>
                     <div className="flex items-center gap-2">
-                      {ref &&
-                        isWanPlan(refPlan!) &&
-                        (refPlan as Wan26FlashRefPlan).scene_multi_shots?.[
-                          index
-                        ] && (
-                          <span className="text-[10px] px-1 py-0.5 bg-purple-500/10 text-purple-500 rounded font-medium">
-                            MS
-                          </span>
-                        )}
                       {ref && (
                         <span className="text-[10px] text-muted-foreground">
                           {sceneObjIndices
@@ -519,101 +431,28 @@ export function DraftPlanEditor({
                               }
                               readOnly={readOnly}
                               className="text-xs min-h-[60px]"
-                              placeholder={
-                                videoModel === 'skyreels'
-                                  ? 'Scene prompt using character names (no @Element syntax)...'
-                                  : refPlan && isKlingPlan(refPlan)
-                                    ? 'Scene prompt with @ElementN and @Image1 references...'
-                                    : 'Scene prompt with @Element1 (bg) and @Element2+ (characters)...'
-                              }
+                              placeholder="Scene prompt with @ElementN and @Image1 references..."
                             />
                           )}
                           <div className="mt-1 flex flex-wrap gap-1">
-                            {videoModel === 'skyreels' ? (
-                              <>
-                                <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
-                                  BG: {refPlan!.background_names[sceneBgIdx]}
-                                </span>
-                                {sceneObjIndices.map((objIdx) => (
+                            <>
+                              <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
+                                @Image1 ={' '}
+                                {refPlan!.background_names[sceneBgIdx]}
+                              </span>
+                              {sceneObjIndices.map((objIdx) => {
+                                const pos = sceneObjIndices.indexOf(objIdx) + 1;
+                                return (
                                   <span
                                     key={objIdx}
                                     className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
                                   >
-                                    {objectNames[objIdx]}
+                                    {`@Element${pos}`} = {objectNames[objIdx]}
                                   </span>
-                                ))}
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-[10px] px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded">
-                                  {isKlingPlan(refPlan!)
-                                    ? '@Image1'
-                                    : '@Element1'}{' '}
-                                  = {refPlan!.background_names[sceneBgIdx]}
-                                </span>
-                                {sceneObjIndices.map((objIdx) => {
-                                  const pos =
-                                    sceneObjIndices.indexOf(objIdx) + 1;
-                                  const isKling = isKlingPlan(refPlan!);
-                                  return (
-                                    <span
-                                      key={objIdx}
-                                      className="text-[10px] px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded"
-                                    >
-                                      {isKling
-                                        ? `@Element${pos}`
-                                        : `@Element${pos + 1}`}{' '}
-                                      = {objectNames[objIdx]}
-                                    </span>
-                                  );
-                                })}
-                              </>
-                            )}
+                                );
+                              })}
+                            </>
                           </div>
-                          {isWanPlan(refPlan!) && (
-                            <label className="mt-1.5 flex items-center gap-1.5 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  (refPlan as Wan26FlashRefPlan)
-                                    .scene_multi_shots?.[index] ?? false
-                                }
-                                onChange={() => handleMultiShotsToggle(index)}
-                                disabled={readOnly}
-                                className="size-3.5 rounded border-border accent-purple-500"
-                              />
-                              <span className="text-[10px] text-muted-foreground">
-                                Multi-shot
-                              </span>
-                            </label>
-                          )}
-                        </div>
-                      )}
-
-                      {isDialogueMode && (
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            Dialogue (Speaker: line)
-                          </label>
-                          <Textarea
-                            value={serializeSceneDialogue(
-                              (refPlan as Wan26FlashRefPlan).scene_dialogue?.[
-                                index
-                              ]
-                            )}
-                            onChange={(e) =>
-                              handleSceneDialogueChange(index, e.target.value)
-                            }
-                            readOnly={readOnly}
-                            className="text-xs min-h-[72px]"
-                            placeholder={
-                              'Mother: We only take what we need.\nBoy: Okay, mom.'
-                            }
-                          />
-                          <p className="mt-1 text-[10px] text-muted-foreground">
-                            V1 uses visual dialogue + separate TTS track (no
-                            lip-sync).
-                          </p>
                         </div>
                       )}
 
@@ -695,10 +534,8 @@ export function DraftPlanEditor({
             >
               {isApproving ? (
                 <IconLoader2 className="size-4 animate-spin" />
-              ) : ref ? (
-                'Generate Grids'
               ) : (
-                'Generate Scenes'
+                'Approve'
               )}
             </Button>
           </div>

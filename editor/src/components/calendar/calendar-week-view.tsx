@@ -70,12 +70,16 @@ export const CalendarWeekView = React.memo(function CalendarWeekView({
             <div
               className={cn(
                 'min-h-[400px] flex-1 rounded-lg border p-1.5',
-                isToday ? 'border-primary/30 bg-primary/5' : 'border-border/50 bg-card'
+                isToday
+                  ? 'border-primary/30 bg-primary/5'
+                  : 'border-border/50 bg-card'
               )}
             >
               {posts.length === 0 ? (
                 <div className="flex h-full min-h-[60px] items-center justify-center">
-                  <span className="text-[10px] text-muted-foreground/40">—</span>
+                  <span className="text-[10px] text-muted-foreground/40">
+                    —
+                  </span>
                 </div>
               ) : (
                 <div
@@ -83,7 +87,12 @@ export const CalendarWeekView = React.memo(function CalendarWeekView({
                   style={{ maxHeight: '560px' }}
                 >
                   {posts.map((post) => (
-                    <PostPill key={post.id} post={post} onPostClick={onPostClick} timezone={timezone} />
+                    <PostPill
+                      key={post.id}
+                      post={post}
+                      onPostClick={onPostClick}
+                      timezone={timezone}
+                    />
                   ))}
                 </div>
               )}

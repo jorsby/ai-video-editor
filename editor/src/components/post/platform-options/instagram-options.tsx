@@ -1,6 +1,9 @@
 'use client';
 
-import type { InstagramOptions as InstagramOptionsType, InstagramPostType } from '@/types/post';
+import type {
+  InstagramOptions as InstagramOptionsType,
+  InstagramPostType,
+} from '@/types/post';
 
 interface InstagramOptionsProps {
   value: InstagramOptionsType;

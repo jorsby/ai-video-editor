@@ -109,10 +109,7 @@ export async function POST(req: NextRequest) {
       .select();
 
     if (paError) {
-      return NextResponse.json(
-        { error: 'Operation failed' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Operation failed' }, { status: 500 });
     }
 
     // If publishing now, publish to each account in parallel
@@ -137,9 +134,7 @@ export async function POST(req: NextRequest) {
                 status: result.success ? 'published' : 'failed',
                 platform_post_id: result.platformPostId || null,
                 error_message: result.error || null,
-                published_at: result.success
-                  ? new Date().toISOString()
-                  : null,
+                published_at: result.success ? new Date().toISOString() : null,
               })
               .eq('id', pa.id);
 
@@ -186,7 +181,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ post: updatedPost });
     }
 
-    return NextResponse.json({ post: { ...post, post_accounts: postAccounts } });
+    return NextResponse.json({
+      post: { ...post, post_accounts: postAccounts },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[POST /api/v2/posts]', message);

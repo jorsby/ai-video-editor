@@ -1,3 +1,5 @@
+// @deprecated use /api/workflow/poll-tasks for provider-agnostic polling.
+// This route is kept as rollback path while fal.ai is phased out.
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
@@ -9,8 +11,8 @@ const STALE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 // fal.ai model endpoint for grid image generation
 const FAL_GRID_IMAGE_ENDPOINT = 'workflows/octupost/generategridimage';
 const DEFAULT_VIDEO_ENDPOINT =
-  'fal-ai/bytedance/seedance/v1.5/pro/image-to-video';
-const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/kling-image/o3/image-to-image';
+  'fal-ai/kling-video/o3/standard/reference-to-video';
+const DEFAULT_IMAGE_EDIT_ENDPOINT = 'fal-ai/nano-banana-2/edit';
 const TTS_ENDPOINTS = [
   'fal-ai/elevenlabs/tts/turbo-v2.5',
   'fal-ai/elevenlabs/tts/multilingual-v2',
@@ -18,26 +20,18 @@ const TTS_ENDPOINTS = [
 const SFX_ENDPOINT = 'mirelo-ai/sfx-v1.5/video-to-video';
 
 const VIDEO_MODEL_ENDPOINTS: Record<string, string> = {
-  'wan2.6': 'fal-ai/wan/v2.6/image-to-video',
-  'bytedance1.5pro': 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
-  grok: 'xai/grok-imagine-video/image-to-video',
-  wan26flash: 'wan/v2.6/reference-to-video/flash',
   klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
-  klingo3pro: 'fal-ai/kling-video/o3/pro/reference-to-video',
 };
 
 const IMAGE_EDIT_MODEL_ENDPOINTS: Record<string, string> = {
-  kling: 'fal-ai/kling-image/o3/image-to-image',
   banana: 'fal-ai/nano-banana-2/edit',
   fibo: 'bria/fibo-edit/edit',
   grok: 'xai/grok-imagine-image/edit',
-  'flux-pro': 'fal-ai/flux-2-pro/edit',
 };
 const IMAGE_EDIT_ENDPOINTS = Object.values(IMAGE_EDIT_MODEL_ENDPOINTS);
 
 function resolveVideoEndpoint(videoModel: string | null): string | null {
   if (!videoModel) return DEFAULT_VIDEO_ENDPOINT;
-  if (videoModel === 'skyreels') return null;
 
   if (videoModel.includes('/')) {
     return videoModel;
@@ -915,7 +909,14 @@ async function pollBackgroundEdits(
 
 // ── Main Handler ────────────────────────────────────────────────────
 
+/**
+ * @deprecated This legacy fal.ai polling route will be removed. Use provider-agnostic polling routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   const log = createLogger();
   log.setContext({ step: 'PollFal' });
 

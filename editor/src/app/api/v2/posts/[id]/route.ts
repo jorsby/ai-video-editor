@@ -1,7 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
 import { fetchToken } from '@/lib/octupost/client';
-import { deletePost as fbDeletePost, updatePost as fbUpdatePost } from '@/lib/platforms/facebook';
-import { deleteVideo as ytDeleteVideo, updateVideo as ytUpdateVideo } from '@/lib/platforms/youtube';
+import {
+  deletePost as fbDeletePost,
+  updatePost as fbUpdatePost,
+} from '@/lib/platforms/facebook';
+import {
+  deleteVideo as ytDeleteVideo,
+  updateVideo as ytUpdateVideo,
+} from '@/lib/platforms/youtube';
 import { deleteTweet } from '@/lib/platforms/twitter';
 import { type NextRequest, NextResponse } from 'next/server';
 
@@ -28,10 +34,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       .single();
 
     if (error || !post) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Post not found' }, { status: 404 });
     }
 
     return NextResponse.json({ post });
@@ -73,10 +76,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
       .single();
 
     if (fetchErr || !existingPost) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Post not found' }, { status: 404 });
     }
 
     // Build update payload for posts table
@@ -85,7 +85,8 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     };
     if (caption !== undefined) updates.caption = caption;
     if (timezone !== undefined) updates.timezone = timezone;
-    if (platformOptions !== undefined) updates.platform_options = platformOptions;
+    if (platformOptions !== undefined)
+      updates.platform_options = platformOptions;
     if (scheduledDate && scheduledTime) {
       updates.scheduled_at = new Date(
         `${scheduledDate}T${scheduledTime}`
@@ -120,10 +121,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
         .in('octupost_account_id', accountIds);
 
       const platformMap = new Map(
-        (socialAccounts || []).map((a) => [
-          a.octupost_account_id,
-          a.platform,
-        ])
+        (socialAccounts || []).map((a) => [a.octupost_account_id, a.platform])
       );
 
       const existingIds = new Set(
@@ -222,10 +220,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
       .single();
 
     if (fetchErr || !post) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Post not found' }, { status: 404 });
     }
 
     // Best-effort delete from platforms for published posts

@@ -8,7 +8,9 @@ export default async function PostRoute({
   params: Promise<{ renderedVideoId: string }>;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
   const { renderedVideoId } = await params;

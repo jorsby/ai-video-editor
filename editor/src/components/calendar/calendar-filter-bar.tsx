@@ -2,7 +2,11 @@
 
 import React from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -152,7 +156,12 @@ export const CalendarFilterBar = React.memo(function CalendarFilterBar({
       )}
 
       {hasActiveFilters && (
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={onClearAll}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          onClick={onClearAll}
+        >
           Clear filters
         </Button>
       )}

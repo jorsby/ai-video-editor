@@ -9,7 +9,7 @@ import type { StoryboardContentTemplate } from '@/lib/storyboard-content-templat
 // Types for workflow data
 
 export type StoryboardMode = 'image_to_video' | 'ref_to_video' | 'quick_video';
-export type VideoModel = 'klingo3' | 'klingo3pro' | 'wan26flash' | 'skyreels';
+export type VideoModel = 'klingo3';
 
 export type PlanStatus =
   | 'draft'
@@ -71,18 +71,7 @@ export interface KlingO3RefPlan extends RefPlanBase {
   objects: KlingElement[];
 }
 
-export interface Wan26FlashRefPlan extends RefPlanBase {
-  objects: KlingElement[];
-  /** @deprecated Legacy field from old plans — use `objects` instead */
-  object_names?: string[];
-  scene_multi_shots?: boolean[];
-}
-
-export interface SkyReelsRefPlan extends RefPlanBase {
-  objects: KlingElement[];
-}
-
-export type RefPlan = KlingO3RefPlan | Wan26FlashRefPlan | SkyReelsRefPlan;
+export type RefPlan = KlingO3RefPlan;
 
 export type StoryboardInputType = 'voiceover_script' | 'cinematic_flow';
 
@@ -100,6 +89,42 @@ export interface Storyboard {
   input_type: StoryboardInputType;
   is_active: boolean;
   sort_order: number;
+}
+
+// ── Generation Log (append-only version history) ─────────────────────────────
+
+export type GenerationEntityType =
+  | 'object'
+  | 'background'
+  | 'scene'
+  | 'voiceover';
+
+export type GenerationLogStatus = 'pending' | 'success' | 'failed' | 'skipped';
+
+export interface GenerationLog {
+  id: string;
+  entity_type: GenerationEntityType;
+  entity_id: string;
+  storyboard_id: string | null;
+  version: number;
+  prompt: string | null;
+  generation_meta: GenerationMeta | null;
+  feedback: string | null;
+  result_url: string | null;
+  status: GenerationLogStatus;
+  created_at: string;
+}
+
+// ── Series Metadata (production fields) ──────────────────────────────────────
+
+export interface SeriesProductionMeta {
+  scene_mode?: 'narrative' | 'cinematic';
+  episode_count?: number;
+  aspect_ratio?: string;
+  language?: string;
+  voice_id?: string;
+  video_model?: string;
+  image_model?: string;
 }
 
 export type GridImageType = 'scene' | 'objects' | 'backgrounds';
@@ -152,6 +177,8 @@ export interface Voiceover {
   audio_url?: string | null;
   language: string;
   duration?: number | null;
+  generation_meta?: GenerationMeta;
+  feedback?: string | null;
 }
 
 export interface Scene {
@@ -175,6 +202,8 @@ export interface Scene {
   sfx_status: 'pending' | 'processing' | 'success' | 'failed' | null;
   sfx_request_id: string | null;
   sfx_error_message: string | null;
+  generation_meta?: GenerationMeta;
+  feedback?: string | null;
 }
 
 /** Scene row as returned by realtime (flat, without nested relations) */
@@ -184,6 +213,25 @@ export type SceneRow = Omit<
 >;
 
 // Ref-to-video related types
+export interface GenerationMeta {
+  model?: string;
+  output_format?: string;
+  resolution?: string;
+  aspect_ratio?: string;
+  use_case?: string;
+  episode_id?: string;
+  episode_title?: string;
+  scene_order?: number;
+  duration_seconds?: number;
+  shot_type?: 'single' | 'multi';
+  voice_id?: string;
+  speed?: number;
+  language?: string;
+  generated_at?: string;
+  generated_by?: 'agent' | 'user' | 'system';
+  [key: string]: unknown;
+}
+
 export interface RefObject {
   id: string;
   grid_image_id: string;
@@ -195,6 +243,10 @@ export interface RefObject {
   description: string | null;
   url: string | null;
   final_url: string | null;
+  series_asset_variant_id?: string | null;
+  generation_prompt?: string | null;
+  generation_meta?: GenerationMeta;
+  feedback?: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
@@ -220,6 +272,10 @@ export interface Background {
   grid_position: number;
   url: string | null;
   final_url: string | null;
+  series_asset_variant_id?: string | null;
+  generation_prompt?: string | null;
+  generation_meta?: GenerationMeta;
+  feedback?: string | null;
   status: 'pending' | 'processing' | 'success' | 'failed';
   request_id: string | null;
   error_message: string | null;
@@ -342,14 +398,21 @@ export async function getStoryboardsForProject(
     .from('storyboards')
     .select('*')
     .eq('project_id', projectId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
 
   if (error) {
     console.error('Failed to fetch storyboards:', error);
     return [];
   }
 
-  return (data as Storyboard[]) || [];
+  // Sort by episode number extracted from title (EP1, EP2, ... EP12)
+  const sorted = (data as Storyboard[]) || [];
+  sorted.sort((a, b) => {
+    const numA = parseInt(a.title?.match(/EP(\d+)/)?.[1] || '999', 10);
+    const numB = parseInt(b.title?.match(/EP(\d+)/)?.[1] || '999', 10);
+    return numA - numB;
+  });
+  return sorted;
 }
 
 /**

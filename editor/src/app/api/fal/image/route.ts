@@ -1,33 +1,27 @@
-import { fal } from '@fal-ai/client';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-// Aspect ratio presets with explicit dimensions
+const FAL_KEY = process.env.FAL_KEY!;
+
+// Aspect ratio presets
 type AspectRatio = '16:9' | '9:16' | '1:1';
-
-const ASPECT_RATIO_DIMENSIONS: Record<
-  AspectRatio,
-  { width: number; height: number }
-> = {
-  '1:1': { width: 1024, height: 1024 }, // 1:1 square
-  '9:16': { width: 1024, height: 1920 }, // 9:16 portrait
-  '16:9': { width: 1920, height: 1024 }, // 16:9 landscape
-};
-
-type OutputFormat = 'jpeg' | 'png' | 'webp';
-type Acceleration = 'none' | 'regular' | 'high';
 
 // Default configuration (easily modifiable)
 const DEFAULTS = {
   aspectRatio: '9:16' as AspectRatio,
-  numInferenceSteps: 8,
   numImages: 1,
-  enableSafetyChecker: true,
-  outputFormat: 'png' as OutputFormat,
-  acceleration: 'none' as Acceleration,
 };
 
+const FAL_ENDPOINT = 'fal-ai/nano-banana-2';
+
+/**
+ * @deprecated This legacy fal.ai route will be removed. Use kie.ai provider routes instead.
+ */
 export async function POST(req: NextRequest) {
+  console.warn(
+    'DEPRECATED: This route will be removed. Use kie.ai provider routes instead.'
+  );
+
   try {
     const { prompt, aspectRatio, project_id } = await req.json();
 
@@ -38,32 +32,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get dimensions from aspect ratio (default to landscape)
+    // Get aspect ratio (default to 9:16)
     const selectedRatio: AspectRatio =
-      aspectRatio && ASPECT_RATIO_DIMENSIONS[aspectRatio as AspectRatio]
-        ? aspectRatio
+      aspectRatio && ['16:9', '9:16', '1:1'].includes(aspectRatio as string)
+        ? (aspectRatio as AspectRatio)
         : DEFAULTS.aspectRatio;
-    const { width, height } = ASPECT_RATIO_DIMENSIONS[selectedRatio];
 
-    // Configure fal client with API key
-    fal.config({
-      credentials: process.env.FAL_KEY || '',
-    });
+    const falUrl = new URL(`https://queue.fal.run/${FAL_ENDPOINT}`);
 
-    const result = await fal.subscribe('fal-ai/z-image/turbo', {
-      input: {
-        prompt,
-        image_size: { width, height },
-        num_inference_steps: DEFAULTS.numInferenceSteps,
-        num_images: DEFAULTS.numImages,
-        enable_safety_checker: DEFAULTS.enableSafetyChecker,
-        output_format: DEFAULTS.outputFormat,
-        acceleration: DEFAULTS.acceleration,
+    const falRes = await fetch(falUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${FAL_KEY}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        prompt,
+        aspect_ratio: selectedRatio,
+        num_images: DEFAULTS.numImages,
+        safety_tolerance: '6',
+        output_format: 'jpeg',
+      }),
     });
 
-    // Return the first image URL directly
-    const imageUrl = result.data.images?.[0]?.url;
+    if (!falRes.ok) {
+      const errText = await falRes.text();
+      console.error('fal.ai image request failed:', falRes.status, errText);
+      return NextResponse.json(
+        { error: 'Image generation request failed' },
+        { status: 500 }
+      );
+    }
+
+    const falData = await falRes.json();
+    const imageUrl = falData.images?.[0]?.url;
 
     if (!imageUrl) {
       return NextResponse.json(

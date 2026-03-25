@@ -1,3 +1,5 @@
+// @deprecated fal.ai webhook handler is kept for rollback during kie.ai migration.
+// New integrations should prefer /api/webhook/kieai with provider routing.
 import type { NextRequest } from 'next/server';
 import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
@@ -1820,6 +1822,522 @@ async function handleGenerateSFX(
   );
 }
 
+function inferObjectSeriesAssetType(
+  name: string,
+  description: string | null
+): 'character' | 'prop' {
+  const text = `${name} ${description ?? ''}`.toLowerCase();
+
+  const characterHints = [
+    'character',
+    'person',
+    'man',
+    'woman',
+    'boy',
+    'girl',
+    'guard',
+    'elder',
+    'leader',
+    'notable',
+    'soldier',
+    'warrior',
+    'imam',
+    'hz.',
+    ' bin ',
+    ' bint ',
+    'şahıs',
+    'kişi',
+  ];
+
+  const propHints = [
+    'prop',
+    'object',
+    'sword',
+    'scroll',
+    'horse',
+    'camel',
+    'bag',
+    'weapon',
+    'letter',
+    'document',
+    'kılıç',
+    'deve',
+    'parşömen',
+    'at',
+  ];
+
+  const hasCharacterHint = characterHints.some((hint) => text.includes(hint));
+  const hasPropHint = propHints.some((hint) => text.includes(hint));
+
+  if (hasCharacterHint && !hasPropHint) return 'character';
+  return 'prop';
+}
+
+async function resolveSeriesIdByStoryboard(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  storyboardId: string
+): Promise<string | null> {
+  const { data: storyboard } = await supabase
+    .from('storyboards')
+    .select('project_id')
+    .eq('id', storyboardId)
+    .maybeSingle();
+
+  const projectId = storyboard?.project_id;
+  if (!projectId) return null;
+
+  const { data: series } = await supabase
+    .from('series')
+    .select('id')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  return series?.id ?? null;
+}
+
+async function promoteGeneratedMissingAsset(params: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  storyboardId: string;
+  assetType: 'object' | 'background';
+  assetName: string;
+  assetDescription: string | null;
+  imageUrl: string;
+  requestId: string;
+  log: Logger;
+}): Promise<{ variantId: string | null; promotedUrl: string | null }> {
+  const {
+    supabase,
+    storyboardId,
+    assetType,
+    assetName,
+    assetDescription,
+    imageUrl,
+    requestId,
+    log,
+  } = params;
+
+  const seriesId = await resolveSeriesIdByStoryboard(supabase, storyboardId);
+  if (!seriesId) {
+    return { variantId: null, promotedUrl: null };
+  }
+
+  const seriesAssetType =
+    assetType === 'background'
+      ? 'location'
+      : inferObjectSeriesAssetType(assetName, assetDescription);
+
+  const { data: existingAsset } = await supabase
+    .from('series_assets')
+    .select('id')
+    .eq('series_id', seriesId)
+    .eq('type', seriesAssetType)
+    .ilike('name', assetName)
+    .limit(1)
+    .maybeSingle();
+
+  let assetId = existingAsset?.id ?? null;
+
+  if (!assetId) {
+    const { data: maxSortRow } = await supabase
+      .from('series_assets')
+      .select('sort_order')
+      .eq('series_id', seriesId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextSortOrder =
+      typeof maxSortRow?.sort_order === 'number'
+        ? maxSortRow.sort_order + 1
+        : 0;
+
+    const { data: createdAsset, error: createAssetError } = await supabase
+      .from('series_assets')
+      .insert({
+        series_id: seriesId,
+        type: seriesAssetType,
+        name: assetName,
+        description: assetDescription,
+        tags: [],
+        sort_order: nextSortOrder,
+      })
+      .select('id')
+      .single();
+
+    if (createAssetError || !createdAsset?.id) {
+      log.warn('Auto-promotion: failed to create series asset', {
+        storyboard_id: storyboardId,
+        series_id: seriesId,
+        name: assetName,
+        error: createAssetError?.message,
+      });
+      return { variantId: null, promotedUrl: null };
+    }
+
+    assetId = createdAsset.id;
+  }
+
+  const { data: existingVariants } = await supabase
+    .from('series_asset_variants')
+    .select('id, is_default')
+    .eq('asset_id', assetId)
+    .order('created_at', { ascending: true });
+
+  let variantId =
+    existingVariants?.find(
+      (variant: { is_default: boolean }) => variant.is_default
+    )?.id ??
+    existingVariants?.[0]?.id ??
+    null;
+
+  if (!variantId) {
+    const { data: createdVariant, error: variantError } = await supabase
+      .from('series_asset_variants')
+      .insert({
+        asset_id: assetId,
+        label: 'Default',
+        is_default: true,
+      })
+      .select('id')
+      .single();
+
+    if (variantError || !createdVariant?.id) {
+      log.warn('Auto-promotion: failed to create variant', {
+        storyboard_id: storyboardId,
+        asset_id: assetId,
+        error: variantError?.message,
+      });
+      return { variantId: null, promotedUrl: null };
+    }
+
+    variantId = createdVariant.id;
+  }
+
+  const { data: existingImages } = await supabase
+    .from('series_asset_variant_images')
+    .select('id, metadata')
+    .eq('variant_id', variantId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  const duplicate = (existingImages ?? []).find(
+    (image: { metadata?: unknown }) => {
+      const metadata = image.metadata as Record<string, unknown> | null;
+      return metadata?.fal_request_id === requestId;
+    }
+  );
+
+  if (duplicate) {
+    return { variantId, promotedUrl: null };
+  }
+
+  try {
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) {
+      throw new Error(`Failed to fetch generated image: ${imgRes.status}`);
+    }
+
+    const imgBuffer = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get('content-type') ?? 'image/jpeg';
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const storagePath = `generated/${variantId}/${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('series-assets')
+      .upload(storagePath, imgBuffer, { contentType, upsert: false });
+
+    if (uploadError) {
+      throw new Error(uploadError.message);
+    }
+
+    const {
+      data: { publicUrl },
+    } = await supabase.storage.from('series-assets').getPublicUrl(storagePath);
+
+    const { error: imageInsertError } = await supabase
+      .from('series_asset_variant_images')
+      .insert({
+        variant_id: variantId,
+        angle: 'front',
+        kind: 'frontal',
+        url: publicUrl,
+        storage_path: storagePath,
+        source: 'generated',
+        metadata: {
+          fal_request_id: requestId,
+          source: 'v2_missing_asset_autopromote',
+          storyboard_id: storyboardId,
+        },
+      });
+
+    if (imageInsertError) {
+      throw new Error(imageInsertError.message);
+    }
+
+    return { variantId, promotedUrl: publicUrl };
+  } catch (error) {
+    log.warn('Auto-promotion: image persist failed', {
+      storyboard_id: storyboardId,
+      asset_name: assetName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { variantId, promotedUrl: imageUrl };
+  }
+}
+
+async function finalizeMissingAssetStoryboardState(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  storyboardId: string,
+  log: Logger
+): Promise<void> {
+  const { data: scenes } = await supabase
+    .from('scenes')
+    .select('id')
+    .eq('storyboard_id', storyboardId);
+
+  const sceneIds = (scenes ?? []).map((scene: { id: string }) => scene.id);
+  if (sceneIds.length === 0) return;
+
+  const [{ data: pendingObjects }, { data: pendingBackgrounds }] =
+    await Promise.all([
+      supabase
+        .from('objects')
+        .select('id')
+        .in('scene_id', sceneIds)
+        .eq('status', 'processing'),
+      supabase
+        .from('backgrounds')
+        .select('id')
+        .in('scene_id', sceneIds)
+        .eq('status', 'processing'),
+    ]);
+
+  if (
+    (pendingObjects?.length ?? 0) > 0 ||
+    (pendingBackgrounds?.length ?? 0) > 0
+  ) {
+    return;
+  }
+
+  const [{ data: failedObjects }, { data: failedBackgrounds }] =
+    await Promise.all([
+      supabase
+        .from('objects')
+        .select('id')
+        .in('scene_id', sceneIds)
+        .eq('status', 'failed'),
+      supabase
+        .from('backgrounds')
+        .select('id')
+        .in('scene_id', sceneIds)
+        .eq('status', 'failed'),
+    ]);
+
+  const hasFailed =
+    (failedObjects?.length ?? 0) > 0 || (failedBackgrounds?.length ?? 0) > 0;
+
+  const targetStatus = hasFailed ? 'failed' : 'approved';
+
+  await supabase
+    .from('storyboards')
+    .update({ plan_status: targetStatus })
+    .eq('id', storyboardId)
+    .in('plan_status', ['generating', 'failed']);
+
+  log.info('Finalize missing-asset storyboard status', {
+    storyboard_id: storyboardId,
+    status: targetStatus,
+    failed_objects: failedObjects?.length ?? 0,
+    failed_backgrounds: failedBackgrounds?.length ?? 0,
+  });
+}
+
+async function handleGenerateMissingAssetImage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  falPayload: FalWebhookPayload,
+  params: URLSearchParams,
+  log: Logger
+): Promise<Response> {
+  const storyboardId = params.get('storyboard_id');
+  const assetType = params.get('asset_type');
+  const gridPositionRaw = params.get('grid_position');
+  const assetNameRaw = params.get('asset_name');
+  const assetDescriptionRaw = params.get('asset_description');
+
+  if (!storyboardId || !assetType || !gridPositionRaw) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing missing-asset params' }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
+    );
+  }
+
+  if (assetType !== 'object' && assetType !== 'background') {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Invalid asset_type' }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
+    );
+  }
+
+  const gridPosition = Number.parseInt(gridPositionRaw, 10);
+  if (!Number.isInteger(gridPosition) || gridPosition < 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Invalid grid_position' }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
+    );
+  }
+
+  const requestId = getIncomingRequestId(falPayload);
+  if (!requestId) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Missing request_id in webhook payload',
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
+    );
+  }
+
+  const { data: scenes } = await supabase
+    .from('scenes')
+    .select('id')
+    .eq('storyboard_id', storyboardId);
+
+  const sceneIds = (scenes ?? []).map((scene: { id: string }) => scene.id);
+  if (sceneIds.length === 0) {
+    return staleWebhookResponse(
+      'storyboard_has_no_scenes',
+      'GenerateMissingAssetImage',
+      'storyboard_id',
+      storyboardId,
+      log
+    );
+  }
+
+  const tableName = assetType === 'object' ? 'objects' : 'backgrounds';
+
+  const failRows = async (message: string) => {
+    const { data: failedRows } = await supabase
+      .from(tableName)
+      .update({ status: 'failed', error_message: message })
+      .in('scene_id', sceneIds)
+      .eq('grid_position', gridPosition)
+      .eq('request_id', requestId)
+      .eq('status', 'processing')
+      .select('id');
+
+    if (!failedRows || failedRows.length === 0) {
+      return staleWebhookResponse(
+        'state_changed_before_update',
+        'GenerateMissingAssetImage',
+        'storyboard_id',
+        storyboardId,
+        log
+      );
+    }
+
+    await finalizeMissingAssetStoryboardState(supabase, storyboardId, log);
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        step: 'GenerateMissingAssetImage',
+        error: message,
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      }
+    );
+  };
+
+  if (falPayload.status === 'ERROR') {
+    return failRows(
+      String(falPayload.error ?? 'generation_error').slice(0, 380)
+    );
+  }
+
+  const images = getImages(falPayload);
+  const imageUrl = images?.[0]?.url;
+  if (!imageUrl) {
+    return failRows('No image in fal response');
+  }
+
+  const assetName = assetNameRaw?.trim() || `${assetType}_${gridPosition + 1}`;
+  const assetDescription = assetDescriptionRaw?.trim() || null;
+
+  const promotion = await promoteGeneratedMissingAsset({
+    supabase,
+    storyboardId,
+    assetType,
+    assetName,
+    assetDescription,
+    imageUrl,
+    requestId,
+    log,
+  });
+
+  const finalUrl = promotion.promotedUrl ?? imageUrl;
+
+  const { data: updatedRows } = await supabase
+    .from(tableName)
+    .update({
+      status: 'success',
+      error_message: null,
+      url: finalUrl,
+      final_url: finalUrl,
+      ...(promotion.variantId
+        ? { series_asset_variant_id: promotion.variantId }
+        : {}),
+    })
+    .in('scene_id', sceneIds)
+    .eq('grid_position', gridPosition)
+    .eq('request_id', requestId)
+    .eq('status', 'processing')
+    .select('id');
+
+  if (!updatedRows || updatedRows.length === 0) {
+    return staleWebhookResponse(
+      'state_changed_before_update',
+      'GenerateMissingAssetImage',
+      'storyboard_id',
+      storyboardId,
+      log
+    );
+  }
+
+  await finalizeMissingAssetStoryboardState(supabase, storyboardId, log);
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      step: 'GenerateMissingAssetImage',
+      storyboard_id: storyboardId,
+      asset_type: assetType,
+      grid_position: gridPosition,
+      rows_updated: updatedRows.length,
+      request_id: requestId,
+      promoted_variant_id: promotion.variantId,
+    }),
+    { headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } }
+  );
+}
+
 // ── Series Asset Image Handler ────────────────────────────────────────
 
 async function handleSeriesAssetImage(
@@ -2238,6 +2756,13 @@ export async function POST(req: NextRequest) {
         return await handleGenerateVideo(supabase, falPayload, params, log);
       case 'GenerateSFX':
         return await handleGenerateSFX(supabase, falPayload, params, log);
+      case 'GenerateMissingAssetImage':
+        return await handleGenerateMissingAssetImage(
+          supabase,
+          falPayload,
+          params,
+          log
+        );
       case 'SeriesAssetImage':
         return await handleSeriesAssetImage(supabase, falPayload, params, log);
       case 'SeriesGridImage':

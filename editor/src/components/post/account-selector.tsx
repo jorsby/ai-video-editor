@@ -52,7 +52,9 @@ export function AccountSelector({
   onSelectionChange,
 }: AccountSelectorProps) {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set()
+  );
 
   const toggleCollapse = (groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -66,7 +68,13 @@ export function AccountSelector({
     });
   };
 
-  const allTags = Array.from(new Set(Object.values(tags).flat().map(t => t.name))).sort();
+  const allTags = Array.from(
+    new Set(
+      Object.values(tags)
+        .flat()
+        .map((t) => t.name)
+    )
+  ).sort();
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => {
@@ -97,7 +105,8 @@ export function AccountSelector({
   const selectAllInGroup = (groupAccountIds: string[]) => {
     const visibleIds = accounts
       .filter(
-        (a) => groupAccountIds.includes(a.octupost_account_id) && isAccountVisible(a)
+        (a) =>
+          groupAccountIds.includes(a.octupost_account_id) && isAccountVisible(a)
       )
       .map((a) => a.octupost_account_id);
     const merged = new Set([...selectedIds, ...visibleIds]);
@@ -118,10 +127,13 @@ export function AccountSelector({
   // Collapse all / expand all
   const allGroupIds = [
     ...groups.map((g) => g.id),
-    ...(ungroupedAccounts.length > 0 && groups.length > 0 ? ['__ungrouped'] : []),
+    ...(ungroupedAccounts.length > 0 && groups.length > 0
+      ? ['__ungrouped']
+      : []),
   ];
   const allExpanded =
-    allGroupIds.length === 0 || allGroupIds.every((id) => !collapsedGroups.has(id));
+    allGroupIds.length === 0 ||
+    allGroupIds.every((id) => !collapsedGroups.has(id));
 
   const handleToggleExpandAll = () => {
     if (allExpanded) {
@@ -192,7 +204,9 @@ export function AccountSelector({
       {/* Grouped accounts */}
       {groups.map((group) => {
         const groupAccounts = accounts.filter(
-          (a) => group.account_ids.includes(a.octupost_account_id) && isAccountVisible(a)
+          (a) =>
+            group.account_ids.includes(a.octupost_account_id) &&
+            isAccountVisible(a)
         );
         if (groupAccounts.length === 0) return null;
 
@@ -259,8 +273,12 @@ export function AccountSelector({
                     <AccountRow
                       key={account.octupost_account_id}
                       account={account}
-                      checked={selectedIds.includes(account.octupost_account_id)}
-                      onToggle={() => toggleAccount(account.octupost_account_id)}
+                      checked={selectedIds.includes(
+                        account.octupost_account_id
+                      )}
+                      onToggle={() =>
+                        toggleAccount(account.octupost_account_id)
+                      }
                     />
                   ))}
                 </div>
@@ -304,8 +322,12 @@ export function AccountSelector({
                       <AccountRow
                         key={account.octupost_account_id}
                         account={account}
-                        checked={selectedIds.includes(account.octupost_account_id)}
-                        onToggle={() => toggleAccount(account.octupost_account_id)}
+                        checked={selectedIds.includes(
+                          account.octupost_account_id
+                        )}
+                        onToggle={() =>
+                          toggleAccount(account.octupost_account_id)
+                        }
                       />
                     ))}
                   </div>

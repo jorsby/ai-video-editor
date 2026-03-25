@@ -82,6 +82,8 @@ export async function POST(req: NextRequest) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const genre = typeof body?.genre === 'string' ? body.genre.trim() : null;
     const tone = typeof body?.tone === 'string' ? body.tone.trim() : null;
+    const requestedProjectId =
+      typeof body?.project_id === 'string' ? body.project_id.trim() : '';
     const metadata = isRecord(body?.metadata) ? body.metadata : {};
 
     if (!name) {
@@ -116,28 +118,75 @@ export async function POST(req: NextRequest) {
 
     const seriesId = series.id as string;
 
-    const { data: project, error: projectError } = await dbClient
-      .from('projects')
-      .insert({
-        user_id: user.id,
-        name,
-        settings: { series_id: seriesId },
-      })
-      .select('id')
-      .single();
+    let projectId = '';
 
-    if (projectError || !project?.id) {
-      console.error(
-        '[v2/series/create] Failed to create project:',
-        projectError
-      );
-      return NextResponse.json(
-        { error: 'Failed to create project' },
-        { status: 500 }
-      );
+    if (requestedProjectId) {
+      const { data: existingProject, error: projectLookupError } =
+        await dbClient
+          .from('projects')
+          .select('id, settings')
+          .eq('id', requestedProjectId)
+          .eq('user_id', user.id)
+          .single();
+
+      if (projectLookupError || !existingProject?.id) {
+        return NextResponse.json(
+          { error: 'Project not found' },
+          { status: 404 }
+        );
+      }
+
+      projectId = existingProject.id as string;
+
+      const existingSettings = isRecord(existingProject.settings)
+        ? existingProject.settings
+        : {};
+
+      const { error: projectSettingsError } = await dbClient
+        .from('projects')
+        .update({
+          settings: {
+            ...existingSettings,
+            series_id: seriesId,
+          },
+        })
+        .eq('id', projectId)
+        .eq('user_id', user.id);
+
+      if (projectSettingsError) {
+        console.error(
+          '[v2/series/create] Failed to update project settings:',
+          projectSettingsError
+        );
+        return NextResponse.json(
+          { error: 'Failed to update project settings' },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { data: project, error: projectError } = await dbClient
+        .from('projects')
+        .insert({
+          user_id: user.id,
+          name,
+          settings: { series_id: seriesId },
+        })
+        .select('id')
+        .single();
+
+      if (projectError || !project?.id) {
+        console.error(
+          '[v2/series/create] Failed to create project:',
+          projectError
+        );
+        return NextResponse.json(
+          { error: 'Failed to create project' },
+          { status: 500 }
+        );
+      }
+
+      projectId = project.id as string;
     }
-
-    const projectId = project.id as string;
 
     const { error: seriesProjectUpdateError } = await dbClient
       .from('series')

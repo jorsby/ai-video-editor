@@ -1,7 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
+import { queueKieImageTask } from '@/lib/kie-image';
 import { createLogger } from '@/lib/logger';
+import {
+  resolveProvider,
+  type GenerationProvider,
+} from '@/lib/provider-routing';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
   DEFAULT_GRID_ASPECT_RATIO,
   DEFAULT_GRID_RESOLUTION,
@@ -14,8 +20,6 @@ import {
 } from '@/lib/grid-generation-settings';
 
 const FAL_API_KEY = process.env.FAL_KEY!;
-const WEBHOOK_BASE_URL =
-  process.env.WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL!;
 
 type RegenerateTarget = 'objects' | 'backgrounds' | 'both';
 
@@ -89,6 +93,8 @@ async function queueGridGeneration(
     gridAspectRatio: GridAspectRatio;
     gridResolution: GridResolution;
   },
+  provider: GenerationProvider,
+  webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<QueueResult> {
   const {
@@ -133,47 +139,85 @@ async function queueGridGeneration(
     height: height.toString(),
   });
 
-  const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhook/fal?${webhookParams.toString()}`;
-  const falUrl = new URL(
-    'https://queue.fal.run/workflows/octupost/generategridimage'
+  const callbackPath =
+    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const webhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
+
+  log.api(
+    provider === 'kie' ? 'kie.ai' : 'fal.ai',
+    `octupost/generategridimage:${target}`,
+    {
+      grid_image_id: gridImageId,
+      prompt_length: falPrompt.length,
+      grid_aspect_ratio: gridAspectRatio,
+      grid_resolution: gridResolution,
+    }
   );
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
+  let requestId: string | null = null;
 
-  log.api('fal.ai', `octupost/generategridimage:${target}`, {
-    grid_image_id: gridImageId,
-    prompt_length: falPrompt.length,
-    grid_aspect_ratio: gridAspectRatio,
-    grid_resolution: gridResolution,
-  });
+  if (provider === 'kie') {
+    try {
+      const queued = await queueKieImageTask({
+        prompt: falPrompt,
+        callbackUrl: webhookUrl,
+        aspectRatio: gridAspectRatio,
+        resolution: gridResolution,
+        outputFormat: 'jpg',
+      });
+      requestId = queued.requestId;
+    } catch (error) {
+      await supabase
+        .from('grid_images')
+        .update({ status: 'failed', error_message: 'request_error' })
+        .eq('id', gridImageId)
+        .in('status', ['pending', 'processing']);
 
-  const response = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${FAL_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt: falPrompt, web_search: true }),
-  });
+      return {
+        target,
+        success: false,
+        requestId: null,
+        error:
+          error instanceof Error
+            ? `kie.ai request failed: ${error.message}`
+            : 'kie.ai request failed',
+      };
+    }
+  } else {
+    const falUrl = new URL(
+      'https://queue.fal.run/workflows/octupost/generategridimage'
+    );
+    falUrl.searchParams.set('fal_webhook', webhookUrl);
 
-  if (!response.ok) {
-    const text = await response.text();
+    const response = await fetch(falUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${FAL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt: falPrompt, web_search: true }),
+    });
 
-    await supabase
-      .from('grid_images')
-      .update({ status: 'failed', error_message: 'request_error' })
-      .eq('id', gridImageId)
-      .in('status', ['pending', 'processing']);
+    if (!response.ok) {
+      const text = await response.text();
 
-    return {
-      target,
-      success: false,
-      requestId: null,
-      error: `fal.ai request failed: ${response.status} ${text}`,
-    };
+      await supabase
+        .from('grid_images')
+        .update({ status: 'failed', error_message: 'request_error' })
+        .eq('id', gridImageId)
+        .in('status', ['pending', 'processing']);
+
+      return {
+        target,
+        success: false,
+        requestId: null,
+        error: `fal.ai request failed: ${response.status} ${text}`,
+      };
+    }
+
+    const result = await response.json();
+    requestId =
+      typeof result?.request_id === 'string' ? result.request_id : null;
   }
-
-  const result = await response.json();
-  const requestId = result.request_id as string | undefined;
 
   if (!requestId) {
     await supabase
@@ -221,6 +265,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const storyboardId = body.storyboardId as string | undefined;
     const target = body.target as RegenerateTarget | undefined;
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body,
+    });
 
     if (!storyboardId) {
       return NextResponse.json(
@@ -229,10 +278,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
+
     if (!isValidTarget(target)) {
       return NextResponse.json(
         { error: 'target must be objects, backgrounds, or both' },
         { status: 400 }
+      );
+    }
+
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
       );
     }
 
@@ -391,6 +452,8 @@ export async function POST(req: NextRequest) {
               gridAspectRatio: selectedGridAspectRatio,
               gridResolution: selectedGridResolution,
             },
+            providerResolution.provider,
+            webhookBase,
             log
           )
         );
@@ -410,6 +473,8 @@ export async function POST(req: NextRequest) {
               gridAspectRatio: selectedGridAspectRatio,
               gridResolution: selectedGridResolution,
             },
+            providerResolution.provider,
+            webhookBase,
             log
           )
         );
@@ -437,6 +502,7 @@ export async function POST(req: NextRequest) {
 
     log.summary('success', {
       storyboard_id: storyboardId,
+      provider: providerResolution.provider,
       target,
       queued: successCount,
       total: queueResults.length,
@@ -451,6 +517,7 @@ export async function POST(req: NextRequest) {
       success: true,
       storyboard_id: storyboardId,
       target,
+      provider: providerResolution.provider,
       queued: successCount,
       results: queueResults,
       grid_aspect_ratio: selectedGridAspectRatio,

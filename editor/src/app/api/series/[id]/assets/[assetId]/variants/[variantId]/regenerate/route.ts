@@ -1,15 +1,16 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { queueKieImageTask } from '@/lib/kie-image';
+import { resolveProvider } from '@/lib/provider-routing';
 import { getSeries } from '@/lib/supabase/series-service';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const FAL_KEY = process.env.FAL_KEY!;
 
 const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
   'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
-  'flux-pro': { endpoint: 'fal-ai/flux-pro/v1.1', useImageSize: true },
-  'flux-2-pro': { endpoint: 'fal-ai/flux-2-pro', useImageSize: true },
 };
 const DEFAULT_MODEL = 'nano-banana-2';
 
@@ -98,6 +99,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json().catch(() => ({}));
+    const providerResolution = await resolveProvider({
+      service: 'video',
+      req,
+      body,
+    });
+
+    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
+      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    }
 
     // Build prompt
     let prompt: string;
@@ -133,66 +143,112 @@ export async function POST(req: NextRequest, context: RouteContext) {
       prompt = parts.join('. ');
     }
 
+    const webhookBase = resolveWebhookBaseUrl(req);
+    if (!webhookBase) {
+      return NextResponse.json(
+        { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
     // Build webhook URL
-    const webhookUrl = new URL(
-      `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal`
-    );
+    const callbackPath =
+      providerResolution.provider === 'kie'
+        ? '/api/webhook/kieai'
+        : '/api/webhook/fal';
+    const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    // Submit to fal.ai
+    // Submit to provider
     const modelKey =
       body.model && MODELS[body.model] ? body.model : DEFAULT_MODEL;
     const modelConfig = MODELS[modelKey];
     const res = body.resolution ?? '2K';
     const aspectRatio = asset.type === 'character' ? '3:4' : '16:9';
+    let requestId: string | null = null;
+    let modelForJob = modelKey;
+    let endpointForResponse = modelConfig.endpoint;
 
-    const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
-    falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
+    if (providerResolution.provider === 'kie') {
+      try {
+        const queued = await queueKieImageTask({
+          prompt,
+          callbackUrl: webhookUrl.toString(),
+          aspectRatio,
+          resolution: res,
+          outputFormat: 'jpg',
+        });
+        requestId = queued.requestId;
+        modelForJob = queued.model;
+        endpointForResponse = queued.endpoint;
+      } catch (error) {
+        console.error('[Regenerate] kie.ai failed:', error);
+        return NextResponse.json(
+          { error: 'Image generation request failed' },
+          { status: 500 }
+        );
+      }
+    } else {
+      const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
+      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
 
-    // Models use different size params
-    const sizeParams = modelConfig.useImageSize
-      ? {
-          image_size: {
-            width: aspectRatio === '3:4' ? 768 : 1024,
-            height: aspectRatio === '3:4' ? 1024 : 768,
-          },
-        }
-      : { resolution: res, aspect_ratio: aspectRatio };
+      // Models use different size params
+      const sizeParams = modelConfig.useImageSize
+        ? {
+            image_size: {
+              width: aspectRatio === '3:4' ? 768 : 1024,
+              height: aspectRatio === '3:4' ? 1024 : 768,
+            },
+          }
+        : { resolution: res, aspect_ratio: aspectRatio };
 
-    const falRes = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        num_images: 1,
-        ...sizeParams,
-        output_format: 'jpeg',
-        safety_tolerance: '6',
-      }),
-    });
+      const falRes = await fetch(falUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${FAL_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          num_images: 1,
+          ...sizeParams,
+          output_format: 'jpeg',
+          safety_tolerance: '6',
+        }),
+      });
 
-    if (!falRes.ok) {
-      const errText = await falRes.text();
-      console.error('[Regenerate] fal.ai failed:', falRes.status, errText);
+      if (!falRes.ok) {
+        const errText = await falRes.text();
+        console.error('[Regenerate] fal.ai failed:', falRes.status, errText);
+        return NextResponse.json(
+          { error: 'Image generation request failed' },
+          { status: 500 }
+        );
+      }
+
+      const falData = await falRes.json();
+      requestId =
+        typeof falData?.request_id === 'string' ? falData.request_id : null;
+      modelForJob = modelKey;
+      endpointForResponse = modelConfig.endpoint;
+    }
+
+    if (!requestId) {
       return NextResponse.json(
         { error: 'Image generation request failed' },
         { status: 500 }
       );
     }
 
-    const falData = await falRes.json();
-
     await dbClient.from('series_generation_jobs').insert({
       series_id: seriesId,
-      request_id: falData.request_id,
+      request_id: requestId,
       type: 'single',
       prompt,
-      model: modelKey,
+      model: modelForJob,
       config: {
+        provider: providerResolution.provider,
         asset_id: assetId,
         variant_id: variantId,
         resolution: res,
@@ -201,9 +257,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     });
 
     return NextResponse.json({
-      request_id: falData.request_id,
-      model: modelKey,
-      endpoint: modelConfig.endpoint,
+      request_id: requestId,
+      model: modelForJob,
+      endpoint: endpointForResponse,
+      provider: providerResolution.provider,
       variant_id: variantId,
       prompt,
     });

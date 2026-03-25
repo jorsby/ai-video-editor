@@ -7,7 +7,11 @@ import { CreateProjectModal } from './create-project-modal';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { DBProject, ProjectTagMap } from '@/types/project';
 import type { OctupostAccount } from '@/lib/octupost/types';
-import type { SocialPost, AccountGroupWithMembers, AccountTagMap } from '@/types/social';
+import type {
+  SocialPost,
+  AccountGroupWithMembers,
+  AccountTagMap,
+} from '@/types/social';
 import { toast } from 'sonner';
 
 export function DashboardContent() {
@@ -16,7 +20,9 @@ export function DashboardContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [projectTags, setProjectTags] = useState<ProjectTagMap>({});
-  const [selectedProjectTags, setSelectedProjectTags] = useState<Map<string, 'include' | 'exclude'>>(new Map());
+  const [selectedProjectTags, setSelectedProjectTags] = useState<
+    Map<string, 'include' | 'exclude'>
+  >(new Map());
 
   const [accounts, setAccounts] = useState<OctupostAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
@@ -30,17 +36,29 @@ export function DashboardContent() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
 
-  const [platformPostsByAccount, setPlatformPostsByAccount] = useState<Map<string, SocialPost[]>>(new Map());
-  const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<string>>(new Set());
-  const [platformMediaErrors, setPlatformMediaErrors] = useState<Map<string, string>>(new Map());
-  const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<Map<string, Date>>(new Map());
-  const [tokenInvalidAccountIds, setTokenInvalidAccountIds] = useState<Set<string>>(new Set());
+  const [platformPostsByAccount, setPlatformPostsByAccount] = useState<
+    Map<string, SocialPost[]>
+  >(new Map());
+  const [platformMediaLoading, setPlatformMediaLoading] = useState<Set<string>>(
+    new Set()
+  );
+  const [platformMediaErrors, setPlatformMediaErrors] = useState<
+    Map<string, string>
+  >(new Map());
+  const [platformMediaSyncedAt, setPlatformMediaSyncedAt] = useState<
+    Map<string, Date>
+  >(new Map());
+  const [tokenInvalidAccountIds, setTokenInvalidAccountIds] = useState<
+    Set<string>
+  >(new Set());
 
   const fetchAllPosts = useCallback(async () => {
     setPostsLoading(true);
     try {
       const PAGE_SIZE = 100;
-      const firstRes = await fetch(`/api/v2/posts/list?limit=${PAGE_SIZE}&offset=0`);
+      const firstRes = await fetch(
+        `/api/v2/posts/list?limit=${PAGE_SIZE}&offset=0`
+      );
       if (!firstRes.ok) return;
 
       const firstData: { posts: SocialPost[]; total: number } =
@@ -53,7 +71,9 @@ export function DashboardContent() {
         const pagePromises = [];
         for (let p = 1; p <= pages; p++) {
           pagePromises.push(
-            fetch(`/api/v2/posts/list?limit=${PAGE_SIZE}&offset=${p * PAGE_SIZE}`).then((r) => r.json())
+            fetch(
+              `/api/v2/posts/list?limit=${PAGE_SIZE}&offset=${p * PAGE_SIZE}`
+            ).then((r) => r.json())
           );
         }
         const results = await Promise.all(pagePromises);
@@ -75,7 +95,7 @@ export function DashboardContent() {
   const postsByAccount = useMemo(() => {
     const map = new Map<string, SocialPost[]>();
     for (const post of posts) {
-      for (const account of (post.accounts || [])) {
+      for (const account of post.accounts || []) {
         const existing = map.get(account.octupost_account_id) || [];
         existing.push(post);
         map.set(account.octupost_account_id, existing);
@@ -110,45 +130,64 @@ export function DashboardContent() {
     }
     return projects.filter((p) => {
       const pTags = projectTags[p.id] ?? [];
-      if (includeTags.length > 0 && !includeTags.every((t) => pTags.includes(t))) return false;
-      if (excludeTags.length > 0 && excludeTags.some((t) => pTags.includes(t))) return false;
+      if (
+        includeTags.length > 0 &&
+        !includeTags.every((t) => pTags.includes(t))
+      )
+        return false;
+      if (excludeTags.length > 0 && excludeTags.some((t) => pTags.includes(t)))
+        return false;
       return true;
     });
   }, [projects, projectTags, selectedProjectTags]);
 
-  const fetchPlatformMedia = useCallback(async (accountId: string, force?: boolean) => {
-    if (!force && platformPostsByAccount.has(accountId)) return;
+  const fetchPlatformMedia = useCallback(
+    async (accountId: string, force?: boolean) => {
+      if (!force && platformPostsByAccount.has(accountId)) return;
 
-    setPlatformMediaLoading((prev) => new Set(prev).add(accountId));
-    setPlatformMediaErrors((prev) => {
-      const next = new Map(prev);
-      next.delete(accountId);
-      return next;
-    });
-
-    try {
-      const res = await fetch(`/api/social/media?accountId=${accountId}`);
-      if (!res.ok) {
-        const body = await res.json();
-        if (body.tokenExpired) {
-          setTokenInvalidAccountIds((prev) => new Set(prev).add(accountId));
-        }
-        setPlatformMediaErrors((prev) => new Map(prev).set(accountId, body.error || 'Failed to fetch platform media'));
-        return;
-      }
-      const { posts: platformPosts } = await res.json();
-      setPlatformPostsByAccount((prev) => new Map(prev).set(accountId, platformPosts));
-      setPlatformMediaSyncedAt((prev) => new Map(prev).set(accountId, new Date()));
-    } catch {
-      setPlatformMediaErrors((prev) => new Map(prev).set(accountId, 'Failed to fetch platform media'));
-    } finally {
-      setPlatformMediaLoading((prev) => {
-        const next = new Set(prev);
+      setPlatformMediaLoading((prev) => new Set(prev).add(accountId));
+      setPlatformMediaErrors((prev) => {
+        const next = new Map(prev);
         next.delete(accountId);
         return next;
       });
-    }
-  }, [platformPostsByAccount]);
+
+      try {
+        const res = await fetch(`/api/social/media?accountId=${accountId}`);
+        if (!res.ok) {
+          const body = await res.json();
+          if (body.tokenExpired) {
+            setTokenInvalidAccountIds((prev) => new Set(prev).add(accountId));
+          }
+          setPlatformMediaErrors((prev) =>
+            new Map(prev).set(
+              accountId,
+              body.error || 'Failed to fetch platform media'
+            )
+          );
+          return;
+        }
+        const { posts: platformPosts } = await res.json();
+        setPlatformPostsByAccount((prev) =>
+          new Map(prev).set(accountId, platformPosts)
+        );
+        setPlatformMediaSyncedAt((prev) =>
+          new Map(prev).set(accountId, new Date())
+        );
+      } catch {
+        setPlatformMediaErrors((prev) =>
+          new Map(prev).set(accountId, 'Failed to fetch platform media')
+        );
+      } finally {
+        setPlatformMediaLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(accountId);
+          return next;
+        });
+      }
+    },
+    [platformPostsByAccount]
+  );
 
   useEffect(() => {
     fetchAccounts();
@@ -377,9 +416,7 @@ export function DashboardContent() {
   };
 
   const handleGroupRenamed = (id: string, name: string) => {
-    setGroups((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, name } : g))
-    );
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, name } : g)));
   };
 
   const handleGroupDeleted = (id: string) => {
@@ -425,11 +462,17 @@ export function DashboardContent() {
     });
   };
 
-  const handlePostUpdated = (postId: string, fields: Record<string, string>) => {
+  const handlePostUpdated = (
+    postId: string,
+    fields: Record<string, string>
+  ) => {
     setPosts((prev) =>
       prev.map((p) => {
         if (p.id !== postId) return p;
-        return { ...p, caption: fields.description || fields.message || p.caption };
+        return {
+          ...p,
+          caption: fields.description || fields.message || p.caption,
+        };
       })
     );
   };
@@ -496,7 +539,6 @@ export function DashboardContent() {
             tokenInvalidAccountIds={tokenInvalidAccountIds}
           />
         </TabsContent>
-
       </Tabs>
 
       <CreateProjectModal

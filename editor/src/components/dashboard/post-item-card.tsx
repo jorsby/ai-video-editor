@@ -61,7 +61,12 @@ function formatDateTime(dateStr: string | null): string {
   });
 }
 
-export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItemCardProps) {
+export function PostItemCard({
+  post,
+  accountId,
+  onDeleted,
+  onUpdated,
+}: PostItemCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -70,9 +75,12 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
   const [openingBrowser, setOpeningBrowser] = useState(false);
 
   const status = post.status;
-  const thumbnail = post.media_url && post.media_type === 'image' ? post.media_url : null;
+  const thumbnail =
+    post.media_url && post.media_type === 'image' ? post.media_url : null;
   const caption = post.caption || '(no content)';
-  const account = (post.accounts || []).find((a: SocialPostAccount) => a.octupost_account_id === accountId);
+  const account = (post.accounts || []).find(
+    (a: SocialPostAccount) => a.octupost_account_id === accountId
+  );
   const provider = account?.platform || 'unknown';
   const canEdit = EDITABLE_PROVIDERS.has(provider);
   const canDelete = DELETABLE_PROVIDERS.has(provider) && onDeleted;
@@ -134,7 +142,10 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
             <span className="text-xs text-muted-foreground">
               {formatDateTime(post.scheduled_at)}
             </span>
-            <Badge variant={STATUS_VARIANT[status] || 'outline'} className="text-[10px] px-1.5 py-0">
+            <Badge
+              variant={STATUS_VARIANT[status] || 'outline'}
+              className="text-[10px] px-1.5 py-0"
+            >
               {status}
             </Badge>
           </div>
@@ -158,9 +169,7 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
             </Button>
           ) : (
             account?.platform_post_id && (
-              <span className="text-xs text-muted-foreground">
-                Published
-              </span>
+              <span className="text-xs text-muted-foreground">Published</span>
             )
           )}
 
@@ -206,13 +215,19 @@ export function PostItemCard({ post, accountId, onDeleted, onUpdated }: PostItem
       />
 
       {/* Delete confirmation dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={(open) => { setShowDeleteDialog(open); if (!open) setDeleteError(null); }}>
+      <Dialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Post</DialogTitle>
             <DialogDescription>
-              This will permanently delete the post from {getProviderLabel(provider)}. This
-              action cannot be undone.
+              This will permanently delete the post from{' '}
+              {getProviderLabel(provider)}. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {deleteError && (

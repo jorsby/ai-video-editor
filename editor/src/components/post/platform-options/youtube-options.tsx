@@ -1,7 +1,10 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
-import type { YouTubeOptions as YouTubeOptionsType, YouTubePrivacy } from '@/types/post';
+import type {
+  YouTubeOptions as YouTubeOptionsType,
+  YouTubePrivacy,
+} from '@/types/post';
 
 interface YouTubeOptionsProps {
   value: YouTubeOptionsType;

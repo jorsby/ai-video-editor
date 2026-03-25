@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
 import { type NextRequest, NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -85,7 +86,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     // Get the storyboard to verify it exists
     const { data: existing } = await dbClient
       .from('storyboards')
-      .select('id, project_id')
+      .select('id, project_id, plan_status, plan')
       .eq('id', id)
       .single();
 
@@ -112,6 +113,29 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       updates.input_type = body.input_type;
     }
     if (body.sort_order !== undefined) updates.sort_order = body.sort_order;
+
+    // Handle plan update (fill empty storyboard or update existing plan)
+    if (body.plan !== undefined) {
+      const planParsed = klingO3PlanSchema.safeParse(body.plan);
+      if (!planParsed.success) {
+        return NextResponse.json(
+          {
+            error: `Invalid plan: ${planParsed.error.issues[0]?.message ?? 'validation failed'}`,
+          },
+          { status: 400 }
+        );
+      }
+      updates.plan = planParsed.data;
+      // Move from 'empty' to 'draft' when plan is provided
+      if (existing.plan_status === 'empty' || !existing.plan) {
+        updates.plan_status = 'draft';
+      }
+      // Update voiceover text from plan
+      const firstLang = Object.keys(planParsed.data.voiceover_list)[0] ?? 'en';
+      updates.voiceover = (
+        planParsed.data.voiceover_list[firstLang] ?? []
+      ).join('\n');
+    }
 
     // Handle is_active (deactivate others first)
     if (body.is_active === true) {
