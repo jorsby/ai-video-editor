@@ -450,6 +450,29 @@ async function approveExistingStoryboardScenes(params: {
 }) {
   const { db, storyboardId, projectId, planStatus, userId } = params;
 
+  const getFirstSuccessfulAssetImageUrl = (
+    variants: unknown
+  ): string | null => {
+    if (!Array.isArray(variants)) return null;
+
+    for (const variant of variants) {
+      if (!isRecord(variant)) continue;
+      const images = variant.series_asset_variant_images;
+      if (!Array.isArray(images)) continue;
+
+      for (const image of images) {
+        if (!isRecord(image)) continue;
+        if (image.status !== 'success') continue;
+        if (typeof image.url !== 'string') continue;
+
+        const trimmedUrl = image.url.trim();
+        if (trimmedUrl.length > 0) return trimmedUrl;
+      }
+    }
+
+    return null;
+  };
+
   if (planStatus !== 'draft') {
     return NextResponse.json(
       { error: 'Storyboard must be in draft status to approve' },
@@ -486,10 +509,7 @@ async function approveExistingStoryboardScenes(params: {
   for (const scene of storyboardScenes) {
     const sceneLabel = `scene ${scene.order + 1}`;
     const shotPrompts = getScenePromptList(scene);
-    const shotDurations = Array.isArray(scene.shot_durations)
-      ? scene.shot_durations.map((value) => Number(value))
-      : [];
-    const duration = Number(scene.duration ?? 0);
+    const duration = Number(scene.duration);
     const backgroundName =
       typeof scene.background_name === 'string'
         ? scene.background_name.trim()
@@ -499,41 +519,12 @@ async function approveExistingStoryboardScenes(params: {
       validationErrors.push(`${sceneLabel}: shot_prompts is required`);
     }
 
-    if (
-      shotDurations.length === 0 ||
-      shotDurations.some((value) => value <= 0)
-    ) {
-      validationErrors.push(`${sceneLabel}: shot_durations is required`);
-    }
-
     if (!backgroundName) {
       validationErrors.push(`${sceneLabel}: background_name is required`);
     }
 
-    if (!Number.isFinite(duration) || duration <= 0) {
-      validationErrors.push(`${sceneLabel}: duration is required`);
-    }
-
-    if (shotPrompts.length > 0 && shotDurations.length > 0) {
-      if (shotPrompts.length !== shotDurations.length) {
-        validationErrors.push(
-          `${sceneLabel}: shot_prompts and shot_durations length must match`
-        );
-      }
-
-      const totalDuration = shotDurations.reduce(
-        (sum, value) => sum + value,
-        0
-      );
-      if (
-        Number.isFinite(duration) &&
-        duration > 0 &&
-        totalDuration !== duration
-      ) {
-        validationErrors.push(
-          `${sceneLabel}: duration must equal sum of shot_durations`
-        );
-      }
+    if (duration !== 6 && duration !== 10) {
+      validationErrors.push(`${sceneLabel}: duration must be 6 or 10`);
     }
   }
 
@@ -562,6 +553,7 @@ async function approveExistingStoryboardScenes(params: {
   }
 
   const { data: seriesAssets, error: assetError } = await db
+    .schema('studio')
     .from('series_assets')
     .select('slug, type')
     .eq('series_id', series.id);
@@ -688,6 +680,164 @@ async function approveExistingStoryboardScenes(params: {
     }
   }
 
+  const backgroundRows: Array<{
+    scene_id: string;
+    url: string;
+    final_url: string;
+    status: 'success';
+    grid_position: number;
+  }> = [];
+  const objectRows: Array<{
+    scene_id: string;
+    url: string;
+    final_url: string;
+    status: 'success';
+    grid_position: number;
+  }> = [];
+
+  const backgroundUrlBySlug = new Map<string, string>();
+  const objectUrlBySlug = new Map<string, string>();
+
+  for (const scene of storyboardScenes) {
+    const sceneLabel = `scene ${scene.order + 1}`;
+    const backgroundSlug =
+      typeof scene.background_name === 'string'
+        ? scene.background_name.trim()
+        : '';
+
+    if (backgroundSlug) {
+      let backgroundUrl = backgroundUrlBySlug.get(backgroundSlug);
+
+      if (!backgroundUrl) {
+        const { data: backgroundAssets, error: backgroundAssetError } = await db
+          .schema('studio')
+          .from('series_assets')
+          .select(
+            'id, series_asset_variants(id, series_asset_variant_images(url, status))'
+          )
+          .eq('series_id', series.id)
+          .eq('slug', backgroundSlug)
+          .eq('type', 'location')
+          .limit(1);
+
+        if (backgroundAssetError) {
+          return NextResponse.json(
+            { error: 'Failed to resolve background asset URL' },
+            { status: 500 }
+          );
+        }
+
+        const backgroundAsset = backgroundAssets?.[0];
+        const resolvedBackgroundUrl = getFirstSuccessfulAssetImageUrl(
+          backgroundAsset?.series_asset_variants
+        );
+
+        if (!resolvedBackgroundUrl) {
+          return NextResponse.json(
+            {
+              error: `No successful image found for background slug "${backgroundSlug}" in ${sceneLabel}`,
+            },
+            { status: 400 }
+          );
+        }
+
+        backgroundUrl = resolvedBackgroundUrl;
+        backgroundUrlBySlug.set(backgroundSlug, resolvedBackgroundUrl);
+      }
+
+      backgroundRows.push({
+        scene_id: scene.id,
+        url: backgroundUrl,
+        final_url: backgroundUrl,
+        status: 'success',
+        grid_position: 0,
+      });
+    }
+
+    const sceneObjects = Array.isArray(scene.object_names)
+      ? scene.object_names
+          .map((name) => (typeof name === 'string' ? name.trim() : ''))
+          .filter((name) => name.length > 0)
+      : [];
+
+    for (const [index, objectSlug] of sceneObjects.entries()) {
+      let objectUrl = objectUrlBySlug.get(objectSlug);
+
+      if (!objectUrl) {
+        const { data: objectAssets, error: objectAssetError } = await db
+          .schema('studio')
+          .from('series_assets')
+          .select(
+            'id, series_asset_variants(id, series_asset_variant_images(url, status))'
+          )
+          .eq('series_id', series.id)
+          .eq('slug', objectSlug)
+          .in('type', ['character', 'prop'])
+          .limit(1);
+
+        if (objectAssetError) {
+          return NextResponse.json(
+            { error: 'Failed to resolve object asset URL' },
+            { status: 500 }
+          );
+        }
+
+        const objectAsset = objectAssets?.[0];
+        const resolvedObjectUrl = getFirstSuccessfulAssetImageUrl(
+          objectAsset?.series_asset_variants
+        );
+
+        if (!resolvedObjectUrl) {
+          return NextResponse.json(
+            {
+              error: `No successful image found for object slug "${objectSlug}" in ${sceneLabel}`,
+            },
+            { status: 400 }
+          );
+        }
+
+        objectUrl = resolvedObjectUrl;
+        objectUrlBySlug.set(objectSlug, resolvedObjectUrl);
+      }
+
+      objectRows.push({
+        scene_id: scene.id,
+        url: objectUrl,
+        final_url: objectUrl,
+        status: 'success',
+        grid_position: index,
+      });
+    }
+  }
+
+  if (backgroundRows.length > 0) {
+    const { error: backgroundInsertError } = await db
+      .schema('studio')
+      .from('backgrounds')
+      .insert(backgroundRows);
+
+    if (backgroundInsertError) {
+      return NextResponse.json(
+        { error: 'Failed to create scene backgrounds' },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (objectRows.length > 0) {
+    const { error: objectInsertError } = await db
+      .schema('studio')
+      .from('objects')
+      .insert(objectRows);
+
+    if (objectInsertError) {
+      return NextResponse.json(
+        { error: 'Failed to create scene objects' },
+        { status: 500 }
+      );
+    }
+  }
+
   const { error: approveError } = await db
     .from('storyboards')
     .update({ plan_status: 'approved' })
@@ -702,10 +852,10 @@ async function approveExistingStoryboardScenes(params: {
   }
 
   return NextResponse.json({
-    status: 'approved',
+    plan_status: 'approved',
     storyboard_id: storyboardId,
-    validated_scenes: storyboardScenes.length,
-    created_voiceovers: voiceoverRows.length,
+    scenes_validated: storyboardScenes.length,
+    voiceovers_created: voiceoverRows.length,
   });
 }
 
