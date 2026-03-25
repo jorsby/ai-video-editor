@@ -46,6 +46,14 @@ function normalizeAssets(input: unknown): AssetInput[] {
     .filter((item): item is AssetInput => !!item);
 }
 
+function generateAssetSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
 async function resolveOrCreateCharacter(
   // biome-ignore lint/suspicious/noExplicitAny: existing repo uses untyped service client for DB routes
   dbClient: any,
@@ -326,6 +334,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             series_id: seriesId,
             type: 'character',
             name: asset.name,
+            slug: generateAssetSlug(asset.name),
             description: asset.description ?? null,
             character_id: asset.character_id,
             sort_order: nextSortOrder++,
@@ -357,6 +366,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             series_id: seriesId,
             type: 'location',
             name: asset.name,
+            slug: generateAssetSlug(asset.name),
             description: asset.description ?? null,
             sort_order: nextSortOrder++,
           }))
@@ -383,6 +393,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             series_id: seriesId,
             type: 'prop',
             name: asset.name,
+            slug: generateAssetSlug(asset.name),
             description: asset.description ?? null,
             sort_order: nextSortOrder++,
           }))

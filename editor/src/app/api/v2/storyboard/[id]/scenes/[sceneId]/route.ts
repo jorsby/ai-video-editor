@@ -5,15 +5,10 @@ import { createServiceClient } from '@/lib/supabase/admin';
 
 const updateSceneBodySchema = z.object({
   sort_order: z.number().int().min(1).optional(),
-  voiceover_text: z.string().optional(),
+  audio_text: z.string().optional(),
   visual_direction: z.string().optional(),
-  shot_prompts: z.array(z.string()).min(1).max(3).optional(),
-  shot_durations: z
-    .array(z.number().int().min(3).max(15))
-    .min(1)
-    .max(3)
-    .optional(),
-  duration: z.number().int().min(3).max(15).optional(),
+  prompt: z.string().optional(),
+  duration: z.literal(6).or(z.literal(10)).optional(),
   background_name: z.string().min(1).optional(),
   object_names: z.array(z.string()).max(4).optional(),
   language: z.string().min(2).max(5).optional(),
@@ -66,49 +61,19 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Validate shot_durations + shot_prompts consistency
-    if (data.shot_durations && data.shot_prompts) {
-      if (data.shot_durations.length !== data.shot_prompts.length) {
-        return NextResponse.json(
-          { error: 'shot_durations length must match shot_prompts length' },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (data.duration && data.shot_durations) {
-      const sum = data.shot_durations.reduce((a, b) => a + b, 0);
-      if (data.duration !== sum) {
-        return NextResponse.json(
-          {
-            error: `duration (${data.duration}) must equal sum of shot_durations (${sum})`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     // Build update payload
     const update: Record<string, unknown> = {};
     if (data.sort_order !== undefined) update.order = data.sort_order;
-    if (data.voiceover_text !== undefined)
-      update.voiceover_text = data.voiceover_text;
+    if (data.audio_text !== undefined) update.audio_text = data.audio_text;
     if (data.visual_direction !== undefined)
       update.visual_direction = data.visual_direction;
+    if (data.prompt !== undefined) update.prompt = data.prompt;
     if (data.duration !== undefined) update.duration = data.duration;
-    if (data.shot_durations !== undefined)
-      update.shot_durations = data.shot_durations;
     if (data.background_name !== undefined)
       update.background_name = data.background_name;
     if (data.object_names !== undefined)
       update.object_names = data.object_names;
     if (data.language !== undefined) update.language = data.language;
-
-    if (data.shot_prompts) {
-      const isMultiShot = data.shot_prompts.length > 1;
-      update.prompt = isMultiShot ? null : data.shot_prompts[0];
-      update.multi_prompt = isMultiShot ? data.shot_prompts : null;
-    }
 
     const { data: scene, error: updateErr } = await supabase
       .schema('studio')

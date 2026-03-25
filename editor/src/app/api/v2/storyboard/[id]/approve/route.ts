@@ -423,7 +423,7 @@ type StoryboardScene = {
   duration: number | null;
   background_name: string | null;
   object_names: string[] | null;
-  voiceover_text: string | null;
+  audio_text: string | null;
   language: string | null;
 };
 
@@ -460,7 +460,7 @@ async function approveExistingStoryboardScenes(params: {
   const { data: scenes, error: scenesError } = await db
     .from('scenes')
     .select(
-      'id, order, prompt, multi_prompt, shot_durations, duration, background_name, object_names, voiceover_text, language'
+      'id, order, prompt, multi_prompt, shot_durations, duration, background_name, object_names, audio_text, language'
     )
     .eq('storyboard_id', storyboardId)
     .order('order', { ascending: true });
@@ -563,7 +563,7 @@ async function approveExistingStoryboardScenes(params: {
 
   const { data: seriesAssets, error: assetError } = await db
     .from('series_assets')
-    .select('name, type')
+    .select('slug, type')
     .eq('series_id', series.id);
 
   if (assetError) {
@@ -573,33 +573,35 @@ async function approveExistingStoryboardScenes(params: {
     );
   }
 
-  const locationNames = new Set(
+  const locationSlugs = new Set(
     (seriesAssets ?? [])
       .filter((asset: { type: string }) => asset.type === 'location')
-      .map((asset: { name: string }) => asset.name)
+      .map((asset: { slug: string }) => asset.slug)
+      .filter((slug: string) => slug.length > 0)
   );
 
-  const objectNames = new Set(
+  const objectSlugs = new Set(
     (seriesAssets ?? [])
       .filter(
         (asset: { type: string }) =>
           asset.type === 'character' || asset.type === 'prop'
       )
-      .map((asset: { name: string }) => asset.name)
+      .map((asset: { slug: string }) => asset.slug)
+      .filter((slug: string) => slug.length > 0)
   );
 
   const assetValidationErrors: string[] = [];
 
   for (const scene of storyboardScenes) {
     const sceneLabel = `scene ${scene.order + 1}`;
-    const backgroundName =
+    const backgroundSlug =
       typeof scene.background_name === 'string'
         ? scene.background_name.trim()
         : '';
 
-    if (backgroundName && !locationNames.has(backgroundName)) {
+    if (backgroundSlug && !locationSlugs.has(backgroundSlug)) {
       assetValidationErrors.push(
-        `${sceneLabel}: background_name "${backgroundName}" not found in series location assets`
+        `${sceneLabel}: background_name slug "${backgroundSlug}" not found in series location assets`
       );
     }
 
@@ -609,10 +611,10 @@ async function approveExistingStoryboardScenes(params: {
           .filter((name) => name.length > 0)
       : [];
 
-    for (const objectName of sceneObjects) {
-      if (!objectNames.has(objectName)) {
+    for (const objectSlug of sceneObjects) {
+      if (!objectSlugs.has(objectSlug)) {
         assetValidationErrors.push(
-          `${sceneLabel}: object "${objectName}" not found in series assets`
+          `${sceneLabel}: object slug "${objectSlug}" not found in series assets`
         );
       }
     }
@@ -647,9 +649,7 @@ async function approveExistingStoryboardScenes(params: {
   const voiceoverRows = storyboardScenes
     .map((scene) => {
       const text =
-        typeof scene.voiceover_text === 'string'
-          ? scene.voiceover_text.trim()
-          : '';
+        typeof scene.audio_text === 'string' ? scene.audio_text.trim() : '';
       if (!text) return null;
 
       const language =
