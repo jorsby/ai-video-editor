@@ -27,12 +27,12 @@ const basePromptJson: PromptJSON = {
     {
       slot: 'lead_character',
       role: 'character',
-      desired_asset_slug: 'char-elena-v1',
+      desired_asset_slug: 'char_elena_v1',
     },
     {
       slot: 'checkpoint_bg',
       role: 'background',
-      desired_asset_slug: 'bg-corridor-v1',
+      desired_asset_slug: 'bg_corridor_v1',
     },
   ],
 };
@@ -55,8 +55,8 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
-          resolved_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
+          resolved_asset_slug: 'char_elena_v1',
           reuse_reason: 'exact_match',
           reference_image_url:
             'https://cdn.example.com/assets/char-elena-v1.png',
@@ -64,8 +64,8 @@ describe('scene prompt compiler', () => {
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
-          resolved_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
+          resolved_asset_slug: 'bg_corridor_v1',
           reuse_reason: 'exact_match',
         },
       ],
@@ -84,15 +84,15 @@ describe('scene prompt compiler', () => {
       {
         slot: 'lead_character',
         role: 'character',
-        desired_asset_slug: 'char-elena-v1',
-        resolved_asset_slug: 'char-elena-v1',
+        desired_asset_slug: 'char_elena_v1',
+        resolved_asset_slug: 'char_elena_v1',
         resolution: 'resolved',
       },
       {
         slot: 'checkpoint_bg',
         role: 'background',
-        desired_asset_slug: 'bg-corridor-v1',
-        resolved_asset_slug: 'bg-corridor-v1',
+        desired_asset_slug: 'bg_corridor_v1',
+        resolved_asset_slug: 'bg_corridor_v1',
         resolution: 'resolved',
       },
     ]);
@@ -100,13 +100,13 @@ describe('scene prompt compiler', () => {
       {
         slot: 'lead_character',
         role: 'character',
-        asset_slug: 'char-elena-v1',
+        asset_slug: 'char_elena_v1',
         image_url: 'https://cdn.example.com/assets/char-elena-v1.png',
       },
       {
         slot: 'checkpoint_bg',
         role: 'background',
-        asset_slug: 'bg-corridor-v1',
+        asset_slug: 'bg_corridor_v1',
       },
     ]);
   });
@@ -117,8 +117,8 @@ describe('scene prompt compiler', () => {
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
-          resolved_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
+          resolved_asset_slug: 'bg_corridor_v1',
           reuse_reason: 'exact_match',
           reference_image_url:
             'https://cdn.example.com/assets/bg-corridor-v1.png',
@@ -128,7 +128,7 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
           reason: 'no approved asset for this slug',
         },
       ],
@@ -145,7 +145,7 @@ describe('scene prompt compiler', () => {
       {
         slot: 'checkpoint_bg',
         role: 'background',
-        asset_slug: 'bg-corridor-v1',
+        asset_slug: 'bg_corridor_v1',
         image_url: 'https://cdn.example.com/assets/bg-corridor-v1.png',
       },
     ]);
@@ -157,16 +157,16 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
-          resolved_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
+          resolved_asset_slug: 'char_elena_v1',
           reuse_reason: 'exact_match',
           notes: 'alternate framing idea that should never override intent',
         },
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
-          resolved_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
+          resolved_asset_slug: 'bg_corridor_v1',
           reuse_reason: 'exact_match',
         },
       ],
@@ -191,15 +191,15 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
-          resolved_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
+          resolved_asset_slug: 'char_elena_v1',
           reuse_reason: 'exact_match',
         },
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
-          resolved_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
+          resolved_asset_slug: 'bg_corridor_v1',
           reuse_reason: 'exact_match',
         },
       ],
@@ -223,12 +223,12 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
         },
         {
           slot: 'lead_character',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
         },
       ],
     };
@@ -257,15 +257,15 @@ describe('scene prompt compiler', () => {
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_slug: 'char-elena-v1',
-          resolved_asset_slug: 'char-elena-v1',
+          desired_asset_slug: 'char_elena_v1',
+          resolved_asset_slug: 'char_elena_v1',
           reuse_reason: 'exact_match',
         },
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_slug: 'bg-corridor-v1',
-          resolved_asset_slug: 'bg-corridor-v1',
+          desired_asset_slug: 'bg_corridor_v1',
+          resolved_asset_slug: 'bg_corridor_v1',
           reuse_reason: 'exact_match',
         },
       ],

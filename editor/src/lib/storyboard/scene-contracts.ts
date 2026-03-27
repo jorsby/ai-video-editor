@@ -7,8 +7,8 @@ const slotSchema = z
 const assetSlugSchema = z
   .string()
   .regex(
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-    'asset_slug must be lowercase kebab-case'
+    /^[a-z0-9]+(?:_[a-z0-9]+)*$/,
+    'asset_slug must be lowercase snake_case'
   );
 
 function enforceUniqueSlots(
