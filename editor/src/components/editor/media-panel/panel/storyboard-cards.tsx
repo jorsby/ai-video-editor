@@ -68,6 +68,27 @@ import { applyTemplate } from '@/lib/templates/apply-template';
 import { getTemplate, TEMPLATE_LIST } from '@/lib/templates';
 import { TemplatePicker } from './template-picker';
 
+type WorkflowResponseErrorPayload = Record<string, unknown> | null;
+
+class WorkflowRequestError extends Error {
+  readonly status: number;
+  readonly payload: WorkflowResponseErrorPayload;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = 'WorkflowRequestError';
+    this.status = status;
+    this.payload =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : null;
+  }
+}
+
+function isWorkflowRequestError(error: unknown): error is WorkflowRequestError {
+  return error instanceof WorkflowRequestError;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invokeWorkflow(
   route: string,
@@ -79,11 +100,19 @@ async function invokeWorkflow(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const data = await res
+      .json()
+      .catch(() => ({ error: `Request failed: ${res.status}` }));
     if (!res.ok)
       return {
         data: null,
-        error: new Error(data.error || `Request failed: ${res.status}`),
+        error: new WorkflowRequestError(
+          typeof data?.error === 'string'
+            ? data.error
+            : `Request failed: ${res.status}`,
+          res.status,
+          data
+        ),
       };
     return { data, error: null };
   } catch (err) {
@@ -133,6 +162,63 @@ function normalizeCompileStatus(value: unknown): 'ready' | 'blocked' | null {
     return value;
   }
   return null;
+}
+
+type ScenePromptContractMeta = {
+  compileStatus: 'ready' | 'blocked' | null;
+  compiledPrompt: string | null;
+  blockingIssues: unknown[];
+};
+
+function getScenePromptContractMeta(scene: Scene): ScenePromptContractMeta {
+  const generationMeta = toRecord(scene.generation_meta);
+  const promptContract = toRecord(generationMeta?.prompt_contract);
+  const compiledPrompt =
+    typeof promptContract?.compiled_prompt === 'string' &&
+    promptContract.compiled_prompt.trim().length > 0
+      ? promptContract.compiled_prompt.trim()
+      : null;
+  const blockingIssues = Array.isArray(promptContract?.blocking_issues)
+    ? promptContract.blocking_issues
+    : [];
+
+  return {
+    compileStatus: normalizeCompileStatus(promptContract?.compile_status),
+    compiledPrompt,
+    blockingIssues,
+  };
+}
+
+function hasExecutableScenePrompt(scene: Scene): boolean {
+  const promptContract = getScenePromptContractMeta(scene);
+
+  if (
+    promptContract.compileStatus === 'ready' &&
+    promptContract.compiledPrompt
+  ) {
+    return true;
+  }
+
+  if (Array.isArray(scene.multi_prompt)) {
+    const hasMultiPrompt = scene.multi_prompt.some(
+      (prompt) => typeof prompt === 'string' && prompt.trim().length > 0
+    );
+    if (hasMultiPrompt) return true;
+  }
+
+  return typeof scene.prompt === 'string' && scene.prompt.trim().length > 0;
+}
+
+function hasNarrativeReadyAudio(scene: Scene): boolean {
+  return (scene.voiceovers ?? []).some(
+    (voiceover) =>
+      voiceover.status === 'success' && Boolean(voiceover.audio_url)
+  );
+}
+
+function formatSceneNumbers(orders: number[]): string {
+  if (orders.length === 0) return '';
+  return orders.map((order) => `S${order + 1}`).join(', ');
 }
 
 interface GenerationLogPromptSnapshotRow {
@@ -446,6 +532,7 @@ export function StoryboardCards({
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [isGeneratingEpisodeTts, setIsGeneratingEpisodeTts] = useState(false);
   const [isOutpainting, setIsOutpainting] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isCustomEditing, setIsCustomEditing] = useState(false);
@@ -720,6 +807,19 @@ export function StoryboardCards({
       : [];
 
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
+  const storyboardVoiceoverLanguages = useMemo(() => {
+    return Array.from(
+      new Set(
+        sortedScenes
+          .flatMap((scene) => scene.voiceovers ?? [])
+          .map((voiceover) => voiceover.language)
+          .filter(
+            (language): language is string =>
+              typeof language === 'string' && language.trim().length > 0
+          )
+      )
+    );
+  }, [sortedScenes]);
 
   const variantIds = useMemo(() => {
     const ids: string[] = [];
@@ -976,6 +1076,64 @@ export function StoryboardCards({
       toast.error('Failed to generate voiceovers for all languages');
     } finally {
       setIsGeneratingAll(false);
+    }
+  };
+
+  const handleGenerateEpisodeTts = async () => {
+    if (!storyboard?.id) return;
+
+    setIsGeneratingEpisodeTts(true);
+    try {
+      const resolvedLanguage = storyboardVoiceoverLanguages.includes(
+        selectedLanguage
+      )
+        ? selectedLanguage
+        : (storyboardVoiceoverLanguages[0] ?? selectedLanguage);
+      const resolvedVoice =
+        (
+          voiceConfig[resolvedLanguage] ??
+          voiceConfig[selectedLanguage] ??
+          voiceConfig[Object.keys(voiceConfig)[0]]
+        )?.voice ?? FALLBACK_VOICE;
+
+      const { data, error } = await invokeWorkflow(
+        `/api/v2/storyboard/${storyboard.id}/generate-tts`,
+        {
+          voice_id: resolvedVoice,
+          language: resolvedLanguage,
+          speed: ttsSpeed,
+          tts_model: ttsModel,
+        }
+      );
+
+      if (error) throw error;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const summary = (data as any)?.summary ?? {};
+      const queued = Number(summary.queued ?? 0);
+      const total = Number(summary.total ?? sortedScenes.length);
+      const failed = Number(summary.failed ?? 0);
+
+      toast.success(
+        `Episode TTS started for ${queued}/${total} scene(s) in ${resolvedLanguage.toUpperCase()}`
+      );
+      if (failed > 0) {
+        toast.warning(
+          `${failed} scene(s) failed or were skipped. Check voiceover text/language and retry.`
+        );
+      }
+
+      setIsAudioOpen(true);
+      refresh();
+    } catch (err) {
+      console.error('Failed to generate episode TTS:', err);
+      if (isWorkflowRequestError(err)) {
+        toast.error(err.message);
+      } else {
+        toast.error('Failed to generate episode TTS');
+      }
+    } finally {
+      setIsGeneratingEpisodeTts(false);
     }
   };
 
@@ -1582,6 +1740,9 @@ export function StoryboardCards({
     const selectedScenes = sortedScenes.filter((s) =>
       selectedSceneIds.has(s.id)
     );
+    const isRefStoryboard = storyboard?.mode === 'ref_to_video';
+    const isRefNarrativeDirect =
+      isRefStoryboard && !isRefI2VMode && !isCinematicMode;
 
     let fallbackDuration: number | undefined;
 
@@ -1589,7 +1750,21 @@ export function StoryboardCards({
       // Kling dialogue mode generates native audio — no voiceover expected
       isKlingModel && refVideoMode === 'dialogue_scene';
 
-    if (!shouldSkipMissingVoiceoverCheck) {
+    if (isRefNarrativeDirect) {
+      const scenesWithoutNarrativeTts = selectedScenes.filter(
+        (scene) => !hasNarrativeReadyAudio(scene)
+      );
+
+      if (scenesWithoutNarrativeTts.length > 0) {
+        setIsAudioOpen(true);
+        toast.warning(
+          `Narrative video requires TTS first. Missing audio on ${formatSceneNumbers(
+            scenesWithoutNarrativeTts.map((scene) => scene.order)
+          )}. Run "Generate Episode TTS" in Audio, then retry.`
+        );
+        return;
+      }
+    } else if (!shouldSkipMissingVoiceoverCheck) {
       // Check for scenes without voiceover audio
       const scenesWithoutVoiceover = selectedScenes.filter((s) => {
         const maxDuration = Math.max(
@@ -1613,11 +1788,13 @@ export function StoryboardCards({
       }
     }
 
-    const isRefStoryboard = storyboard?.mode === 'ref_to_video';
     const multiPromptScenes = selectedScenes.filter(
       (scene) => (scene.multi_prompt?.length ?? 0) > 1
     ).length;
     const singlePromptScenes = selectedScenes.length - multiPromptScenes;
+    const blockedPromptContractScenes = selectedScenes.filter((scene) => {
+      return getScenePromptContractMeta(scene).compileStatus === 'blocked';
+    }).length;
 
     const missingReferenceScenes = isRefStoryboard
       ? selectedScenes.filter((scene) => {
@@ -1650,9 +1827,20 @@ export function StoryboardCards({
       `Native audio: ${isCinematicMode ? 'On' : 'Off (voiceover track)'}`,
     ];
 
+    if (isRefNarrativeDirect) {
+      preflightLines.push(
+        'Narrative gate: TTS audio required for every selected scene'
+      );
+    }
+
     if (missingReferenceScenes > 0) {
       preflightLines.push(
         `⚠ ${missingReferenceScenes} scene(s) missing object/background refs will be skipped`
+      );
+    }
+    if (blockedPromptContractScenes > 0) {
+      preflightLines.push(
+        `⚠ ${blockedPromptContractScenes} scene(s) have blocked prompt-contract payloads`
       );
     }
 
@@ -1711,7 +1899,92 @@ export function StoryboardCards({
       refresh(); // Fetch updated video statuses
     } catch (err) {
       console.error('Failed to generate videos:', err);
-      toast.error('Failed to generate videos');
+      if (
+        isWorkflowRequestError(err) &&
+        err.status === 409 &&
+        err.payload &&
+        isRefStoryboard
+      ) {
+        const readSceneIndexes = (value: unknown): number[] =>
+          Array.isArray(value)
+            ? value
+                .map((item) =>
+                  typeof item === 'number'
+                    ? item
+                    : item &&
+                        typeof item === 'object' &&
+                        'scene_index' in item &&
+                        typeof (item as { scene_index?: unknown })
+                          .scene_index === 'number'
+                      ? (item as { scene_index: number }).scene_index
+                      : item &&
+                          typeof item === 'object' &&
+                          'order' in item &&
+                          typeof (item as { order?: unknown }).order ===
+                            'number'
+                        ? (item as { order: number }).order
+                        : null
+                )
+                .filter((item): item is number => item != null)
+            : [];
+
+        if (err.payload.narrative_gate_failed === true) {
+          const missingTts = readSceneIndexes(
+            err.payload.missing_tts_audio_scenes
+          );
+          const durationMismatch = readSceneIndexes(
+            err.payload.duration_mismatch_scenes
+          );
+          const resplitRequired = readSceneIndexes(
+            err.payload.resplit_required_scenes
+          );
+
+          const messageParts: string[] = [];
+          if (missingTts.length > 0) {
+            messageParts.push(
+              `Missing TTS audio: ${formatSceneNumbers(missingTts)}.`
+            );
+          }
+          if (durationMismatch.length > 0) {
+            messageParts.push(
+              `Duration mismatch: ${formatSceneNumbers(durationMismatch)}.`
+            );
+          }
+          if (resplitRequired.length > 0) {
+            messageParts.push(
+              `Needs re-split (>12s): ${formatSceneNumbers(resplitRequired)}.`
+            );
+          }
+          if (messageParts.length === 0) {
+            messageParts.push('Narrative TTS gate failed.');
+          }
+          messageParts.push(
+            'Run "Generate Episode TTS" in Audio, then retry video generation.'
+          );
+
+          setIsAudioOpen(true);
+          toast.error(messageParts.join(' '));
+          return;
+        }
+
+        if (err.payload.prompt_contract_gate_failed === true) {
+          const blocked = readSceneIndexes(err.payload.blocked_prompt_scenes);
+          const blockedLabel =
+            blocked.length > 0
+              ? formatSceneNumbers(blocked)
+              : 'one or more scenes';
+          toast.error(
+            `Prompt-contract blocked for ${blockedLabel}. Apply fixed prompt-contract payloads via /api/v2/storyboard/{id}/prompts, then retry.`
+          );
+          return;
+        }
+      }
+
+      if (isWorkflowRequestError(err)) {
+        toast.error(err.message);
+      } else {
+        toast.error('Failed to generate videos');
+      }
     } finally {
       setIsGeneratingVideo(false);
     }
@@ -1822,11 +2095,34 @@ export function StoryboardCards({
 
   const selectedScenesMissingPrompt = sortedScenes.filter((scene) => {
     if (!selectedSceneIds.has(scene.id)) return false;
-    return !scene.prompt && !(scene.multi_prompt && scene.multi_prompt.length);
+    return !hasExecutableScenePrompt(scene);
   });
 
-  const disableVideoGenerateForMissingPrompts =
-    isRefToVideoMode && !isRefI2VMode && selectedScenesMissingPrompt.length > 0;
+  const selectedScenesWithBlockedPromptContract = sortedScenes.filter(
+    (scene) => {
+      if (!selectedSceneIds.has(scene.id)) return false;
+      return getScenePromptContractMeta(scene).compileStatus === 'blocked';
+    }
+  );
+
+  const selectedScenesMissingNarrativeTts = sortedScenes.filter((scene) => {
+    if (!selectedSceneIds.has(scene.id)) return false;
+    if (!isRefToVideoMode || isRefI2VMode || isCinematicMode) return false;
+    return !hasNarrativeReadyAudio(scene);
+  });
+
+  const disableVideoGenerateForPromptIssues =
+    isRefToVideoMode &&
+    !isRefI2VMode &&
+    (selectedScenesMissingPrompt.length > 0 ||
+      selectedScenesWithBlockedPromptContract.length > 0);
+  const disableVideoGenerateForNarrativeTts =
+    isRefToVideoMode &&
+    !isRefI2VMode &&
+    !isCinematicMode &&
+    selectedScenesMissingNarrativeTts.length > 0;
+  const disableVideoGenerate =
+    disableVideoGenerateForPromptIssues || disableVideoGenerateForNarrativeTts;
 
   const handleSaveVoiceoverText = async (sceneId: string, newText: string) => {
     const scene = sortedScenes.find((s) => s.id === sceneId);
@@ -2866,6 +3162,27 @@ export function StoryboardCards({
                 </div>
 
                 {/* Action buttons */}
+                {isRefToVideoMode && !isRefI2VMode && !isCinematicMode && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      !storyboard?.id ||
+                      sortedScenes.length === 0 ||
+                      isGeneratingEpisodeTts
+                    }
+                    onClick={handleGenerateEpisodeTts}
+                    className="h-9 text-xs w-full"
+                    title="Generate TTS for all scenes in this storyboard via v2 path"
+                  >
+                    {isGeneratingEpisodeTts ? (
+                      <IconLoader2 className="size-3.5 animate-spin mr-1" />
+                    ) : (
+                      <IconMicrophone className="size-3.5 mr-1" />
+                    )}
+                    Generate Episode TTS
+                  </Button>
+                )}
                 <div className="flex items-center gap-1.5 pt-1">
                   <Button
                     size="sm"
@@ -3211,7 +3528,7 @@ export function StoryboardCards({
                     disabled={
                       selectedSceneIds.size === 0 ||
                       isGeneratingVideo ||
-                      disableVideoGenerateForMissingPrompts
+                      disableVideoGenerate
                     }
                     onClick={
                       isRefI2VMode
@@ -3220,9 +3537,11 @@ export function StoryboardCards({
                     }
                     className="h-9 text-xs flex-1"
                     title={
-                      disableVideoGenerateForMissingPrompts
-                        ? 'Save prompts for selected scenes first'
-                        : undefined
+                      disableVideoGenerateForNarrativeTts
+                        ? 'Generate episode TTS before starting narrative video'
+                        : disableVideoGenerateForPromptIssues
+                          ? 'Resolve selected prompt issues first'
+                          : undefined
                     }
                   >
                     {isGeneratingVideo ? (
@@ -3254,7 +3573,9 @@ export function StoryboardCards({
                 </div>
 
                 {(selectedScenesMissingRefs.length > 0 ||
-                  selectedScenesMissingPrompt.length > 0) && (
+                  selectedScenesMissingPrompt.length > 0 ||
+                  selectedScenesWithBlockedPromptContract.length > 0 ||
+                  selectedScenesMissingNarrativeTts.length > 0) && (
                   <div className="mt-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 flex items-start gap-1.5">
                     <IconAlertTriangle className="size-3 mt-[1px] shrink-0" />
                     <div className="space-y-0.5">
@@ -3265,11 +3586,31 @@ export function StoryboardCards({
                           missing object/background refs and will be skipped.
                         </div>
                       )}
+                      {selectedScenesMissingNarrativeTts.length > 0 && (
+                        <div>
+                          {selectedScenesMissingNarrativeTts.length} selected
+                          scene
+                          {selectedScenesMissingNarrativeTts.length === 1
+                            ? ''
+                            : 's'}{' '}
+                          missing TTS audio. Run "Generate Episode TTS" first.
+                        </div>
+                      )}
                       {selectedScenesMissingPrompt.length > 0 && (
                         <div>
                           {selectedScenesMissingPrompt.length} selected scene
                           {selectedScenesMissingPrompt.length === 1 ? '' : 's'}{' '}
                           missing prompts.
+                        </div>
+                      )}
+                      {selectedScenesWithBlockedPromptContract.length > 0 && (
+                        <div>
+                          {selectedScenesWithBlockedPromptContract.length}{' '}
+                          selected scene
+                          {selectedScenesWithBlockedPromptContract.length === 1
+                            ? ''
+                            : 's'}{' '}
+                          blocked by prompt-contract validation.
                         </div>
                       )}
                     </div>

@@ -403,6 +403,35 @@ function getScenePromptList(scene: StoryboardScene): string[] {
   return [];
 }
 
+function normalizeSceneDuration(value: unknown): 6 | 10 {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 6;
+  }
+  return numeric <= 8 ? 6 : 10;
+}
+
+function resolveInitialSceneDuration(params: {
+  scenePrompt: string | string[];
+  plannedSceneDuration: unknown;
+  plannedShotDurations: unknown;
+}): 6 | 10 {
+  const { scenePrompt, plannedSceneDuration, plannedShotDurations } = params;
+
+  if (Array.isArray(scenePrompt) && Array.isArray(plannedShotDurations)) {
+    const totalShotSeconds = plannedShotDurations
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((sum, value) => sum + value, 0);
+
+    if (totalShotSeconds > 0) {
+      return normalizeSceneDuration(totalShotSeconds);
+    }
+  }
+
+  return normalizeSceneDuration(plannedSceneDuration);
+}
+
 async function approveExistingStoryboardScenes(params: {
   db: ReturnType<typeof createServiceClient>;
   storyboardId: string;
@@ -1487,6 +1516,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (let i = 0; i < sceneCount; i++) {
       const scenePrompt = styledScenePrompts[i];
+      const normalizedDuration = resolveInitialSceneDuration({
+        scenePrompt,
+        plannedSceneDuration: plan.scene_durations?.[i],
+        plannedShotDurations: plan.scene_shot_durations?.[i],
+      });
 
       // Build multi_shots metadata from plan if available
       const shotDurations = plan.scene_shot_durations?.[i];
@@ -1500,6 +1534,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .insert({
           storyboard_id: storyboardId,
           order: i,
+          duration: normalizedDuration,
           prompt: Array.isArray(scenePrompt) ? null : scenePrompt,
           multi_prompt: Array.isArray(scenePrompt) ? scenePrompt : null,
           multi_shots: multiShotsData,

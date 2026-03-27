@@ -44,6 +44,41 @@ function normalizePrompt(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+type StoryboardSceneRow = {
+  id: string;
+  order: number;
+  generation_meta: Record<string, unknown> | null;
+};
+
+function resolveTargetScene(input: {
+  scenePatch: z.infer<typeof sceneUpdateSchema>;
+  sceneById: Map<string, StoryboardSceneRow>;
+  sceneByOrder: Map<number, StoryboardSceneRow>;
+  sceneByOneBasedOrder: Map<number, StoryboardSceneRow>;
+}): StoryboardSceneRow | null {
+  const { scenePatch, sceneById, sceneByOrder, sceneByOneBasedOrder } = input;
+
+  if (scenePatch.scene_id) {
+    return sceneById.get(scenePatch.scene_id) ?? null;
+  }
+
+  // Prompt-contract payloads are 1-based by schema (`prompt_json.scene_order`),
+  // while DB scene.order is 0-based.
+  if (scenePatch.prompt_json) {
+    return sceneByOneBasedOrder.get(scenePatch.prompt_json.scene_order) ?? null;
+  }
+
+  if (scenePatch.scene_order != null) {
+    return (
+      sceneByOrder.get(scenePatch.scene_order) ??
+      sceneByOneBasedOrder.get(scenePatch.scene_order) ??
+      null
+    );
+  }
+
+  return null;
+}
+
 export async function PUT(req: NextRequest, context: RouteContext) {
   try {
     const { id: storyboardId } = await context.params;
@@ -99,11 +134,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const storyboardScenes = (storyboardScenesData ?? []) as Array<{
-      id: string;
-      order: number;
-      generation_meta: Record<string, unknown> | null;
-    }>;
+    const storyboardScenes = (storyboardScenesData ??
+      []) as StoryboardSceneRow[];
 
     const sceneById = new Map(
       storyboardScenes.map((scene) => [scene.id, scene])
@@ -111,19 +143,30 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const sceneByOrder = new Map(
       storyboardScenes.map((scene) => [Number(scene.order), scene])
     );
+    const sceneByOneBasedOrder = new Map(
+      storyboardScenes.map((scene) => [Number(scene.order) + 1, scene])
+    );
 
     let updatedScenes = 0;
     let updatedVoiceovers = 0;
     const compiledScenes: Array<Record<string, unknown>> = [];
+    const skippedScenes: Array<Record<string, unknown>> = [];
 
     for (const scenePatch of parsed.data.scenes) {
-      const targetScene =
-        (scenePatch.scene_id ? sceneById.get(scenePatch.scene_id) : null) ??
-        (scenePatch.scene_order != null
-          ? sceneByOrder.get(scenePatch.scene_order)
-          : null);
+      const targetScene = resolveTargetScene({
+        scenePatch,
+        sceneById,
+        sceneByOrder,
+        sceneByOneBasedOrder,
+      });
 
       if (!targetScene) {
+        skippedScenes.push({
+          scene_id: scenePatch.scene_id ?? null,
+          scene_order: scenePatch.scene_order ?? null,
+          prompt_json_scene_order: scenePatch.prompt_json?.scene_order ?? null,
+          reason: 'scene_not_found',
+        });
         continue;
       }
 
@@ -132,11 +175,11 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         scenePatch.validated_runtime !== undefined;
       if (
         scenePatch.prompt_json &&
-        scenePatch.prompt_json.scene_order !== targetScene.order
+        scenePatch.prompt_json.scene_order !== targetScene.order + 1
       ) {
         return NextResponse.json(
           {
-            error: `prompt_json.scene_order must match scene order ${targetScene.order} for scene ${targetScene.id}`,
+            error: `prompt_json.scene_order must match scene order ${targetScene.order + 1} for scene ${targetScene.id}`,
           },
           { status: 400 }
         );
@@ -286,6 +329,10 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     if (compiledScenes.length > 0) {
       responsePayload.compiled_scenes = compiledScenes;
+    }
+
+    if (skippedScenes.length > 0) {
+      responsePayload.skipped_scenes = skippedScenes;
     }
 
     return NextResponse.json(responsePayload);

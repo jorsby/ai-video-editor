@@ -5,11 +5,24 @@ import type {
   GridResolution,
 } from '@/lib/grid-generation-settings';
 import type { StoryboardContentTemplate } from '@/lib/storyboard-content-template';
+import type {
+  CompiledAssetRef,
+  CompiledPromptStatus,
+  CompiledReferenceImage,
+  PromptJSON,
+  ScenePromptContract,
+  ValidatedRuntime,
+} from '@/lib/storyboard/scene-contracts';
 
 // Types for workflow data
 
 export type StoryboardMode = 'image_to_video' | 'ref_to_video' | 'quick_video';
-export type VideoModel = 'klingo3';
+export type VideoModel = 'grok-imagine/image-to-video';
+export type ScenePromptSource =
+  | 'prompt_contract'
+  | 'multi_prompt'
+  | 'prompt'
+  | 'none';
 
 export type PlanStatus =
   | 'draft'
@@ -33,7 +46,7 @@ export interface StoryboardPlan {
 }
 
 // Ref-to-video plan shapes
-export interface KlingElement {
+export interface SceneElement {
   name: string;
   description: string;
 }
@@ -67,11 +80,11 @@ export interface RefPlanBase {
   content_template?: StoryboardContentTemplate;
 }
 
-export interface KlingO3RefPlan extends RefPlanBase {
-  objects: KlingElement[];
+export interface RefVideoPlan extends RefPlanBase {
+  objects: SceneElement[];
 }
 
-export type RefPlan = KlingO3RefPlan;
+export type RefPlan = RefVideoPlan;
 
 export type StoryboardInputType = 'voiceover_script' | 'cinematic_flow';
 
@@ -187,6 +200,12 @@ export interface Scene {
   order: number;
   prompt: string | null;
   multi_prompt: string[] | null;
+  prompt_json?: PromptJSON | null;
+  validated_runtime?: ValidatedRuntime | null;
+  compiled_prompt?: string | null;
+  compile_status?: CompiledPromptStatus | null;
+  resolved_asset_refs?: CompiledAssetRef[] | null;
+  reference_images?: CompiledReferenceImage[] | null;
   multi_shots: boolean | null;
   created_at: string;
   first_frames: FirstFrame[];
@@ -227,6 +246,11 @@ export interface GenerationMeta {
   voice_id?: string;
   speed?: number;
   language?: string;
+  prompt_source?: ScenePromptSource;
+  prompt_contract?: ScenePromptContract;
+  prompt_contract_compile_status?: CompiledPromptStatus | null;
+  prompt_contract_reference_images?: CompiledReferenceImage[];
+  prompt_contract_resolved_asset_refs?: CompiledAssetRef[];
   generated_at?: string;
   generated_by?: 'agent' | 'user' | 'system';
   [key: string]: unknown;

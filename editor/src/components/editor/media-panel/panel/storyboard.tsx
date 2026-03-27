@@ -400,9 +400,14 @@ export default function PanelStoryboard() {
         throw new Error(errorData.error || 'Failed to save plan changes');
       }
 
-      // Then approve the storyboard (approve now only creates scenes + voiceovers).
-      const approveEndpoint = '/api/storyboard/approve';
-      const approveBody = { storyboardId: draftStoryboardId };
+      // Ref-to-video drafts must go through the v2 production approve path.
+      const isRefToVideoDraft = draftMode === 'ref_to_video';
+      const approveEndpoint = isRefToVideoDraft
+        ? `/api/v2/storyboard/${draftStoryboardId}/approve`
+        : '/api/storyboard/approve';
+      const approveBody = isRefToVideoDraft
+        ? {}
+        : { storyboardId: draftStoryboardId };
 
       const approveResponse = await fetch(approveEndpoint, {
         method: 'POST',
