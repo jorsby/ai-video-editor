@@ -2497,6 +2497,11 @@ export function StoryboardCards({
         >
           {isCinematicMode ? '🎬 Cinematic' : '🎙️ Narrative'}
         </span>
+        {showStoryboardDebugPanel && (
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-200">
+            Debug inspector ON
+          </span>
+        )}
         <span className="text-[9px] text-muted-foreground">
           {sortedScenes.length} scenes
         </span>

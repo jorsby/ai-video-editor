@@ -627,6 +627,13 @@ export default function PanelStoryboard() {
           )}
         </div>
 
+        {selectedStoryboardId && showStoryboardDebugPanel && (
+          <div className="mt-1.5 rounded border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[10px] text-amber-200 font-medium">
+            Prompt-contract debug mode is ON. Scene cards now show inspector
+            data and execution-source context.
+          </div>
+        )}
+
         {/* Draft banner — show when viewing approved storyboards but a draft exists */}
         {viewMode === 'view' && draftPlan && draftStoryboardId && (
           <button

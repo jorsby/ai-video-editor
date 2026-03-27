@@ -1117,6 +1117,19 @@ function normalizePromptSource(value: unknown): ScenePromptSource | null {
   return null;
 }
 
+function toRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => toRecord(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function toPrettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -1138,6 +1151,8 @@ interface PromptContractDebugPanelProps {
   referenceImages: unknown[] | null;
   latestLogAt: string | null;
   hasData: boolean;
+  legacyPrompt: string | null;
+  promptContractActive: boolean;
 }
 
 function PromptContractDebugPanel({
@@ -1150,8 +1165,57 @@ function PromptContractDebugPanel({
   referenceImages,
   latestLogAt,
   hasData,
+  legacyPrompt,
+  promptContractActive,
 }: PromptContractDebugPanelProps) {
   const formattedLogAt = formatLogTimestamp(latestLogAt);
+  const promptJsonRecord = toRecord(promptJson);
+  const validatedRuntimeRecord = toRecord(validatedRuntime);
+
+  const sceneIntentRecord = toRecord(promptJsonRecord?.desired_scene_intent);
+  const canonicalPromptText = toNonEmptyString(
+    promptJsonRecord?.canonical_prompt_text
+  );
+  const desiredAssetRefs = toRecordArray(promptJsonRecord?.desired_asset_refs);
+
+  const validatedReuse = toRecordArray(validatedRuntimeRecord?.validated_reuse);
+  const validatedMissingAssets = toRecordArray(
+    validatedRuntimeRecord?.validated_missing_assets
+  );
+  const blockingIssues = toRecordArray(validatedRuntimeRecord?.blocking_issues);
+
+  const resolvedAssetRefItems = toRecordArray(resolvedAssetRefs);
+  const referenceImageItems = toRecordArray(referenceImages);
+
+  const hasExecutionResolution = resolvedAssetRefItems.length > 0;
+  const resolvedCount = hasExecutionResolution
+    ? resolvedAssetRefItems.filter((item) => item.resolution === 'resolved')
+        .length
+    : validatedReuse.length;
+  const missingCount = hasExecutionResolution
+    ? resolvedAssetRefItems.filter((item) => item.resolution === 'missing')
+        .length
+    : validatedMissingAssets.length;
+  const blockingCount = blockingIssues.length;
+
+  const sceneIntentSummary = [
+    {
+      label: 'Narrative beat',
+      value: toNonEmptyString(sceneIntentRecord?.narrative_beat),
+    },
+    {
+      label: 'Visual goal',
+      value: toNonEmptyString(sceneIntentRecord?.visual_goal),
+    },
+    {
+      label: 'Emotional tone',
+      value: toNonEmptyString(sceneIntentRecord?.emotional_tone),
+    },
+    {
+      label: 'Camera intent',
+      value: toNonEmptyString(sceneIntentRecord?.camera_intent),
+    },
+  ];
 
   return (
     <details
@@ -1190,46 +1254,178 @@ function PromptContractDebugPanel({
           </p>
         ) : (
           <div className="space-y-2">
-            <div>
-              <div className="text-[10px] font-medium text-foreground/85 mb-1">
-                prompt_json
+            <div className="rounded border border-border/40 bg-background/40 p-2 space-y-1.5">
+              <div className="text-[10px] font-medium text-foreground/85 uppercase tracking-wide">
+                Plan summary
               </div>
-              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
-                {promptJson ? toPrettyJson(promptJson) : 'null'}
-              </pre>
+              {sceneIntentSummary.map((item) => (
+                <div
+                  key={item.label}
+                  className="text-[10px] text-foreground/80"
+                >
+                  <span className="text-muted-foreground">{item.label}:</span>{' '}
+                  {item.value ?? (
+                    <span className="text-muted-foreground/80">n/a</span>
+                  )}
+                </div>
+              ))}
+              <div className="text-[10px] text-foreground/80">
+                <span className="text-muted-foreground">
+                  Desired assets ({desiredAssetRefs.length}):
+                </span>{' '}
+                {desiredAssetRefs.length === 0 ? (
+                  <span className="text-muted-foreground/80">none</span>
+                ) : (
+                  desiredAssetRefs
+                    .slice(0, 4)
+                    .map((item) => {
+                      const slot = toNonEmptyString(item.slot) ?? 'slot?';
+                      const role = toNonEmptyString(item.role) ?? 'unknown';
+                      const slug =
+                        toNonEmptyString(item.desired_asset_slug) ?? 'slug?';
+                      return `${slot} (${role}) -> ${slug}`;
+                    })
+                    .join(' · ')
+                )}
+              </div>
+              {canonicalPromptText && (
+                <div className="text-[10px] text-foreground/80 line-clamp-3">
+                  <span className="text-muted-foreground">Canonical text:</span>{' '}
+                  {canonicalPromptText}
+                </div>
+              )}
             </div>
-            <div>
-              <div className="text-[10px] font-medium text-foreground/85 mb-1">
-                validated_runtime
+
+            <div className="rounded border border-border/40 bg-background/40 p-2 space-y-1.5">
+              <div className="text-[10px] font-medium text-foreground/85 uppercase tracking-wide">
+                Validation summary
               </div>
-              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
-                {validatedRuntime ? toPrettyJson(validatedRuntime) : 'null'}
-              </pre>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[9px] px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                  Resolved: {resolvedCount}
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                  Missing: {missingCount}
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded border border-red-500/30 bg-red-500/10 text-red-300">
+                  Blocking: {blockingCount}
+                </span>
+              </div>
+              {missingCount > 0 && (
+                <div className="text-[10px] text-foreground/80">
+                  <span className="text-muted-foreground">Missing slots:</span>{' '}
+                  {validatedMissingAssets.length > 0
+                    ? validatedMissingAssets
+                        .slice(0, 5)
+                        .map(
+                          (item) =>
+                            toNonEmptyString(item.slot) ??
+                            toNonEmptyString(item.desired_asset_slug) ??
+                            'unknown'
+                        )
+                        .join(', ')
+                    : resolvedAssetRefItems
+                        .filter((item) => item.resolution === 'missing')
+                        .slice(0, 5)
+                        .map(
+                          (item) =>
+                            toNonEmptyString(item.slot) ??
+                            toNonEmptyString(item.desired_asset_slug) ??
+                            'unknown'
+                        )
+                        .join(', ')}
+                </div>
+              )}
+              {blockingCount > 0 && (
+                <div className="text-[10px] text-red-300/90">
+                  {blockingIssues
+                    .slice(0, 3)
+                    .map(
+                      (issue) =>
+                        toNonEmptyString(issue.message) ??
+                        toNonEmptyString(issue.code) ??
+                        'blocking issue'
+                    )
+                    .join(' · ')}
+                </div>
+              )}
             </div>
-            <div>
-              <div className="text-[10px] font-medium text-foreground/85 mb-1">
-                compiled_prompt
+
+            <div className="rounded border border-border/40 bg-background/40 p-2 space-y-1.5">
+              <div className="text-[10px] font-medium text-foreground/85 uppercase tracking-wide">
+                Execution summary
               </div>
-              <pre className="max-h-28 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+              <pre className="max-h-28 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/80 whitespace-pre-wrap break-all">
                 {compiledPrompt ?? 'null'}
               </pre>
-            </div>
-            <div>
-              <div className="text-[10px] font-medium text-foreground/85 mb-1">
-                resolved_asset_refs
+              <div className="text-[10px] text-foreground/80">
+                <span className="text-muted-foreground">
+                  Reference images ({referenceImageItems.length}):
+                </span>{' '}
+                {referenceImageItems.length === 0
+                  ? 'none'
+                  : referenceImageItems
+                      .slice(0, 4)
+                      .map((item) => {
+                        const slot = toNonEmptyString(item.slot) ?? 'slot?';
+                        const slug =
+                          toNonEmptyString(item.asset_slug) ?? 'slug?';
+                        const hasUrl = Boolean(
+                          toNonEmptyString(item.image_url)
+                        );
+                        return `${slot} (${slug})${hasUrl ? '' : ' - no url'}`;
+                      })
+                      .join(' · ')}
               </div>
-              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
-                {resolvedAssetRefs ? toPrettyJson(resolvedAssetRefs) : 'null'}
-              </pre>
+              {promptContractActive && legacyPrompt && (
+                <div className="text-[10px] rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-200">
+                  Legacy `scene.prompt` detected; it is treated as debug-only
+                  while prompt contract execution is active.
+                </div>
+              )}
             </div>
-            <div>
-              <div className="text-[10px] font-medium text-foreground/85 mb-1">
-                reference_images
+
+            <details className="rounded border border-border/40 bg-background/30 px-2 py-1.5">
+              <summary className="cursor-pointer text-[10px] font-medium text-foreground/80">
+                Raw JSON
+              </summary>
+              <div className="mt-2 space-y-2">
+                <div>
+                  <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                    prompt_json
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                    {promptJson ? toPrettyJson(promptJson) : 'null'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                    validated_runtime
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                    {validatedRuntime ? toPrettyJson(validatedRuntime) : 'null'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                    resolved_asset_refs
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                    {resolvedAssetRefs
+                      ? toPrettyJson(resolvedAssetRefs)
+                      : 'null'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                    reference_images
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                    {referenceImages ? toPrettyJson(referenceImages) : 'null'}
+                  </pre>
+                </div>
               </div>
-              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
-                {referenceImages ? toPrettyJson(referenceImages) : 'null'}
-              </pre>
-            </div>
+            </details>
           </div>
         )}
       </div>
@@ -1335,6 +1531,28 @@ export function SceneCard({
     promptSourceDebug !== null ||
     resolvedAssetRefsDebug !== null ||
     referenceImagesDebug !== null;
+  const compiledPromptForDisplay = toNonEmptyString(compiledPromptDebug);
+  const legacyScenePrompt = toNonEmptyString(scene.prompt);
+  const promptContractActive =
+    promptSourceDebug === 'prompt_contract' || compileStatusDebug === 'ready';
+  const shouldPreferCompiledPrompt = promptContractActive;
+  const hasMultiShotPrompt =
+    !shouldPreferCompiledPrompt &&
+    Boolean(scene.multi_prompt && scene.multi_prompt.length > 1);
+  const multiShotPrompts = hasMultiShotPrompt ? (scene.multi_prompt ?? []) : [];
+  const multiShotCount = multiShotPrompts.length;
+  const primaryVideoPrompt = shouldPreferCompiledPrompt
+    ? compiledPromptForDisplay
+    : (toNonEmptyString(scene.multi_prompt?.[0]) ?? legacyScenePrompt);
+  const primaryVideoPromptFallback = shouldPreferCompiledPrompt
+    ? 'Execution prompt not available yet'
+    : 'No prompt';
+  const primaryVideoPromptPreview = primaryVideoPrompt
+    ? `${primaryVideoPrompt.slice(0, 50)}${primaryVideoPrompt.length > 50 ? '...' : ''}`
+    : null;
+  const promptPreviewForMediaFallback = shouldPreferCompiledPrompt
+    ? (compiledPromptForDisplay ?? primaryVideoPromptFallback)
+    : formatPromptPreview(scene.prompt, scene.multi_prompt);
 
   const handleAddToCanvas = async () => {
     if (!studio || !scene.video_url) return;
@@ -1427,10 +1645,12 @@ export function SceneCard({
     voiceover?.duration
   );
 
-  const hasVideoPrompt = Boolean(
-    scene.prompt?.trim() ||
-      (scene.multi_prompt ?? []).some((prompt) => prompt.trim().length > 0)
-  );
+  const hasVideoPrompt = shouldPreferCompiledPrompt
+    ? Boolean(primaryVideoPrompt)
+    : Boolean(
+        primaryVideoPrompt ||
+          (scene.multi_prompt ?? []).some((prompt) => prompt.trim().length > 0)
+      );
 
   const hasVoiceoverPrompt = Boolean(voiceover?.text?.trim());
 
@@ -1775,8 +1995,7 @@ export function SceneCard({
               ) : (
                 <div className="w-full h-full flex items-center justify-center p-2">
                   <p className="text-[10px] text-muted-foreground/70 text-center line-clamp-3">
-                    {formatPromptPreview(scene.prompt, scene.multi_prompt) ||
-                      'Ref scene'}
+                    {promptPreviewForMediaFallback || 'Ref scene'}
                   </p>
                 </div>
               )}
@@ -1834,9 +2053,9 @@ export function SceneCard({
           {/* Shot type + duration badge */}
           <div className="flex items-center gap-1.5">
             <IconVideo size={10} className="text-cyan-400 flex-shrink-0" />
-            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+            {hasMultiShotPrompt ? (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                {scene.multi_prompt.length}-shot
+                {multiShotCount}-shot
               </span>
             ) : (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
@@ -1844,15 +2063,14 @@ export function SceneCard({
               </span>
             )}
             <p className="text-[9px] text-foreground/50 truncate flex-1">
-              {scene.multi_prompt?.[0]
-                ? scene.multi_prompt[0].slice(0, 50) +
-                  (scene.multi_prompt[0].length > 50 ? '...' : '')
-                : scene.prompt
-                  ? scene.prompt.slice(0, 50) +
-                    ((scene.prompt?.length ?? 0) > 50 ? '...' : '')
-                  : 'No prompt'}
+              {primaryVideoPromptPreview || primaryVideoPromptFallback}
             </p>
           </div>
+          {shouldPreferCompiledPrompt && legacyScenePrompt && (
+            <p className="pl-[17px] text-[9px] text-amber-300/90">
+              Showing execution prompt. Legacy `scene.prompt` is debug-only.
+            </p>
+          )}
           {/* Voiceover line */}
           {showVoiceover && (
             <div className="flex items-center gap-1.5">
@@ -1890,9 +2108,9 @@ export function SceneCard({
                 <IconVideo size={12} />
                 Video Prompt
               </span>
-              {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+              {hasMultiShotPrompt ? (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/20">
-                  {scene.multi_prompt.length}-shot
+                  {multiShotCount}-shot
                 </span>
               ) : (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/20">
@@ -1900,9 +2118,9 @@ export function SceneCard({
                 </span>
               )}
             </div>
-            {scene.multi_prompt && scene.multi_prompt.length > 1 ? (
+            {hasMultiShotPrompt ? (
               <div className="space-y-1">
-                {scene.multi_prompt.map((shot: string, idx: number) => (
+                {multiShotPrompts.map((shot: string, idx: number) => (
                   <div
                     key={`shot-${scene.id}-${idx}`}
                     className="text-[10px] text-foreground/80 leading-relaxed pl-2 border-l-2 border-purple-500/30"
@@ -1915,9 +2133,17 @@ export function SceneCard({
                 ))}
               </div>
             ) : (
-              <p className="text-[10px] text-foreground/80 leading-relaxed">
-                {scene.prompt || 'No prompt set'}
-              </p>
+              <>
+                <p className="text-[10px] text-foreground/80 leading-relaxed">
+                  {primaryVideoPrompt || primaryVideoPromptFallback}
+                </p>
+                {shouldPreferCompiledPrompt && legacyScenePrompt && (
+                  <p className="text-[9px] text-amber-300/90">
+                    Legacy `scene.prompt` is present but hidden from primary
+                    display (debug-only).
+                  </p>
+                )}
+              </>
             )}
             {/* Duration stepper */}
             {onUpdateShotDurations &&
@@ -2116,6 +2342,8 @@ export function SceneCard({
               referenceImages={referenceImagesDebug}
               latestLogAt={promptDebugSnapshot?.logged_at ?? null}
               hasData={hasPromptContractDebugData}
+              legacyPrompt={legacyScenePrompt}
+              promptContractActive={promptContractActive}
             />
           )}
         </>
