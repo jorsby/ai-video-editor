@@ -2,16 +2,14 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { queueKieImageTask } from '@/lib/kie-image';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { getSeries } from '@/lib/supabase/series-service';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import { type NextRequest, NextResponse } from 'next/server';
 
-const FAL_KEY = process.env.FAL_KEY!;
-
-const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
-  'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
-};
 const DEFAULT_MODEL = 'nano-banana-2';
 
 type RouteContext = {
@@ -84,15 +82,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const { count: usageCount } = await dbClient
-      .from('episode_asset_variants')
+      .from('episode_assets')
       .select('*', { count: 'exact', head: true })
-      .eq('variant_id', variantId);
+      .eq('asset_id', assetId);
 
     if ((usageCount ?? 0) > 0) {
       return NextResponse.json(
         {
           error:
-            'Variant is already used in one or more episodes and cannot be regenerated',
+            'Asset is already mapped to one or more episodes and cannot be regenerated',
         },
         { status: 409 }
       );
@@ -100,14 +98,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
     const providerResolution = await resolveProvider({
-      service: 'video',
+      service: 'image',
       req,
       body,
     });
-
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
 
     // Build prompt
     let prompt: string;
@@ -152,86 +146,44 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Build webhook URL
-    const callbackPath =
-      providerResolution.provider === 'kie'
-        ? '/api/webhook/kieai'
-        : '/api/webhook/fal';
+    const callbackPath = '/api/webhook/kieai';
     const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    // Submit to provider
-    const modelKey =
-      body.model && MODELS[body.model] ? body.model : DEFAULT_MODEL;
-    const modelConfig = MODELS[modelKey];
+    // Submit to KIE provider
+    if (body.model && body.model !== DEFAULT_MODEL) {
+      return NextResponse.json(
+        {
+          error: `Unsupported model "${body.model}". Only "${DEFAULT_MODEL}" is available on KIE for this endpoint.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const res = body.resolution ?? '2K';
     const aspectRatio = asset.type === 'character' ? '3:4' : '16:9';
     let requestId: string | null = null;
-    let modelForJob = modelKey;
-    let endpointForResponse = modelConfig.endpoint;
+    let modelForJob = DEFAULT_MODEL;
+    let endpointForResponse = 'https://api.kie.ai/api/v1/jobs/createTask';
 
-    if (providerResolution.provider === 'kie') {
-      try {
-        const queued = await queueKieImageTask({
-          prompt,
-          callbackUrl: webhookUrl.toString(),
-          aspectRatio,
-          resolution: res,
-          outputFormat: 'jpg',
-        });
-        requestId = queued.requestId;
-        modelForJob = queued.model;
-        endpointForResponse = queued.endpoint;
-      } catch (error) {
-        console.error('[Regenerate] kie.ai failed:', error);
-        return NextResponse.json(
-          { error: 'Image generation request failed' },
-          { status: 500 }
-        );
-      }
-    } else {
-      const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
-
-      // Models use different size params
-      const sizeParams = modelConfig.useImageSize
-        ? {
-            image_size: {
-              width: aspectRatio === '3:4' ? 768 : 1024,
-              height: aspectRatio === '3:4' ? 1024 : 768,
-            },
-          }
-        : { resolution: res, aspect_ratio: aspectRatio };
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          num_images: 1,
-          ...sizeParams,
-          output_format: 'jpeg',
-          safety_tolerance: '6',
-        }),
+    try {
+      const queued = await queueKieImageTask({
+        prompt,
+        callbackUrl: webhookUrl.toString(),
+        aspectRatio,
+        resolution: res,
+        outputFormat: 'jpg',
       });
-
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        console.error('[Regenerate] fal.ai failed:', falRes.status, errText);
-        return NextResponse.json(
-          { error: 'Image generation request failed' },
-          { status: 500 }
-        );
-      }
-
-      const falData = await falRes.json();
-      requestId =
-        typeof falData?.request_id === 'string' ? falData.request_id : null;
-      modelForJob = modelKey;
-      endpointForResponse = modelConfig.endpoint;
+      requestId = queued.requestId;
+      modelForJob = queued.model;
+      endpointForResponse = queued.endpoint;
+    } catch (error) {
+      console.error('[Regenerate] kie.ai failed:', error);
+      return NextResponse.json(
+        { error: 'Image generation request failed' },
+        { status: 500 }
+      );
     }
 
     if (!requestId) {
@@ -265,6 +217,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       prompt,
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('Regenerate variant error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

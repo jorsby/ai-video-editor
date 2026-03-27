@@ -4,8 +4,8 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask, uploadFile } from '@/lib/kieai';
 import { createLogger } from '@/lib/logger';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
@@ -18,7 +18,6 @@ import {
   type GridResolution,
 } from '@/lib/grid-generation-settings';
 
-const FAL_API_KEY = process.env.FAL_KEY!;
 const KIE_IMAGE_MODEL = 'nano-banana-2';
 
 interface RefFirstFrameInput {
@@ -27,12 +26,6 @@ interface RefFirstFrameInput {
   aspect_ratio?: GridAspectRatio;
   resolution?: GridResolution;
 }
-
-const ENDPOINTS: Record<NonNullable<RefFirstFrameInput['model']>, string> = {
-  banana: 'fal-ai/nano-banana-2/edit',
-  fibo: 'bria/fibo-edit/edit',
-  grok: 'xai/grok-imagine-image/edit',
-};
 
 interface SceneRefContext {
   sceneId: string;
@@ -225,9 +218,6 @@ async function getOrCreateFirstFrame(
 async function queueFirstFrameRequest(
   firstFrameId: string,
   refs: SceneRefContext,
-  endpoint: string,
-  model: NonNullable<RefFirstFrameInput['model']>,
-  provider: GenerationProvider,
   aspectRatio: GridAspectRatio,
   resolution: GridResolution,
   webhookBase: string,
@@ -240,118 +230,51 @@ async function queueFirstFrameRequest(
     resolution,
   });
 
-  if (provider === 'kie') {
-    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+  const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
 
-    log.api('kie.ai', KIE_IMAGE_MODEL, {
-      scene_id: refs.sceneId,
-      first_frame_id: firstFrameId,
-      refs_count: refs.imageUrls.length,
-    });
-
-    log.startTiming('kie_ref_first_frame_request');
-
-    try {
-      const uploadedReferenceUrls = await Promise.all(
-        refs.imageUrls.map((referenceUrl, index) =>
-          uploadFile(
-            referenceUrl,
-            inferUploadFileName(
-              referenceUrl,
-              `first-frame-${firstFrameId}-ref-${index + 1}.jpg`
-            )
-          ).then((uploaded) => uploaded.fileUrl)
-        )
-      );
-
-      const result = await createTask({
-        model: KIE_IMAGE_MODEL,
-        callbackUrl: webhookUrl,
-        input: {
-          prompt: refs.prompt,
-          image_input: uploadedReferenceUrls.slice(0, 14),
-          aspect_ratio: aspectRatio,
-          resolution: normalizeKieResolution(resolution),
-          output_format: 'jpg',
-        },
-      });
-
-      log.success('kie.ai ref-first-frame request accepted', {
-        request_id: result.taskId,
-        time_ms: log.endTiming('kie_ref_first_frame_request'),
-      });
-
-      return { requestId: result.taskId, error: null };
-    } catch (error) {
-      log.error('kie.ai ref-first-frame request exception', {
-        error: error instanceof Error ? error.message : String(error),
-        time_ms: log.endTiming('kie_ref_first_frame_request'),
-      });
-      return { requestId: null, error: 'Request exception' };
-    }
-  }
-
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
-  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  const requestBody: Record<string, unknown> =
-    model === 'fibo'
-      ? {
-          image_url: refs.imageUrls[0],
-          instruction: refs.prompt,
-        }
-      : {
-          image_urls: refs.imageUrls,
-          prompt: refs.prompt,
-        };
-
-  if (model === 'banana') {
-    requestBody.safety_tolerance = '6';
-  }
-
-  log.api('fal.ai', endpoint, {
+  log.api('kie.ai', KIE_IMAGE_MODEL, {
     scene_id: refs.sceneId,
     first_frame_id: firstFrameId,
     refs_count: refs.imageUrls.length,
   });
 
-  log.startTiming('fal_ref_first_frame_request');
+  log.startTiming('kie_ref_first_frame_request');
 
   try {
-    const response = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
-        'Content-Type': 'application/json',
+    const uploadedReferenceUrls = await Promise.all(
+      refs.imageUrls.map((referenceUrl, index) =>
+        uploadFile(
+          referenceUrl,
+          inferUploadFileName(
+            referenceUrl,
+            `first-frame-${firstFrameId}-ref-${index + 1}.jpg`
+          )
+        ).then((uploaded) => uploaded.fileUrl)
+      )
+    );
+
+    const result = await createTask({
+      model: KIE_IMAGE_MODEL,
+      callbackUrl: webhookUrl,
+      input: {
+        prompt: refs.prompt,
+        image_input: uploadedReferenceUrls.slice(0, 14),
+        aspect_ratio: aspectRatio,
+        resolution: normalizeKieResolution(resolution),
+        output_format: 'jpg',
       },
-      body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      log.error('fal.ai ref-first-frame request failed', {
-        status: response.status,
-        error: errorText,
-        time_ms: log.endTiming('fal_ref_first_frame_request'),
-      });
-      return {
-        requestId: null,
-        error: `fal.ai request failed: ${response.status}`,
-      };
-    }
-
-    const result = await response.json();
-    log.success('fal.ai ref-first-frame request accepted', {
-      request_id: result.request_id,
-      time_ms: log.endTiming('fal_ref_first_frame_request'),
+    log.success('kie.ai ref-first-frame request accepted', {
+      request_id: result.taskId,
+      time_ms: log.endTiming('kie_ref_first_frame_request'),
     });
 
-    return { requestId: result.request_id, error: null };
+    return { requestId: result.taskId, error: null };
   } catch (error) {
-    log.error('fal.ai ref-first-frame request exception', {
+    log.error('kie.ai ref-first-frame request exception', {
       error: error instanceof Error ? error.message : String(error),
-      time_ms: log.endTiming('fal_ref_first_frame_request'),
+      time_ms: log.endTiming('kie_ref_first_frame_request'),
     });
     return { requestId: null, error: 'Request exception' };
   }
@@ -386,29 +309,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json(
-        { success: false, error: 'Missing FAL_KEY' },
-        { status: 500 }
-      );
-    }
-
-    if (providerResolution.provider === 'kie' && model !== 'banana') {
+    if (model !== 'banana') {
       return NextResponse.json(
         {
           success: false,
-          error: 'kie provider currently supports only banana model',
-        },
-        { status: 400 }
-      );
-    }
-
-    const endpoint = ENDPOINTS[model];
-    if (!endpoint) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `model must be one of: ${Object.keys(ENDPOINTS).join(', ')}`,
+          error:
+            'Ref first-frame generation currently supports only the "banana" model on KIE for this endpoint.',
         },
         { status: 400 }
       );
@@ -524,9 +430,6 @@ export async function POST(req: NextRequest) {
       const { requestId, error } = await queueFirstFrameRequest(
         firstFrame.id,
         queueContext,
-        endpoint,
-        model,
-        providerResolution.provider,
         selectedAspectRatio,
         selectedResolution,
         webhookBase,
@@ -585,6 +488,20 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     log.error('Unexpected error', {
       error: error instanceof Error ? error.message : String(error),
     });

@@ -4,17 +4,10 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger } from '@/lib/logger';
 import { createTask } from '@/lib/kieai';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
-
-const FAL_API_KEY = process.env.FAL_KEY!;
-
-const TTS_ENDPOINTS: Record<string, string> = {
-  'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
-  'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
-};
 
 const KIE_TTS_MODELS: Record<string, string> = {
   'turbo-v2.5': 'elevenlabs/text-to-speech-turbo-2-5',
@@ -178,112 +171,52 @@ async function sendTTSRequest(params: {
   context: SceneContext;
   voice: string;
   model: 'turbo-v2.5' | 'multilingual-v2';
-  provider: GenerationProvider;
   speed: number;
   webhookBase: string;
   log: ReturnType<typeof createLogger>;
 }): Promise<{ requestId: string | null; error: string | null }> {
-  const { context, voice, model, provider, speed, webhookBase, log } = params;
+  const { context, voice, model, speed, webhookBase, log } = params;
 
   const webhookParams = new URLSearchParams({
     step: 'GenerateTTS',
     voiceover_id: context.voiceover_id,
   });
 
-  if (provider === 'kie') {
-    const kieModel = KIE_TTS_MODELS[model] ?? KIE_TTS_MODELS['turbo-v2.5'];
-    const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
+  const kieModel = KIE_TTS_MODELS[model] ?? KIE_TTS_MODELS['turbo-v2.5'];
+  const webhookUrl = `${webhookBase}/api/webhook/kieai?${webhookParams.toString()}`;
 
-    log.api('kie.ai', kieModel, {
-      text_length: context.text.length,
-      has_previous: !!context.previous_text,
-      has_next: !!context.next_text,
-    });
-    log.startTiming('kie_tts_request');
-
-    try {
-      const result = await createTask({
-        model: kieModel,
-        callbackUrl: webhookUrl,
-        input: {
-          text: context.text,
-          voice,
-          speed,
-          previous_text: context.previous_text,
-          next_text: context.next_text,
-        },
-      });
-
-      log.success('kie.ai TTS request accepted', {
-        request_id: result.taskId,
-        time_ms: log.endTiming('kie_tts_request'),
-      });
-
-      return { requestId: result.taskId, error: null };
-    } catch (err) {
-      log.error('kie.ai TTS request exception', {
-        error: err instanceof Error ? err.message : String(err),
-        time_ms: log.endTiming('kie_tts_request'),
-      });
-
-      return { requestId: null, error: 'Request exception' };
-    }
-  }
-
-  const endpoint = TTS_ENDPOINTS[model] ?? TTS_ENDPOINTS['turbo-v2.5'];
-  const webhookUrl = `${webhookBase}/api/webhook/fal?${webhookParams.toString()}`;
-  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  log.api('fal.ai', endpoint, {
+  log.api('kie.ai', kieModel, {
     text_length: context.text.length,
     has_previous: !!context.previous_text,
     has_next: !!context.next_text,
   });
-  log.startTiming('fal_tts_request');
+  log.startTiming('kie_tts_request');
 
   try {
-    const falResponse = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const result = await createTask({
+      model: kieModel,
+      callbackUrl: webhookUrl,
+      input: {
         text: context.text,
         voice,
-        stability: 0.5,
-        similarity_boost: 0.75,
         speed,
         previous_text: context.previous_text,
         next_text: context.next_text,
-      }),
+      },
     });
 
-    if (!falResponse.ok) {
-      const errorText = await falResponse.text();
-      log.error('fal.ai TTS request failed', {
-        status: falResponse.status,
-        error: errorText,
-        time_ms: log.endTiming('fal_tts_request'),
-      });
-      return {
-        requestId: null,
-        error: `fal.ai request failed: ${falResponse.status}`,
-      };
-    }
-
-    const falResult = await falResponse.json();
-    log.success('fal.ai TTS request accepted', {
-      request_id: falResult.request_id,
-      time_ms: log.endTiming('fal_tts_request'),
+    log.success('kie.ai TTS request accepted', {
+      request_id: result.taskId,
+      time_ms: log.endTiming('kie_tts_request'),
     });
-    return { requestId: falResult.request_id, error: null };
+
+    return { requestId: result.taskId, error: null };
   } catch (err) {
-    log.error('fal.ai TTS request exception', {
+    log.error('kie.ai TTS request exception', {
       error: err instanceof Error ? err.message : String(err),
-      time_ms: log.endTiming('fal_tts_request'),
+      time_ms: log.endTiming('kie_tts_request'),
     });
+
     return { requestId: null, error: 'Request exception' };
   }
 }
@@ -336,12 +269,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!TTS_ENDPOINTS[model] || !KIE_TTS_MODELS[model]) {
+    if (!KIE_TTS_MODELS[model]) {
       log.error('Invalid TTS model', { model });
       return NextResponse.json(
         {
           success: false,
-          error: `model must be one of: ${Object.keys(TTS_ENDPOINTS).join(', ')}`,
+          error: `model must be one of: ${Object.keys(KIE_TTS_MODELS).join(', ')}`,
         },
         { status: 400 }
       );
@@ -446,7 +379,6 @@ export async function POST(req: NextRequest) {
         context,
         voice,
         model,
-        provider: providerResolution.provider,
         speed,
         webhookBase,
         log,
@@ -490,10 +422,7 @@ export async function POST(req: NextRequest) {
         prompt: context.text,
         generationMeta: {
           provider: providerResolution.provider,
-          model:
-            providerResolution.provider === 'kie'
-              ? KIE_TTS_MODELS[model]
-              : TTS_ENDPOINTS[model],
+          model: KIE_TTS_MODELS[model],
           voice_id: voice,
           speed,
           language,
@@ -537,6 +466,20 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     log.error('Unexpected error', {
       error: error instanceof Error ? error.message : String(error),
     });

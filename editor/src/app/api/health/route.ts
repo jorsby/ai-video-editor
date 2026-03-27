@@ -1,5 +1,9 @@
+import {
+  isProviderRoutingError,
+  resolveProvider,
+  type ProviderResolution,
+} from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { resolveProvider } from '@/lib/provider-routing';
 import { NextResponse } from 'next/server';
 
 const REQUIRED_ENV_VARS = [
@@ -16,11 +20,6 @@ const REQUIRED_ENV_VARS = [
   'R2_PUBLIC_DOMAIN',
   'SKYREELS_API_KEY',
 ] as const;
-
-function checkFalKey(): boolean {
-  const key = process.env.FAL_KEY ?? '';
-  return key.includes(':');
-}
 
 function checkKieConfig(): { ok: boolean; missing: string[] } {
   const missing: string[] = [];
@@ -59,26 +58,59 @@ export async function GET() {
     dbError = e instanceof Error ? e.message : 'Unknown error';
   }
 
-  const [videoRouting, ttsRouting, imageRouting] = await Promise.all([
-    resolveProvider({ service: 'video' }),
-    resolveProvider({ service: 'tts' }),
-    resolveProvider({ service: 'image' }),
-  ]);
+  let videoRouting: ProviderResolution = {
+    provider: 'kie',
+    source: 'default',
+  };
+  let ttsRouting: ProviderResolution = {
+    provider: 'kie',
+    source: 'default',
+  };
+  let imageRouting: ProviderResolution = {
+    provider: 'kie',
+    source: 'default',
+  };
+  let routingError:
+    | {
+        code: string;
+        message: string;
+        source: string;
+        field: string;
+        service: string;
+        value: string;
+      }
+    | undefined;
 
-  const falNeeded = [videoRouting, ttsRouting, imageRouting].some(
-    (routing) => routing.provider === 'fal'
-  );
+  try {
+    [videoRouting, ttsRouting, imageRouting] = await Promise.all([
+      resolveProvider({ service: 'video' }),
+      resolveProvider({ service: 'tts' }),
+      resolveProvider({ service: 'image' }),
+    ]);
+  } catch (error) {
+    if (isProviderRoutingError(error)) {
+      routingError = {
+        code: error.code,
+        message: error.message,
+        source: error.source,
+        field: error.field,
+        service: error.service,
+        value: error.value,
+      };
+    } else {
+      routingError = {
+        code: 'PROVIDER_ROUTING_ERROR',
+        message: error instanceof Error ? error.message : String(error),
+        source: 'unknown',
+        field: 'unknown',
+        service: 'unknown',
+        value: 'unknown',
+      };
+    }
+  }
 
-  const kieNeeded = [videoRouting, ttsRouting, imageRouting].some(
-    (routing) => routing.provider === 'kie'
-  );
-
-  const falConfigured = checkFalKey();
   const kieCheck = checkKieConfig();
-  const falOk = !falNeeded || falConfigured;
-  const kieOk = !kieNeeded || kieCheck.ok;
-
-  const providerOk = falOk && kieOk;
+  const providerOk = !routingError && kieCheck.ok;
   const allOk = envOk && dbOk && providerOk;
 
   const status = allOk
@@ -98,16 +130,12 @@ export async function GET() {
             video: videoRouting,
             tts: ttsRouting,
             image: imageRouting,
-          },
-          fal: {
-            required: falNeeded,
-            configured: falConfigured,
-            ok: falOk,
+            error: routingError,
           },
           kie: {
-            required: kieNeeded,
+            required: true,
             configured: kieCheck.ok,
-            ok: kieOk,
+            ok: kieCheck.ok,
             missing: kieCheck.missing,
           },
         },

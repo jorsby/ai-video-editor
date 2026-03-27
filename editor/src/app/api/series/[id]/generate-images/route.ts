@@ -3,7 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { queueKieImageTask } from '@/lib/kie-image';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -14,7 +17,7 @@ const ASSET_IMAGE_CONFIG: Record<
   AssetType,
   {
     resolution: '1K';
-    aspect_ratio: '3:4' | '1:1';
+    aspect_ratio: '3:4' | '1:1' | '9:16';
     suffix: string;
   }
 > = {
@@ -26,9 +29,9 @@ const ASSET_IMAGE_CONFIG: Record<
   },
   location: {
     resolution: '1K',
-    aspect_ratio: '1:1',
+    aspect_ratio: '9:16',
     suffix:
-      'Single location only. Empty environment, no people. Establishing composition, atmospheric but clean readability, high detail.',
+      'Single location only. Empty environment, no people. Vertical cinematic establishing composition (9:16), atmospheric but clean readability, high detail.',
   },
   prop: {
     resolution: '1K',
@@ -37,9 +40,6 @@ const ASSET_IMAGE_CONFIG: Record<
       'Single prop/object only. Entire object fully visible in frame. Centered composition. Neutral clean background. Product-shot clarity, high detail.',
   },
 };
-
-// fal.ai image generation endpoint
-const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -126,10 +126,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
     if (!asset_id || !variant_id) {
       return NextResponse.json(
         { error: 'asset_id and variant_id are required' },
@@ -212,68 +208,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const callbackPath =
-      providerResolution.provider === 'kie'
-        ? '/api/webhook/kieai'
-        : '/api/webhook/fal';
+    const callbackPath = '/api/webhook/kieai';
     const webhookUrl = `${webhookBase}${callbackPath}?step=SeriesAssetImage&variant_id=${variant_id}`;
 
     let requestId: string;
-    let modelForJob = FAL_IMAGE_ENDPOINT;
+    let modelForJob = 'nano-banana-2';
 
-    if (providerResolution.provider === 'kie') {
-      try {
-        const queued = await queueKieImageTask({
-          prompt,
-          callbackUrl: webhookUrl,
-          aspectRatio: config.aspect_ratio,
-          resolution: config.resolution,
-          outputFormat: 'jpg',
-        });
-
-        requestId = queued.requestId;
-        modelForJob = queued.model;
-      } catch (error) {
-        console.error('kie.ai request failed:', error);
-        return NextResponse.json(
-          { error: 'Image generation request failed' },
-          { status: 500 }
-        );
-      }
-    } else {
-      // Submit to fal.ai queue
-      const falUrl = new URL(`https://queue.fal.run/${FAL_IMAGE_ENDPOINT}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${process.env.FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          num_images: 1,
-          resolution: config.resolution,
-          aspect_ratio: config.aspect_ratio,
-          output_format: 'jpeg',
-          safety_tolerance: '4',
-          limit_generations: true,
-        }),
+    try {
+      const queued = await queueKieImageTask({
+        prompt,
+        callbackUrl: webhookUrl,
+        aspectRatio: config.aspect_ratio,
+        resolution: config.resolution,
+        outputFormat: 'jpg',
       });
 
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        console.error('fal.ai request failed:', falRes.status, errText);
-        return NextResponse.json(
-          { error: 'Image generation request failed' },
-          { status: 500 }
-        );
-      }
-
-      const falData = await falRes.json();
-      requestId = falData.request_id;
-      modelForJob = FAL_IMAGE_ENDPOINT;
+      requestId = queued.requestId;
+      modelForJob = queued.model;
+    } catch (error) {
+      console.error('kie.ai request failed:', error);
+      return NextResponse.json(
+        { error: 'Image generation request failed' },
+        { status: 500 }
+      );
     }
 
     // Store generation job so webhook can persist prompt/model metadata
@@ -293,42 +250,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
 
-    // Background polling fallback (for cases when webhook URL is unreachable)
-    const pollUrl = `${req.nextUrl.origin}/api/series/${id}/poll-images`;
-    const authHeader = req.headers.get('authorization') ?? '';
-    const fallbackAuth =
-      authHeader ||
-      (process.env.OCTUPOST_API_KEY
-        ? `Bearer ${process.env.OCTUPOST_API_KEY}`
-        : '');
-
-    setTimeout(async () => {
-      try {
-        await fetch(pollUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(fallbackAuth ? { Authorization: fallbackAuth } : {}),
-          },
-          body: JSON.stringify({
-            jobs: [
-              {
-                request_id: requestId,
-                provider: providerResolution.provider,
-                model: modelForJob,
-                type: 'single',
-                variant_ids: [variant_id],
-                cols: 1,
-                rows: 1,
-              },
-            ],
-          }),
-        });
-      } catch (pollError) {
-        console.error('[SeriesImage] Background poll failed:', pollError);
-      }
-    }, 60_000);
-
     return NextResponse.json({
       request_id: requestId,
       prompt,
@@ -338,9 +259,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
       aspect_ratio: config.aspect_ratio,
       custom_prompt:
         typeof customPrompt === 'string' && customPrompt.trim().length > 0,
-      poll_fallback: '60s automatic',
+      mode: 'webhook-only',
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('Generate series asset image error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

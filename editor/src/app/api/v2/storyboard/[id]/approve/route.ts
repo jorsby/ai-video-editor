@@ -1,13 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
-import { queueKieImageTask } from '@/lib/kie-image';
+import { normalizeKieAspectRatio, queueKieImageTask } from '@/lib/kie-image';
 import { getSeriesStyleForProject } from '@/lib/prompts/style-injector';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
-import { klingO3PlanSchema } from '@/lib/schemas/kling-o3-plan';
+import { grokPlanSchema } from '@/lib/schemas/grok-plan';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { matchAssetsWithAI } from '@/lib/supabase/series-asset-ai-matcher';
 import {
@@ -25,16 +25,10 @@ const bodySchema = z.object({
   retry_failed: z.boolean().optional(),
 });
 
-const RESOLUTION_TO_SIZE: Record<
-  Resolution,
-  { width: number; height: number }
-> = {
-  '0.5k': { width: 512, height: 512 },
-  '1k': { width: 1024, height: 1024 },
-  '2k': { width: 2048, height: 2048 },
-};
-
-const FAL_IMAGE_ENDPOINT = 'fal-ai/nano-banana-2';
+function resolveStoryboardAspectRatio(value: unknown): string {
+  if (typeof value !== 'string') return '9:16';
+  return normalizeKieAspectRatio(value, '9:16');
+}
 
 type MissingAssetType = 'object' | 'background';
 
@@ -361,57 +355,25 @@ async function queueMissingAssetJob(params: {
   prompt: string;
   resolution: Resolution;
   webhookUrl: string;
-  provider: GenerationProvider;
+  assetType: MissingAssetType;
+  backgroundAspectRatio: string;
 }) {
-  if (params.provider === 'kie') {
-    const queued = await queueKieImageTask({
-      prompt: params.prompt,
-      callbackUrl: params.webhookUrl,
-      aspectRatio: '1:1',
-      resolution: params.resolution,
-      outputFormat: 'png',
-    });
+  const assetAspectRatio =
+    params.assetType === 'background' ? params.backgroundAspectRatio : '1:1';
 
-    if (!queued.requestId) {
-      throw new Error('kie.ai response missing task_id');
-    }
-
-    return queued.requestId;
-  }
-
-  const size = RESOLUTION_TO_SIZE[params.resolution];
-  const falUrl = new URL(`https://queue.fal.run/${FAL_IMAGE_ENDPOINT}`);
-  falUrl.searchParams.set('fal_webhook', params.webhookUrl);
-
-  const res = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${process.env.FAL_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt: params.prompt,
-      num_images: 1,
-      image_size: { width: size.width, height: size.height },
-      enable_safety_checker: false,
-      output_format: 'png',
-    }),
+  const queued = await queueKieImageTask({
+    prompt: params.prompt,
+    callbackUrl: params.webhookUrl,
+    aspectRatio: assetAspectRatio,
+    resolution: params.resolution,
+    outputFormat: 'png',
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`fal.ai queue failed (${res.status}): ${err}`);
+  if (!queued.requestId) {
+    throw new Error('kie.ai response missing task_id');
   }
 
-  const data = await res.json();
-  const requestId =
-    typeof data?.request_id === 'string' ? data.request_id : null;
-
-  if (!requestId) {
-    throw new Error('fal.ai response missing request_id');
-  }
-
-  return requestId;
+  return queued.requestId;
 }
 
 type StoryboardScene = {
@@ -462,7 +424,14 @@ async function approveExistingStoryboardScenes(params: {
 
       for (const image of images) {
         if (!isRecord(image)) continue;
-        if (image.status !== 'success') continue;
+        // Backward compatibility: older rows don't have image.status.
+        if (
+          typeof image.status === 'string' &&
+          image.status.length > 0 &&
+          image.status !== 'success'
+        ) {
+          continue;
+        }
         if (typeof image.url !== 'string') continue;
 
         const trimmedUrl = image.url.trim();
@@ -713,7 +682,7 @@ async function approveExistingStoryboardScenes(params: {
           .schema('studio')
           .from('series_assets')
           .select(
-            'id, series_asset_variants(id, series_asset_variant_images(url, status))'
+            'id, series_asset_variants(id, series_asset_variant_images(url, storage_path))'
           )
           .eq('series_id', series.id)
           .eq('slug', backgroundSlug)
@@ -768,7 +737,7 @@ async function approveExistingStoryboardScenes(params: {
           .schema('studio')
           .from('series_assets')
           .select(
-            'id, series_asset_variants(id, series_asset_variant_images(url, status))'
+            'id, series_asset_variants(id, series_asset_variant_images(url, storage_path))'
           )
           .eq('series_id', series.id)
           .eq('slug', objectSlug)
@@ -885,7 +854,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
-      .select('id, project_id, mode, plan, plan_status')
+      .select('id, project_id, mode, plan, plan_status, aspect_ratio')
       .eq('id', storyboardId)
       .single();
 
@@ -906,6 +875,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (projectError || !project) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
+
+    const backgroundAspectRatio = resolveStoryboardAspectRatio(
+      storyboard.aspect_ratio
+    );
 
     const { data: existingScenes, error: existingScenesError } = await db
       .from('scenes')
@@ -930,7 +903,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       });
     }
 
-    const parsedPlan = klingO3PlanSchema.safeParse(storyboard.plan);
+    const parsedPlan = grokPlanSchema.safeParse(storyboard.plan);
     if (!parsedPlan.success) {
       return NextResponse.json(
         { error: 'Storyboard plan is invalid or missing' },
@@ -945,10 +918,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       req,
       body: parsedBody.data,
     });
-
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
 
     const existingAssetJobs =
       isRecord(storyboard.plan) && isRecord(storyboard.plan.v2_asset_jobs)
@@ -1030,10 +999,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
           { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
           { status: 500 }
         );
-      }
-
-      if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-        return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
       const { data: existingScenes, error: scenesError } = await db
@@ -1140,10 +1105,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       const assetJobs: AssetJobMeta[] = [];
       const skippedAssets: SkippedAssetMeta[] = [];
-      const callbackPath =
-        providerResolution.provider === 'kie'
-          ? '/api/webhook/kieai'
-          : '/api/webhook/fal';
+      const callbackPath = '/api/webhook/kieai';
 
       for (const [gridPosition, info] of objectFailedByPosition) {
         const prompt = info.generation_prompt?.trim() ?? '';
@@ -1183,7 +1145,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             prompt,
             resolution,
             webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
-            provider: providerResolution.provider,
+            assetType: 'object',
+            backgroundAspectRatio,
           });
 
           await db
@@ -1204,10 +1167,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model:
-                providerResolution.provider === 'kie'
-                  ? 'nano-banana-2'
-                  : FAL_IMAGE_ENDPOINT,
+              model: 'nano-banana-2',
               provider: providerResolution.provider,
               output_format: 'png',
               resolution,
@@ -1292,7 +1252,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             prompt,
             resolution,
             webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
-            provider: providerResolution.provider,
+            assetType: 'background',
+            backgroundAspectRatio,
           });
 
           await db
@@ -1313,10 +1274,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model:
-                providerResolution.provider === 'kie'
-                  ? 'nano-banana-2'
-                  : FAL_IMAGE_ENDPOINT,
+              model: 'nano-banana-2',
               provider: providerResolution.provider,
               output_format: 'png',
               resolution,
@@ -1598,10 +1556,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           generation_prompt: generationPrompt,
           generation_meta: generationPrompt
             ? {
-                model:
-                  providerResolution.provider === 'kie'
-                    ? 'nano-banana-2'
-                    : FAL_IMAGE_ENDPOINT,
+                model: 'nano-banana-2',
                 provider: providerResolution.provider,
                 output_format: 'png',
                 resolution,
@@ -1638,10 +1593,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         generation_prompt: generationPrompt,
         generation_meta: generationPrompt
           ? {
-              model:
-                providerResolution.provider === 'kie'
-                  ? 'nano-banana-2'
-                  : FAL_IMAGE_ENDPOINT,
+              model: 'nano-banana-2',
               provider: providerResolution.provider,
               output_format: 'png',
               resolution,
@@ -1670,10 +1622,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
           { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
           { status: 500 }
         );
-      }
-
-      if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-        return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
       }
 
       const [{ data: pendingObjectRows }, { data: pendingBackgroundRows }] =
@@ -1749,10 +1697,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         });
       }
 
-      const callbackPath =
-        providerResolution.provider === 'kie'
-          ? '/api/webhook/kieai'
-          : '/api/webhook/fal';
+      const callbackPath = '/api/webhook/kieai';
 
       for (const gridPosition of missingObjectPositions) {
         const info = pendingObjectByGrid.get(gridPosition);
@@ -1804,7 +1749,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             prompt,
             resolution,
             webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
-            provider: providerResolution.provider,
+            assetType: 'object',
+            backgroundAspectRatio,
           });
 
           await db
@@ -1821,10 +1767,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model:
-                providerResolution.provider === 'kie'
-                  ? 'nano-banana-2'
-                  : FAL_IMAGE_ENDPOINT,
+              model: 'nano-banana-2',
               provider: providerResolution.provider,
               output_format: 'png',
               resolution,
@@ -1920,7 +1863,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
             prompt,
             resolution,
             webhookUrl: `${webhookBase}${callbackPath}?${webhookParams.toString()}`,
-            provider: providerResolution.provider,
+            assetType: 'background',
+            backgroundAspectRatio,
           });
 
           await db
@@ -1937,10 +1881,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             storyboardId,
             prompt,
             generationMeta: {
-              model:
-                providerResolution.provider === 'kie'
-                  ? 'nano-banana-2'
-                  : FAL_IMAGE_ENDPOINT,
+              model: 'nano-banana-2',
               provider: providerResolution.provider,
               output_format: 'png',
               resolution,
@@ -2075,6 +2016,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('[v2/storyboard/approve] Unexpected error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

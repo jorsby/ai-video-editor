@@ -42,7 +42,8 @@ describe('kie-image', () => {
 
     await queueKieImageTask({
       prompt: 'A cinematic mountain at sunrise',
-      callbackUrl: 'https://app.example.com/api/webhook/fal?step=GenerateImage',
+      callbackUrl:
+        'https://app.example.com/api/webhook/kieai?step=GenerateImage',
       aspectRatio: '9:16',
       resolution: '1k',
       outputFormat: 'png',
@@ -51,7 +52,8 @@ describe('kie-image', () => {
     expect(createTaskMock).toHaveBeenCalledTimes(1);
     expect(createTaskMock).toHaveBeenCalledWith({
       model: 'nano-banana-2',
-      callbackUrl: 'https://app.example.com/api/webhook/fal?step=GenerateImage',
+      callbackUrl:
+        'https://app.example.com/api/webhook/kieai?step=GenerateImage',
       input: {
         prompt: 'A cinematic mountain at sunrise',
         aspect_ratio: '9:16',
@@ -71,7 +73,7 @@ describe('kie-image', () => {
 
     await queueKieImageTask({
       prompt: 'Replace background with snowy mountains',
-      callbackUrl: 'https://app.example.com/api/webhook/fal?step=EditImage',
+      callbackUrl: 'https://app.example.com/api/webhook/kieai?step=EditImage',
       aspectRatio: '1:1',
       resolution: '2k',
       outputFormat: 'jpg',
@@ -84,7 +86,7 @@ describe('kie-image', () => {
     expect(createTaskMock).toHaveBeenCalledTimes(1);
     expect(createTaskMock).toHaveBeenCalledWith({
       model: 'nano-banana-2',
-      callbackUrl: 'https://app.example.com/api/webhook/fal?step=EditImage',
+      callbackUrl: 'https://app.example.com/api/webhook/kieai?step=EditImage',
       input: {
         prompt: 'Replace background with snowy mountains',
         aspect_ratio: '1:1',

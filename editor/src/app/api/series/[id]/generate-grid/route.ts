@@ -3,15 +3,14 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { queueKieImageTask } from '@/lib/kie-image';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-// ── Model configuration ───────────────────────────────────────────────────────
-const MODELS: Record<string, { endpoint: string; useImageSize: boolean }> = {
-  'nano-banana-2': { endpoint: 'fal-ai/nano-banana-2', useImageSize: false },
-};
 const DEFAULT_MODEL = 'nano-banana-2';
 
 // ── nano-banana-2 supported aspect ratios (per docs) ─────────────────────────
@@ -213,10 +212,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
     if (!type || !['character', 'location', 'prop'].includes(type)) {
       return NextResponse.json(
         { error: 'type must be "character", "location", or "prop"' },
@@ -377,17 +372,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const { data: usedVariants } = await dbClient
-      .from('episode_asset_variants')
-      .select('variant_id')
-      .in('variant_id', variantIds)
+    const { data: usedAssets } = await dbClient
+      .from('episode_assets')
+      .select('asset_id')
+      .in('asset_id', assetIds)
       .limit(1);
 
-    if ((usedVariants?.length ?? 0) > 0) {
+    if ((usedAssets?.length ?? 0) > 0) {
       return NextResponse.json(
         {
           error:
-            'One or more variants are already used in episodes and cannot be regenerated',
+            'One or more assets are already mapped to episodes and cannot be regenerated',
         },
         { status: 409 }
       );
@@ -458,7 +453,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const prompt = promptParts.join('. ');
 
-    // ── Compute fal.ai aspect ratio from total grid dimensions ──────────────
+    // ── Compute output aspect ratio from total grid dimensions ──────────────
     const gridAspect = closestNanoAspect(gridWidth, gridHeight);
 
     // ── Build webhook URL ───────────────────────────────────────────────────
@@ -470,114 +465,46 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const callbackPath =
-      providerResolution.provider === 'kie'
-        ? '/api/webhook/kieai'
-        : '/api/webhook/fal';
+    const callbackPath = '/api/webhook/kieai';
     const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesGridImage');
     webhookUrl.searchParams.set('variant_ids', variantIds.join(','));
     webhookUrl.searchParams.set('cols', String(cols));
     webhookUrl.searchParams.set('rows', String(rows));
 
-    // ── Submit to provider (with fal-specific resolution fallback) ─────────
-    const modelKey =
-      modelOverride && MODELS[modelOverride] ? modelOverride : DEFAULT_MODEL;
-    const modelConfig = MODELS[modelKey];
+    // ── Submit to KIE provider ────────────────────────────────────────────
+    if (modelOverride && modelOverride !== DEFAULT_MODEL) {
+      return NextResponse.json(
+        {
+          error: `Unsupported model "${modelOverride}". Only "${DEFAULT_MODEL}" is available on KIE for this endpoint.`,
+        },
+        { status: 400 }
+      );
+    }
 
     let requestId: string;
-    let resolutionUsed = resolution;
-    let modelForJob = modelKey;
-    let endpointForJob = modelConfig.endpoint;
+    const resolutionUsed = resolution;
+    let modelForJob = DEFAULT_MODEL;
+    let endpointForJob = 'https://api.kie.ai/api/v1/jobs/createTask';
 
-    if (providerResolution.provider === 'kie') {
-      try {
-        const queued = await queueKieImageTask({
-          prompt,
-          callbackUrl: webhookUrl.toString(),
-          aspectRatio: gridAspect,
-          resolution,
-          outputFormat: 'jpg',
-        });
+    try {
+      const queued = await queueKieImageTask({
+        prompt,
+        callbackUrl: webhookUrl.toString(),
+        aspectRatio: gridAspect,
+        resolution,
+        outputFormat: 'jpg',
+      });
 
-        requestId = queued.requestId;
-        modelForJob = queued.model;
-        endpointForJob = queued.endpoint;
-      } catch (error) {
-        console.error('[SeriesGrid] kie.ai request failed:', error);
-        return NextResponse.json(
-          { error: 'Image generation request failed' },
-          { status: 500 }
-        );
-      }
-    } else {
-      async function submitToFal(
-        res: string
-      ): Promise<{ request_id: string; resolution_used: string }> {
-        const falUrl = new URL(`https://queue.fal.run/${modelConfig.endpoint}`);
-        falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
-
-        // Models use different size params
-        const sizeParams = modelConfig.useImageSize
-          ? { image_size: { width: gridWidth, height: gridHeight } }
-          : { resolution: res, aspect_ratio: gridAspect };
-
-        const falRes = await fetch(falUrl.toString(), {
-          method: 'POST',
-          headers: {
-            Authorization: `Key ${process.env.FAL_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            prompt,
-            num_images: 1,
-            ...sizeParams,
-            output_format: 'jpeg',
-            safety_tolerance: '6',
-          }),
-        });
-
-        if (!falRes.ok) {
-          const errText = await falRes.text();
-          throw new Error(
-            `fal.ai ${falRes.status}: ${errText.substring(0, 200)}`
-          );
-        }
-
-        const data = await falRes.json();
-        return { request_id: data.request_id, resolution_used: res };
-      }
-
-      try {
-        const result = await submitToFal(resolution);
-        requestId = result.request_id;
-        resolutionUsed = result.resolution_used;
-      } catch (err) {
-        // If 2K/4K fails, retry at 1K
-        if (resolution !== '1K') {
-          console.warn(
-            `[SeriesGrid] ${resolution} failed, retrying at 1K:`,
-            err
-          );
-          try {
-            const result = await submitToFal('1K');
-            requestId = result.request_id;
-            resolutionUsed = '1K';
-          } catch (retryErr) {
-            console.error('[SeriesGrid] 1K retry also failed:', retryErr);
-            return NextResponse.json(
-              { error: 'Image generation failed at all resolutions' },
-              { status: 500 }
-            );
-          }
-        } else {
-          console.error('[SeriesGrid] fal.ai request failed:', err);
-          return NextResponse.json(
-            { error: 'Image generation request failed' },
-            { status: 500 }
-          );
-        }
-      }
+      requestId = queued.requestId;
+      modelForJob = queued.model;
+      endpointForJob = queued.endpoint;
+    } catch (error) {
+      console.error('[SeriesGrid] kie.ai request failed:', error);
+      return NextResponse.json(
+        { error: 'Image generation request failed' },
+        { status: 500 }
+      );
     }
 
     console.log('[SeriesGrid] Submitted', {
@@ -690,6 +617,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       poll_fallback: '60s automatic',
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('[SeriesGrid] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

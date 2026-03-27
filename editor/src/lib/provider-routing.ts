@@ -1,9 +1,10 @@
 import type { NextRequest } from 'next/server';
 
-export type GenerationProvider = 'fal' | 'kie';
+export type GenerationProvider = 'kie';
 export type ProviderService = 'video' | 'tts' | 'image';
 
 export type ProviderResolutionSource = 'request' | 'db' | 'env' | 'default';
+export type ProviderErrorSource = Exclude<ProviderResolutionSource, 'default'>;
 
 export interface ProviderResolution {
   provider: GenerationProvider;
@@ -26,31 +27,63 @@ const PROVIDER_ENV_BY_SERVICE: Record<ProviderService, string> = {
   image: 'PROVIDER_IMAGE',
 };
 
-function normalizeProvider(
-  value: string | null | undefined
-): GenerationProvider | null {
-  if (!value) return null;
+const SUPPORTED_PROVIDER = 'kie' as const;
 
-  const trimmed = value.trim();
-  if (!trimmed) return null;
+export class ProviderRoutingError extends Error {
+  readonly code = 'UNSUPPORTED_PROVIDER';
+  readonly statusCode = 400;
 
-  const normalized = trimmed.toLowerCase();
-  if (normalized === 'fal' || normalized === 'kie') {
-    return normalized;
+  constructor(
+    readonly source: ProviderErrorSource,
+    readonly service: ProviderService,
+    readonly field: string,
+    readonly value: string
+  ) {
+    super(
+      `Unsupported provider "${value}" from ${source} "${field}" for ${service}. Only "${SUPPORTED_PROVIDER}" is allowed.`
+    );
+    this.name = 'ProviderRoutingError';
+  }
+}
+
+export function isProviderRoutingError(
+  error: unknown
+): error is ProviderRoutingError {
+  return error instanceof ProviderRoutingError;
+}
+
+type ProviderValueParseResult =
+  | { kind: 'unset' }
+  | { kind: 'valid'; provider: 'kie' }
+  | { kind: 'invalid'; value: string };
+
+function parseProviderValue(rawValue: unknown): ProviderValueParseResult {
+  if (rawValue === null || rawValue === undefined) return { kind: 'unset' };
+
+  if (typeof rawValue !== 'string') {
+    return { kind: 'invalid', value: String(rawValue) };
   }
 
-  // Accept JSON encoded values like "fal" from generic key-value tables.
+  if (!rawValue) return { kind: 'unset' };
+
+  const trimmed = rawValue.trim();
+  if (!trimmed) return { kind: 'unset' };
+
+  let normalized = trimmed.toLowerCase();
+
+  // Accept JSON/string encoded values from generic key-value tables.
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
   ) {
-    const unwrapped = trimmed.slice(1, -1).trim().toLowerCase();
-    if (unwrapped === 'fal' || unwrapped === 'kie') {
-      return unwrapped;
-    }
+    normalized = trimmed.slice(1, -1).trim().toLowerCase();
   }
 
-  return null;
+  if (normalized === SUPPORTED_PROVIDER) {
+    return { kind: 'valid', provider: SUPPORTED_PROVIDER };
+  }
+
+  return { kind: 'invalid', value: normalized || trimmed };
 }
 
 function toRoutingInput(payload: unknown): ProviderRoutingInput | null {
@@ -61,50 +94,81 @@ function toRoutingInput(payload: unknown): ProviderRoutingInput | null {
   return payload as ProviderRoutingInput;
 }
 
-function extractFromRequest(
+function resolveFromCandidates(options: {
+  source: ProviderErrorSource;
+  service: ProviderService;
+  candidates: Array<{ field: string; value: string | null | undefined }>;
+}): 'kie' | null {
+  for (const candidate of options.candidates) {
+    const parsed = parseProviderValue(candidate.value);
+
+    if (parsed.kind === 'unset') {
+      continue;
+    }
+
+    if (parsed.kind === 'valid') {
+      return parsed.provider;
+    }
+
+    throw new ProviderRoutingError(
+      options.source,
+      options.service,
+      candidate.field,
+      parsed.value
+    );
+  }
+
+  return null;
+}
+
+function resolveFromRequest(
   req: NextRequest | undefined,
   service: ProviderService
-): GenerationProvider | null {
+): 'kie' | null {
   if (!req) return null;
 
-  const direct = normalizeProvider(req.nextUrl.searchParams.get('provider'));
-  if (direct) return direct;
-
-  const serviceParam = normalizeProvider(
-    req.nextUrl.searchParams.get(`provider_${service}`)
-  );
-  if (serviceParam) return serviceParam;
-
-  const headerDirect = normalizeProvider(req.headers.get('x-provider'));
-  if (headerDirect) return headerDirect;
-
-  const headerScoped = normalizeProvider(
-    req.headers.get(`x-provider-${service}`)
-  );
-  if (headerScoped) return headerScoped;
-
-  return null;
+  return resolveFromCandidates({
+    source: 'request',
+    service,
+    candidates: [
+      { field: 'provider', value: req.nextUrl.searchParams.get('provider') },
+      {
+        field: `provider_${service}`,
+        value: req.nextUrl.searchParams.get(`provider_${service}`),
+      },
+      { field: 'x-provider', value: req.headers.get('x-provider') },
+      {
+        field: `x-provider-${service}`,
+        value: req.headers.get(`x-provider-${service}`),
+      },
+    ],
+  });
 }
 
-function extractFromInput(
+function resolveFromInput(
   input: ProviderRoutingInput,
-  service: ProviderService
-): GenerationProvider | null {
-  const direct = normalizeProvider(input.provider);
-  if (direct) return direct;
-
-  const scoped = normalizeProvider(input[`provider_${service}`]);
-  if (scoped) return scoped;
-
-  const byService = normalizeProvider(input[service]);
-  if (byService) return byService;
-
-  return null;
+  service: ProviderService,
+  source: ProviderErrorSource
+): 'kie' | null {
+  return resolveFromCandidates({
+    source,
+    service,
+    candidates: [
+      { field: 'provider', value: input.provider },
+      { field: `provider_${service}`, value: input[`provider_${service}`] },
+      { field: service, value: input[service] },
+    ],
+  });
 }
 
-function resolveFromEnv(service: ProviderService): GenerationProvider | null {
+function resolveFromEnv(service: ProviderService): 'kie' | null {
   const envName = PROVIDER_ENV_BY_SERVICE[service];
-  return normalizeProvider(process.env[envName]);
+
+  return resolveFromCandidates({
+    source: 'env',
+    service,
+    candidates: [{ field: envName, value: process.env[envName] }],
+  });
 }
 
 export async function loadProviderRoutingFromDb(
@@ -169,18 +233,24 @@ export async function resolveProvider(options: {
 }): Promise<ProviderResolution> {
   const { service, req, body, dbConfig, supabase } = options;
 
-  const requestOverride =
-    extractFromRequest(req, service) ||
-    extractFromInput(toRoutingInput(body) ?? {}, service);
-
+  const requestOverride = resolveFromRequest(req, service);
   if (requestOverride) {
     return { provider: requestOverride, source: 'request' };
+  }
+
+  const bodyOverride = resolveFromInput(
+    toRoutingInput(body) ?? {},
+    service,
+    'request'
+  );
+  if (bodyOverride) {
+    return { provider: bodyOverride, source: 'request' };
   }
 
   const mergedDbConfig =
     toRoutingInput(dbConfig) ?? (await loadProviderRoutingFromDb(supabase));
 
-  const dbOverride = extractFromInput(mergedDbConfig ?? {}, service);
+  const dbOverride = resolveFromInput(mergedDbConfig ?? {}, service, 'db');
   if (dbOverride) {
     return { provider: dbOverride, source: 'db' };
   }
@@ -190,6 +260,6 @@ export async function resolveProvider(options: {
     return { provider: envOverride, source: 'env' };
   }
 
-  // Keep fal as default during migration rollout.
-  return { provider: 'fal', source: 'default' };
+  // Provider policy: hard-locked to KIE.
+  return { provider: SUPPORTED_PROVIDER, source: 'default' };
 }

@@ -6,7 +6,6 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   IconLoader2,
   IconPhoto,
-  IconVideo,
   IconCropPortrait,
   IconCrop169,
   IconSquare,
@@ -22,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type MediaType = 'image' | 'video';
 type AspectRatio = '16:9' | '9:16' | '1:1';
 
 const ASPECT_RATIO_ICONS: Record<AspectRatio, typeof IconCropPortrait> = {
@@ -33,7 +31,6 @@ const ASPECT_RATIO_ICONS: Record<AspectRatio, typeof IconCropPortrait> = {
 
 export const VisualsChatPanel = () => {
   const [prompt, setPrompt] = useState('');
-  const [mediaType, setMediaType] = useState<MediaType>('image');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [loading, setLoading] = useState(false);
   const { addAsset } = useAssetStore();
@@ -44,16 +41,14 @@ export const VisualsChatPanel = () => {
 
     setLoading(true);
     try {
-      const endpoint =
-        mediaType === 'image' ? '/api/fal/image' : '/api/fal/video';
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/workflow/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, aspectRatio, project_id: projectId }),
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to generate ${mediaType}`);
+        throw new Error('Failed to generate image');
       }
 
       const data = await response.json();
@@ -63,15 +58,15 @@ export const VisualsChatPanel = () => {
         url: data.url,
         name: prompt,
         prompt: prompt,
-        type: mediaType,
+        type: 'image',
         createdAt: Date.now(),
       });
 
-      toast.success(`${mediaType === 'image' ? 'Image' : 'Video'} generated!`);
+      toast.success('Image generated!');
       setPrompt('');
     } catch (error) {
       console.error(error);
-      toast.error(`Failed to generate ${mediaType}`);
+      toast.error('Failed to generate image');
     } finally {
       setLoading(false);
     }
@@ -93,30 +88,10 @@ export const VisualsChatPanel = () => {
 
         <div className="flex items-center gap-2 pt-2 w-full justify-between">
           <div className="flex items-center gap-2">
-            {/* Media Type Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm">
-                  {mediaType === 'image' ? (
-                    <IconPhoto className="size-4" />
-                  ) : (
-                    <IconVideo className="size-4" />
-                  )}
-                  {mediaType === 'image' ? 'Image' : 'Video'}
-                  <IconChevronDown className="size-3 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={() => setMediaType('image')}>
-                  <IconPhoto className="size-4" />
-                  Image
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setMediaType('video')}>
-                  <IconVideo className="size-4" />
-                  Video
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button variant="secondary" size="sm" disabled>
+              <IconPhoto className="size-4" />
+              Image
+            </Button>
 
             {/* Aspect Ratio Dropdown */}
             <DropdownMenu>

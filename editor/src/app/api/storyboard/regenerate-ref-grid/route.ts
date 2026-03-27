@@ -4,8 +4,8 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { queueKieImageTask } from '@/lib/kie-image';
 import { createLogger } from '@/lib/logger';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import {
@@ -18,8 +18,6 @@ import {
   type GridAspectRatio,
   type GridResolution,
 } from '@/lib/grid-generation-settings';
-
-const FAL_API_KEY = process.env.FAL_KEY!;
 
 type RegenerateTarget = 'objects' | 'backgrounds' | 'both';
 
@@ -93,7 +91,6 @@ async function queueGridGeneration(
     gridAspectRatio: GridAspectRatio;
     gridResolution: GridResolution;
   },
-  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>
 ): Promise<QueueResult> {
@@ -110,7 +107,7 @@ async function queueGridGeneration(
     gridResolution,
   } = params;
 
-  const falPrompt = applyGridGenerationSettingsToPrompt(
+  const gridPrompt = applyGridGenerationSettingsToPrompt(
     prompt,
     gridAspectRatio,
     gridResolution
@@ -139,84 +136,43 @@ async function queueGridGeneration(
     height: height.toString(),
   });
 
-  const callbackPath =
-    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const callbackPath = '/api/webhook/kieai';
   const webhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
-  log.api(
-    provider === 'kie' ? 'kie.ai' : 'fal.ai',
-    `octupost/generategridimage:${target}`,
-    {
-      grid_image_id: gridImageId,
-      prompt_length: falPrompt.length,
-      grid_aspect_ratio: gridAspectRatio,
-      grid_resolution: gridResolution,
-    }
-  );
+  log.api('kie.ai', `octupost/generategridimage:${target}`, {
+    grid_image_id: gridImageId,
+    prompt_length: gridPrompt.length,
+    grid_aspect_ratio: gridAspectRatio,
+    grid_resolution: gridResolution,
+  });
+
   let requestId: string | null = null;
 
-  if (provider === 'kie') {
-    try {
-      const queued = await queueKieImageTask({
-        prompt: falPrompt,
-        callbackUrl: webhookUrl,
-        aspectRatio: gridAspectRatio,
-        resolution: gridResolution,
-        outputFormat: 'jpg',
-      });
-      requestId = queued.requestId;
-    } catch (error) {
-      await supabase
-        .from('grid_images')
-        .update({ status: 'failed', error_message: 'request_error' })
-        .eq('id', gridImageId)
-        .in('status', ['pending', 'processing']);
-
-      return {
-        target,
-        success: false,
-        requestId: null,
-        error:
-          error instanceof Error
-            ? `kie.ai request failed: ${error.message}`
-            : 'kie.ai request failed',
-      };
-    }
-  } else {
-    const falUrl = new URL(
-      'https://queue.fal.run/workflows/octupost/generategridimage'
-    );
-    falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-    const response = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt: falPrompt, web_search: true }),
+  try {
+    const queued = await queueKieImageTask({
+      prompt: gridPrompt,
+      callbackUrl: webhookUrl,
+      aspectRatio: gridAspectRatio,
+      resolution: gridResolution,
+      outputFormat: 'jpg',
     });
+    requestId = queued.requestId;
+  } catch (error) {
+    await supabase
+      .from('grid_images')
+      .update({ status: 'failed', error_message: 'request_error' })
+      .eq('id', gridImageId)
+      .in('status', ['pending', 'processing']);
 
-    if (!response.ok) {
-      const text = await response.text();
-
-      await supabase
-        .from('grid_images')
-        .update({ status: 'failed', error_message: 'request_error' })
-        .eq('id', gridImageId)
-        .in('status', ['pending', 'processing']);
-
-      return {
-        target,
-        success: false,
-        requestId: null,
-        error: `fal.ai request failed: ${response.status} ${text}`,
-      };
-    }
-
-    const result = await response.json();
-    requestId =
-      typeof result?.request_id === 'string' ? result.request_id : null;
+    return {
+      target,
+      success: false,
+      requestId: null,
+      error:
+        error instanceof Error
+          ? `kie.ai request failed: ${error.message}`
+          : 'kie.ai request failed',
+    };
   }
 
   if (!requestId) {
@@ -230,7 +186,7 @@ async function queueGridGeneration(
       target,
       success: false,
       requestId: null,
-      error: 'fal.ai response missing request_id',
+      error: 'kie.ai response missing task_id',
     };
   }
 
@@ -276,10 +232,6 @@ export async function POST(req: NextRequest) {
         { error: 'storyboardId is required' },
         { status: 400 }
       );
-    }
-
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
     }
 
     if (!isValidTarget(target)) {
@@ -452,7 +404,6 @@ export async function POST(req: NextRequest) {
               gridAspectRatio: selectedGridAspectRatio,
               gridResolution: selectedGridResolution,
             },
-            providerResolution.provider,
             webhookBase,
             log
           )
@@ -473,7 +424,6 @@ export async function POST(req: NextRequest) {
               gridAspectRatio: selectedGridAspectRatio,
               gridResolution: selectedGridResolution,
             },
-            providerResolution.provider,
             webhookBase,
             log
           )
@@ -524,6 +474,20 @@ export async function POST(req: NextRequest) {
       grid_resolution: selectedGridResolution,
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     log.error('Regenerate ref grid error', {
       error: error instanceof Error ? error.message : String(error),
     });

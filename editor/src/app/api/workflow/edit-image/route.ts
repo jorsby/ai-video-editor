@@ -4,12 +4,11 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask, uploadFile } from '@/lib/kieai';
 import { createLogger } from '@/lib/logger';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
-const FAL_API_KEY = process.env.FAL_KEY!;
 const KIE_IMAGE_MODEL = 'nano-banana-2';
 
 interface EditImageInput {
@@ -21,12 +20,6 @@ interface EditImageInput {
   source?: 'first_frame' | 'background' | 'object';
   object_ids?: string[];
 }
-
-const EDIT_ENDPOINTS: Record<string, string> = {
-  banana: 'fal-ai/nano-banana-2/edit',
-  fibo: 'bria/fibo-edit/edit',
-  grok: 'xai/grok-imagine-image/edit',
-};
 
 const EDIT_PROMPT =
   'Seamlessly extend the image into all masked areas. Fill every masked pixel completely. No borders, frames, panels, black bars, blank areas, transparent areas, or unfilled regions. No new subjects, text, watermarks, seams, or visible edges. Maintain the same scene, style, color palette, and perspective throughout.';
@@ -199,11 +192,8 @@ async function getObjectContextForEnhance(
 
 async function sendEditRequest(
   context: FirstFrameContext | BackgroundContext | ObjectContext,
-  endpoint: string,
-  model: string,
   prompt: string,
   webhookStep: string,
-  provider: GenerationProvider,
   webhookBase: string,
   log: ReturnType<typeof createLogger>,
   referenceUrls?: string[]
@@ -224,113 +214,52 @@ async function sendEditRequest(
     step: webhookStep,
     [entityKey]: entityId,
   });
-  const callbackPath =
-    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const callbackPath = '/api/webhook/kieai';
   const webhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
-  log.api(provider === 'kie' ? 'kie.ai' : 'fal.ai', endpoint, {
+  log.api('kie.ai', KIE_IMAGE_MODEL, {
     [entityKey]: entityId,
     has_image_url: !!context.image_url,
     reference_count: referenceUrls?.length ?? 0,
   });
-  log.startTiming(
-    provider === 'kie' ? 'kie_outpaint_request' : 'fal_outpaint_request'
-  );
-
-  let requestBody: Record<string, unknown>;
-  if (referenceUrls && referenceUrls.length > 0) {
-    if (model === 'fibo') {
-      requestBody = { image_url: referenceUrls[0], instruction: prompt };
-    } else {
-      requestBody = { image_urls: referenceUrls, prompt };
-    }
-  } else if (model === 'fibo') {
-    requestBody = { image_url: context.image_url, instruction: prompt };
-  } else {
-    requestBody = { image_urls: [context.image_url], prompt };
-  }
-
-  // Disable safety checkers where supported
-  if (model === 'banana') {
-    requestBody.safety_tolerance = '6';
-  }
-
-  if (provider === 'kie') {
-    try {
-      const inputUrls =
-        referenceUrls && referenceUrls.length > 0
-          ? referenceUrls
-          : [context.image_url];
-      const uploadedReferenceUrls = await Promise.all(
-        inputUrls.map((sourceUrl, index) =>
-          uploadFile(
-            sourceUrl,
-            inferUploadFileName(
-              sourceUrl,
-              `${entityId}-image-input-${index + 1}.jpg`
-            )
-          ).then((uploaded) => uploaded.fileUrl)
-        )
-      );
-
-      const result = await createTask({
-        model: KIE_IMAGE_MODEL,
-        callbackUrl: webhookUrl,
-        input: {
-          prompt,
-          image_input: uploadedReferenceUrls.slice(0, 14),
-          output_format: 'jpg',
-        },
-      });
-
-      log.success('kie.ai outpaint request accepted', {
-        request_id: result.taskId,
-        time_ms: log.endTiming('kie_outpaint_request'),
-      });
-      return { requestId: result.taskId, error: null };
-    } catch (err) {
-      log.error('kie.ai outpaint request exception', {
-        error: err instanceof Error ? err.message : String(err),
-        time_ms: log.endTiming('kie_outpaint_request'),
-      });
-      return { requestId: null, error: 'Request exception' };
-    }
-  }
-
-  const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
+  log.startTiming('kie_outpaint_request');
 
   try {
-    const falResponse = await fetch(falUrl.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${FAL_API_KEY}`,
-        'Content-Type': 'application/json',
+    const inputUrls =
+      referenceUrls && referenceUrls.length > 0
+        ? referenceUrls
+        : [context.image_url];
+    const uploadedReferenceUrls = await Promise.all(
+      inputUrls.map((sourceUrl, index) =>
+        uploadFile(
+          sourceUrl,
+          inferUploadFileName(
+            sourceUrl,
+            `${entityId}-image-input-${index + 1}.jpg`
+          )
+        ).then((uploaded) => uploaded.fileUrl)
+      )
+    );
+
+    const result = await createTask({
+      model: KIE_IMAGE_MODEL,
+      callbackUrl: webhookUrl,
+      input: {
+        prompt,
+        image_input: uploadedReferenceUrls.slice(0, 14),
+        output_format: 'jpg',
       },
-      body: JSON.stringify(requestBody),
     });
-    if (!falResponse.ok) {
-      const errorText = await falResponse.text();
-      log.error('fal.ai outpaint request failed', {
-        status: falResponse.status,
-        error: errorText,
-        time_ms: log.endTiming('fal_outpaint_request'),
-      });
-      return {
-        requestId: null,
-        error: `fal.ai request failed: ${falResponse.status}`,
-      };
-    }
-    const falResult = await falResponse.json();
-    log.success('fal.ai outpaint request accepted', {
-      request_id: falResult.request_id,
-      time_ms: log.endTiming('fal_outpaint_request'),
+
+    log.success('kie.ai outpaint request accepted', {
+      request_id: result.taskId,
+      time_ms: log.endTiming('kie_outpaint_request'),
     });
-    return { requestId: falResult.request_id, error: null };
+    return { requestId: result.taskId, error: null };
   } catch (err) {
-    log.error('fal.ai outpaint request exception', {
+    log.error('kie.ai outpaint request exception', {
       error: err instanceof Error ? err.message : String(err),
-      time_ms: log.endTiming('fal_outpaint_request'),
+      time_ms: log.endTiming('kie_outpaint_request'),
     });
     return { requestId: null, error: 'Request exception' };
   }
@@ -369,18 +298,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json(
-        { success: false, error: 'Missing FAL_KEY' },
-        { status: 500 }
-      );
-    }
-
-    if (providerResolution.provider === 'kie' && model !== 'banana') {
+    if (model !== 'banana') {
       return NextResponse.json(
         {
           success: false,
-          error: 'kie provider currently supports only banana model',
+          error:
+            'Image editing currently supports only the "banana" model on KIE for this endpoint.',
         },
         { status: 400 }
       );
@@ -424,7 +347,6 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createServiceClient();
-    const endpoint = EDIT_ENDPOINTS[model] ?? EDIT_ENDPOINTS.banana;
 
     // --- ref_to_image: single request with multiple reference images ---
     if (action === 'ref_to_image') {
@@ -464,11 +386,8 @@ export async function POST(req: NextRequest) {
         .eq('id', targetContext.first_frame_id);
       const { requestId, error: reqError } = await sendEditRequest(
         targetContext,
-        endpoint,
-        model,
         input.prompt as string,
         'EnhanceImage',
-        providerResolution.provider,
         webhookBase,
         log,
         referenceUrls
@@ -552,11 +471,8 @@ export async function POST(req: NextRequest) {
           .eq('grid_position', context.grid_position);
         const { requestId, error } = await sendEditRequest(
           context,
-          endpoint,
-          model,
           objPrompt,
           'EnhanceImage',
-          providerResolution.provider,
           webhookBase,
           log
         );
@@ -670,11 +586,8 @@ export async function POST(req: NextRequest) {
         .eq('id', entityId);
       const { requestId, error } = await sendEditRequest(
         context,
-        endpoint,
-        model,
         prompt,
         webhookStep,
-        providerResolution.provider,
         webhookBase,
         log
       );
@@ -725,6 +638,20 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     log.error('Unexpected error', {
       error: error instanceof Error ? error.message : String(error),
     });

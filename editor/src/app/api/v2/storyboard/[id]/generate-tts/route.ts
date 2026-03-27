@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createTask } from '@/lib/kieai';
 import {
+  isProviderRoutingError,
   resolveProvider,
-  type GenerationProvider,
 } from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
@@ -17,12 +17,6 @@ const KIE_TTS_MODELS: Record<string, string> = {
   'turbo-v2.5': 'elevenlabs/text-to-speech-turbo-2-5',
   'multilingual-v2': 'elevenlabs/text-to-speech-multilingual-v2',
 };
-
-const FAL_TTS_MODELS: Record<string, string> = {
-  'turbo-v2.5': 'fal-ai/elevenlabs/tts/turbo-v2.5',
-  'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
-};
-const DEFAULT_FAL_TTS_MODEL = 'turbo-v2.5';
 
 const bodySchema = z.object({
   voice_id: z.string().min(1).optional(),
@@ -128,7 +122,7 @@ function parseInput(reqBody: unknown) {
       voiceId: parsedBody.data.voice_id ?? DEFAULT_VOICE_ID,
       language: parsedBody.data.language ?? 'en',
       speed: Math.min(1.2, Math.max(0.7, parsedBody.data.speed ?? 1.0)),
-      ttsModel: parsedBody.data.tts_model ?? DEFAULT_FAL_TTS_MODEL,
+      ttsModel: parsedBody.data.tts_model ?? 'turbo-v2.5',
     },
   };
 }
@@ -173,80 +167,35 @@ async function queueTtsRequest(params: {
   voiceId: string;
   speed: number;
   webhookBase: string;
-  provider: GenerationProvider;
   ttsModel: string;
 }) {
-  if (params.provider === 'kie') {
-    const callbackUrl = `${params.webhookBase}/api/webhook/kieai?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
+  const callbackUrl = `${params.webhookBase}/api/webhook/kieai?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
 
-    try {
-      const kieModel = KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL;
+  try {
+    const kieModel = KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL;
 
-      const result = await createTask({
-        model: kieModel,
-        callbackUrl,
-        input: {
-          text: params.scene.text,
-          voice: params.voiceId,
-          speed: params.speed,
-          previous_text: params.scene.previous_text,
-          next_text: params.scene.next_text,
-        },
-      });
+    const result = await createTask({
+      model: kieModel,
+      callbackUrl,
+      input: {
+        text: params.scene.text,
+        voice: params.voiceId,
+        speed: params.speed,
+        previous_text: params.scene.previous_text,
+        next_text: params.scene.next_text,
+      },
+    });
 
-      return { requestId: result.taskId, error: null };
-    } catch (error) {
-      return {
-        requestId: null,
-        error:
-          error instanceof Error
-            ? `kie.ai request failed: ${error.message}`
-            : 'kie.ai request failed',
-      };
-    }
-  }
-
-  const webhookUrl = `${params.webhookBase}/api/webhook/fal?step=GenerateTTS&voiceover_id=${params.scene.voiceover_id}`;
-
-  const falEndpoint =
-    FAL_TTS_MODELS[params.ttsModel] ?? FAL_TTS_MODELS[DEFAULT_FAL_TTS_MODEL];
-  const falUrl = new URL(`https://queue.fal.run/${falEndpoint}`);
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  const falResponse = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${process.env.FAL_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: params.scene.text,
-      voice: params.voiceId,
-      stability: 0.5,
-      similarity_boost: 0.75,
-      speed: params.speed,
-      previous_text: params.scene.previous_text,
-      next_text: params.scene.next_text,
-    }),
-  });
-
-  if (!falResponse.ok) {
-    const errorText = await falResponse.text();
+    return { requestId: result.taskId, error: null };
+  } catch (error) {
     return {
       requestId: null,
-      error: `fal.ai request failed (${falResponse.status}): ${errorText}`,
+      error:
+        error instanceof Error
+          ? `kie.ai request failed: ${error.message}`
+          : 'kie.ai request failed',
     };
   }
-
-  const falResult = await falResponse.json();
-  const requestId =
-    typeof falResult?.request_id === 'string' ? falResult.request_id : null;
-
-  if (!requestId) {
-    return { requestId: null, error: 'fal.ai response missing request_id' };
-  }
-
-  return { requestId, error: null };
 }
 
 async function processSceneTts(params: {
@@ -255,7 +204,6 @@ async function processSceneTts(params: {
   voiceId: string;
   speed: number;
   webhookBase: string;
-  provider: GenerationProvider;
   storyboardId: string;
   language: string;
   ttsModel: string;
@@ -301,7 +249,6 @@ async function processSceneTts(params: {
     voiceId: params.voiceId,
     speed: params.speed,
     webhookBase: params.webhookBase,
-    provider: params.provider,
     ttsModel: params.ttsModel,
   });
 
@@ -327,12 +274,8 @@ async function processSceneTts(params: {
   }
 
   const generationMeta = {
-    provider: params.provider,
-    model:
-      params.provider === 'kie'
-        ? (KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL)
-        : (FAL_TTS_MODELS[params.ttsModel] ??
-          FAL_TTS_MODELS[DEFAULT_FAL_TTS_MODEL]),
+    provider: 'kie',
+    model: KIE_TTS_MODELS[params.ttsModel] ?? DEFAULT_TTS_MODEL,
     tts_model: params.ttsModel,
     voice_id: params.voiceId,
     speed: params.speed,
@@ -394,10 +337,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body: input.data,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
     const db = createServiceClient('studio');
 
     const { data: storyboard, error: storyboardError } = await db
@@ -453,7 +392,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         voiceId: input.data.voiceId,
         speed: input.data.speed,
         webhookBase,
-        provider: providerResolution.provider,
         storyboardId,
         language: input.data.language,
         ttsModel: input.data.ttsModel,
@@ -476,6 +414,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('[v2/storyboard/generate-tts] Unexpected error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

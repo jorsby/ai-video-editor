@@ -2,7 +2,10 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { queueKieImageTask } from '@/lib/kie-image';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
@@ -76,6 +79,24 @@ const PREFIX_BY_ASSET_TYPE: Record<string, string> = {
   prop: 'Single isolated prop cutout on transparent background (alpha), no text, clean edges, no background scene. ',
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveSeriesDefaultAspectRatio(
+  metadata: unknown
+): AspectRatio | null {
+  if (!isRecord(metadata)) return null;
+
+  const aspectRatio = metadata.aspect_ratio;
+  if (typeof aspectRatio !== 'string') return null;
+
+  const normalized = aspectRatio.trim();
+  return ASPECT_RATIOS.includes(normalized as AspectRatio)
+    ? (normalized as AspectRatio)
+    : null;
+}
+
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id: seriesId } = await context.params;
@@ -98,8 +119,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const requestedAssetIds = parsedBody.data.asset_ids;
     const resolution =
       (parsedBody.data.resolution as Resolution | undefined) ?? '1K';
-    const aspectRatio =
-      (parsedBody.data.aspect_ratio as AspectRatio | undefined) ?? '1:1';
+    const requestedAspectRatio = parsedBody.data.aspect_ratio as
+      | AspectRatio
+      | undefined;
     const outputFormat = parsedBody.data.output_format ?? 'png';
     const safetyTolerance = parsedBody.data.safety_tolerance ?? '4';
     const limitGenerations = parsedBody.data.limit_generations ?? true;
@@ -110,15 +132,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       body: parsedBody.data,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
     const db = createServiceClient('studio');
 
     const { data: series, error: seriesError } = await db
       .from('series')
-      .select('id')
+      .select('id, metadata')
       .eq('id', seriesId)
       .eq('user_id', user.id)
       .single();
@@ -126,6 +144,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (seriesError || !series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
+
+    const seriesDefaultAspectRatio = resolveSeriesDefaultAspectRatio(
+      series.metadata
+    );
 
     let assetsQuery = db
       .from('series_assets')
@@ -189,8 +211,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       asset_name: string;
       type: string;
       request_id: string;
-      fal_request_id: string;
-      provider: 'fal' | 'kie';
+      provider: 'kie';
       status: 'queued';
     }> = [];
 
@@ -230,88 +251,42 @@ export async function POST(req: NextRequest, context: RouteContext) {
           ? asset.description.trim()
           : asset.name;
       const prompt = `${prefix}${basePrompt}`;
+      const effectiveAspectRatio: AspectRatio =
+        requestedAspectRatio ??
+        (asset.type === 'location'
+          ? (seriesDefaultAspectRatio ?? '9:16')
+          : '1:1');
 
-      const callbackPath =
-        providerResolution.provider === 'kie'
-          ? '/api/webhook/kieai'
-          : '/api/webhook/fal';
+      const callbackPath = '/api/webhook/kieai';
       const webhookUrl = `${webhookBase}${callbackPath}?step=SeriesAssetImage&variant_id=${variantId}`;
 
       let requestId: string | null = null;
-      let modelForJob = 'fal-ai/nano-banana-2';
+      let modelForJob = 'nano-banana-2';
 
-      if (providerResolution.provider === 'kie') {
-        try {
-          const queued = await queueKieImageTask({
-            prompt,
-            callbackUrl: webhookUrl,
-            aspectRatio,
-            resolution,
-            outputFormat,
-          });
-
-          requestId = queued.requestId;
-          modelForJob = queued.model;
-        } catch (error) {
-          return NextResponse.json(
-            {
-              error: `kie.ai request failed for asset ${asset.id}: ${error instanceof Error ? error.message : String(error)}`,
-            },
-            { status: 500 }
-          );
-        }
-      } else {
-        const falUrl = new URL('https://queue.fal.run/fal-ai/nano-banana-2');
-        falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-        const falPayload: Record<string, unknown> = {
+      try {
+        const queued = await queueKieImageTask({
           prompt,
-          num_images: 1,
+          callbackUrl: webhookUrl,
+          aspectRatio: effectiveAspectRatio,
           resolution,
-          aspect_ratio: aspectRatio,
-          output_format: outputFormat,
-          safety_tolerance: safetyTolerance,
-          limit_generations: limitGenerations,
-        };
-
-        if (parsedBody.data.enable_web_search !== undefined) {
-          falPayload.enable_web_search = parsedBody.data.enable_web_search;
-        }
-
-        if (parsedBody.data.thinking_level) {
-          falPayload.thinking_level = parsedBody.data.thinking_level;
-        }
-
-        const falRes = await fetch(falUrl.toString(), {
-          method: 'POST',
-          headers: {
-            Authorization: `Key ${process.env.FAL_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(falPayload),
+          outputFormat,
         });
 
-        if (!falRes.ok) {
-          const errText = await falRes.text();
-          return NextResponse.json(
-            {
-              error: `fal.ai request failed for asset ${asset.id}: ${errText}`,
-            },
-            { status: 500 }
-          );
-        }
-
-        const result = await falRes.json();
-        requestId =
-          typeof result?.request_id === 'string' ? result.request_id : null;
+        requestId = queued.requestId;
+        modelForJob = queued.model;
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error: `kie.ai request failed for asset ${asset.id}: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          { status: 500 }
+        );
       }
 
       if (!requestId) {
-        const providerName =
-          providerResolution.provider === 'kie' ? 'kie.ai' : 'fal.ai';
         return NextResponse.json(
           {
-            error: `${providerName} response missing request/task id for asset ${asset.id}`,
+            error: `kie.ai response missing task id for asset ${asset.id}`,
           },
           { status: 500 }
         );
@@ -331,7 +306,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             variant_id: variantId,
             asset_type: asset.type,
             resolution,
-            aspect_ratio: aspectRatio,
+            aspect_ratio: effectiveAspectRatio,
             output_format: outputFormat,
             safety_tolerance: safetyTolerance,
             limit_generations: limitGenerations,
@@ -352,7 +327,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         asset_name: asset.name,
         type: asset.type,
         request_id: requestId,
-        fal_request_id: requestId,
         provider: providerResolution.provider,
         status: 'queued',
       });
@@ -363,6 +337,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       jobs,
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('[v2/series/generate-assets] Unexpected error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

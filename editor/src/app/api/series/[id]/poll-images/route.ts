@@ -6,14 +6,13 @@ import { getTaskStatus, parseResultJson } from '@/lib/kieai';
 import { type NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 
-const FAL_KEY = process.env.FAL_KEY!;
 const SERIES_ASSETS_BUCKET = 'series-assets';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 interface PendingJobInput {
   request_id: string;
-  provider?: 'fal' | 'kie';
+  provider?: 'kie';
   model?: string;
   type?: 'grid' | 'single';
   variant_ids?: string[];
@@ -26,7 +25,7 @@ interface JobMeta {
   model?: string | null;
   type?: string | null;
   config?: {
-    provider?: 'fal' | 'kie';
+    provider?: 'kie';
     variant_id?: string;
     variant_ids?: string[];
     cols?: number;
@@ -35,23 +34,9 @@ interface JobMeta {
   } | null;
 }
 
-function resolveModelEndpoint(model?: string | null): string {
-  if (!model) return 'fal-ai/nano-banana-2';
-
-  if (model.includes('/')) return model;
-
-  const aliases: Record<string, string> = {
-    'nano-banana-2': 'fal-ai/nano-banana-2',
-    banana: 'fal-ai/nano-banana-2',
-  };
-
-  return aliases[model] ?? model;
-}
-
-function extractImages(payload: any): Array<{ url?: string }> {
-  if (Array.isArray(payload?.images)) return payload.images;
-  if (Array.isArray(payload?.output?.images)) return payload.output.images;
-  return [];
+function resolveModelName(model?: string | null): string {
+  if (!model) return 'nano-banana-2';
+  return model;
 }
 
 function extractKieImageUrl(result: Record<string, unknown>): string | null {
@@ -82,7 +67,7 @@ function extractKieImageUrl(result: Record<string, unknown>): string | null {
 /**
  * POST /api/series/[id]/poll-images
  *
- * Polls fal.ai for pending image generation jobs and processes completed ones.
+ * Polls kie.ai for pending image generation jobs and processes completed ones.
  * Fallback for missing webhooks.
  *
  * Body:
@@ -152,9 +137,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
           .maybeSingle();
         const jobMeta = (jobMetaRaw ?? null) as JobMeta | null;
 
-        const provider =
-          job.provider ?? jobMeta?.config?.provider ?? ('fal' as 'fal' | 'kie');
-        const modelEndpoint = resolveModelEndpoint(job.model ?? jobMeta?.model);
+        const provider = job.provider ?? jobMeta?.config?.provider ?? 'kie';
+        if (provider !== 'kie') {
+          results.push({
+            request_id: job.request_id,
+            status: 'ERROR',
+            images_saved: 0,
+            error:
+              'Unsupported provider for polling. Only "kie" is supported after FAL removal.',
+          });
+          continue;
+        }
+
+        const modelName = resolveModelName(job.model ?? jobMeta?.model);
         const type = (job.type ?? jobMeta?.type ?? 'single') as
           | 'grid'
           | 'single';
@@ -177,114 +172,49 @@ export async function POST(req: NextRequest, context: RouteContext) {
         let images: Array<{ url?: string }> = [];
         let remoteStatus = 'COMPLETED';
 
-        if (provider === 'kie') {
-          try {
-            const taskResult = await getTaskStatus(job.request_id);
-            const state = taskResult.data?.state ?? 'unknown';
+        try {
+          const taskResult = await getTaskStatus(job.request_id);
+          const state = taskResult.data?.state ?? 'unknown';
 
-            if (state !== 'success') {
-              results.push({
-                request_id: job.request_id,
-                status: state,
-                images_saved: 0,
-                error:
-                  state === 'fail'
-                    ? (taskResult.msg ?? 'kie.ai task failed')
-                    : undefined,
-              });
-              continue;
-            }
-
-            const result = parseResultJson(taskResult.data?.resultJson);
-            const imageUrl = extractKieImageUrl(result);
-
-            if (!imageUrl) {
-              results.push({
-                request_id: job.request_id,
-                status: state,
-                images_saved: 0,
-                error: 'No images in kie.ai response',
-              });
-              continue;
-            }
-
-            images = [{ url: imageUrl }];
-            remoteStatus = state;
-          } catch (error) {
+          if (state !== 'success') {
             results.push({
               request_id: job.request_id,
-              status: 'ERROR',
+              status: state,
               images_saved: 0,
               error:
-                error instanceof Error
-                  ? `kie.ai status check failed: ${error.message}`
-                  : 'kie.ai status check failed',
-            });
-            continue;
-          }
-        } else {
-          // Check fal.ai status
-          const statusUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}/status`;
-          const statusRes = await fetch(statusUrl, {
-            headers: { Authorization: `Key ${FAL_KEY}` },
-          });
-
-          if (!statusRes.ok) {
-            const errText = await statusRes.text();
-            results.push({
-              request_id: job.request_id,
-              status: 'ERROR',
-              images_saved: 0,
-              error: `Status check failed: ${statusRes.status} ${errText.slice(0, 120)}`,
-            });
-            continue;
-          }
-
-          const statusData = await statusRes.json();
-
-          if (statusData.status !== 'COMPLETED') {
-            results.push({
-              request_id: job.request_id,
-              status: statusData.status ?? 'UNKNOWN',
-              images_saved: 0,
-              error:
-                statusData.status === 'ERROR'
-                  ? (statusData.error ?? 'fal.ai error')
+                state === 'fail'
+                  ? (taskResult.msg ?? 'kie.ai task failed')
                   : undefined,
             });
             continue;
           }
 
-          // Fetch result
-          const resultUrl = `https://queue.fal.run/${modelEndpoint}/requests/${job.request_id}`;
-          const resultRes = await fetch(resultUrl, {
-            headers: { Authorization: `Key ${FAL_KEY}` },
+          const result = parseResultJson(taskResult.data?.resultJson);
+          const imageUrl = extractKieImageUrl(result);
+
+          if (!imageUrl) {
+            results.push({
+              request_id: job.request_id,
+              status: state,
+              images_saved: 0,
+              error: 'No images in kie.ai response',
+            });
+            continue;
+          }
+
+          images = [{ url: imageUrl }];
+          remoteStatus = state;
+        } catch (error) {
+          results.push({
+            request_id: job.request_id,
+            status: 'ERROR',
+            images_saved: 0,
+            error:
+              error instanceof Error
+                ? `kie.ai status check failed: ${error.message}`
+                : 'kie.ai status check failed',
           });
-
-          if (!resultRes.ok) {
-            const errText = await resultRes.text();
-            results.push({
-              request_id: job.request_id,
-              status: 'COMPLETED',
-              images_saved: 0,
-              error: `Result fetch failed: ${resultRes.status} ${errText.slice(0, 120)}`,
-            });
-            continue;
-          }
-
-          const resultData = await resultRes.json();
-          images = extractImages(resultData);
-          remoteStatus = statusData.status ?? 'COMPLETED';
-
-          if (!images.length || !images[0]?.url) {
-            results.push({
-              request_id: job.request_id,
-              status: remoteStatus,
-              images_saved: 0,
-              error: 'No images in fal.ai response',
-            });
-            continue;
-          }
+          continue;
         }
 
         if (type === 'grid') {
@@ -375,16 +305,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
               metadata: {
                 provider,
                 request_id: job.request_id,
-                ...(provider === 'fal'
-                  ? { fal_request_id: job.request_id }
-                  : { kie_task_id: job.request_id }),
+                kie_task_id: job.request_id,
                 grid_position: idx,
                 source: 'poll_fallback',
                 generation_mode: 'grid',
                 prompt: cellPrompt ?? jobMeta?.prompt ?? null,
                 cell_prompt: cellPrompt,
                 grid_prompt: jobMeta?.prompt ?? null,
-                model: jobMeta?.model ?? modelEndpoint,
+                model: jobMeta?.model ?? modelName,
               },
             });
             saved++;
@@ -467,12 +395,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
             metadata: {
               provider,
               request_id: job.request_id,
-              ...(provider === 'fal'
-                ? { fal_request_id: job.request_id }
-                : { kie_task_id: job.request_id }),
+              kie_task_id: job.request_id,
               source: 'poll_fallback',
               prompt: jobMeta?.prompt ?? null,
-              model: jobMeta?.model ?? modelEndpoint,
+              model: jobMeta?.model ?? modelName,
             },
           });
 

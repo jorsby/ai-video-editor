@@ -4,6 +4,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { queueKieImageTask } from '@/lib/kie-image';
 import type { createLogger } from '@/lib/logger';
 import {
+  isProviderRoutingError,
   resolveProvider,
   type GenerationProvider,
 } from '@/lib/provider-routing';
@@ -33,86 +34,45 @@ interface FalRequestResult {
 }
 
 async function sendFalRequest(
-  provider: GenerationProvider,
+  _provider: GenerationProvider,
   webhookUrl: string,
   prompt: string,
   gridAspectRatio: GridAspectRatio,
   gridResolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<FalRequestResult> {
-  if (provider === 'kie') {
-    log.api('kie.ai', 'nano-banana-2', {
-      prompt_length: prompt.length,
-      grid_aspect_ratio: gridAspectRatio,
-      grid_resolution: gridResolution,
-    });
-    log.startTiming('kie_request');
-
-    try {
-      const queued = await queueKieImageTask({
-        prompt,
-        callbackUrl: webhookUrl,
-        aspectRatio: gridAspectRatio,
-        resolution: gridResolution,
-        outputFormat: 'jpg',
-      });
-
-      log.success('kie.ai request accepted', {
-        request_id: queued.requestId,
-        time_ms: log.endTiming('kie_request'),
-      });
-      return { requestId: queued.requestId, error: null };
-    } catch (error) {
-      log.error('kie.ai request failed', {
-        error: error instanceof Error ? error.message : String(error),
-        time_ms: log.endTiming('kie_request'),
-      });
-
-      return {
-        requestId: null,
-        error: 'kie.ai request failed',
-      };
-    }
-  }
-
-  const falUrl = new URL(
-    'https://queue.fal.run/workflows/octupost/generategridimage'
-  );
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  log.api('fal.ai', 'octupost/generategridimage', {
+  log.api('kie.ai', 'nano-banana-2', {
     prompt_length: prompt.length,
+    grid_aspect_ratio: gridAspectRatio,
+    grid_resolution: gridResolution,
   });
-  log.startTiming('fal_request');
+  log.startTiming('kie_request');
 
-  const falResponse = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt, web_search: true }),
-  });
-
-  if (!falResponse.ok) {
-    const errorText = await falResponse.text();
-    log.error('fal.ai request failed', {
-      status: falResponse.status,
-      error: errorText,
-      time_ms: log.endTiming('fal_request'),
+  try {
+    const queued = await queueKieImageTask({
+      prompt,
+      callbackUrl: webhookUrl,
+      aspectRatio: gridAspectRatio,
+      resolution: gridResolution,
+      outputFormat: 'jpg',
     });
+
+    log.success('kie.ai request accepted', {
+      request_id: queued.requestId,
+      time_ms: log.endTiming('kie_request'),
+    });
+    return { requestId: queued.requestId, error: null };
+  } catch (error) {
+    log.error('kie.ai request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      time_ms: log.endTiming('kie_request'),
+    });
+
     return {
       requestId: null,
-      error: `fal.ai request failed: ${falResponse.status}`,
+      error: 'kie.ai request failed',
     };
   }
-
-  const falResult = await falResponse.json();
-  log.success('fal.ai request accepted', {
-    request_id: falResult.request_id,
-    time_ms: log.endTiming('fal_request'),
-  });
-  return { requestId: falResult.request_id, error: null };
 }
 
 // ── start-workflow logic (image_to_video) ─────────────────────────────
@@ -279,8 +239,7 @@ async function executeStartWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const callbackPath =
-    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const callbackPath = '/api/webhook/kieai';
   const resolvedWebhookUrl = `${webhookBase}${callbackPath}?${webhookParams.toString()}`;
 
   const selectedGridAspectRatio = isGridAspectRatio(
@@ -446,94 +405,51 @@ function validateRefWorkflowInput(input: RefWorkflowInput): string | null {
 }
 
 async function sendFalGridRequest(
-  provider: GenerationProvider,
+  _provider: GenerationProvider,
   prompt: string,
   webhookUrl: string,
   gridAspectRatio: GridAspectRatio,
   gridResolution: GridResolution,
   log: ReturnType<typeof createLogger>
 ): Promise<FalRequestResult> {
-  const falPrompt = applyGridGenerationSettingsToPrompt(
+  const gridPrompt = applyGridGenerationSettingsToPrompt(
     prompt,
     gridAspectRatio,
     gridResolution
   );
 
-  if (provider === 'kie') {
-    log.api('kie.ai', 'nano-banana-2', {
-      prompt_length: falPrompt.length,
-      grid_aspect_ratio: gridAspectRatio,
-      grid_resolution: gridResolution,
-    });
-    log.startTiming('kie_request');
-
-    try {
-      const queued = await queueKieImageTask({
-        prompt: falPrompt,
-        callbackUrl: webhookUrl,
-        aspectRatio: gridAspectRatio,
-        resolution: gridResolution,
-        outputFormat: 'jpg',
-      });
-
-      log.success('kie.ai request accepted', {
-        request_id: queued.requestId,
-        time_ms: log.endTiming('kie_request'),
-      });
-      return { requestId: queued.requestId, error: null };
-    } catch (error) {
-      log.error('kie.ai request failed', {
-        error: error instanceof Error ? error.message : String(error),
-        time_ms: log.endTiming('kie_request'),
-      });
-
-      return {
-        requestId: null,
-        error: 'kie.ai request failed',
-      };
-    }
-  }
-
-  const falUrl = new URL(
-    'https://queue.fal.run/workflows/octupost/generategridimage'
-  );
-  falUrl.searchParams.set('fal_webhook', webhookUrl);
-
-  log.api('fal.ai', 'octupost/generategridimage', {
-    prompt_length: falPrompt.length,
+  log.api('kie.ai', 'nano-banana-2', {
+    prompt_length: gridPrompt.length,
     grid_aspect_ratio: gridAspectRatio,
     grid_resolution: gridResolution,
   });
-  log.startTiming('fal_request');
+  log.startTiming('kie_request');
 
-  const falResponse = await fetch(falUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Key ${getRequiredEnv('FAL_KEY')}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt: falPrompt, web_search: true }),
-  });
-
-  if (!falResponse.ok) {
-    const errorText = await falResponse.text();
-    log.error('fal.ai request failed', {
-      status: falResponse.status,
-      error: errorText,
-      time_ms: log.endTiming('fal_request'),
+  try {
+    const queued = await queueKieImageTask({
+      prompt: gridPrompt,
+      callbackUrl: webhookUrl,
+      aspectRatio: gridAspectRatio,
+      resolution: gridResolution,
+      outputFormat: 'jpg',
     });
+
+    log.success('kie.ai request accepted', {
+      request_id: queued.requestId,
+      time_ms: log.endTiming('kie_request'),
+    });
+    return { requestId: queued.requestId, error: null };
+  } catch (error) {
+    log.error('kie.ai request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      time_ms: log.endTiming('kie_request'),
+    });
+
     return {
       requestId: null,
-      error: `fal.ai request failed: ${falResponse.status}`,
+      error: 'kie.ai request failed',
     };
   }
-
-  const falResult = await falResponse.json();
-  log.success('fal.ai request accepted', {
-    request_id: falResult.request_id,
-    time_ms: log.endTiming('fal_request'),
-  });
-  return { requestId: falResult.request_id, error: null };
 }
 
 /**
@@ -683,8 +599,7 @@ async function executeStartRefWorkflow(
     width: width.toString(),
     height: height.toString(),
   });
-  const callbackPath =
-    provider === 'kie' ? '/api/webhook/kieai' : '/api/webhook/fal';
+  const callbackPath = '/api/webhook/kieai';
   const objectsWebhookUrl = `${webhookBase}${callbackPath}?${objectsWebhookParams.toString()}`;
 
   const bgWebhookParams = new URLSearchParams({
@@ -845,9 +760,6 @@ export async function POST(req: NextRequest) {
       body,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
     parsedStoryboardId = storyboardId;
 
     if (!storyboardId) {
@@ -1043,6 +955,20 @@ export async function POST(req: NextRequest) {
       } catch {
         // best effort rollback
       }
+    }
+
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
     }
 
     const message = error instanceof Error ? error.message : String(error);

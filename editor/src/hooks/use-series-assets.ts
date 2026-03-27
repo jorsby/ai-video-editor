@@ -284,7 +284,15 @@ export function useSeriesAssets(
         let foundSeriesId: string | null = null;
 
         // Try project settings first (has series_id from create-project)
-        const projRes = await fetch(`/api/projects/${projectId}`);
+        let projRes = await fetch(`/api/projects/${projectId}`);
+
+        // Auth/session can race on first request in local dev.
+        // Retry once for transient 401/5xx before falling back.
+        if (projRes.status === 401 || projRes.status >= 500) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          projRes = await fetch(`/api/projects/${projectId}`);
+        }
+
         if (projRes.ok) {
           const projData = await projRes.json();
           const settings = projData?.project?.settings as Record<
@@ -355,7 +363,8 @@ export function useSeriesAssets(
         for (const asset of assetsRows) {
           for (const variant of asset.series_asset_variants ?? []) {
             for (const image of variant.series_asset_variant_images ?? []) {
-              const requestId = image?.metadata?.fal_request_id;
+              const requestId =
+                image?.metadata?.kie_task_id ?? image?.metadata?.request_id;
               if (typeof requestId === 'string' && requestId.trim()) {
                 savedRequestIds.add(requestId.trim());
               }

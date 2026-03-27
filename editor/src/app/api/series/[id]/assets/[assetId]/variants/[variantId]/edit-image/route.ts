@@ -2,18 +2,15 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
 import { createTask, uploadFile } from '@/lib/kieai';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { getSeries } from '@/lib/supabase/series-service';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 import { type NextRequest, NextResponse } from 'next/server';
 
-const FAL_KEY = process.env.FAL_KEY!;
 const KIE_IMAGE_MODEL = 'nano-banana-2';
-
-// Models that support image editing on fal.ai
-const EDIT_MODELS: Record<string, string> = {
-  banana: 'fal-ai/nano-banana-2/edit',
-};
 
 type RouteContext = {
   params: Promise<{ id: string; assetId: string; variantId: string }>;
@@ -72,6 +69,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
+    const { data: asset } = await dbClient
+      .from('series_assets')
+      .select('id, type')
+      .eq('id', assetId)
+      .eq('series_id', seriesId)
+      .single();
+
+    if (!asset) {
+      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    }
+
     // Get current variant image as default source
     const { data: variant } = await dbClient
       .from('series_asset_variants')
@@ -92,15 +100,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const { count: usageCount } = await dbClient
-      .from('episode_asset_variants')
+      .from('episode_assets')
       .select('*', { count: 'exact', head: true })
-      .eq('variant_id', variantId);
+      .eq('asset_id', assetId);
 
     if ((usageCount ?? 0) > 0) {
       return NextResponse.json(
         {
           error:
-            'Variant is already used in one or more episodes and cannot be edited',
+            'Asset is already mapped to one or more episodes and cannot be edited',
         },
         { status: 409 }
       );
@@ -119,7 +127,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       resolution?: string;
     };
     const providerResolution = await resolveProvider({
-      service: 'video',
+      service: 'image',
       req,
       body,
     });
@@ -131,22 +139,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
-    }
-
-    if (providerResolution.provider === 'kie' && model !== 'banana') {
-      return NextResponse.json(
-        { error: 'kie provider currently supports only banana model' },
-        { status: 400 }
-      );
-    }
-
-    const endpoint = EDIT_MODELS[model];
-    if (!endpoint) {
+    if (model !== 'banana') {
       return NextResponse.json(
         {
-          error: `model must be one of: ${Object.keys(EDIT_MODELS).join(', ')}`,
+          error:
+            'Image editing currently supports only the "banana" model on KIE for this endpoint.',
         },
         { status: 400 }
       );
@@ -184,80 +181,42 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Build webhook URL
-    const callbackPath =
-      providerResolution.provider === 'kie'
-        ? '/api/webhook/kieai'
-        : '/api/webhook/fal';
+    const callbackPath = '/api/webhook/kieai';
     const webhookUrl = new URL(`${webhookBase}${callbackPath}`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
+    const forcedAspectRatio = asset.type === 'location' ? '9:16' : '1:1';
+
     let requestId: string | null = null;
-    let modelForJob = model;
-    let endpointForResponse = endpoint;
+    const modelForJob = KIE_IMAGE_MODEL;
+    const endpointForResponse = 'https://api.kie.ai/api/v1/jobs/createTask';
 
-    if (providerResolution.provider === 'kie') {
-      try {
-        const uploadedSource = await uploadFile(
-          sourceUrl,
-          inferUploadFileName(sourceUrl, `${variantId}-source.jpg`)
-        );
+    try {
+      const uploadedSource = await uploadFile(
+        sourceUrl,
+        inferUploadFileName(sourceUrl, `${variantId}-source.jpg`)
+      );
 
-        const queued = await createTask({
-          model: KIE_IMAGE_MODEL,
-          callbackUrl: webhookUrl.toString(),
-          input: {
-            prompt,
-            image_input: [uploadedSource.fileUrl],
-            resolution: resolution.toUpperCase(),
-            output_format: 'jpg',
-          },
-        });
-
-        requestId = queued.taskId;
-        modelForJob = KIE_IMAGE_MODEL;
-        endpointForResponse = 'https://api.kie.ai/api/v1/jobs/createTask';
-      } catch (error) {
-        console.error('[EditImage] kie.ai failed:', error);
-        return NextResponse.json(
-          { error: 'Edit request failed' },
-          { status: 500 }
-        );
-      }
-    } else {
-      // Submit to fal.ai edit endpoint
-      const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-      falUrl.searchParams.set('fal_webhook', webhookUrl.toString());
-
-      const falRes = await fetch(falUrl.toString(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Key ${FAL_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const queued = await createTask({
+        model: KIE_IMAGE_MODEL,
+        callbackUrl: webhookUrl.toString(),
+        input: {
           prompt,
-          image_urls: [sourceUrl],
-          resolution,
-          output_format: 'jpeg',
-          safety_tolerance: '6',
-        }),
+          image_input: [uploadedSource.fileUrl],
+          aspect_ratio: forcedAspectRatio,
+          resolution: resolution.toUpperCase(),
+          output_format: 'jpg',
+        },
       });
 
-      if (!falRes.ok) {
-        const errText = await falRes.text();
-        console.error('[EditImage] fal.ai failed:', falRes.status, errText);
-        return NextResponse.json(
-          { error: 'Edit request failed' },
-          { status: 500 }
-        );
-      }
-
-      const falData = await falRes.json();
-      requestId =
-        typeof falData?.request_id === 'string' ? falData.request_id : null;
-      modelForJob = model;
-      endpointForResponse = endpoint;
+      requestId = queued.taskId;
+    } catch (error) {
+      console.error('[EditImage] kie.ai failed:', error);
+      return NextResponse.json(
+        { error: 'Edit request failed' },
+        { status: 500 }
+      );
     }
 
     if (!requestId) {
@@ -269,11 +228,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     console.log('[EditImage] Submitted', {
       request_id: requestId,
-      model,
-      endpoint,
+      model: modelForJob,
       endpoint_for_provider: endpointForResponse,
       variant_id: variantId,
       resolution,
+      aspect_ratio: forcedAspectRatio,
       provider: providerResolution.provider,
     });
 
@@ -288,38 +247,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
         asset_id: assetId,
         variant_id: variantId,
         resolution,
+        aspect_ratio: forcedAspectRatio,
         source_url: sourceUrl,
       },
     });
-
-    // Background poll fallback at 60s
-    const pollUrl = `${webhookBase}/api/series/${seriesId}/poll-images`;
-    const authHeader = req.headers.get('authorization') ?? '';
-
-    setTimeout(async () => {
-      try {
-        await fetch(pollUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: authHeader,
-          },
-          body: JSON.stringify({
-            jobs: [
-              {
-                request_id: requestId,
-                provider: providerResolution.provider,
-                model: modelForJob,
-                type: 'single',
-                variant_ids: [variantId],
-              },
-            ],
-          }),
-        });
-      } catch {
-        // Fire and forget
-      }
-    }, 60_000);
 
     return NextResponse.json({
       request_id: requestId,
@@ -329,9 +260,25 @@ export async function POST(req: NextRequest, context: RouteContext) {
       variant_id: variantId,
       source_url: sourceUrl,
       prompt,
-      poll_fallback: '60s automatic',
+      resolution,
+      aspect_ratio: forcedAspectRatio,
+      mode: 'webhook-only',
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('Edit image error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

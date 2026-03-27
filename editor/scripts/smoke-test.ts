@@ -54,8 +54,8 @@ const routes: RouteTest[] = [
   {
     method: 'POST',
     path: '/api/workflow/sfx',
-    expected: 401,
-    label: 'auth guard working',
+    expected: 501,
+    label: 'endpoint explicitly not supported on KIE',
   },
   {
     method: 'POST',
@@ -72,8 +72,8 @@ const routes: RouteTest[] = [
   {
     method: 'POST',
     path: '/api/webhook/fal',
-    expected: 200,
-    label: 'webhook accepting',
+    expected: 410,
+    label: 'legacy fal webhook retired explicitly',
     body: '{}',
   },
 ];

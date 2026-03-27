@@ -2,9 +2,12 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createTask, uploadFile } from '@/lib/kieai';
-import { resolveProvider } from '@/lib/provider-routing';
+import {
+  isProviderRoutingError,
+  resolveProvider,
+} from '@/lib/provider-routing';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { buildKlingMultiPromptPayload } from '@/lib/video-shot-durations';
+import { buildMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -15,15 +18,11 @@ const bodySchema = z.object({
   audio: z.boolean().optional(),
   confirm: z.boolean().optional(),
   aspect_ratio: z.string().optional(),
-  model: z.enum(['klingo3']).optional(),
 });
 
-const KLING_ENDPOINTS = {
-  klingo3: 'fal-ai/kling-video/o3/standard/reference-to-video',
-} as const;
-const KIE_VIDEO_MODEL = 'kling-3.0/video';
+const KIE_VIDEO_MODEL = 'grok-imagine/image-to-video';
 
-const MAX_KLING_ELEMENTS = 3;
+const MAX_GROK_IMAGE_URLS = 7;
 
 const COST_PER_SECOND_USD = {
   withAudio: 0.112,
@@ -40,6 +39,14 @@ function calculateSceneCost(
   return Math.round((durationSeconds * rate + Number.EPSILON) * 1000) / 1000;
 }
 
+function normalizeGrokDuration(durationSeconds: number): '6' | '10' {
+  return durationSeconds <= 8 ? '6' : '10';
+}
+
+function normalizeGrokAspectRatio(value: string): '16:9' | '9:16' {
+  return value === '16:9' ? '16:9' : '9:16';
+}
+
 function getMultiShotTotalDuration(
   multiPromptPayload: Array<{ prompt: string; duration: string }>
 ): number {
@@ -49,7 +56,37 @@ function getMultiShotTotalDuration(
   );
 }
 
-function sanitizeKlingPrompt(prompt: string | null | undefined): string {
+function getNarrativeTtsSeconds(
+  voiceovers: Array<{
+    duration: number | null;
+    status: string | null;
+    audio_url: string | null;
+  }>
+): number | null {
+  const readyDurations = (voiceovers ?? [])
+    .filter(
+      (voiceover) =>
+        voiceover.status === 'success' &&
+        Boolean(voiceover.audio_url) &&
+        typeof voiceover.duration === 'number' &&
+        Number.isFinite(voiceover.duration) &&
+        voiceover.duration > 0
+    )
+    .map((voiceover) => Number(voiceover.duration));
+
+  if (readyDurations.length === 0) return null;
+  return Math.max(...readyDurations);
+}
+
+function mapNarrativeDurationFromTts(
+  ttsSeconds: number
+): 6 | 10 | 'resplit_required' {
+  if (ttsSeconds <= 8) return 6;
+  if (ttsSeconds <= 12) return 10;
+  return 'resplit_required';
+}
+
+function sanitizeVideoPrompt(prompt: string | null | undefined): string {
   if (!prompt) {
     return '';
   }
@@ -145,23 +182,27 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const withAudio = parsedBody.data.audio ?? true;
     const confirm = parsedBody.data.confirm ?? false;
     const aspectRatioOverride = parsedBody.data.aspect_ratio;
-    const model = parsedBody.data.model ?? 'klingo3';
-    const endpoint = KLING_ENDPOINTS[model];
     const providerResolution = await resolveProvider({
       service: 'video',
       req,
       body: parsedBody.data,
     });
 
-    if (providerResolution.provider === 'fal' && !process.env.FAL_KEY) {
-      return NextResponse.json({ error: 'Missing FAL_KEY' }, { status: 500 });
+    if (providerResolution.provider !== 'kie') {
+      return NextResponse.json(
+        {
+          error:
+            'Video generation provider must be kie. Set PROVIDER_VIDEO=kie and remove request overrides.',
+        },
+        { status: 400 }
+      );
     }
 
     const db = createServiceClient('studio');
 
     const { data: storyboard, error: storyboardError } = await db
       .from('storyboards')
-      .select('id, project_id, plan, plan_status, aspect_ratio')
+      .select('id, project_id, plan, plan_status, aspect_ratio, input_type')
       .eq('id', storyboardId)
       .single();
 
@@ -188,6 +229,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
         ? (storyboard.plan as Record<string, unknown>)
         : {};
 
+    const planVideoMode =
+      typeof planRecord.video_mode === 'string' ? planRecord.video_mode : null;
+    const isNarrativeMode =
+      storyboard.input_type === 'voiceover_script' ||
+      planVideoMode === 'narrative';
+
     const planSceneDurations = Array.isArray(planRecord.scene_durations)
       ? planRecord.scene_durations
           .map((value) => Number(value))
@@ -200,13 +247,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
         `
         id,
         order,
+        duration,
         prompt,
         multi_prompt,
         multi_shots,
         video_status,
         objects (scene_order, final_url, url, status),
         backgrounds (final_url, url, status),
-        voiceovers (duration)
+        voiceovers (duration, status, audio_url)
       `
       )
       .eq('storyboard_id', storyboardId)
@@ -228,6 +276,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       (scene: {
         id: string;
         order: number;
+        duration: number | null;
         video_status: string | null;
         objects: Array<{
           scene_order: number;
@@ -240,7 +289,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
           url: string | null;
           status: string | null;
         }>;
-        voiceovers: Array<{ duration: number | null }>;
+        voiceovers: Array<{
+          duration: number | null;
+          status: string | null;
+          audio_url: string | null;
+        }>;
       }) => {
         if (indexFilterSet && !indexFilterSet.has(scene.order)) {
           return false;
@@ -270,14 +323,79 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     );
 
+    if (isNarrativeMode) {
+      const missingTtsScenes: number[] = [];
+      const resplitRequiredScenes: Array<{
+        order: number;
+        tts_seconds: number;
+      }> = [];
+      const durationMismatchScenes: Array<{
+        order: number;
+        scene_duration: number | null;
+        expected_duration: 6 | 10;
+      }> = [];
+
+      for (const scene of candidates as Array<{
+        order: number;
+        duration: number | null;
+        voiceovers: Array<{
+          duration: number | null;
+          status: string | null;
+          audio_url: string | null;
+        }>;
+      }>) {
+        const ttsSeconds = getNarrativeTtsSeconds(scene.voiceovers ?? []);
+
+        if (!ttsSeconds) {
+          missingTtsScenes.push(scene.order);
+          continue;
+        }
+
+        const mapped = mapNarrativeDurationFromTts(ttsSeconds);
+
+        if (mapped === 'resplit_required') {
+          resplitRequiredScenes.push({
+            order: scene.order,
+            tts_seconds: Number(ttsSeconds.toFixed(2)),
+          });
+          continue;
+        }
+
+        if (scene.duration !== mapped) {
+          durationMismatchScenes.push({
+            order: scene.order,
+            scene_duration: scene.duration,
+            expected_duration: mapped,
+          });
+        }
+      }
+
+      if (
+        missingTtsScenes.length > 0 ||
+        resplitRequiredScenes.length > 0 ||
+        durationMismatchScenes.length > 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Narrative scenes must use real TTS durations (<=8→6s, <=12→10s, >12s requires re-split + re-TTS) before video generation.',
+            narrative_gate_failed: true,
+            missing_tts_audio_scenes: missingTtsScenes,
+            resplit_required_scenes: resplitRequiredScenes,
+            duration_mismatch_scenes: durationMismatchScenes,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const jobs: Array<{
       scene_id: string;
       scene_index: number;
       duration_seconds: number;
       estimated_cost_usd: number;
       request_id?: string;
-      fal_request_id?: string;
-      provider?: 'fal' | 'kie';
+      provider?: 'kie';
       status: 'queued' | 'skipped' | 'estimate';
       reason?: 'no_prompt' | 'already_generated' | 'missing_background';
     }> = [];
@@ -294,6 +412,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     for (const scene of candidates as Array<{
       id: string;
       order: number;
+      duration: number | null;
       prompt: string | null;
       multi_prompt: string[] | null;
       multi_shots: Array<{ duration?: string }> | null;
@@ -307,17 +426,39 @@ export async function POST(req: NextRequest, context: RouteContext) {
         final_url: string | null;
         url: string | null;
       }>;
-      voiceovers: Array<{ duration: number | null }>;
+      voiceovers: Array<{
+        duration: number | null;
+        status: string | null;
+        audio_url: string | null;
+      }>;
     }>) {
-      // Duration priority: ceil(voiceover duration) → plan duration → 5s default
+      const readyVoiceovers = (scene.voiceovers ?? []).filter(
+        (voiceover) =>
+          voiceover.status === 'success' &&
+          Boolean(voiceover.audio_url) &&
+          typeof voiceover.duration === 'number' &&
+          Number.isFinite(voiceover.duration) &&
+          voiceover.duration > 0
+      );
+
       const maxVoiceoverDuration = Math.max(
         0,
-        ...(scene.voiceovers ?? []).map((v) => v.duration ?? 0)
+        ...readyVoiceovers.map((voiceover) => voiceover.duration ?? 0)
       );
-      const voiceoverBasedDuration =
-        maxVoiceoverDuration > 0 ? Math.ceil(maxVoiceoverDuration) : 0;
-      const planDuration = planSceneDurations?.[scene.order] ?? 5;
-      const baseDuration = voiceoverBasedDuration || planDuration;
+
+      const planDuration =
+        planSceneDurations?.[scene.order] ??
+        (typeof scene.duration === 'number' && scene.duration > 0
+          ? scene.duration
+          : 5);
+
+      // Narrative lock (workflow):
+      // <=8s => 6s, <=12s => 10s, >12s => must re-split (handled in preflight).
+      let baseDuration = planDuration;
+      if (isNarrativeMode && maxVoiceoverDuration > 0) {
+        const mapped = mapNarrativeDurationFromTts(maxVoiceoverDuration);
+        baseDuration = mapped === 10 ? 10 : 6;
+      }
 
       // For multi-shot, enforce total duration = ceil(voiceover duration) when available.
       let actualDuration = baseDuration;
@@ -326,11 +467,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         duration: string;
       }> | null = null;
       const sanitizedMultiPrompts = (scene.multi_prompt ?? [])
-        .map((prompt) => sanitizeKlingPrompt(prompt))
+        .map((prompt) => sanitizeVideoPrompt(prompt))
         .filter((prompt) => prompt.length > 0);
 
       if (sanitizedMultiPrompts.length > 1) {
-        multiPromptPayload = buildKlingMultiPromptPayload({
+        multiPromptPayload = buildMultiPromptPayload({
           prompts: sanitizedMultiPrompts,
           targetTotalSeconds: baseDuration,
           multiShots: scene.multi_shots,
@@ -338,8 +479,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
         actualDuration = getMultiShotTotalDuration(multiPromptPayload);
       }
 
-      const estimatedCost = calculateSceneCost(actualDuration, withAudio);
-      const sanitizedPrompt = sanitizeKlingPrompt(scene.prompt);
+      const queuedDuration = Number(normalizeGrokDuration(actualDuration));
+      const estimatedCost = calculateSceneCost(queuedDuration, withAudio);
+      const sanitizedPrompt = sanitizeVideoPrompt(scene.prompt);
       const scenePrompt = sanitizedMultiPrompts[0] ?? sanitizedPrompt;
 
       if (!scenePrompt) {
@@ -355,7 +497,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
-          duration_seconds: actualDuration,
+          duration_seconds: queuedDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
           reason: 'no_prompt',
@@ -367,7 +509,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
-          duration_seconds: actualDuration,
+          duration_seconds: queuedDuration,
           estimated_cost_usd: estimatedCost,
           status: 'estimate',
         });
@@ -381,7 +523,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
-          duration_seconds: actualDuration,
+          duration_seconds: queuedDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
           reason: 'already_generated',
@@ -395,7 +537,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         jobs.push({
           scene_id: scene.id,
           scene_index: scene.order,
-          duration_seconds: actualDuration,
+          duration_seconds: queuedDuration,
           estimated_cost_usd: estimatedCost,
           status: 'skipped',
           reason: 'missing_background',
@@ -407,143 +549,72 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .sort((a, b) => a.scene_order - b.scene_order)
         .map((object) => object.final_url ?? object.url)
         .filter((url): url is string => Boolean(url))
-        .slice(0, MAX_KLING_ELEMENTS);
-
-      const payload: Record<string, unknown> = {
-        elements: objectUrls.map((url) => ({
-          frontal_image_url: url,
-          reference_image_urls: [url],
-        })),
-        image_urls: [backgroundUrl],
-        aspect_ratio: aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
-        generate_audio: withAudio,
-      };
-
-      if (multiPromptPayload && multiPromptPayload.length > 1) {
-        payload.multi_prompt = multiPromptPayload;
-        payload.shot_type = 'customize';
-      } else {
-        payload.prompt =
-          multiPromptPayload?.[0]?.prompt ??
-          sanitizedMultiPrompts[0] ??
-          scenePrompt;
-        payload.duration = String(baseDuration);
-      }
+        .slice(0, MAX_GROK_IMAGE_URLS - 1);
 
       await db
         .from('scenes')
         .update({
           video_status: 'processing',
-          video_resolution: '720p',
+          video_resolution: '480p',
         })
         .eq('id', scene.id);
 
       let requestId: string | null = null;
 
-      if (providerResolution.provider === 'kie') {
-        const webhookUrl = `${webhookBaseUrl}/api/webhook/kieai?step=GenerateVideo&scene_id=${scene.id}`;
+      const webhookUrl = `${webhookBaseUrl}/api/webhook/kieai?step=GenerateVideo&scene_id=${scene.id}`;
 
-        try {
-          const [uploadedBackgroundUrl, uploadedObjectUrls] = await Promise.all(
-            [
+      try {
+        const [uploadedBackgroundUrl, uploadedObjectUrls] = await Promise.all([
+          uploadFile(
+            backgroundUrl,
+            inferUploadFileName(
+              backgroundUrl,
+              `scene-${scene.id}-background.jpg`
+            )
+          ).then((uploaded) => uploaded.fileUrl),
+          Promise.all(
+            objectUrls.map((objectUrl, index) =>
               uploadFile(
-                backgroundUrl,
+                objectUrl,
                 inferUploadFileName(
-                  backgroundUrl,
-                  `scene-${scene.id}-background.jpg`
+                  objectUrl,
+                  `scene-${scene.id}-element-${index + 1}.jpg`
                 )
-              ).then((uploaded) => uploaded.fileUrl),
-              Promise.all(
-                objectUrls.map((objectUrl, index) =>
-                  uploadFile(
-                    objectUrl,
-                    inferUploadFileName(
-                      objectUrl,
-                      `scene-${scene.id}-element-${index + 1}.jpg`
-                    )
-                  ).then((uploaded) => uploaded.fileUrl)
-                )
-              ),
-            ]
-          );
+              ).then((uploaded) => uploaded.fileUrl)
+            )
+          ),
+        ]);
 
-          const input: Record<string, unknown> = {
-            image_urls: [uploadedBackgroundUrl],
-            aspect_ratio:
-              aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
-            mode: 'std',
-            sound: false,
-            kling_elements: uploadedObjectUrls.map((uploadedUrl, index) => ({
-              name: `Element ${index + 1}`,
-              description: `Scene ${scene.order + 1} element ${index + 1}`,
-              element_input_urls: [uploadedUrl],
-            })),
-          };
-
-          if (multiPromptPayload && multiPromptPayload.length > 1) {
-            input.multi_shots = true;
-            input.multi_prompt = multiPromptPayload;
-          } else {
-            input.prompt =
-              multiPromptPayload?.[0]?.prompt ??
+        const resolvedPrompt =
+          multiPromptPayload && multiPromptPayload.length > 1
+            ? multiPromptPayload.map((shot) => shot.prompt).join('\n')
+            : (multiPromptPayload?.[0]?.prompt ??
               sanitizedMultiPrompts[0] ??
-              scenePrompt;
-            input.duration = String(baseDuration);
-          }
+              scenePrompt);
 
-          const result = await createTask({
-            model: KIE_VIDEO_MODEL,
-            callbackUrl: webhookUrl,
-            input,
-          });
+        const input: Record<string, unknown> = {
+          image_urls: [uploadedBackgroundUrl, ...uploadedObjectUrls].slice(
+            0,
+            MAX_GROK_IMAGE_URLS
+          ),
+          prompt: resolvedPrompt,
+          duration: String(queuedDuration),
+          resolution: '720p',
+          mode: 'normal',
+          aspect_ratio: normalizeGrokAspectRatio(
+            aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16'
+          ),
+        };
 
-          requestId = result.taskId;
-        } catch {
-          requestId = null;
-        }
-      } else {
-        const falUrl = new URL(`https://queue.fal.run/${endpoint}`);
-        falUrl.searchParams.set(
-          'fal_webhook',
-          `${webhookBaseUrl}/api/webhook/fal?step=GenerateVideo&scene_id=${scene.id}`
-        );
-
-        const falRes = await fetch(falUrl.toString(), {
-          method: 'POST',
-          headers: {
-            Authorization: `Key ${process.env.FAL_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
+        const result = await createTask({
+          model: KIE_VIDEO_MODEL,
+          callbackUrl: webhookUrl,
+          input,
         });
 
-        if (!falRes.ok) {
-          await db
-            .from('scenes')
-            .update({
-              video_status: 'failed',
-              video_error_message: 'request_error',
-            })
-            .eq('id', scene.id);
-
-          await logSceneGenerationAttempt({
-            db,
-            sceneId: scene.id,
-            storyboardId,
-            prompt: scenePrompt,
-            status: 'failed',
-            feedback: `Failed to queue scene ${scene.order}`,
-          });
-
-          return NextResponse.json(
-            { error: `Failed to queue scene ${scene.order}` },
-            { status: 500 }
-          );
-        }
-
-        const falData = await falRes.json();
-        requestId =
-          typeof falData?.request_id === 'string' ? falData.request_id : null;
+        requestId = result.taskId;
+      } catch {
+        requestId = null;
       }
 
       if (!requestId) {
@@ -561,12 +632,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
           storyboardId,
           prompt: scenePrompt,
           status: 'failed',
-          feedback: `Missing fal request_id for scene ${scene.order}`,
+          feedback: `Missing kie task_id for scene ${scene.order}`,
         });
 
         return NextResponse.json(
           {
-            error: `${providerResolution.provider === 'kie' ? 'kie.ai' : 'fal.ai'} response missing request_id for scene ${scene.order}`,
+            error: `kie.ai response missing task_id for scene ${scene.order}`,
           },
           { status: 500 }
         );
@@ -583,12 +654,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
         storyboardId,
         prompt: scenePrompt,
         generationMeta: {
-          model:
-            providerResolution.provider === 'kie' ? KIE_VIDEO_MODEL : endpoint,
-          provider: providerResolution.provider,
+          model: KIE_VIDEO_MODEL,
+          provider: 'kie',
           aspect_ratio:
             aspectRatioOverride ?? storyboard.aspect_ratio ?? '9:16',
-          duration_seconds: actualDuration,
+          duration_seconds: queuedDuration,
           generated_at: new Date().toISOString(),
           generated_by: 'system',
           audio: withAudio,
@@ -599,11 +669,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       jobs.push({
         scene_id: scene.id,
         scene_index: scene.order,
-        duration_seconds: actualDuration,
+        duration_seconds: queuedDuration,
         estimated_cost_usd: estimatedCost,
         request_id: requestId,
-        fal_request_id: requestId,
-        provider: providerResolution.provider,
+        provider: 'kie',
         status: 'queued',
       });
     }
@@ -619,6 +688,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       total_estimated_cost_usd: totalEstimatedCost,
     });
   } catch (error) {
+    if (isProviderRoutingError(error)) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          source: error.source,
+          field: error.field,
+          service: error.service,
+          value: error.value,
+        },
+        { status: error.statusCode }
+      );
+    }
+
     console.error('[v2/storyboard/generate-video] Unexpected error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

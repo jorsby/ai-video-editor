@@ -42,12 +42,12 @@ describe('provider-routing', () => {
     }
   });
 
-  it('returns fal as default when no env/request/db config exists', async () => {
+  it('returns kie as default when no env/request/db config exists', async () => {
     const { resolveProvider } = await import('../provider-routing');
 
     const result = await resolveProvider({ service: 'video' });
 
-    expect(result).toEqual({ provider: 'fal', source: 'default' });
+    expect(result).toEqual({ provider: 'kie', source: 'default' });
   });
 
   it('returns provider from env for video service', async () => {
@@ -59,7 +59,7 @@ describe('provider-routing', () => {
     expect(result).toEqual({ provider: 'kie', source: 'env' });
   });
 
-  it('returns env provider per-service and falls back for unset service', async () => {
+  it('returns env provider per-service and falls back to kie for unset service', async () => {
     process.env.PROVIDER_TTS = 'kie';
     const { resolveProvider } = await import('../provider-routing');
 
@@ -67,7 +67,7 @@ describe('provider-routing', () => {
     const imageResult = await resolveProvider({ service: 'image' });
 
     expect(ttsResult).toEqual({ provider: 'kie', source: 'env' });
-    expect(imageResult).toEqual({ provider: 'fal', source: 'default' });
+    expect(imageResult).toEqual({ provider: 'kie', source: 'default' });
   });
 
   it('uses request body direct provider override', async () => {
@@ -94,28 +94,69 @@ describe('provider-routing', () => {
     });
 
     expect(videoResult).toEqual({ provider: 'kie', source: 'request' });
-    expect(ttsResult).toEqual({ provider: 'fal', source: 'default' });
+    expect(ttsResult).toEqual({ provider: 'kie', source: 'default' });
   });
 
-  it('falls back to env/default when provider in body is invalid', async () => {
-    process.env.PROVIDER_VIDEO = 'kie';
-    const { resolveProvider } = await import('../provider-routing');
-
-    const envFallback = await resolveProvider({
-      service: 'video',
-      body: { provider: 'invalid-provider' },
-    });
-
-    process.env.PROVIDER_VIDEO = '';
-    const { resolveProvider: resolveProviderNoEnv } = await import(
+  it('rejects fal provider from request body with explicit routing error', async () => {
+    const { resolveProvider, isProviderRoutingError } = await import(
       '../provider-routing'
     );
-    const defaultFallback = await resolveProviderNoEnv({
-      service: 'video',
-      body: { provider: 'invalid-provider' },
-    });
 
-    expect(envFallback).toEqual({ provider: 'kie', source: 'env' });
-    expect(defaultFallback).toEqual({ provider: 'fal', source: 'default' });
+    const result = await resolveProvider({
+      service: 'video',
+      body: { provider: 'fal' },
+    }).catch((error) => error);
+
+    expect(isProviderRoutingError(result)).toBe(true);
+    expect(result).toMatchObject({
+      code: 'UNSUPPORTED_PROVIDER',
+      statusCode: 400,
+      source: 'request',
+      service: 'video',
+      field: 'provider',
+      value: 'fal',
+    });
+  });
+
+  it('rejects fal provider from env with explicit routing error', async () => {
+    process.env.PROVIDER_VIDEO = 'fal';
+    const { resolveProvider, isProviderRoutingError } = await import(
+      '../provider-routing'
+    );
+
+    const result = await resolveProvider({ service: 'video' }).catch(
+      (error) => error
+    );
+
+    expect(isProviderRoutingError(result)).toBe(true);
+    expect(result).toMatchObject({
+      code: 'UNSUPPORTED_PROVIDER',
+      statusCode: 400,
+      source: 'env',
+      service: 'video',
+      field: 'PROVIDER_VIDEO',
+      value: 'fal',
+    });
+  });
+
+  it('rejects fal provider from db config with explicit routing error', async () => {
+    const { resolveProvider, isProviderRoutingError } = await import(
+      '../provider-routing'
+    );
+
+    const result = await resolveProvider({
+      service: 'image',
+      dbConfig: { provider_image: 'fal' },
+    }).catch((error) => error);
+
+    expect(isProviderRoutingError(result)).toBe(true);
+    expect(result).toMatchObject({
+      code: 'UNSUPPORTED_PROVIDER',
+      statusCode: 400,
+      source: 'db',
+      service: 'image',
+      field: 'provider_image',
+      value: 'fal',
+    });
   });
 });
