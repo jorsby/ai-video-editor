@@ -281,7 +281,7 @@ describe('webhook/kieai route', () => {
           task_id: 'task-123',
           state: 'success',
           resultJson: JSON.stringify({
-            video_url: 'https://cdn.example.com/video.mp4',
+            resultUrls: ['https://cdn.example.com/video.mp4'],
           }),
         },
       }

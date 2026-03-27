@@ -162,12 +162,18 @@ function extractImageUrl(result: Record<string, unknown>): string | null {
 }
 
 function extractVideoUrl(result: Record<string, unknown>): string | null {
-  const direct = [result.video_url, result.videoUrl].find(
+  const direct = [result.video_url, result.videoUrl, result.url].find(
     (candidate) => typeof candidate === 'string' && candidate.length > 0
   );
 
   if (typeof direct === 'string') {
     return direct;
+  }
+
+  const resultUrls = result.resultUrls;
+  if (Array.isArray(resultUrls) && resultUrls.length > 0) {
+    const first = resultUrls[0];
+    if (typeof first === 'string' && first.length > 0) return first;
   }
 
   const video = result.video;
@@ -819,7 +825,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (step === 'GenerateVideo' || step === 'kling-3.0/video') {
+    if (step === 'GenerateVideo' || step === 'grok-imagine/image-to-video') {
       const sceneId = req.nextUrl.searchParams.get('scene_id');
       if (!sceneId) {
         return okResponse({
