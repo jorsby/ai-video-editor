@@ -12,6 +12,7 @@ const ALLOWED_DOMAINS = [
   'elevenlabs.io',
   'scenify.io',
   'oss-accelerate.aliyuncs.com',
+  'aiquickdraw.com',
 ];
 
 function isDomainAllowed(url: string): boolean {
@@ -47,15 +48,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const range = request.headers.get('range');
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60_000);
     const upstream = await fetch(url, {
       cache: 'no-store',
       signal: controller.signal,
+      headers: range ? { Range: range } : undefined,
     });
     clearTimeout(timeoutId);
 
-    if (!upstream.ok) {
+    if (!upstream.ok && upstream.status !== 206) {
       return NextResponse.json(
         { error: `Upstream returned ${upstream.status}` },
         { status: upstream.status }
@@ -63,15 +67,24 @@ export async function GET(request: NextRequest) {
     }
 
     const headers = new Headers();
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) {
-      headers.set('Content-Type', contentType);
+    const passthroughHeaders = [
+      'content-type',
+      'content-length',
+      'accept-ranges',
+      'content-range',
+      'cache-control',
+      'etag',
+      'last-modified',
+    ];
+
+    for (const headerName of passthroughHeaders) {
+      const headerValue = upstream.headers.get(headerName);
+      if (headerValue) {
+        headers.set(headerName, headerValue);
+      }
     }
-    const contentLength = upstream.headers.get('content-length');
-    if (contentLength) {
-      headers.set('Content-Length', contentLength);
-    }
-    return new Response(upstream.body, { status: 200, headers });
+
+    return new Response(upstream.body, { status: upstream.status, headers });
   } catch (error) {
     return NextResponse.json({ error: 'Operation failed' }, { status: 502 });
   }

@@ -16,7 +16,11 @@ function shouldProxyMediaUrl(src: string): boolean {
 
   try {
     const hostname = new URL(src).hostname;
-    return hostname.endsWith('.oss-accelerate.aliyuncs.com');
+    return (
+      hostname.endsWith('.oss-accelerate.aliyuncs.com') ||
+      hostname === 'aiquickdraw.com' ||
+      hostname.endsWith('.aiquickdraw.com')
+    );
   } catch {
     return false;
   }
@@ -94,7 +98,8 @@ export async function addSceneToTimeline(
   let usedAudioTrackId = audioTrackId;
 
   if (scene.voiceover?.audioUrl) {
-    const audioClip = await Audio.fromUrl(scene.voiceover.audioUrl);
+    const playableAudioUrl = toPlayableMediaUrl(scene.voiceover.audioUrl);
+    const audioClip = await Audio.fromUrl(playableAudioUrl);
     if (scene.voiceover.voiceoverId) {
       audioClip.style = {
         ...audioClip.style,
@@ -134,7 +139,7 @@ export async function addSceneToTimeline(
     if (!options.skipAudioClip) {
       await studio.addClip(audioClip, {
         trackId: usedAudioTrackId,
-        audioSource: scene.voiceover.audioUrl,
+        audioSource: playableAudioUrl,
       });
     }
 
@@ -199,7 +204,8 @@ export async function addVoiceoverToTimeline(
   const { startTime, audioTrackId } = options;
   let usedAudioTrackId = audioTrackId;
 
-  const audioClip = await Audio.fromUrl(voiceover.audioUrl);
+  const playableAudioUrl = toPlayableMediaUrl(voiceover.audioUrl);
+  const audioClip = await Audio.fromUrl(playableAudioUrl);
   if (voiceover.voiceoverId) {
     audioClip.style = {
       ...audioClip.style,
@@ -214,7 +220,7 @@ export async function addVoiceoverToTimeline(
 
   await studio.addClip(audioClip, {
     trackId: usedAudioTrackId,
-    audioSource: voiceover.audioUrl,
+    audioSource: playableAudioUrl,
   });
 
   if (!usedAudioTrackId) {
