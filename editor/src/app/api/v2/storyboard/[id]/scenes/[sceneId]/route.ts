@@ -1,6 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import {
+  compileScenePromptContract,
+  getScenePromptContractFromGenerationMeta,
+  mergeScenePromptContractGenerationMeta,
+} from '@/lib/storyboard/prompt-compiler';
+import {
+  promptJSONSchema,
+  validatedRuntimeSchema,
+} from '@/lib/storyboard/scene-contracts';
 import { createServiceClient } from '@/lib/supabase/admin';
 
 const updateSceneBodySchema = z.object({
@@ -12,6 +21,8 @@ const updateSceneBodySchema = z.object({
   background_name: z.string().min(1).optional(),
   object_names: z.array(z.string()).max(4).optional(),
   language: z.string().min(2).max(5).optional(),
+  prompt_json: promptJSONSchema.optional(),
+  validated_runtime: validatedRuntimeSchema.optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string; sceneId: string }> };
@@ -61,19 +72,85 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
+    const { data: existingScene, error: existingSceneErr } = await supabase
+      .schema('studio')
+      .from('scenes')
+      .select('id, order, generation_meta')
+      .eq('id', sceneId)
+      .eq('storyboard_id', storyboardId)
+      .single();
+
+    if (existingSceneErr || !existingScene) {
+      return NextResponse.json(
+        { error: 'Scene not found or update failed' },
+        { status: 404 }
+      );
+    }
+
+    const hasPromptContractPatch =
+      data.prompt_json !== undefined || data.validated_runtime !== undefined;
+
+    const expectedSceneOrder = data.sort_order ?? existingScene.order;
+    if (
+      data.prompt_json &&
+      data.prompt_json.scene_order !== expectedSceneOrder
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'prompt_json.scene_order must match target scene order on update',
+        },
+        { status: 400 }
+      );
+    }
+
+    const existingPromptContract = getScenePromptContractFromGenerationMeta(
+      existingScene.generation_meta
+    );
+    const resolvedPromptJson =
+      data.prompt_json ?? existingPromptContract?.prompt_json;
+    const resolvedRuntime =
+      data.validated_runtime ?? existingPromptContract?.validated_runtime;
+
+    const compiledPromptContract =
+      hasPromptContractPatch && resolvedPromptJson
+        ? compileScenePromptContract({
+            prompt_json: resolvedPromptJson,
+            validated_runtime: resolvedRuntime,
+          })
+        : null;
+
     // Build update payload
     const update: Record<string, unknown> = {};
     if (data.sort_order !== undefined) update.order = data.sort_order;
     if (data.audio_text !== undefined) update.audio_text = data.audio_text;
     if (data.visual_direction !== undefined)
       update.visual_direction = data.visual_direction;
-    if (data.prompt !== undefined) update.prompt = data.prompt;
+    if (data.prompt !== undefined) {
+      update.prompt = data.prompt;
+    } else if (compiledPromptContract) {
+      update.prompt =
+        compiledPromptContract.scene_payload.compile_status === 'ready'
+          ? compiledPromptContract.scene_payload.prompt
+          : null;
+    }
     if (data.duration !== undefined) update.duration = data.duration;
     if (data.background_name !== undefined)
       update.background_name = data.background_name;
     if (data.object_names !== undefined)
       update.object_names = data.object_names;
     if (data.language !== undefined) update.language = data.language;
+    if (hasPromptContractPatch) {
+      // TODO(db): move prompt contract data into dedicated scene columns once
+      // schema migration exists. We keep this additive under generation_meta.
+      update.generation_meta = mergeScenePromptContractGenerationMeta({
+        existing_generation_meta: existingScene.generation_meta,
+        prompt_json: compiledPromptContract?.prompt_json ?? data.prompt_json,
+        validated_runtime:
+          data.validated_runtime ?? compiledPromptContract?.validated_runtime,
+        scene_payload: compiledPromptContract?.scene_payload,
+      });
+    }
 
     const { data: scene, error: updateErr } = await supabase
       .schema('studio')
@@ -91,11 +168,24 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       );
     }
 
-    return NextResponse.json({
+    const responsePayload: Record<string, unknown> = {
       scene_id: scene.id,
       sort_order: scene.order,
       status: 'updated',
-    });
+    };
+
+    if (compiledPromptContract) {
+      responsePayload.compiled_prompt =
+        compiledPromptContract.scene_payload.prompt;
+      responsePayload.compile_status =
+        compiledPromptContract.scene_payload.compile_status;
+      responsePayload.resolved_asset_refs =
+        compiledPromptContract.scene_payload.resolved_asset_refs;
+      responsePayload.reference_images =
+        compiledPromptContract.scene_payload.reference_images;
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (err) {
     console.error('[scenes/update] Error:', err);
     return NextResponse.json(

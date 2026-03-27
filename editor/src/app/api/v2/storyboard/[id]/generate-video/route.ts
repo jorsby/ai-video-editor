@@ -6,6 +6,7 @@ import {
   isProviderRoutingError,
   resolveProvider,
 } from '@/lib/provider-routing';
+import { getScenePromptContractFromGenerationMeta } from '@/lib/storyboard/prompt-compiler';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { buildMultiPromptPayload } from '@/lib/video-shot-durations';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
@@ -99,6 +100,88 @@ function sanitizeVideoPrompt(prompt: string | null | undefined): string {
     )
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+type ScenePromptSource = 'prompt_contract' | 'multi_prompt' | 'prompt' | 'none';
+
+type ScenePromptResolution = {
+  executionPrompt: string;
+  promptSource: ScenePromptSource;
+  compileStatus: 'ready' | 'blocked' | null;
+  hasPromptContract: boolean;
+  blockingIssues: unknown[];
+  referenceImages: unknown[];
+  resolvedAssetRefs: unknown[];
+  sanitizedLegacyMultiPrompts: string[];
+};
+
+function resolveScenePromptResolution(input: {
+  prompt: string | null;
+  multiPrompt: string[] | null;
+  generationMeta: unknown;
+}): ScenePromptResolution {
+  const promptContract = getScenePromptContractFromGenerationMeta(
+    input.generationMeta
+  );
+  const hasPromptContract = promptContract !== null;
+  const compileStatus = promptContract?.compile_status ?? null;
+  const sanitizedCompiledPrompt = sanitizeVideoPrompt(
+    promptContract?.compiled_prompt
+  );
+  const sanitizedLegacyMultiPrompts = (input.multiPrompt ?? [])
+    .map((prompt) => sanitizeVideoPrompt(prompt))
+    .filter((prompt) => prompt.length > 0);
+  const sanitizedLegacyPrompt = sanitizeVideoPrompt(input.prompt);
+
+  if (compileStatus === 'ready' && sanitizedCompiledPrompt.length > 0) {
+    return {
+      executionPrompt: sanitizedCompiledPrompt,
+      promptSource: 'prompt_contract',
+      compileStatus,
+      hasPromptContract,
+      blockingIssues: promptContract?.blocking_issues ?? [],
+      referenceImages: promptContract?.reference_images ?? [],
+      resolvedAssetRefs: promptContract?.resolved_asset_refs ?? [],
+      sanitizedLegacyMultiPrompts,
+    };
+  }
+
+  if (sanitizedLegacyMultiPrompts.length > 0) {
+    return {
+      executionPrompt: sanitizedLegacyMultiPrompts[0],
+      promptSource: 'multi_prompt',
+      compileStatus,
+      hasPromptContract,
+      blockingIssues: promptContract?.blocking_issues ?? [],
+      referenceImages: promptContract?.reference_images ?? [],
+      resolvedAssetRefs: promptContract?.resolved_asset_refs ?? [],
+      sanitizedLegacyMultiPrompts,
+    };
+  }
+
+  if (sanitizedLegacyPrompt.length > 0) {
+    return {
+      executionPrompt: sanitizedLegacyPrompt,
+      promptSource: 'prompt',
+      compileStatus,
+      hasPromptContract,
+      blockingIssues: promptContract?.blocking_issues ?? [],
+      referenceImages: promptContract?.reference_images ?? [],
+      resolvedAssetRefs: promptContract?.resolved_asset_refs ?? [],
+      sanitizedLegacyMultiPrompts,
+    };
+  }
+
+  return {
+    executionPrompt: '',
+    promptSource: 'none',
+    compileStatus,
+    hasPromptContract,
+    blockingIssues: promptContract?.blocking_issues ?? [],
+    referenceImages: promptContract?.reference_images ?? [],
+    resolvedAssetRefs: promptContract?.resolved_asset_refs ?? [],
+    sanitizedLegacyMultiPrompts,
+  };
 }
 
 function inferUploadFileName(sourceUrl: string, fallback: string): string {
@@ -251,6 +334,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         prompt,
         multi_prompt,
         multi_shots,
+        generation_meta,
         video_status,
         objects (scene_order, final_url, url, status),
         backgrounds (final_url, url, status),
@@ -278,6 +362,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         order: number;
         duration: number | null;
         video_status: string | null;
+        generation_meta: Record<string, unknown> | null;
         objects: Array<{
           scene_order: number;
           final_url: string | null;
@@ -322,6 +407,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
         return objectsReady && backgroundsReady;
       }
     );
+
+    const promptResolutionBySceneId = new Map<string, ScenePromptResolution>();
+    for (const scene of candidates as Array<{
+      id: string;
+      prompt: string | null;
+      multi_prompt: string[] | null;
+      generation_meta: Record<string, unknown> | null;
+    }>) {
+      promptResolutionBySceneId.set(
+        scene.id,
+        resolveScenePromptResolution({
+          prompt: scene.prompt,
+          multiPrompt: scene.multi_prompt,
+          generationMeta: scene.generation_meta,
+        })
+      );
+    }
 
     if (isNarrativeMode) {
       const missingTtsScenes: number[] = [];
@@ -389,6 +491,42 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
+    const blockedPromptScenes = (
+      candidates as Array<{
+        id: string;
+        order: number;
+      }>
+    )
+      .map((scene) => ({
+        scene,
+        resolution: promptResolutionBySceneId.get(scene.id),
+      }))
+      .filter(
+        ({ resolution }) =>
+          resolution?.hasPromptContract === true &&
+          resolution.compileStatus === 'blocked'
+      )
+      .map(({ scene, resolution }) => ({
+        scene_id: scene.id,
+        scene_index: scene.order,
+        compile_status: resolution?.compileStatus,
+        blocking_issues: resolution?.blockingIssues ?? [],
+      }));
+
+    if (blockedPromptScenes.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Prompt contract is blocked for one or more scenes. Resolve blocking issues and recompile prompts before generating video.',
+          prompt_contract_gate_failed: true,
+          blocked_prompt_scenes: blockedPromptScenes,
+          action:
+            'Update scene prompt_json/validated_runtime via /api/v2/storyboard/{id}/prompts, then retry generate-video.',
+        },
+        { status: 409 }
+      );
+    }
+
     const jobs: Array<{
       scene_id: string;
       scene_index: number;
@@ -416,6 +554,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       prompt: string | null;
       multi_prompt: string[] | null;
       multi_shots: Array<{ duration?: string }> | null;
+      generation_meta: Record<string, unknown> | null;
       video_status: string | null;
       objects: Array<{
         scene_order: number;
@@ -466,9 +605,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
         prompt: string;
         duration: string;
       }> | null = null;
-      const sanitizedMultiPrompts = (scene.multi_prompt ?? [])
-        .map((prompt) => sanitizeVideoPrompt(prompt))
-        .filter((prompt) => prompt.length > 0);
+      const promptResolution =
+        promptResolutionBySceneId.get(scene.id) ??
+        resolveScenePromptResolution({
+          prompt: scene.prompt,
+          multiPrompt: scene.multi_prompt,
+          generationMeta: scene.generation_meta,
+        });
+      const sanitizedMultiPrompts =
+        promptResolution.sanitizedLegacyMultiPrompts;
 
       if (sanitizedMultiPrompts.length > 1) {
         multiPromptPayload = buildMultiPromptPayload({
@@ -481,8 +626,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       const queuedDuration = Number(normalizeGrokDuration(actualDuration));
       const estimatedCost = calculateSceneCost(queuedDuration, withAudio);
-      const sanitizedPrompt = sanitizeVideoPrompt(scene.prompt);
-      const scenePrompt = sanitizedMultiPrompts[0] ?? sanitizedPrompt;
+      const scenePrompt = promptResolution.executionPrompt;
 
       if (!scenePrompt) {
         await logSceneGenerationAttempt({
@@ -586,11 +730,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
         ]);
 
         const resolvedPrompt =
-          multiPromptPayload && multiPromptPayload.length > 1
-            ? multiPromptPayload.map((shot) => shot.prompt).join('\n')
-            : (multiPromptPayload?.[0]?.prompt ??
-              sanitizedMultiPrompts[0] ??
-              scenePrompt);
+          promptResolution.promptSource === 'prompt_contract'
+            ? scenePrompt
+            : multiPromptPayload && multiPromptPayload.length > 1
+              ? multiPromptPayload.map((shot) => shot.prompt).join('\n')
+              : (multiPromptPayload?.[0]?.prompt ??
+                sanitizedMultiPrompts[0] ??
+                scenePrompt);
 
         const input: Record<string, unknown> = {
           image_urls: [uploadedBackgroundUrl, ...uploadedObjectUrls].slice(
@@ -662,6 +808,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
           generated_at: new Date().toISOString(),
           generated_by: 'system',
           audio: withAudio,
+          prompt_source: promptResolution.promptSource,
+          prompt_contract_compile_status: promptResolution.compileStatus,
+          prompt_contract_reference_images: promptResolution.referenceImages,
+          prompt_contract_resolved_asset_refs:
+            promptResolution.resolvedAssetRefs,
         },
         status: 'pending',
       });

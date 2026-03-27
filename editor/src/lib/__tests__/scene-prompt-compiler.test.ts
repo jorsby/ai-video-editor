@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileScenePrompt } from '@/lib/storyboard/prompt-compiler';
+import {
+  compileScenePrompt,
+  compileScenePromptContract,
+  getScenePromptContractFromGenerationMeta,
+  mergeScenePromptContractGenerationMeta,
+} from '@/lib/storyboard/prompt-compiler';
 import type {
   PromptJSON,
   ValidatedRuntime,
@@ -22,12 +27,12 @@ const basePromptJson: PromptJSON = {
     {
       slot: 'lead_character',
       role: 'character',
-      desired_asset_id: 'char-elena-v1',
+      desired_asset_slug: 'char-elena-v1',
     },
     {
       slot: 'checkpoint_bg',
       role: 'background',
-      desired_asset_id: 'bg-corridor-v1',
+      desired_asset_slug: 'bg-corridor-v1',
     },
   ],
 };
@@ -38,28 +43,29 @@ function createRuntime(
   return {
     validated_reuse: [],
     validated_missing_assets: [],
-    fallback_options: [],
     blocking_issues: [],
     ...overrides,
   };
 }
 
 describe('scene prompt compiler', () => {
-  it('compiles happy path with validated references', () => {
+  it('compiles ready path with resolved slugs and structured reference images', () => {
     const runtime = createRuntime({
       validated_reuse: [
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_id: 'char-elena-v1',
-          resolved_asset_id: 'char-elena-v1',
+          desired_asset_slug: 'char-elena-v1',
+          resolved_asset_slug: 'char-elena-v1',
           reuse_reason: 'exact_match',
+          reference_image_url:
+            'https://cdn.example.com/assets/char-elena-v1.png',
         },
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_id: 'bg-corridor-v1',
-          resolved_asset_id: 'bg-corridor-v1',
+          desired_asset_slug: 'bg-corridor-v1',
+          resolved_asset_slug: 'bg-corridor-v1',
           reuse_reason: 'exact_match',
         },
       ],
@@ -78,125 +84,90 @@ describe('scene prompt compiler', () => {
       {
         slot: 'lead_character',
         role: 'character',
-        desired_asset_id: 'char-elena-v1',
-        resolved_asset_id: 'char-elena-v1',
-        resolution: 'validated',
+        desired_asset_slug: 'char-elena-v1',
+        resolved_asset_slug: 'char-elena-v1',
+        resolution: 'resolved',
       },
       {
         slot: 'checkpoint_bg',
         role: 'background',
-        desired_asset_id: 'bg-corridor-v1',
-        resolved_asset_id: 'bg-corridor-v1',
-        resolution: 'validated',
+        desired_asset_slug: 'bg-corridor-v1',
+        resolved_asset_slug: 'bg-corridor-v1',
+        resolution: 'resolved',
+      },
+    ]);
+    expect(compiled.reference_images).toEqual([
+      {
+        slot: 'lead_character',
+        role: 'character',
+        asset_slug: 'char-elena-v1',
+        image_url: 'https://cdn.example.com/assets/char-elena-v1.png',
+      },
+      {
+        slot: 'checkpoint_bg',
+        role: 'background',
+        asset_slug: 'bg-corridor-v1',
       },
     ]);
   });
 
-  it('merges validated reuse even when runtime maps to a compatible variant', () => {
-    const runtime = createRuntime({
-      validated_reuse: [
-        {
-          slot: 'lead_character',
-          role: 'character',
-          desired_asset_id: 'char-elena-v1',
-          resolved_asset_id: 'char-elena-v2',
-          reuse_reason: 'compatible_variant',
-          notes: 'closest approved look for EP3',
-        },
-        {
-          slot: 'checkpoint_bg',
-          role: 'background',
-          desired_asset_id: 'bg-corridor-v1',
-          resolved_asset_id: 'bg-corridor-v1',
-          reuse_reason: 'exact_match',
-        },
-      ],
-    });
-
-    const compiled = compileScenePrompt(basePromptJson, runtime);
-    const leadCharacterRef = compiled.resolved_asset_refs.find(
-      (assetRef) => assetRef.slot === 'lead_character'
-    );
-
-    expect(compiled.compile_status).toBe('ready');
-    expect(leadCharacterRef).toEqual({
-      slot: 'lead_character',
-      role: 'character',
-      desired_asset_id: 'char-elena-v1',
-      resolved_asset_id: 'char-elena-v2',
-      resolution: 'validated',
-    });
-  });
-
-  it('preserves missing asset and fallback metadata from validated runtime', () => {
+  it('marks compile status as blocked when any desired slot is unresolved', () => {
     const runtime = createRuntime({
       validated_reuse: [
         {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_id: 'bg-corridor-v1',
-          resolved_asset_id: 'bg-corridor-v1',
+          desired_asset_slug: 'bg-corridor-v1',
+          resolved_asset_slug: 'bg-corridor-v1',
           reuse_reason: 'exact_match',
+          reference_image_url:
+            'https://cdn.example.com/assets/bg-corridor-v1.png',
         },
       ],
       validated_missing_assets: [
         {
           slot: 'lead_character',
           role: 'character',
-          desired_asset_id: 'char-elena-v1',
-          reason: 'no approved variant in this episode context',
-        },
-      ],
-      fallback_options: [
-        {
-          slot: 'lead_character',
-          role: 'character',
-          strategy: 'reuse_existing',
-          fallback_asset_id: 'char-elena-v0',
-          rationale: 'closest silhouette continuity',
+          desired_asset_slug: 'char-elena-v1',
+          reason: 'no approved asset for this slug',
         },
       ],
     });
 
     const compiled = compileScenePrompt(basePromptJson, runtime);
 
-    expect(compiled.compile_status).toBe('needs_fallback');
+    expect(compiled.compile_status).toBe('blocked');
     expect(compiled.validated_runtime.validated_missing_assets).toEqual(
       runtime.validated_missing_assets
     );
-    expect(compiled.validated_runtime.fallback_options).toEqual(
-      runtime.fallback_options
-    );
     expect(compiled.compiled_prompt_text).toContain('MISSING');
+    expect(compiled.reference_images).toEqual([
+      {
+        slot: 'checkpoint_bg',
+        role: 'background',
+        asset_slug: 'bg-corridor-v1',
+        image_url: 'https://cdn.example.com/assets/bg-corridor-v1.png',
+      },
+    ]);
   });
 
-  it('does not let fallback metadata overwrite canonical desired_scene_intent', () => {
+  it('keeps canonical intent unchanged regardless of runtime metadata', () => {
     const runtime = createRuntime({
       validated_reuse: [
         {
+          slot: 'lead_character',
+          role: 'character',
+          desired_asset_slug: 'char-elena-v1',
+          resolved_asset_slug: 'char-elena-v1',
+          reuse_reason: 'exact_match',
+          notes: 'alternate framing idea that should never override intent',
+        },
+        {
           slot: 'checkpoint_bg',
           role: 'background',
-          desired_asset_id: 'bg-corridor-v1',
-          resolved_asset_id: 'bg-corridor-v1',
+          desired_asset_slug: 'bg-corridor-v1',
+          resolved_asset_slug: 'bg-corridor-v1',
           reuse_reason: 'exact_match',
-        },
-      ],
-      validated_missing_assets: [
-        {
-          slot: 'lead_character',
-          role: 'character',
-          desired_asset_id: 'char-elena-v1',
-          reason: 'lead character missing approval',
-        },
-      ],
-      fallback_options: [
-        {
-          slot: 'lead_character',
-          role: 'character',
-          strategy: 'generate_new',
-          rationale: 'no reusable approved variant available',
-          suggested_scene_intent_override:
-            'Move scene to rooftop at sunrise with different emotional tone',
         },
       ],
     });
@@ -210,7 +181,119 @@ describe('scene prompt compiler', () => {
       basePromptJson.canonical_prompt_text
     );
     expect(compiled.compiled_prompt_text).not.toContain(
-      'Move scene to rooftop at sunrise with different emotional tone'
+      'alternate framing idea that should never override intent'
     );
+  });
+
+  it('marks compile status as blocked when explicit blocking issues exist', () => {
+    const runtime = createRuntime({
+      validated_reuse: [
+        {
+          slot: 'lead_character',
+          role: 'character',
+          desired_asset_slug: 'char-elena-v1',
+          resolved_asset_slug: 'char-elena-v1',
+          reuse_reason: 'exact_match',
+        },
+        {
+          slot: 'checkpoint_bg',
+          role: 'background',
+          desired_asset_slug: 'bg-corridor-v1',
+          resolved_asset_slug: 'bg-corridor-v1',
+          reuse_reason: 'exact_match',
+        },
+      ],
+      blocking_issues: [
+        {
+          code: 'contract_violation',
+          message: 'downstream provider payload validation failed',
+        },
+      ],
+    });
+
+    const compiled = compileScenePrompt(basePromptJson, runtime);
+
+    expect(compiled.compile_status).toBe('blocked');
+  });
+
+  it('rejects duplicate desired slots', () => {
+    const invalidPromptJson: PromptJSON = {
+      ...basePromptJson,
+      desired_asset_refs: [
+        {
+          slot: 'lead_character',
+          role: 'character',
+          desired_asset_slug: 'char-elena-v1',
+        },
+        {
+          slot: 'lead_character',
+          role: 'background',
+          desired_asset_slug: 'bg-corridor-v1',
+        },
+      ],
+    };
+
+    expect(() => {
+      compileScenePrompt(invalidPromptJson, createRuntime());
+    }).toThrow('duplicate slot: lead_character');
+  });
+
+  it('compiles contract payload with deterministic default runtime', () => {
+    const compiledContract = compileScenePromptContract({
+      prompt_json: basePromptJson,
+    });
+
+    expect(compiledContract.validated_runtime).toEqual({
+      validated_reuse: [],
+      validated_missing_assets: [],
+      blocking_issues: [],
+    });
+    expect(compiledContract.scene_payload.compile_status).toBe('blocked');
+  });
+
+  it('merges contract payload into generation_meta without dropping existing metadata', () => {
+    const readyRuntime = createRuntime({
+      validated_reuse: [
+        {
+          slot: 'lead_character',
+          role: 'character',
+          desired_asset_slug: 'char-elena-v1',
+          resolved_asset_slug: 'char-elena-v1',
+          reuse_reason: 'exact_match',
+        },
+        {
+          slot: 'checkpoint_bg',
+          role: 'background',
+          desired_asset_slug: 'bg-corridor-v1',
+          resolved_asset_slug: 'bg-corridor-v1',
+          reuse_reason: 'exact_match',
+        },
+      ],
+    });
+    const compiledContract = compileScenePromptContract({
+      prompt_json: basePromptJson,
+      validated_runtime: readyRuntime,
+    });
+
+    const mergedGenerationMeta = mergeScenePromptContractGenerationMeta({
+      existing_generation_meta: {
+        model: 'grok-imagine/image-to-video',
+        duration_seconds: 10,
+      },
+      prompt_json: compiledContract.prompt_json,
+      validated_runtime: compiledContract.validated_runtime,
+      scene_payload: compiledContract.scene_payload,
+    });
+
+    expect(mergedGenerationMeta.model).toBe('grok-imagine/image-to-video');
+    expect(mergedGenerationMeta.duration_seconds).toBe(10);
+
+    const storedContract =
+      getScenePromptContractFromGenerationMeta(mergedGenerationMeta);
+    expect(storedContract?.compile_status).toBe('ready');
+    expect(storedContract?.compiled_prompt).toContain(
+      basePromptJson.canonical_prompt_text
+    );
+    expect(storedContract?.resolved_asset_refs).toHaveLength(2);
   });
 });

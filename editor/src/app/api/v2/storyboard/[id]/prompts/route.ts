@@ -1,6 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import {
+  compileScenePromptContract,
+  getScenePromptContractFromGenerationMeta,
+  mergeScenePromptContractGenerationMeta,
+} from '@/lib/storyboard/prompt-compiler';
+import {
+  promptJSONSchema,
+  validatedRuntimeSchema,
+} from '@/lib/storyboard/scene-contracts';
 import { createServiceClient } from '@/lib/supabase/admin';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -20,6 +29,8 @@ const sceneUpdateSchema = z.object({
   multi_prompt: z.array(z.string()).nullable().optional(),
   generation_meta: z.record(z.string(), z.unknown()).optional(),
   feedback: z.string().nullable().optional(),
+  prompt_json: promptJSONSchema.optional(),
+  validated_runtime: validatedRuntimeSchema.optional(),
   voiceovers: z.array(voiceoverUpdateSchema).optional(),
 });
 
@@ -78,7 +89,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     const { data: storyboardScenesData, error: scenesError } = await db
       .from('scenes')
-      .select('id, order')
+      .select('id, order, generation_meta')
       .eq('storyboard_id', storyboardId);
 
     if (scenesError) {
@@ -91,6 +102,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const storyboardScenes = (storyboardScenesData ?? []) as Array<{
       id: string;
       order: number;
+      generation_meta: Record<string, unknown> | null;
     }>;
 
     const sceneById = new Map(
@@ -102,6 +114,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     let updatedScenes = 0;
     let updatedVoiceovers = 0;
+    const compiledScenes: Array<Record<string, unknown>> = [];
 
     for (const scenePatch of parsed.data.scenes) {
       const targetScene =
@@ -114,9 +127,45 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         continue;
       }
 
+      const hasPromptContractPatch =
+        scenePatch.prompt_json !== undefined ||
+        scenePatch.validated_runtime !== undefined;
+      if (
+        scenePatch.prompt_json &&
+        scenePatch.prompt_json.scene_order !== targetScene.order
+      ) {
+        return NextResponse.json(
+          {
+            error: `prompt_json.scene_order must match scene order ${targetScene.order} for scene ${targetScene.id}`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const existingPromptContract = getScenePromptContractFromGenerationMeta(
+        targetScene.generation_meta
+      );
+      const resolvedPromptJson =
+        scenePatch.prompt_json ?? existingPromptContract?.prompt_json;
+      const resolvedRuntime =
+        scenePatch.validated_runtime ??
+        existingPromptContract?.validated_runtime;
+      const compiledPromptContract =
+        hasPromptContractPatch && resolvedPromptJson
+          ? compileScenePromptContract({
+              prompt_json: resolvedPromptJson,
+              validated_runtime: resolvedRuntime,
+            })
+          : null;
+
       const sceneUpdates: Record<string, unknown> = {};
       if (scenePatch.prompt !== undefined) {
         sceneUpdates.prompt = normalizePrompt(scenePatch.prompt);
+      } else if (compiledPromptContract) {
+        sceneUpdates.prompt =
+          compiledPromptContract.scene_payload.compile_status === 'ready'
+            ? compiledPromptContract.scene_payload.prompt
+            : null;
       }
       if (scenePatch.multi_prompt !== undefined) {
         sceneUpdates.multi_prompt =
@@ -124,8 +173,24 @@ export async function PUT(req: NextRequest, context: RouteContext) {
             ? scenePatch.multi_prompt.map((p) => p.trim()).filter(Boolean)
             : null;
       }
-      if (scenePatch.generation_meta !== undefined) {
-        sceneUpdates.generation_meta = scenePatch.generation_meta;
+      if (scenePatch.generation_meta !== undefined || hasPromptContractPatch) {
+        const baseGenerationMeta =
+          scenePatch.generation_meta !== undefined
+            ? scenePatch.generation_meta
+            : targetScene.generation_meta;
+        sceneUpdates.generation_meta = hasPromptContractPatch
+          ? mergeScenePromptContractGenerationMeta({
+              // TODO(db): move prompt contract data into dedicated scene columns
+              // once migrations are in place; keep additive under generation_meta.
+              existing_generation_meta: baseGenerationMeta,
+              prompt_json:
+                compiledPromptContract?.prompt_json ?? scenePatch.prompt_json,
+              validated_runtime:
+                scenePatch.validated_runtime ??
+                compiledPromptContract?.validated_runtime,
+              scene_payload: compiledPromptContract?.scene_payload,
+            })
+          : baseGenerationMeta;
       }
       if (scenePatch.feedback !== undefined) {
         sceneUpdates.feedback = normalizePrompt(scenePatch.feedback);
@@ -145,6 +210,18 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         }
 
         updatedScenes++;
+      }
+
+      if (compiledPromptContract) {
+        compiledScenes.push({
+          scene_id: targetScene.id,
+          compiled_prompt: compiledPromptContract.scene_payload.prompt,
+          compile_status: compiledPromptContract.scene_payload.compile_status,
+          resolved_asset_refs:
+            compiledPromptContract.scene_payload.resolved_asset_refs,
+          reference_images:
+            compiledPromptContract.scene_payload.reference_images,
+        });
       }
 
       for (const voiceoverPatch of scenePatch.voiceovers ?? []) {
@@ -200,12 +277,18 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       }
     }
 
-    return NextResponse.json({
+    const responsePayload: Record<string, unknown> = {
       success: true,
       storyboard_id: storyboardId,
       updated_scenes: updatedScenes,
       updated_voiceovers: updatedVoiceovers,
-    });
+    };
+
+    if (compiledScenes.length > 0) {
+      responsePayload.compiled_scenes = compiledScenes;
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     console.error('[v2/storyboard/prompts] Unexpected error:', error);
     return NextResponse.json(
