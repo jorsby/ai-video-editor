@@ -110,6 +110,8 @@ interface MediaPanelStore {
   setSelectedStoryboardId: (id: string | null) => void;
   showProperties: boolean;
   setShowProperties: (show: boolean) => void;
+  showStoryboardDebugPanel: boolean;
+  setShowStoryboardDebugPanel: (show: boolean) => void;
 }
 
 export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
@@ -127,4 +129,7 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
   setSelectedStoryboardId: (id) => set({ selectedStoryboardId: id }),
   showProperties: false,
   setShowProperties: (show) => set({ showProperties: show }),
+  showStoryboardDebugPanel: false,
+  setShowStoryboardDebugPanel: (show) =>
+    set({ showStoryboardDebugPanel: show }),
 }));

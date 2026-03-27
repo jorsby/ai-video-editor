@@ -25,6 +25,8 @@ import {
   SceneCard,
   VoiceoverPlayButton,
   parseMultiShotPrompt,
+  type ScenePromptDebugSnapshot,
+  type ScenePromptSource,
 } from './scene-card';
 import { StatusBadge } from './status-badge';
 import { Button } from '@/components/ui/button';
@@ -94,6 +96,7 @@ import type {
   StoryboardWithScenes,
 } from '@/lib/supabase/workflow-service';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
+import { useMediaPanelStore } from '../store';
 
 function buildScenePromptUpdate(editedPrompt: string): {
   prompt: string | null;
@@ -104,6 +107,38 @@ function buildScenePromptUpdate(editedPrompt: string): {
     return { prompt: null, multi_prompt: parsed };
   }
   return { prompt: editedPrompt, multi_prompt: null };
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizePromptSource(value: unknown): ScenePromptSource | null {
+  if (
+    value === 'prompt_contract' ||
+    value === 'multi_prompt' ||
+    value === 'prompt' ||
+    value === 'none'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeCompileStatus(value: unknown): 'ready' | 'blocked' | null {
+  if (value === 'ready' || value === 'blocked') {
+    return value;
+  }
+  return null;
+}
+
+interface GenerationLogPromptSnapshotRow {
+  entity_id: string;
+  generation_meta: Record<string, unknown> | null;
+  created_at: string;
 }
 
 const VOICES = [
@@ -471,6 +506,12 @@ export function StoryboardCards({
   const [isVisualOpen, setIsVisualOpen] = useState(false);
   const [isVideoOpen, setIsVideoOpen] = useState(false);
   const [cardMinWidth, setCardMinWidth] = useState(180);
+  const showStoryboardDebugPanel = useMediaPanelStore(
+    (state) => state.showStoryboardDebugPanel
+  );
+  const [scenePromptDebugSnapshots, setScenePromptDebugSnapshots] = useState<
+    Record<string, ScenePromptDebugSnapshot>
+  >({});
   const { studio } = useStudioStore();
 
   // Re-initialize voiceConfig from storyboard plan when storyboard loads
@@ -584,6 +625,88 @@ export function StoryboardCards({
     }
   }, [refreshTrigger, refresh]);
 
+  useEffect(() => {
+    if (!showStoryboardDebugPanel || !storyboard?.id) {
+      setScenePromptDebugSnapshots({});
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadPromptDebugSnapshots = async () => {
+      const supabase = createClient('studio');
+      const { data, error } = await supabase
+        .from('generation_logs')
+        .select('entity_id, generation_meta, created_at')
+        .eq('storyboard_id', storyboard.id)
+        .eq('entity_type', 'scene')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (isCancelled) return;
+
+      if (error) {
+        console.warn(
+          '[StoryboardCards] Failed to fetch scene generation logs for debug inspector',
+          error
+        );
+        setScenePromptDebugSnapshots({});
+        return;
+      }
+
+      const snapshots: Record<string, ScenePromptDebugSnapshot> = {};
+
+      for (const row of (data ?? []) as GenerationLogPromptSnapshotRow[]) {
+        if (snapshots[row.entity_id]) continue;
+
+        const generationMeta = toRecord(row.generation_meta);
+        if (!generationMeta) continue;
+
+        const promptSource = normalizePromptSource(
+          generationMeta.prompt_source
+        );
+        const compileStatus = normalizeCompileStatus(
+          generationMeta.prompt_contract_compile_status
+        );
+        const resolvedAssetRefs = Array.isArray(
+          generationMeta.prompt_contract_resolved_asset_refs
+        )
+          ? generationMeta.prompt_contract_resolved_asset_refs
+          : null;
+        const referenceImages = Array.isArray(
+          generationMeta.prompt_contract_reference_images
+        )
+          ? generationMeta.prompt_contract_reference_images
+          : null;
+
+        if (
+          !promptSource &&
+          !compileStatus &&
+          !resolvedAssetRefs &&
+          !referenceImages
+        ) {
+          continue;
+        }
+
+        snapshots[row.entity_id] = {
+          prompt_source: promptSource,
+          compile_status: compileStatus,
+          resolved_asset_refs: resolvedAssetRefs,
+          reference_images: referenceImages,
+          logged_at: row.created_at,
+        };
+      }
+
+      setScenePromptDebugSnapshots(snapshots);
+    };
+
+    loadPromptDebugSnapshots();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [showStoryboardDebugPanel, storyboard?.id]);
+
   // Auto-correct resolution — cap at 720p for Kling
   useEffect(() => {
     if (videoResolution === '480p') {
@@ -686,9 +809,9 @@ export function StoryboardCards({
   useEffect(() => {
     if (!isRefToVideoMode) return;
 
-    const sbModel = storyboard?.model;
+    const sbModel = storyboard?.model as string | null | undefined;
     if (sbModel === 'klingo3') {
-      setRefVideoModel(sbModel);
+      setRefVideoModel('klingo3');
     }
   }, [isRefToVideoMode, storyboard?.model]);
 
@@ -2454,6 +2577,8 @@ export function StoryboardCards({
               }
               isDialogueMode={isDialogueMode}
               onUpdateShotDurations={handleUpdateShotDurations}
+              showPromptContractDebug={showStoryboardDebugPanel}
+              promptDebugSnapshot={scenePromptDebugSnapshots[scene.id] ?? null}
             />
           );
         })}

@@ -98,6 +98,20 @@ interface SceneBackgroundOption {
   series_asset_variant_id?: string | null;
 }
 
+export type ScenePromptSource =
+  | 'prompt_contract'
+  | 'multi_prompt'
+  | 'prompt'
+  | 'none';
+
+export interface ScenePromptDebugSnapshot {
+  prompt_source?: ScenePromptSource | null;
+  compile_status?: Scene['compile_status'] | null;
+  resolved_asset_refs?: Scene['resolved_asset_refs'] | null;
+  reference_images?: Scene['reference_images'] | null;
+  logged_at?: string | null;
+}
+
 interface SceneCardProps {
   scene: Scene;
   showVoiceover?: boolean;
@@ -140,6 +154,8 @@ interface SceneCardProps {
     sceneId: string,
     durations: Array<{ duration: string }>
   ) => void;
+  showPromptContractDebug?: boolean;
+  promptDebugSnapshot?: ScenePromptDebugSnapshot | null;
 }
 
 interface SceneThumbnailProps {
@@ -1075,6 +1091,152 @@ function BackgroundPicker({
   );
 }
 
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeCompileStatus(value: unknown): 'ready' | 'blocked' | null {
+  if (value === 'ready' || value === 'blocked') {
+    return value;
+  }
+  return null;
+}
+
+function normalizePromptSource(value: unknown): ScenePromptSource | null {
+  if (
+    value === 'prompt_contract' ||
+    value === 'multi_prompt' ||
+    value === 'prompt' ||
+    value === 'none'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function toPrettyJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function formatLogTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString();
+}
+
+interface PromptContractDebugPanelProps {
+  promptJson: unknown;
+  validatedRuntime: unknown;
+  compiledPrompt: string | null;
+  compileStatus: 'ready' | 'blocked' | null;
+  promptSource: ScenePromptSource | null;
+  resolvedAssetRefs: unknown[] | null;
+  referenceImages: unknown[] | null;
+  latestLogAt: string | null;
+  hasData: boolean;
+}
+
+function PromptContractDebugPanel({
+  promptJson,
+  validatedRuntime,
+  compiledPrompt,
+  compileStatus,
+  promptSource,
+  resolvedAssetRefs,
+  referenceImages,
+  latestLogAt,
+  hasData,
+}: PromptContractDebugPanelProps) {
+  const formattedLogAt = formatLogTimestamp(latestLogAt);
+
+  return (
+    <details
+      className="mt-2 rounded border border-amber-500/25 bg-amber-500/5 px-2 py-1.5"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <summary className="cursor-pointer text-[10px] font-medium text-amber-300 tracking-wide uppercase">
+        Debug Inspector · Prompt Contract
+      </summary>
+      <div className="mt-2 space-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[9px] px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-200 border-amber-500/30">
+            Source: {promptSource ?? 'n/a'}
+          </span>
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${
+              compileStatus === 'ready'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : compileStatus === 'blocked'
+                  ? 'bg-red-500/10 text-red-300 border-red-500/30'
+                  : 'bg-muted/30 text-muted-foreground border-border/40'
+            }`}
+          >
+            Compile: {compileStatus ?? 'n/a'}
+          </span>
+          {formattedLogAt && (
+            <span className="text-[9px] text-muted-foreground">
+              Latest generation log: {formattedLogAt}
+            </span>
+          )}
+        </div>
+
+        {!hasData ? (
+          <p className="text-[10px] text-muted-foreground">
+            No prompt-contract debug data found on scene state or logs.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div>
+              <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                prompt_json
+              </div>
+              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                {promptJson ? toPrettyJson(promptJson) : 'null'}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                validated_runtime
+              </div>
+              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                {validatedRuntime ? toPrettyJson(validatedRuntime) : 'null'}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                compiled_prompt
+              </div>
+              <pre className="max-h-28 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                {compiledPrompt ?? 'null'}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                resolved_asset_refs
+              </div>
+              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                {resolvedAssetRefs ? toPrettyJson(resolvedAssetRefs) : 'null'}
+              </pre>
+            </div>
+            <div>
+              <div className="text-[10px] font-medium text-foreground/85 mb-1">
+                reference_images
+              </div>
+              <pre className="max-h-32 overflow-auto rounded border border-border/40 bg-background/50 p-2 text-[10px] text-foreground/75 whitespace-pre-wrap break-all">
+                {referenceImages ? toPrettyJson(referenceImages) : 'null'}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function SceneCard({
   scene,
   showVoiceover = true,
@@ -1103,6 +1265,8 @@ export function SceneCard({
   onChangeBackground,
   isDialogueMode,
   onUpdateShotDurations,
+  showPromptContractDebug = false,
+  promptDebugSnapshot = null,
 }: SceneCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1124,6 +1288,53 @@ export function SceneCard({
     (scene.multi_prompt && scene.multi_prompt.length > 0
       ? JSON.stringify(scene.multi_prompt)
       : (firstFrame?.visual_prompt ?? scene.prompt));
+  const generationMetaRecord = toRecord(scene.generation_meta);
+  const promptContractRecord = toRecord(generationMetaRecord?.prompt_contract);
+  const promptJsonDebug =
+    scene.prompt_json ?? promptContractRecord?.prompt_json;
+  const validatedRuntimeDebug =
+    scene.validated_runtime ?? promptContractRecord?.validated_runtime;
+  const compiledPromptDebug =
+    scene.compiled_prompt ??
+    (typeof promptContractRecord?.compiled_prompt === 'string'
+      ? promptContractRecord.compiled_prompt
+      : null);
+  const compileStatusDebug =
+    scene.compile_status ??
+    normalizeCompileStatus(promptContractRecord?.compile_status) ??
+    promptDebugSnapshot?.compile_status ??
+    normalizeCompileStatus(
+      generationMetaRecord?.prompt_contract_compile_status
+    );
+  const promptSourceDebug =
+    promptDebugSnapshot?.prompt_source ??
+    normalizePromptSource(generationMetaRecord?.prompt_source);
+  const resolvedAssetRefsDebug =
+    scene.resolved_asset_refs ??
+    (Array.isArray(promptContractRecord?.resolved_asset_refs)
+      ? promptContractRecord.resolved_asset_refs
+      : null) ??
+    promptDebugSnapshot?.resolved_asset_refs ??
+    (Array.isArray(generationMetaRecord?.prompt_contract_resolved_asset_refs)
+      ? generationMetaRecord.prompt_contract_resolved_asset_refs
+      : null);
+  const referenceImagesDebug =
+    scene.reference_images ??
+    (Array.isArray(promptContractRecord?.reference_images)
+      ? promptContractRecord.reference_images
+      : null) ??
+    promptDebugSnapshot?.reference_images ??
+    (Array.isArray(generationMetaRecord?.prompt_contract_reference_images)
+      ? generationMetaRecord.prompt_contract_reference_images
+      : null);
+  const hasPromptContractDebugData =
+    promptJsonDebug !== undefined ||
+    validatedRuntimeDebug !== undefined ||
+    compiledPromptDebug !== null ||
+    compileStatusDebug !== null ||
+    promptSourceDebug !== null ||
+    resolvedAssetRefsDebug !== null ||
+    referenceImagesDebug !== null;
 
   const handleAddToCanvas = async () => {
     if (!studio || !scene.video_url) return;
@@ -1894,6 +2105,19 @@ export function SceneCard({
             onAddVoiceoverToTimeline={onAddVoiceoverToTimeline}
             isDialogueMode={isDialogueMode}
           />
+          {showPromptContractDebug && (
+            <PromptContractDebugPanel
+              promptJson={promptJsonDebug}
+              validatedRuntime={validatedRuntimeDebug}
+              compiledPrompt={compiledPromptDebug}
+              compileStatus={compileStatusDebug ?? null}
+              promptSource={promptSourceDebug}
+              resolvedAssetRefs={resolvedAssetRefsDebug}
+              referenceImages={referenceImagesDebug}
+              latestLogAt={promptDebugSnapshot?.logged_at ?? null}
+              hasData={hasPromptContractDebugData}
+            />
+          )}
         </>
       )}
 

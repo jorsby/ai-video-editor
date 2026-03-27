@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
+  IconBug,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -192,6 +193,12 @@ export default function PanelStoryboard() {
   );
   const setSelectedStoryboardIdInStore = useMediaPanelStore(
     (state) => state.setSelectedStoryboardId
+  );
+  const showStoryboardDebugPanel = useMediaPanelStore(
+    (state) => state.showStoryboardDebugPanel
+  );
+  const setShowStoryboardDebugPanel = useMediaPanelStore(
+    (state) => state.setShowStoryboardDebugPanel
   );
 
   // Storyboard navigation state
@@ -604,6 +611,20 @@ export default function PanelStoryboard() {
             <IconPlus className="size-3" />
             New
           </Button>
+          {selectedStoryboardId && (
+            <Button
+              variant={showStoryboardDebugPanel ? 'secondary' : 'outline'}
+              size="sm"
+              className="h-8 gap-1"
+              onClick={() =>
+                setShowStoryboardDebugPanel(!showStoryboardDebugPanel)
+              }
+              title="Toggle prompt-contract debug inspector"
+            >
+              <IconBug className="size-3" />
+              Debug
+            </Button>
+          )}
         </div>
 
         {/* Draft banner — show when viewing approved storyboards but a draft exists */}
