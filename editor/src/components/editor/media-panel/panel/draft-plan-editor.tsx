@@ -158,7 +158,7 @@ export function DraftPlanEditor({
             </span>
             {videoModel && (
               <span className="text-xs px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded">
-                Kling O3
+                Grok Imagine
               </span>
             )}
             {ref && (

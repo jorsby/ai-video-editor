@@ -75,7 +75,7 @@ function rebalanceToTarget(
   return next;
 }
 
-export function buildKlingMultiPromptPayload(params: {
+export function buildMultiPromptPayload(params: {
   prompts: string[];
   targetTotalSeconds: number;
   multiShots?: MultiShotInput;

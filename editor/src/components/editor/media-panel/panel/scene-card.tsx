@@ -91,6 +91,56 @@ function formatVoiceoverDuration(
   return `${seconds.toFixed(1)}s`;
 }
 
+function normalizeSlugList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function getCanonicalSceneStatusMeta(status: string | null | undefined): {
+  label: string;
+  className: string;
+} {
+  if (status === 'ready') {
+    return {
+      label: 'Ready',
+      className: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
+    };
+  }
+
+  if (status === 'in_progress') {
+    return {
+      label: 'In Progress',
+      className: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    };
+  }
+
+  if (status === 'done') {
+    return {
+      label: 'Done',
+      className: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    };
+  }
+
+  if (status === 'failed') {
+    return {
+      label: 'Failed',
+      className: 'bg-destructive/10 text-destructive border-destructive/30',
+    };
+  }
+
+  return {
+    label: 'Draft',
+    className: 'bg-muted/50 text-muted-foreground border-border/40',
+  };
+}
+
 interface SceneBackgroundOption {
   name: string;
   url: string;
@@ -1471,13 +1521,32 @@ export function SceneCard({
   const background = scene.backgrounds?.[0] ?? null;
   const voiceover =
     scene.voiceovers?.find((v) => v.language === selectedLanguage) ?? null;
+  const canonicalAudioText =
+    typeof scene.audio_text === 'string' && scene.audio_text.trim().length > 0
+      ? scene.audio_text.trim()
+      : null;
+  const canonicalAudioUrl =
+    typeof scene.audio_url === 'string' && scene.audio_url.trim().length > 0
+      ? scene.audio_url.trim()
+      : null;
+  const canonicalStatus =
+    typeof scene.status === 'string' ? scene.status : null;
+  const canonicalLocationVariantSlug =
+    typeof scene.location_variant_slug === 'string' &&
+    scene.location_variant_slug.trim().length > 0
+      ? scene.location_variant_slug.trim()
+      : null;
+  const canonicalCharacterVariantSlugs = normalizeSlugList(
+    scene.character_variant_slugs
+  );
+  const canonicalPropVariantSlugs = normalizeSlugList(scene.prop_variant_slugs);
   const imageUrl = firstFrame
     ? (firstFrame.final_url ??
       firstFrame.url ??
       firstFrame.out_padded_url ??
       null)
     : resolveAssetImageUrl(background, assetImageMap);
-  const displayVoiceover = voiceover?.text;
+  const displayVoiceover = voiceover?.text ?? canonicalAudioText;
   // For ref_to_video scenes, prefer explicit override (first-frame prompt), then multi_prompt, then scene/first-frame prompt.
   const displayVisualPrompt =
     promptOverride ??
@@ -1584,8 +1653,14 @@ export function SceneCard({
         {
           videoUrl: scene.video_url,
           voiceover:
-            voiceover?.status === 'success' && voiceover?.audio_url
-              ? { audioUrl: voiceover.audio_url }
+            (voiceover?.status === 'success' && voiceover?.audio_url) ||
+            canonicalAudioUrl
+              ? {
+                  audioUrl:
+                    (voiceover?.status === 'success' && voiceover?.audio_url) ||
+                    canonicalAudioUrl ||
+                    '',
+                }
               : null,
         },
         {
@@ -1599,7 +1674,10 @@ export function SceneCard({
     }
   };
 
-  const hasVideo = scene.video_status === 'success' && !!scene.video_url;
+  const canonicalStatusMeta = getCanonicalSceneStatusMeta(canonicalStatus);
+  const hasVideo =
+    !!scene.video_url &&
+    (scene.video_status === 'success' || canonicalStatus === 'done');
 
   const totalSceneObjects = scene.objects?.length ?? 0;
   const mappedSceneObjects = (scene.objects ?? []).filter(
@@ -1652,7 +1730,9 @@ export function SceneCard({
           (scene.multi_prompt ?? []).some((prompt) => prompt.trim().length > 0)
       );
 
-  const hasVoiceoverPrompt = Boolean(voiceover?.text?.trim());
+  const hasVoiceoverPrompt = Boolean(
+    voiceover?.text?.trim() || canonicalAudioText
+  );
 
   const requiredObjectsForPrompt = (scene.objects ?? []).filter(
     (obj) => !obj.series_asset_variant_id
@@ -1693,24 +1773,32 @@ export function SceneCard({
   };
 
   const renderCollapsedVoiceoverStatus = () => {
-    if (!voiceover) return null;
+    if (voiceover) {
+      if (voiceover.status === 'processing') {
+        return (
+          <span className="flex items-center gap-1 text-[9px] text-blue-400 flex-shrink-0">
+            <IconLoader2 size={10} className="animate-spin" />
+            Generating...
+          </span>
+        );
+      }
 
-    if (voiceover.status === 'processing') {
-      return (
-        <span className="flex items-center gap-1 text-[9px] text-blue-400 flex-shrink-0">
-          <IconLoader2 size={10} className="animate-spin" />
-          Generating...
-        </span>
-      );
+      if (voiceover.status === 'success' && voiceover.audio_url) {
+        return (
+          <VoiceoverPlayButton
+            voiceover={voiceover}
+            isPlaying={isPlaying}
+            onToggle={handleTogglePlay}
+          />
+        );
+      }
     }
 
-    if (voiceover.status === 'success' && voiceover.audio_url) {
+    if (canonicalAudioUrl) {
       return (
-        <VoiceoverPlayButton
-          voiceover={voiceover}
-          isPlaying={isPlaying}
-          onToggle={handleTogglePlay}
-        />
+        <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 flex-shrink-0">
+          Audio ready
+        </span>
       );
     }
 
@@ -1793,6 +1881,52 @@ export function SceneCard({
         )}
       </div>
 
+      <div className="mb-1.5 flex flex-wrap items-center gap-1">
+        <span
+          className={`text-[9px] px-1.5 py-0.5 rounded border ${canonicalStatusMeta.className}`}
+        >
+          Scene {canonicalStatusMeta.label}
+        </span>
+        {canonicalAudioUrl ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded border bg-blue-500/10 text-blue-300 border-blue-500/20">
+            audio_url
+          </span>
+        ) : null}
+        {scene.video_url ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded border bg-cyan-500/10 text-cyan-300 border-cyan-500/20">
+            video_url
+          </span>
+        ) : null}
+      </div>
+
+      {(canonicalLocationVariantSlug ||
+        canonicalCharacterVariantSlugs.length > 0 ||
+        canonicalPropVariantSlugs.length > 0) && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {canonicalLocationVariantSlug ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded border border-violet-500/25 bg-violet-500/10 text-violet-300">
+              L: {canonicalLocationVariantSlug}
+            </span>
+          ) : null}
+          {canonicalCharacterVariantSlugs.map((slug) => (
+            <span
+              key={`${scene.id}-char-${slug}`}
+              className="text-[9px] px-1.5 py-0.5 rounded border border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
+            >
+              C: {slug}
+            </span>
+          ))}
+          {canonicalPropVariantSlugs.map((slug) => (
+            <span
+              key={`${scene.id}-prop-${slug}`}
+              className="text-[9px] px-1.5 py-0.5 rounded border border-amber-500/25 bg-amber-500/10 text-amber-300"
+            >
+              P: {slug}
+            </span>
+          ))}
+        </div>
+      )}
+
       {feedbackItems.length > 0 && (
         <div className="mb-1.5 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300 space-y-0.5">
           {feedbackItems.slice(0, 2).map((feedback) => (
@@ -1815,7 +1949,10 @@ export function SceneCard({
           sceneOrder={scene.order}
           firstFrame={firstFrame}
           background={background}
-          videoStatus={scene.video_status}
+          videoStatus={
+            scene.video_status ??
+            (canonicalStatus === 'in_progress' ? 'processing' : null)
+          }
           hasVideo={hasVideo}
           onAddToCanvas={hasVideo ? handleAddToCanvas : undefined}
           onPreviewImage={() => setPreviewOpen(true)}

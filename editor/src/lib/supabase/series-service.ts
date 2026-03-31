@@ -1,34 +1,69 @@
 /**
  * Series Production Engine service — CRUD for series, assets, variants,
- * variant images, episodes, and episode–asset–variant overrides.
- * Uses admin (service-role) client for API routes.
+ * episodes, and episode asset maps.
+ *
+ * Phase 1 schema-rewire notes:
+ * - Canonical tables: series, series_assets, series_asset_variants, episodes.
+ * - Canonical refs: variant slug in episodes.asset_variant_map and scene refs.
+ * - Legacy compatibility fields are still exposed in API payloads where needed
+ *   (for incremental UI migration).
  */
 
-import type {
-  CharacterImageAngle,
-  CharacterImageKind,
-  CharacterImageSource,
-} from './character-service';
-
-// Re-export for convenience
-export type { CharacterImageAngle, CharacterImageKind, CharacterImageSource };
+// Character image types (inlined after character-service removal)
+export type CharacterImageAngle =
+  | 'front'
+  | 'frontal'
+  | 'side'
+  | 'back'
+  | 'three_quarter';
+export type CharacterImageKind = 'reference' | 'generated' | 'edited';
+export type CharacterImageSource =
+  | 'upload'
+  | 'flux'
+  | 'dalle'
+  | 'midjourney'
+  | 'generated';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type SeriesAssetType = 'character' | 'location' | 'prop';
+export type SeriesContentMode = 'narrative' | 'cinematic' | 'hybrid';
+export type SeriesPlanStatus = 'draft' | 'finalized';
+export type EpisodeStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+
+export interface EpisodeAssetVariantMap {
+  characters: string[];
+  locations: string[];
+  props: string[];
+}
+
+interface JsonRecord {
+  [key: string]: unknown;
+}
 
 export interface Series {
   id: string;
   user_id: string;
-  project_id: string | null;
+  project_id: string;
   name: string;
   genre: string | null;
   tone: string | null;
   bible: string | null;
-  visual_style: Record<string, unknown>;
-  metadata: Record<string, unknown>;
+  content_mode: SeriesContentMode;
+  language: string | null;
+  aspect_ratio: string | null;
+  video_model: string | null;
+  image_model: string | null;
+  voice_id: string | null;
+  tts_speed: number | null;
+  visual_style: string | JsonRecord | null;
+  creative_brief: JsonRecord | null;
+  plan_status: SeriesPlanStatus;
   created_at: string;
   updated_at: string;
+
+  // Legacy compatibility alias for old clients still sending/reading metadata.
+  metadata?: JsonRecord;
 }
 
 export interface SeriesAsset {
@@ -36,24 +71,35 @@ export interface SeriesAsset {
   series_id: string;
   type: SeriesAssetType;
   name: string;
+  slug: string;
   description: string | null;
-  tags: string[];
-  character_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
+
+  // Legacy compatibility fields (removed from canonical schema).
+  tags?: string[];
+  character_id?: string | null;
 }
 
 export interface SeriesAssetVariant {
   id: string;
   asset_id: string;
-  label: string;
-  description: string | null;
+  name: string;
+  slug: string;
+  prompt: string | null;
+  image_url: string | null;
   is_default: boolean;
-  is_finalized: boolean;
-  finalized_at: string | null;
+  where_to_use: string | null;
+  reasoning: string | null;
   created_at: string;
   updated_at: string;
+
+  // Legacy compatibility aliases.
+  label?: string;
+  description?: string | null;
+  is_finalized?: boolean;
+  finalized_at?: string | null;
 }
 
 export interface SeriesAssetVariantImage {
@@ -74,19 +120,28 @@ export interface SeriesAssetVariantImage {
 export interface SeriesEpisode {
   id: string;
   series_id: string;
-  project_id: string;
-  episode_number: number;
+  order: number;
   title: string | null;
   synopsis: string | null;
+  audio_content: string | null;
+  visual_outline: string | null;
+  asset_variant_map: EpisodeAssetVariantMap;
+  plan_json: JsonRecord | null;
+  status: EpisodeStatus;
   created_at: string;
   updated_at: string;
+
+  // Legacy compatibility aliases.
+  project_id?: null;
+  episode_number: number;
 }
 
-export interface EpisodeAssetVariant {
+export interface EpisodeAssetMap {
   id: string;
   episode_id: string;
   asset_id: string;
-  variant_id: string;
+  variant_slug?: string;
+  type?: SeriesAssetType;
   created_at: string;
 }
 
@@ -105,64 +160,303 @@ export interface SeriesWithAssets extends Series {
 }
 
 export interface SeriesEpisodeWithVariants extends SeriesEpisode {
-  episode_asset_variants: EpisodeAssetVariant[];
+  episode_assets: EpisodeAssetMap[];
 }
 
 // ── Client type alias ─────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseClient = any;
+// biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
+export type SupabaseClient = any;
 
 const SERIES_ASSETS_BUCKET = 'series-assets';
 
-function needsPublicSeriesAssetUrl(url: string | null): boolean {
-  if (!url) return true;
+const DEFAULT_EPISODE_ASSET_VARIANT_MAP: EpisodeAssetVariantMap = {
+  characters: [],
+  locations: [],
+  props: [],
+};
 
-  // Raw storage paths (e.g. "generated/...") need to be resolved
-  if (!/^https?:\/\//i.test(url)) return true;
-
-  // Signed URLs should be replaced with public URLs (bucket is public)
-  if (url.includes('/object/sign/series-assets/')) return true;
-
-  return false;
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
 }
 
-async function hydrateSeriesAssetImageUrls(
+function asNullableText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asJsonRecordOrNull(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as JsonRecord;
+}
+
+function parseVisualStyle(value: unknown): string | JsonRecord | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // Best-effort: old data may be JSON-encoded object in text column.
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as JsonRecord;
+      }
+    } catch {
+      // keep plain text
+    }
+
+    return trimmed;
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as JsonRecord;
+  }
+
+  return null;
+}
+
+function toDbVisualStyle(value: unknown): string | null {
+  if (typeof value === 'string') return asNullableText(value);
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  return null;
+}
+
+function normalizeEpisodeAssetVariantMap(
+  value: unknown
+): EpisodeAssetVariantMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...DEFAULT_EPISODE_ASSET_VARIANT_MAP };
+  }
+
+  const input = value as Record<string, unknown>;
+  const pickStringArray = (key: keyof EpisodeAssetVariantMap): string[] => {
+    const raw = input[key];
+    if (!Array.isArray(raw)) return [];
+    const normalized = raw
+      .filter((v): v is string => typeof v === 'string')
+      .map((v) => v.trim())
+      .filter(Boolean);
+    return [...new Set(normalized)];
+  };
+
+  return {
+    characters: pickStringArray('characters'),
+    locations: pickStringArray('locations'),
+    props: pickStringArray('props'),
+  };
+}
+
+function toLegacySeriesRow(row: Record<string, unknown>): Series {
+  const creativeBrief = asJsonRecordOrNull(row.creative_brief);
+
+  return {
+    ...(row as unknown as Series),
+    visual_style: parseVisualStyle(row.visual_style),
+    creative_brief: creativeBrief,
+    metadata: creativeBrief ?? {},
+  };
+}
+
+function resolveVariantImageUrl(
   supabase: SupabaseClient,
-  assets: SeriesAssetWithVariants[]
-): Promise<SeriesAssetWithVariants[]> {
-  return Promise.all(
-    assets.map(async (asset) => ({
-      ...asset,
-      series_asset_variants: await Promise.all(
-        asset.series_asset_variants.map(async (variant) => ({
-          ...variant,
-          series_asset_variant_images: await Promise.all(
-            variant.series_asset_variant_images.map(async (img) => {
-              if (
-                !img.storage_path ||
-                !needsPublicSeriesAssetUrl(img.url ?? null)
-              ) {
-                return img;
-              }
+  imageUrl: string | null
+): string | null {
+  if (!imageUrl) return null;
 
-              // Bucket is public — use public URL (no signing, no expiry, works everywhere)
-              const {
-                data: { publicUrl },
-              } = supabase.storage
-                .from(SERIES_ASSETS_BUCKET)
-                .getPublicUrl(img.storage_path);
+  // Raw storage path: convert to public URL (bucket is public).
+  if (!/^https?:\/\//i.test(imageUrl)) {
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(SERIES_ASSETS_BUCKET).getPublicUrl(imageUrl);
+    return publicUrl ?? imageUrl;
+  }
 
-              return {
-                ...img,
-                url: publicUrl,
-              };
-            })
-          ),
-        }))
-      ),
-    }))
+  // Signed URL: normalize to public URL for consistency.
+  if (imageUrl.includes('/object/sign/series-assets/')) {
+    const signedPrefix = '/object/sign/series-assets/';
+    const signedIndex = imageUrl.indexOf(signedPrefix);
+    const rawPath = imageUrl.slice(signedIndex + signedPrefix.length);
+    const pathOnly = rawPath.split('?')[0] ?? rawPath;
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(SERIES_ASSETS_BUCKET).getPublicUrl(pathOnly);
+    return publicUrl ?? imageUrl;
+  }
+
+  return imageUrl;
+}
+
+function toVariantWithCompatibility(
+  supabase: SupabaseClient,
+  variant: Record<string, unknown>
+): SeriesAssetVariantWithImages {
+  const resolvedImageUrl = resolveVariantImageUrl(
+    supabase,
+    typeof variant.image_url === 'string' ? variant.image_url : null
   );
+
+  const base: SeriesAssetVariant = {
+    ...(variant as unknown as SeriesAssetVariant),
+    image_url: resolvedImageUrl,
+    label: typeof variant.name === 'string' ? variant.name : undefined,
+    description:
+      typeof variant.where_to_use === 'string'
+        ? variant.where_to_use
+        : ((variant.where_to_use as string | null) ?? null),
+    is_finalized: false,
+    finalized_at: null,
+  };
+
+  const legacyImages: SeriesAssetVariantImage[] = resolvedImageUrl
+    ? [
+        {
+          id: `${String(variant.id)}::canonical`,
+          variant_id: String(variant.id),
+          angle: 'front',
+          kind: 'reference',
+          url: resolvedImageUrl,
+          storage_path:
+            typeof variant.image_url === 'string' ? variant.image_url : '',
+          source: 'generated',
+          width: null,
+          height: null,
+          metadata: {
+            source: 'series_asset_variants.image_url',
+            prompt:
+              typeof variant.prompt === 'string' ? variant.prompt : undefined,
+          },
+          created_at:
+            typeof variant.created_at === 'string'
+              ? variant.created_at
+              : new Date().toISOString(),
+          updated_at:
+            typeof variant.updated_at === 'string'
+              ? variant.updated_at
+              : new Date().toISOString(),
+        },
+      ]
+    : [];
+
+  return {
+    ...base,
+    series_asset_variant_images: legacyImages,
+  };
+}
+
+function toAssetWithCompatibility(
+  supabase: SupabaseClient,
+  asset: Record<string, unknown>
+): SeriesAssetWithVariants {
+  const variantsRaw = Array.isArray(asset.series_asset_variants)
+    ? (asset.series_asset_variants as Record<string, unknown>[])
+    : [];
+
+  return {
+    ...(asset as unknown as SeriesAsset),
+    slug:
+      typeof asset.slug === 'string' && asset.slug.trim().length > 0
+        ? asset.slug
+        : slugify(String(asset.name ?? 'asset')),
+    tags: [],
+    character_id: null,
+    series_asset_variants: variantsRaw.map((variant) =>
+      toVariantWithCompatibility(supabase, variant)
+    ),
+  };
+}
+
+async function ensureSeriesProject(
+  supabase: SupabaseClient,
+  userId: string,
+  input: {
+    project_id?: string;
+    project_description?: string;
+    seriesName: string;
+  }
+): Promise<string> {
+  if (input.project_id && input.project_id.trim().length > 0) {
+    return input.project_id.trim();
+  }
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({
+      user_id: userId,
+      name: `${input.seriesName} Project`,
+      description: asNullableText(input.project_description),
+    })
+    .select('id')
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(`Failed to create default project: ${error?.message}`);
+  }
+
+  return data.id;
+}
+
+function collectVariantSlugs(map: EpisodeAssetVariantMap): string[] {
+  return [...new Set([...map.characters, ...map.locations, ...map.props])];
+}
+
+async function buildEpisodeLegacyAssetRows(
+  supabase: SupabaseClient,
+  seriesId: string,
+  episodeId: string,
+  map: EpisodeAssetVariantMap
+): Promise<EpisodeAssetMap[]> {
+  const slugs = collectVariantSlugs(map);
+  if (slugs.length === 0) return [];
+
+  const { data: assetsData, error } = await supabase
+    .from('series_assets')
+    .select('id, type, series_asset_variants(slug)')
+    .eq('series_id', seriesId);
+
+  if (error) {
+    throw new Error(`Failed to resolve episode asset map: ${error.message}`);
+  }
+
+  const slugToAsset = new Map<
+    string,
+    { assetId: string; type: SeriesAssetType }
+  >();
+
+  for (const asset of (assetsData ?? []) as Array<{
+    id: string;
+    type: SeriesAssetType;
+    series_asset_variants: Array<{ slug: string }> | null;
+  }>) {
+    for (const variant of asset.series_asset_variants ?? []) {
+      if (typeof variant.slug === 'string' && variant.slug.trim()) {
+        slugToAsset.set(variant.slug, { assetId: asset.id, type: asset.type });
+      }
+    }
+  }
+
+  const rows: EpisodeAssetMap[] = [];
+  for (const slug of slugs) {
+    const resolved = slugToAsset.get(slug);
+    if (!resolved) continue;
+    rows.push({
+      id: `${episodeId}::${slug}`,
+      episode_id: episodeId,
+      asset_id: resolved.assetId,
+      variant_slug: slug,
+      type: resolved.type,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  return rows;
 }
 
 // ── Series CRUD ───────────────────────────────────────────────────────────────
@@ -178,7 +472,9 @@ export async function listSeries(
     .order('updated_at', { ascending: false });
 
   if (error) throw new Error(`Failed to list series: ${error.message}`);
-  return data ?? [];
+  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+    toLegacySeriesRow(row)
+  );
 }
 
 export async function getSeries(
@@ -197,7 +493,8 @@ export async function getSeries(
     if (error.code === 'PGRST116') return null;
     throw new Error(`Failed to get series: ${error.message}`);
   }
-  return data;
+
+  return toLegacySeriesRow((data ?? {}) as Record<string, unknown>);
 }
 
 export async function getSeriesWithAssets(
@@ -207,9 +504,7 @@ export async function getSeriesWithAssets(
 ): Promise<SeriesWithAssets | null> {
   const { data, error } = await supabase
     .from('series')
-    .select(
-      '*, series_assets (*, series_asset_variants (*, series_asset_variant_images (*)))'
-    )
+    .select('*, series_assets(*, series_asset_variants(*))')
     .eq('id', seriesId)
     .eq('user_id', userId)
     .single();
@@ -221,14 +516,16 @@ export async function getSeriesWithAssets(
 
   if (!data) return null;
 
-  const hydratedAssets = await hydrateSeriesAssetImageUrls(
-    supabase,
-    data.series_assets ?? []
-  );
+  const row = data as Record<string, unknown>;
+  const assetsRaw = Array.isArray(row.series_assets)
+    ? (row.series_assets as Record<string, unknown>[])
+    : [];
 
   return {
-    ...data,
-    series_assets: hydratedAssets,
+    ...toLegacySeriesRow(row),
+    series_assets: assetsRaw.map((asset) =>
+      toAssetWithCompatibility(supabase, asset)
+    ),
   };
 }
 
@@ -236,28 +533,58 @@ export async function createSeries(
   supabase: SupabaseClient,
   userId: string,
   input: {
+    project_id?: string;
+    project_description?: string;
     name: string;
     genre?: string;
     tone?: string;
     bible?: string;
-    visual_style?: Record<string, unknown>;
+    content_mode?: SeriesContentMode;
+    language?: string;
+    aspect_ratio?: string;
+    video_model?: string;
+    image_model?: string;
+    voice_id?: string;
+    tts_speed?: number;
+    visual_style?: unknown;
+    creative_brief?: JsonRecord;
+    plan_status?: SeriesPlanStatus;
   }
 ): Promise<Series> {
+  const projectId = await ensureSeriesProject(supabase, userId, {
+    project_id: input.project_id,
+    project_description: input.project_description,
+    seriesName: input.name,
+  });
+
   const { data, error } = await supabase
     .from('series')
     .insert({
       user_id: userId,
+      project_id: projectId,
       name: input.name,
-      genre: input.genre ?? null,
-      tone: input.tone ?? null,
-      bible: input.bible ?? null,
-      visual_style: input.visual_style ?? {},
+      genre: asNullableText(input.genre),
+      tone: asNullableText(input.tone),
+      bible: asNullableText(input.bible),
+      content_mode: input.content_mode ?? 'narrative',
+      language: asNullableText(input.language),
+      aspect_ratio: asNullableText(input.aspect_ratio),
+      video_model: asNullableText(input.video_model),
+      image_model: asNullableText(input.image_model),
+      voice_id: asNullableText(input.voice_id),
+      tts_speed:
+        typeof input.tts_speed === 'number' && Number.isFinite(input.tts_speed)
+          ? input.tts_speed
+          : null,
+      visual_style: toDbVisualStyle(input.visual_style),
+      creative_brief: input.creative_brief ?? null,
+      plan_status: input.plan_status ?? 'draft',
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create series: ${error.message}`);
-  return data;
+  return toLegacySeriesRow((data ?? {}) as Record<string, unknown>);
 }
 
 export async function updateSeries(
@@ -269,20 +596,34 @@ export async function updateSeries(
     genre?: string | null;
     tone?: string | null;
     bible?: string | null;
-    visual_style?: Record<string, unknown>;
-    metadata?: Record<string, unknown>;
+    content_mode?: SeriesContentMode;
+    language?: string | null;
+    aspect_ratio?: string | null;
+    video_model?: string | null;
+    image_model?: string | null;
+    voice_id?: string | null;
+    tts_speed?: number | null;
+    visual_style?: unknown;
+    creative_brief?: JsonRecord | null;
+    plan_status?: SeriesPlanStatus;
   }
 ): Promise<Series> {
+  const updates: Record<string, unknown> = { ...input };
+
+  if ('visual_style' in input) {
+    updates.visual_style = toDbVisualStyle(input.visual_style);
+  }
+
   const { data, error } = await supabase
     .from('series')
-    .update(input)
+    .update(updates)
     .eq('id', seriesId)
     .eq('user_id', userId)
     .select()
     .single();
 
   if (error) throw new Error(`Failed to update series: ${error.message}`);
-  return data;
+  return toLegacySeriesRow((data ?? {}) as Record<string, unknown>);
 }
 
 export async function deleteSeries(
@@ -307,13 +648,15 @@ export async function listSeriesAssets(
 ): Promise<SeriesAssetWithVariants[]> {
   const { data, error } = await supabase
     .from('series_assets')
-    .select('*, series_asset_variants (*, series_asset_variant_images (*))')
+    .select('*, series_asset_variants(*)')
     .eq('series_id', seriesId)
     .order('sort_order', { ascending: true });
 
   if (error) throw new Error(`Failed to list series assets: ${error.message}`);
 
-  return hydrateSeriesAssetImageUrls(supabase, data ?? []);
+  return ((data ?? []) as Record<string, unknown>[]).map((asset) =>
+    toAssetWithCompatibility(supabase, asset)
+  );
 }
 
 export async function createSeriesAsset(
@@ -322,50 +665,71 @@ export async function createSeriesAsset(
   input: {
     type: SeriesAssetType;
     name: string;
+    slug?: string;
     description?: string;
-    tags?: string[];
-    character_id?: string;
     sort_order?: number;
   }
 ): Promise<SeriesAsset> {
+  const finalSlug =
+    asNullableText(input.slug) ?? slugify(input.name) ?? `asset-${Date.now()}`;
+
   const { data, error } = await supabase
     .from('series_assets')
     .insert({
       series_id: seriesId,
       type: input.type,
       name: input.name,
-      description: input.description ?? null,
-      tags: input.tags ?? [],
-      character_id: input.character_id ?? null,
-      sort_order: input.sort_order ?? 0,
+      slug: finalSlug,
+      description: asNullableText(input.description),
+      sort_order:
+        typeof input.sort_order === 'number' &&
+        Number.isFinite(input.sort_order)
+          ? input.sort_order
+          : 0,
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create series asset: ${error.message}`);
-  return data;
+
+  return {
+    ...(data as SeriesAsset),
+    tags: [],
+    character_id: null,
+  };
 }
 
 export async function updateSeriesAsset(
   supabase: SupabaseClient,
   assetId: string,
   input: {
+    type?: SeriesAssetType;
     name?: string;
+    slug?: string;
     description?: string | null;
-    tags?: string[];
-    character_id?: string | null;
     sort_order?: number;
   }
 ): Promise<SeriesAsset> {
+  const updates: Record<string, unknown> = { ...input };
+
+  if (input.name && input.slug === undefined) {
+    updates.slug = slugify(input.name);
+  }
+
   const { data, error } = await supabase
     .from('series_assets')
-    .update(input)
+    .update(updates)
     .eq('id', assetId)
     .select()
     .single();
 
   if (error) throw new Error(`Failed to update series asset: ${error.message}`);
-  return data;
+
+  return {
+    ...(data as SeriesAsset),
+    tags: [],
+    character_id: null,
+  };
 }
 
 export async function deleteSeriesAsset(
@@ -388,62 +752,163 @@ export async function listAssetVariants(
 ): Promise<SeriesAssetVariantWithImages[]> {
   const { data, error } = await supabase
     .from('series_asset_variants')
-    .select('*, series_asset_variant_images (*)')
+    .select('*')
     .eq('asset_id', assetId)
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(`Failed to list asset variants: ${error.message}`);
-  return data ?? [];
+
+  return ((data ?? []) as Record<string, unknown>[]).map((variant) =>
+    toVariantWithCompatibility(supabase, variant)
+  );
 }
 
 export async function createAssetVariant(
   supabase: SupabaseClient,
   assetId: string,
   input: {
-    label: string;
-    description?: string;
+    name?: string;
+    label?: string;
+    slug?: string;
+    prompt?: string;
+    image_url?: string;
     is_default?: boolean;
-    is_finalized?: boolean;
+    where_to_use?: string;
+    reasoning?: string;
+    description?: string;
   }
 ): Promise<SeriesAssetVariant> {
+  const resolvedName = asNullableText(input.name ?? input.label);
+  if (!resolvedName) {
+    throw new Error('Variant name is required');
+  }
+
+  const resolvedSlug = asNullableText(input.slug) ?? slugify(resolvedName);
+
+  if (input.is_default) {
+    const { error: resetError } = await supabase
+      .from('series_asset_variants')
+      .update({ is_default: false })
+      .eq('asset_id', assetId)
+      .eq('is_default', true);
+
+    if (resetError) {
+      throw new Error(
+        `Failed to clear previous default variant: ${resetError.message}`
+      );
+    }
+  }
+
   const { data, error } = await supabase
     .from('series_asset_variants')
     .insert({
       asset_id: assetId,
-      label: input.label,
-      description: input.description ?? null,
-      is_default: input.is_default ?? false,
-      is_finalized: input.is_finalized ?? false,
+      name: resolvedName,
+      slug: resolvedSlug,
+      prompt: asNullableText(input.prompt),
+      image_url: asNullableText(input.image_url),
+      is_default: Boolean(input.is_default),
+      where_to_use: asNullableText(input.where_to_use ?? input.description),
+      reasoning: asNullableText(input.reasoning),
     })
     .select()
     .single();
 
   if (error)
     throw new Error(`Failed to create asset variant: ${error.message}`);
-  return data;
+
+  return toVariantWithCompatibility(
+    supabase,
+    (data ?? {}) as Record<string, unknown>
+  );
 }
 
 export async function updateAssetVariant(
   supabase: SupabaseClient,
   variantId: string,
   input: {
+    name?: string;
     label?: string;
-    description?: string | null;
+    slug?: string;
+    prompt?: string | null;
+    image_url?: string | null;
     is_default?: boolean;
-    is_finalized?: boolean;
-    finalized_at?: string | null;
+    where_to_use?: string | null;
+    reasoning?: string | null;
+    description?: string | null;
   }
 ): Promise<SeriesAssetVariant> {
+  const updates: Record<string, unknown> = {};
+
+  if (input.name !== undefined || input.label !== undefined) {
+    const nextName = asNullableText(input.name ?? input.label);
+    if (!nextName) throw new Error('Variant name cannot be empty');
+    updates.name = nextName;
+    if (input.slug === undefined) {
+      updates.slug = slugify(nextName);
+    }
+  }
+
+  if (input.slug !== undefined) {
+    const nextSlug = asNullableText(input.slug);
+    if (!nextSlug) throw new Error('Variant slug cannot be empty');
+    updates.slug = nextSlug;
+  }
+
+  if (input.prompt !== undefined) updates.prompt = asNullableText(input.prompt);
+  if (input.image_url !== undefined)
+    updates.image_url = asNullableText(input.image_url);
+  if (input.where_to_use !== undefined || input.description !== undefined) {
+    updates.where_to_use = asNullableText(
+      input.where_to_use ?? input.description ?? null
+    );
+  }
+  if (input.reasoning !== undefined)
+    updates.reasoning = asNullableText(input.reasoning);
+
+  if (input.is_default === true) {
+    const { data: variantData, error: variantError } = await supabase
+      .from('series_asset_variants')
+      .select('asset_id')
+      .eq('id', variantId)
+      .single();
+
+    if (variantError || !variantData?.asset_id) {
+      throw new Error('Variant not found');
+    }
+
+    const { error: resetError } = await supabase
+      .from('series_asset_variants')
+      .update({ is_default: false })
+      .eq('asset_id', variantData.asset_id)
+      .eq('is_default', true)
+      .neq('id', variantId);
+
+    if (resetError) {
+      throw new Error(
+        `Failed to clear previous default variant: ${resetError.message}`
+      );
+    }
+
+    updates.is_default = true;
+  } else if (input.is_default === false) {
+    updates.is_default = false;
+  }
+
   const { data, error } = await supabase
     .from('series_asset_variants')
-    .update(input)
+    .update(updates)
     .eq('id', variantId)
     .select()
     .single();
 
   if (error)
     throw new Error(`Failed to update asset variant: ${error.message}`);
-  return data;
+
+  return toVariantWithCompatibility(
+    supabase,
+    (data ?? {}) as Record<string, unknown>
+  );
 }
 
 export async function deleteAssetVariant(
@@ -459,8 +924,12 @@ export async function deleteAssetVariant(
     throw new Error(`Failed to delete asset variant: ${error.message}`);
 }
 
-// ── Variant Image CRUD ────────────────────────────────────────────────────────
+// ── Variant image compatibility helpers ───────────────────────────────────────
 
+/**
+ * Legacy compatibility adapter.
+ * Canonical schema stores one image on series_asset_variants.image_url.
+ */
 export async function addVariantImage(
   supabase: SupabaseClient,
   input: {
@@ -476,38 +945,49 @@ export async function addVariantImage(
   }
 ): Promise<SeriesAssetVariantImage> {
   const { data, error } = await supabase
-    .from('series_asset_variant_images')
-    .insert({
-      variant_id: input.variant_id,
-      angle: input.angle,
-      kind: input.kind,
-      url: input.url,
-      storage_path: input.storage_path,
-      source: input.source,
-      width: input.width ?? null,
-      height: input.height ?? null,
-      metadata: input.metadata ?? {},
-    })
-    .select()
+    .from('series_asset_variants')
+    .update({ image_url: input.url })
+    .eq('id', input.variant_id)
+    .select('id, created_at, updated_at')
     .single();
 
-  if (error) throw new Error(`Failed to add variant image: ${error.message}`);
-  return data;
+  if (error) {
+    throw new Error(`Failed to save variant image_url: ${error.message}`);
+  }
+
+  return {
+    id: `${String(data.id)}::canonical`,
+    variant_id: input.variant_id,
+    angle: input.angle,
+    kind: input.kind,
+    url: input.url,
+    storage_path: input.storage_path,
+    source: input.source,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    metadata: input.metadata ?? {},
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
 }
 
+/**
+ * Legacy compatibility adapter.
+ * Deletes canonical image_url from series_asset_variants row.
+ */
 export async function deleteVariantImage(
   supabase: SupabaseClient,
-  imageId: string,
+  _imageId: string,
   variantId: string
 ): Promise<void> {
   const { error } = await supabase
-    .from('series_asset_variant_images')
-    .delete()
-    .eq('id', imageId)
-    .eq('variant_id', variantId);
+    .from('series_asset_variants')
+    .update({ image_url: null })
+    .eq('id', variantId);
 
-  if (error)
-    throw new Error(`Failed to delete variant image: ${error.message}`);
+  if (error) {
+    throw new Error(`Failed to clear variant image_url: ${error.message}`);
+  }
 }
 
 // ── Episode CRUD ──────────────────────────────────────────────────────────────
@@ -517,59 +997,144 @@ export async function listEpisodes(
   seriesId: string
 ): Promise<SeriesEpisodeWithVariants[]> {
   const { data, error } = await supabase
-    .from('series_episodes')
-    .select('*, episode_asset_variants (*)')
+    .from('episodes')
+    .select('*')
     .eq('series_id', seriesId)
-    .order('episode_number', { ascending: true });
+    .order('order', { ascending: true });
 
   if (error) throw new Error(`Failed to list episodes: ${error.message}`);
-  return data ?? [];
+
+  const episodes = (data ?? []) as Array<Record<string, unknown>>;
+
+  return Promise.all(
+    episodes.map(async (row) => {
+      const map = normalizeEpisodeAssetVariantMap(row.asset_variant_map);
+      const legacyRows = await buildEpisodeLegacyAssetRows(
+        supabase,
+        seriesId,
+        String(row.id),
+        map
+      );
+
+      return {
+        ...(row as unknown as SeriesEpisode),
+        order: Number(row.order ?? 0),
+        episode_number: Number(row.order ?? 0),
+        project_id: null,
+        asset_variant_map: map,
+        plan_json: asJsonRecordOrNull(row.plan_json),
+        episode_assets: legacyRows,
+      };
+    })
+  );
 }
 
 export async function createEpisode(
   supabase: SupabaseClient,
   seriesId: string,
   input: {
-    project_id?: string;
-    episode_number: number;
+    order?: number;
+    episode_number?: number;
     title?: string;
     synopsis?: string;
+    audio_content?: string;
+    visual_outline?: string;
+    asset_variant_map?: EpisodeAssetVariantMap;
+    plan_json?: JsonRecord;
+    status?: EpisodeStatus;
   }
 ): Promise<SeriesEpisode> {
+  const resolvedOrder =
+    typeof input.order === 'number' ? input.order : input.episode_number;
+
+  if (!resolvedOrder || resolvedOrder < 1) {
+    throw new Error('Episode order must be a positive integer');
+  }
+
   const { data, error } = await supabase
-    .from('series_episodes')
+    .from('episodes')
     .insert({
       series_id: seriesId,
-      project_id: input.project_id ?? null,
-      episode_number: input.episode_number,
-      title: input.title ?? null,
-      synopsis: input.synopsis ?? null,
+      order: resolvedOrder,
+      title: asNullableText(input.title),
+      synopsis: asNullableText(input.synopsis),
+      audio_content: asNullableText(input.audio_content),
+      visual_outline: asNullableText(input.visual_outline),
+      asset_variant_map: normalizeEpisodeAssetVariantMap(
+        input.asset_variant_map
+      ),
+      plan_json: input.plan_json ?? null,
+      status: input.status ?? 'draft',
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create episode: ${error.message}`);
-  return data;
+
+  const row = (data ?? {}) as Record<string, unknown>;
+  return {
+    ...(row as unknown as SeriesEpisode),
+    order: Number(row.order ?? resolvedOrder),
+    episode_number: Number(row.order ?? resolvedOrder),
+    project_id: null,
+    asset_variant_map: normalizeEpisodeAssetVariantMap(row.asset_variant_map),
+    plan_json: asJsonRecordOrNull(row.plan_json),
+  };
 }
 
 export async function updateEpisode(
   supabase: SupabaseClient,
   episodeId: string,
   input: {
+    order?: number;
     episode_number?: number;
     title?: string | null;
     synopsis?: string | null;
+    audio_content?: string | null;
+    visual_outline?: string | null;
+    asset_variant_map?: EpisodeAssetVariantMap;
+    plan_json?: JsonRecord | null;
+    status?: EpisodeStatus;
   }
 ): Promise<SeriesEpisode> {
+  const updates: Record<string, unknown> = { ...input };
+
+  if (input.order !== undefined || input.episode_number !== undefined) {
+    const nextOrder =
+      typeof input.order === 'number' ? input.order : input.episode_number;
+
+    if (!nextOrder || nextOrder < 1) {
+      throw new Error('Episode order must be a positive integer');
+    }
+
+    updates.order = nextOrder;
+    delete updates.episode_number;
+  }
+
+  if (input.asset_variant_map !== undefined) {
+    updates.asset_variant_map = normalizeEpisodeAssetVariantMap(
+      input.asset_variant_map
+    );
+  }
+
   const { data, error } = await supabase
-    .from('series_episodes')
-    .update(input)
+    .from('episodes')
+    .update(updates)
     .eq('id', episodeId)
     .select()
     .single();
 
   if (error) throw new Error(`Failed to update episode: ${error.message}`);
-  return data;
+
+  const row = (data ?? {}) as Record<string, unknown>;
+  return {
+    ...(row as unknown as SeriesEpisode),
+    order: Number(row.order ?? 0),
+    episode_number: Number(row.order ?? 0),
+    project_id: null,
+    asset_variant_map: normalizeEpisodeAssetVariantMap(row.asset_variant_map),
+    plan_json: asJsonRecordOrNull(row.plan_json),
+  };
 }
 
 export async function deleteEpisode(
@@ -577,53 +1142,9 @@ export async function deleteEpisode(
   episodeId: string
 ): Promise<void> {
   const { error } = await supabase
-    .from('series_episodes')
+    .from('episodes')
     .delete()
     .eq('id', episodeId);
 
   if (error) throw new Error(`Failed to delete episode: ${error.message}`);
-}
-
-// ── Episode Asset Variant Overrides ───────────────────────────────────────────
-
-export async function setEpisodeAssetVariant(
-  supabase: SupabaseClient,
-  input: {
-    episode_id: string;
-    asset_id: string;
-    variant_id: string;
-  }
-): Promise<EpisodeAssetVariant> {
-  // Upsert: replace existing override for this episode+asset pair
-  const { data, error } = await supabase
-    .from('episode_asset_variants')
-    .upsert(
-      {
-        episode_id: input.episode_id,
-        asset_id: input.asset_id,
-        variant_id: input.variant_id,
-      },
-      { onConflict: 'episode_id,asset_id' }
-    )
-    .select()
-    .single();
-
-  if (error)
-    throw new Error(`Failed to set episode asset variant: ${error.message}`);
-  return data;
-}
-
-export async function deleteEpisodeAssetVariant(
-  supabase: SupabaseClient,
-  episodeId: string,
-  assetId: string
-): Promise<void> {
-  const { error } = await supabase
-    .from('episode_asset_variants')
-    .delete()
-    .eq('episode_id', episodeId)
-    .eq('asset_id', assetId);
-
-  if (error)
-    throw new Error(`Failed to delete episode asset variant: ${error.message}`);
 }

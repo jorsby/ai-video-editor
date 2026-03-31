@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import {
   deleteSeries,
   getSeriesWithAssets,
@@ -12,6 +12,13 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asOptionalString(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function parseSeriesUpdates(body: Record<string, unknown>) {
@@ -30,41 +37,109 @@ function parseSeriesUpdates(body: Record<string, unknown>) {
   }
 
   if (body.genre !== undefined) {
-    updates.genre = typeof body.genre === 'string' ? body.genre.trim() : null;
+    updates.genre = asOptionalString(body.genre);
   }
 
   if (body.tone !== undefined) {
-    updates.tone = typeof body.tone === 'string' ? body.tone.trim() : null;
+    updates.tone = asOptionalString(body.tone);
   }
 
   if (body.bible !== undefined) {
-    updates.bible = body.bible || null;
+    updates.bible = asOptionalString(body.bible);
+  }
+
+  if (body.content_mode !== undefined) {
+    if (
+      typeof body.content_mode !== 'string' ||
+      !['narrative', 'cinematic', 'hybrid'].includes(body.content_mode)
+    ) {
+      return {
+        error: NextResponse.json(
+          {
+            error: "content_mode must be 'narrative', 'cinematic', or 'hybrid'",
+          },
+          { status: 400 }
+        ),
+      };
+    }
+    updates.content_mode = body.content_mode;
+  }
+
+  if (body.plan_status !== undefined) {
+    if (
+      typeof body.plan_status !== 'string' ||
+      !['draft', 'finalized'].includes(body.plan_status)
+    ) {
+      return {
+        error: NextResponse.json(
+          { error: "plan_status must be 'draft' or 'finalized'" },
+          { status: 400 }
+        ),
+      };
+    }
+    updates.plan_status = body.plan_status;
+  }
+
+  const nullableTextFields = [
+    'language',
+    'aspect_ratio',
+    'video_model',
+    'image_model',
+    'voice_id',
+  ] as const;
+
+  for (const field of nullableTextFields) {
+    if (body[field] !== undefined) {
+      updates[field] = asOptionalString(body[field]);
+    }
+  }
+
+  if (body.tts_speed !== undefined) {
+    if (
+      body.tts_speed !== null &&
+      (typeof body.tts_speed !== 'number' || !Number.isFinite(body.tts_speed))
+    ) {
+      return {
+        error: NextResponse.json(
+          { error: 'tts_speed must be a finite number or null' },
+          { status: 400 }
+        ),
+      };
+    }
+    updates.tts_speed = body.tts_speed;
   }
 
   if (body.visual_style !== undefined) {
-    if (body.visual_style !== null && !isRecord(body.visual_style)) {
+    if (
+      body.visual_style !== null &&
+      typeof body.visual_style !== 'string' &&
+      !isRecord(body.visual_style)
+    ) {
       return {
         error: NextResponse.json(
-          { error: 'visual_style must be an object' },
+          { error: 'visual_style must be a string, object, or null' },
           { status: 400 }
         ),
       };
     }
 
-    updates.visual_style = body.visual_style ?? {};
+    updates.visual_style = body.visual_style;
   }
 
-  if (body.metadata !== undefined) {
-    if (body.metadata !== null && !isRecord(body.metadata)) {
+  const creativeBriefSource =
+    body.creative_brief !== undefined ? body.creative_brief : body.metadata;
+
+  if (creativeBriefSource !== undefined) {
+    if (creativeBriefSource !== null && !isRecord(creativeBriefSource)) {
       return {
         error: NextResponse.json(
-          { error: 'metadata must be an object' },
+          { error: 'creative_brief must be an object or null' },
           { status: 400 }
         ),
       };
     }
 
-    updates.metadata = body.metadata ?? {};
+    updates.creative_brief = creativeBriefSource;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -99,7 +174,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Use service-role client so private storage URLs can always be signed.
+    // Use service-role client so private storage URLs can always be resolved.
     const dbClient = createServiceClient('studio');
     const series = await getSeriesWithAssets(dbClient, id, user.id);
     if (!series) {
@@ -159,12 +234,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
   return updateSeriesHandler(req, context);
 }
 
-// PATCH /api/series/[id] — partial update series (metadata, prompts, etc.)
+// PATCH /api/series/[id] — partial update series
 export async function PATCH(req: NextRequest, context: RouteContext) {
   return updateSeriesHandler(req, context);
 }
 
-// DELETE /api/series/[id] — delete series (cascades to all assets/episodes)
+// DELETE /api/series/[id] — delete series (cascades to assets/episodes/scenes)
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;

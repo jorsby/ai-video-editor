@@ -7,10 +7,6 @@ type AssetInput = {
   description?: string;
 };
 
-type CharacterSeed = AssetInput & {
-  character_id: string | null;
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -32,42 +28,6 @@ function normalizeAssets(input: unknown): AssetInput[] {
       };
     })
     .filter((item): item is AssetInput => !!item);
-}
-
-async function resolveOrCreateCharacter(
-  // biome-ignore lint/suspicious/noExplicitAny: existing repo uses untyped service client for DB routes
-  dbClient: any,
-  userId: string,
-  character: AssetInput
-): Promise<string | null> {
-  const { data: existing } = await dbClient
-    .from('characters')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('name', character.name)
-    .maybeSingle();
-
-  if (existing?.id) {
-    return existing.id as string;
-  }
-
-  const { data: created, error } = await dbClient
-    .from('characters')
-    .insert({
-      user_id: userId,
-      name: character.name,
-      description: character.description ?? null,
-      tags: [],
-    })
-    .select('id')
-    .single();
-
-  if (error || !created?.id) {
-    console.error('[v2/series/create] Failed to create character:', error);
-    return null;
-  }
-
-  return created.id as string;
 }
 
 export async function POST(req: NextRequest) {
@@ -205,29 +165,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const characterSeeds: CharacterSeed[] = [];
-    for (const character of characters) {
-      const characterId = await resolveOrCreateCharacter(
-        dbClient,
-        user.id,
-        character
-      );
-      characterSeeds.push({ ...character, character_id: characterId });
-    }
-
     const { data: characterRows, error: characterInsertError } = await dbClient
       .from('series_assets')
       .insert(
-        characterSeeds.map((asset, index) => ({
+        characters.map((asset, index) => ({
           series_id: seriesId,
           type: 'character',
           name: asset.name,
           description: asset.description ?? null,
-          character_id: asset.character_id,
           sort_order: index,
         }))
       )
-      .select('id, character_id, sort_order');
+      .select('id');
 
     if (characterInsertError) {
       console.error(
@@ -299,28 +248,6 @@ export async function POST(req: NextRequest) {
     const propAssetIds = (propRows ?? [])
       .map((row: { id?: string }) => row.id)
       .filter((id: string | undefined): id is string => !!id);
-
-    const projectCharacterRows = (characterRows ?? [])
-      .filter((row: { character_id?: string | null }) => !!row.character_id)
-      .map((row: { character_id: string; sort_order: number }) => ({
-        project_id: projectId,
-        character_id: row.character_id,
-        element_index: row.sort_order + 1,
-        role: 'main',
-      }));
-
-    if (projectCharacterRows.length > 0) {
-      const { error: projectCharacterError } = await dbClient
-        .from('project_characters')
-        .insert(projectCharacterRows);
-
-      if (projectCharacterError) {
-        console.error(
-          '[v2/series/create] Failed to bind project characters:',
-          projectCharacterError
-        );
-      }
-    }
 
     return NextResponse.json(
       {

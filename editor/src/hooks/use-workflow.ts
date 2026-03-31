@@ -164,12 +164,38 @@ export function useWorkflow(
         onSceneUpdate: (updatedScene: SceneRow) => {
           setStoryboard((prev) => {
             if (!prev || !('scenes' in prev)) return prev;
-            const updatedScenes = prev.scenes.map((scene) =>
-              scene.id === updatedScene.id
-                ? { ...scene, ...updatedScene }
-                : scene
+
+            const existingIndex = prev.scenes.findIndex(
+              (scene) => scene.id === updatedScene.id
             );
-            return { ...prev, scenes: updatedScenes };
+
+            if (existingIndex >= 0) {
+              const updatedScenes = prev.scenes.map((scene) =>
+                scene.id === updatedScene.id
+                  ? { ...scene, ...updatedScene }
+                  : scene
+              );
+              return { ...prev, scenes: updatedScenes };
+            }
+
+            return {
+              ...prev,
+              scenes: [
+                ...prev.scenes,
+                updatedScene as (typeof prev.scenes)[number],
+              ].sort((a, b) => a.order - b.order),
+            };
+          });
+        },
+        onSceneDelete: (deletedScene: SceneRow) => {
+          setStoryboard((prev) => {
+            if (!prev || !('scenes' in prev)) return prev;
+            return {
+              ...prev,
+              scenes: prev.scenes.filter(
+                (scene) => scene.id !== deletedScene.id
+              ),
+            };
           });
         },
         onVoiceoverUpdate: (updatedVoiceover) => {

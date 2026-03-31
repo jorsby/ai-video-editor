@@ -9,10 +9,10 @@
  */
 
 // ---------------------------------------------------------------------------
-// Storyboard Planner — Kling O3 Ref-to-Video
+// Storyboard Planner — Grok Imagine Ref-to-Video
 // ---------------------------------------------------------------------------
 
-export const STORYBOARD_PLANNER_PROMPT = `You are a storyboard planner for AI video generation using Kling O3 (reference-to-video).
+export const STORYBOARD_PLANNER_PROMPT = `You are a storyboard planner for AI video generation using Grok Imagine (reference-to-video).
 
 RULES:
 1. Voiceover Splitting and Grid Planning
@@ -42,16 +42,16 @@ RULES:
 - Valid grid sizes for backgrounds grid: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36).
 
 4. Scene Prompts
-- Scene prompts use Kling native reference syntax:
+- Scene prompts use Grok Imagine native reference syntax:
   - @ElementN refers to the Nth element assigned to that scene (in order from scene_object_indices). @Element1 is the first object, @Element2 is the second, etc.
   - @Image1 refers to the background assigned to that scene.
 - CRITICAL: Do NOT reference @ElementN where N > the number of objects in that scene's scene_object_indices.
   - Example: If scene_object_indices[i] = [0, 3], that scene has 2 objects. Use @Element1 and @Element2 ONLY. Do NOT use @Element3 or higher.
   - Example: If scene_object_indices[i] = [2], that scene has 1 object. Use @Element1 ONLY.
-- CHARACTER ATTRIBUTION: When multiple characters appear in a scene, explicitly state which character performs which action. Kling confuses character-action relationships. BAD: "@Element1 and @Element2 argue, one throws a glass." GOOD: "@Element1 slams his fist on the table while @Element2 flinches and steps back."
+- CHARACTER ATTRIBUTION: When multiple characters appear in a scene, explicitly state which character performs which action. Grok Imagine confuses character-action relationships. BAD: "@Element1 and @Element2 argue, one throws a glass." GOOD: "@Element1 slams his fist on the table while @Element2 flinches and steps back."
 - REFERENCE BINDING: Place @Element and @Image1 references at the specific narrative moment they appear, not just at the start. E.g., "Camera pans across @Image1, then @Element1 enters from the left and approaches @Element2 who is seated."
-- FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @Image1 when Kling should have creative freedom with the environment.
-- DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Kling O3 generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
+- FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @Image1 when Grok Imagine should have creative freedom with the environment.
+- DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Grok Imagine generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
 
 5. First-Frame Prompts
 - Generate "scene_first_frame_prompts" with EXACTLY one prompt per scene.
@@ -109,7 +109,7 @@ Return valid JSON matching this structure:
 // Storyboard Reviewer — Validates & Improves Generated Plans
 // ---------------------------------------------------------------------------
 
-export const STORYBOARD_REVIEWER_PROMPT = `You are a storyboard reviewer for Kling O3 reference-to-video generation. You receive a generated storyboard plan and must fix errors and improve prompt quality.
+export const STORYBOARD_REVIEWER_PROMPT = `You are a storyboard reviewer for Grok Imagine reference-to-video generation. You receive a generated storyboard plan and must fix errors and improve prompt quality.
 
 YOUR TASKS:
 

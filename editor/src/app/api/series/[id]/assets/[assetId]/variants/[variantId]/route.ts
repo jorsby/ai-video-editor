@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import {
   deleteAssetVariant,
   getSeries,
@@ -11,6 +11,61 @@ import { type NextRequest, NextResponse } from 'next/server';
 type RouteContext = {
   params: Promise<{ id: string; assetId: string; variantId: string }>;
 };
+
+type AssetVariantMap = {
+  characters: string[];
+  locations: string[];
+  props: string[];
+};
+
+function asOptionalString(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeMap(value: unknown): AssetVariantMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { characters: [], locations: [], props: [] };
+  }
+
+  const input = value as Record<string, unknown>;
+  const toList = (key: keyof AssetVariantMap) => {
+    const raw = input[key];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((v): v is string => typeof v === 'string');
+  };
+
+  return {
+    characters: toList('characters'),
+    locations: toList('locations'),
+    props: toList('props'),
+  };
+}
+
+async function variantUsedInEpisodeMap(
+  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
+  dbClient: any,
+  seriesId: string,
+  variantSlug: string
+): Promise<boolean> {
+  const { data: episodes, error } = await dbClient
+    .from('episodes')
+    .select('asset_variant_map')
+    .eq('series_id', seriesId);
+
+  if (error) {
+    throw new Error(`Failed to load episodes: ${error.message}`);
+  }
+
+  return (episodes ?? []).some((episode: { asset_variant_map: unknown }) => {
+    const map = normalizeMap(episode.asset_variant_map);
+    return [...map.characters, ...map.locations, ...map.props].includes(
+      variantSlug
+    );
+  });
+}
 
 // PUT /api/series/[id]/assets/[assetId]/variants/[variantId]
 export async function PUT(req: NextRequest, context: RouteContext) {
@@ -39,39 +94,54 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json();
+
+    if (body.is_finalized !== undefined) {
+      return NextResponse.json(
+        {
+          error:
+            'is_finalized is not supported in the simplified schema. Use default/image/prompt fields only.',
+        },
+        { status: 400 }
+      );
+    }
+
     const updates: Record<string, unknown> = {};
 
-    if (body.label !== undefined) {
-      if (typeof body.label !== 'string' || body.label.trim().length === 0) {
+    const name = asOptionalString(body.name ?? body.label);
+    if (body.name !== undefined || body.label !== undefined) {
+      if (!name) {
         return NextResponse.json(
-          { error: 'Label cannot be empty' },
+          { error: 'name cannot be empty' },
           { status: 400 }
         );
       }
-      updates.label = body.label.trim();
+      updates.name = name;
     }
-    if (body.description !== undefined)
-      updates.description = body.description || null;
-    if (body.is_default !== undefined)
-      updates.is_default = Boolean(body.is_default);
 
-    if (body.is_finalized !== undefined) {
-      const { data: currentVariant } = await dbClient
-        .from('series_asset_variants')
-        .select('*')
-        .eq('id', variantId)
-        .single();
-
-      const requestedFinalized = Boolean(body.is_finalized);
-      if (currentVariant?.is_finalized && !requestedFinalized) {
+    if (body.slug !== undefined) {
+      const slug = asOptionalString(body.slug);
+      if (!slug) {
         return NextResponse.json(
-          { error: 'Finalized variants cannot be unfinalized' },
-          { status: 409 }
+          { error: 'slug cannot be empty' },
+          { status: 400 }
         );
       }
-
-      updates.is_finalized = requestedFinalized;
+      updates.slug = slug;
     }
+
+    if (body.prompt !== undefined)
+      updates.prompt = asOptionalString(body.prompt);
+    if (body.image_url !== undefined)
+      updates.image_url = asOptionalString(body.image_url);
+    if (body.where_to_use !== undefined || body.description !== undefined) {
+      updates.where_to_use = asOptionalString(
+        body.where_to_use ?? body.description ?? null
+      );
+    }
+    if (body.reasoning !== undefined)
+      updates.reasoning = asOptionalString(body.reasoning);
+    if (body.is_default !== undefined)
+      updates.is_default = Boolean(body.is_default);
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
@@ -117,33 +187,33 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    const { data: variant } = await dbClient
+    const { data: variant, error: variantError } = await dbClient
       .from('series_asset_variants')
-      .select('*')
+      .select('id, slug')
       .eq('id', variantId)
       .eq('asset_id', assetId)
       .single();
 
-    if (variant?.is_finalized) {
-      return NextResponse.json(
-        { error: 'Variant is finalized and cannot be deleted' },
-        { status: 409 }
-      );
+    if (variantError || !variant) {
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
 
-    const { count: usageCount } = await dbClient
-      .from('episode_asset_variants')
-      .select('*', { count: 'exact', head: true })
-      .eq('variant_id', variantId);
-
-    if ((usageCount ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          error:
-            'Variant is already used in one or more episodes and cannot be deleted',
-        },
-        { status: 409 }
+    if (typeof variant.slug === 'string' && variant.slug.trim()) {
+      const inEpisodeMap = await variantUsedInEpisodeMap(
+        dbClient,
+        id,
+        variant.slug
       );
+
+      if (inEpisodeMap) {
+        return NextResponse.json(
+          {
+            error:
+              'Variant is referenced in one or more episode asset maps and cannot be deleted',
+          },
+          { status: 409 }
+        );
+      }
     }
 
     await deleteAssetVariant(dbClient, variantId);

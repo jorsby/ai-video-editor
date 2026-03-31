@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import {
   createAssetVariant,
   getSeries,
@@ -9,6 +9,12 @@ import {
 import { type NextRequest, NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string; assetId: string }> };
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 // GET /api/series/[id]/assets/[assetId]/variants
 export async function GET(req: NextRequest, context: RouteContext) {
@@ -74,16 +80,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json();
-    const { label, description, is_default } = body;
+    const name = asOptionalString(body?.name ?? body?.label);
 
-    if (!label || typeof label !== 'string' || label.trim().length === 0) {
-      return NextResponse.json({ error: 'Label is required' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
     const variant = await createAssetVariant(dbClient, assetId, {
-      label: label.trim(),
-      description: description?.trim() || undefined,
-      is_default: Boolean(is_default),
+      name,
+      slug: asOptionalString(body?.slug),
+      prompt: asOptionalString(body?.prompt),
+      image_url: asOptionalString(body?.image_url),
+      is_default: Boolean(body?.is_default),
+      where_to_use: asOptionalString(body?.where_to_use ?? body?.description),
+      reasoning: asOptionalString(body?.reasoning),
     });
 
     return NextResponse.json({ variant }, { status: 201 });

@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import {
   createSeriesAsset,
   getSeries,
@@ -9,6 +9,12 @@ import {
 import { type NextRequest, NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 // GET /api/series/[id]/assets — list assets with variants
 export async function GET(req: NextRequest, context: RouteContext) {
@@ -30,7 +36,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Use service-role client so private storage URLs can always be signed.
+    // Use service-role client so canonical variant image_url values can be hydrated.
     const dbClient = createServiceClient('studio');
 
     // Verify series ownership
@@ -78,12 +84,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json();
-    const { type, name, description, tags, character_id, sort_order } = body;
+    const name = asOptionalString(body?.name);
 
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
-    if (!['character', 'location', 'prop'].includes(type)) {
+
+    if (!['character', 'location', 'prop'].includes(body?.type)) {
       return NextResponse.json(
         { error: 'Type must be character, location, or prop' },
         { status: 400 }
@@ -91,12 +98,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const asset = await createSeriesAsset(dbClient, id, {
-      type,
-      name: name.trim(),
-      description: description?.trim() || undefined,
-      tags: Array.isArray(tags) ? tags : undefined,
-      character_id: character_id || undefined,
-      sort_order: typeof sort_order === 'number' ? sort_order : undefined,
+      type: body.type,
+      name,
+      slug: asOptionalString(body?.slug),
+      description: asOptionalString(body?.description),
+      sort_order:
+        typeof body?.sort_order === 'number' && Number.isFinite(body.sort_order)
+          ? body.sort_order
+          : undefined,
     });
 
     return NextResponse.json({ asset }, { status: 201 });

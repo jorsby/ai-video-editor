@@ -117,9 +117,16 @@ export const useAssetStore = create<AssetState>()((set, get) => ({
 
     set({ isLoading: true, currentProjectId: projectId });
     try {
-      const response = await fetch(`/api/assets?project_id=${projectId}`);
+      let response = await fetch(`/api/assets?project_id=${projectId}`);
+
+      // Local auth/session can return a transient 401 on first request.
+      if (response.status === 401 || response.status >= 500) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        response = await fetch(`/api/assets?project_id=${projectId}`);
+      }
+
       if (!response.ok) {
-        throw new Error('Failed to fetch assets');
+        throw new Error(`Failed to fetch assets (status ${response.status})`);
       }
       const { assets: rawAssets } = await response.json();
 

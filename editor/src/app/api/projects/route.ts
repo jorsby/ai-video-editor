@@ -41,6 +41,33 @@ export async function GET(req: NextRequest) {
     const { data: projects, error } = await query;
 
     if (error) {
+      const isArchivedColumnMissing =
+        error.code === '42703' &&
+        typeof error.message === 'string' &&
+        error.message.includes('archived_at');
+
+      if (isArchivedColumnMissing) {
+        if (showArchived) {
+          return NextResponse.json({ projects: [] });
+        }
+
+        const { data: fallbackProjects, error: fallbackError } = await dbClient
+          .from('projects')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (fallbackError) {
+          console.error('Database fallback error:', fallbackError);
+          return NextResponse.json(
+            { error: 'Failed to fetch projects' },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json({ projects: fallbackProjects ?? [] });
+      }
+
       console.error('Database error:', error);
       return NextResponse.json(
         { error: 'Failed to fetch projects' },
@@ -48,7 +75,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ projects });
+    return NextResponse.json({ projects: projects ?? [] });
   } catch (error) {
     console.error('Fetch projects error:', error);
     return NextResponse.json(
@@ -181,13 +208,53 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const { data: project, error } = await dbClient
+    let { data: project, error } = await dbClient
       .from('projects')
       .update(updateData)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
       .single();
+
+    const isArchivedColumnMissing =
+      error?.code === '42703' &&
+      typeof error.message === 'string' &&
+      error.message.includes('archived_at');
+
+    if (isArchivedColumnMissing && 'archived_at' in updateData) {
+      const retryUpdateData = { ...updateData };
+      delete retryUpdateData.archived_at;
+
+      if (Object.keys(retryUpdateData).length === 0) {
+        const { data: existingProject, error: existingError } = await dbClient
+          .from('projects')
+          .select('*')
+          .eq('id', id)
+          .eq('user_id', user.id)
+          .single();
+
+        if (existingError) {
+          console.error('Database fallback error:', existingError);
+          return NextResponse.json(
+            { error: 'Failed to update project' },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json({ project: existingProject });
+      }
+
+      const retry = await dbClient
+        .from('projects')
+        .update(retryUpdateData)
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      project = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.error('Database error:', error);

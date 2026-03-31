@@ -4,15 +4,17 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Clapperboard, Trash2 } from 'lucide-react';
+import { Plus, Search, Clapperboard, Trash2, ArrowLeft } from 'lucide-react';
 import { CreateSeriesDialog } from './create-series-dialog';
 import { SeriesDetailPage } from './series-detail-page';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import Link from 'next/link';
 import type {
   Series,
   SeriesWithAssets,
   SeriesEpisodeWithVariants,
 } from '@/lib/supabase/series-service';
+import { createClient } from '@/lib/supabase/client';
 
 // ── Series card ────────────────────────────────────────────────────────────────
 
@@ -96,11 +98,16 @@ function SeriesCard({
 
 // ── Main content ───────────────────────────────────────────────────────────────
 
-export function SeriesContent() {
+interface SeriesContentProps {
+  projectId?: string;
+}
+
+export function SeriesContent({ projectId }: SeriesContentProps = {}) {
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [projectName, setProjectName] = useState<string | null>(null);
 
   // Detail view state
   const [detailSeries, setDetailSeries] = useState<SeriesWithAssets | null>(
@@ -113,7 +120,10 @@ export function SeriesContent() {
 
   const fetchSeries = useCallback(async () => {
     try {
-      const res = await fetch('/api/series');
+      const query = projectId
+        ? `?project_id=${encodeURIComponent(projectId)}`
+        : '';
+      const res = await fetch(`/api/series${query}`);
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       setSeriesList(data.series ?? []);
@@ -122,13 +132,66 @@ export function SeriesContent() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     fetchSeries();
   }, [fetchSeries]);
 
-  const openDetail = async (s: Series) => {
+  useEffect(() => {
+    const supabase = createClient('studio');
+    const channel = supabase
+      .channel(`series-list-live-${projectId ?? 'all'}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series',
+          ...(projectId ? { filter: `project_id=eq.${projectId}` } : {}),
+        },
+        () => {
+          fetchSeries();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchSeries, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchProjectName() {
+      if (!projectId) {
+        setProjectName(null);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setProjectName(data?.project?.name ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setProjectName(null);
+        }
+      }
+    }
+
+    fetchProjectName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const openDetail = useCallback(async (s: Series) => {
     setLoadingDetail(true);
     try {
       const [seriesRes, episodesRes] = await Promise.all([
@@ -147,19 +210,84 @@ export function SeriesContent() {
     } finally {
       setLoadingDetail(false);
     }
-  };
+  }, []);
 
-  const refreshDetail = async () => {
+  const refreshDetail = useCallback(async () => {
     if (!detailSeries) return;
     await openDetail(detailSeries as Series);
     await fetchSeries();
-  };
+  }, [detailSeries, fetchSeries, openDetail]);
+
+  useEffect(() => {
+    if (!detailSeries) return;
+
+    const supabase = createClient('studio');
+    const episodeIdSet = new Set(detailEpisodes.map((episode) => episode.id));
+
+    const channel = supabase
+      .channel(`series-detail-shell-${detailSeries.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series',
+          filter: `id=eq.${detailSeries.id}`,
+        },
+        () => {
+          refreshDetail();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'episodes',
+          filter: `series_id=eq.${detailSeries.id}`,
+        },
+        () => {
+          refreshDetail();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'scenes',
+        },
+        (payload) => {
+          const episodeId =
+            (payload.new as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            (payload.old as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            null;
+          if (!episodeId || !episodeIdSet.has(episodeId)) return;
+          refreshDetail();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [detailEpisodes, detailSeries, refreshDetail]);
 
   const handleCreated = (newSeries: Series) => {
     setShowCreateDialog(false);
     // Open the new series detail view
     openDetail(newSeries);
   };
+
+  useEffect(() => {
+    if (!projectId) return;
+    if (detailSeries || loadingDetail) return;
+    if (seriesList.length !== 1) return;
+
+    void openDetail(seriesList[0]);
+  }, [detailSeries, loadingDetail, openDetail, projectId, seriesList]);
 
   const handleDeleteSeries = async (id: string) => {
     try {
@@ -207,12 +335,24 @@ export function SeriesContent() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Series</h1>
+          {projectId && (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to projects
+            </Link>
+          )}
+          <h1 className="text-2xl font-bold tracking-tight">
+            {projectName ? `${projectName} — Series` : 'Series'}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your serialized productions — characters, locations, props,
-            and episodes in one place.
+            {projectId
+              ? 'Canonical series data for this project — assets, variants, and episodes from the real DB.'
+              : 'Manage your serialized productions — characters, locations, props, and episodes in one place.'}
           </p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)}>
@@ -243,12 +383,18 @@ export function SeriesContent() {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Clapperboard className="w-12 h-12 text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-medium text-muted-foreground">
-            {searchQuery ? 'No series found' : 'No series yet'}
+            {searchQuery
+              ? 'No series found'
+              : projectId
+                ? 'No series linked to this project yet'
+                : 'No series yet'}
           </h3>
           <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
             {searchQuery
               ? 'Try a different search term.'
-              : 'Create your first series to start organising episodes, characters, and assets together.'}
+              : projectId
+                ? 'Create the first canonical series for this project to load assets, variants, and episodes.'
+                : 'Create your first series to start organising episodes, characters, and assets together.'}
           </p>
           {!searchQuery && (
             <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
@@ -274,6 +420,7 @@ export function SeriesContent() {
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         onCreated={handleCreated}
+        projectId={projectId}
       />
     </div>
   );

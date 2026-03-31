@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import Link from 'next/link';
-
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,7 +28,6 @@ import {
   Pencil,
   Check,
   X,
-  ExternalLink,
   Lock,
   RotateCcw,
   WandSparkles,
@@ -42,6 +39,7 @@ import type {
   SeriesAssetVariantWithImages,
   SeriesEpisodeWithVariants,
 } from '@/lib/supabase/series-service';
+import { createClient } from '@/lib/supabase/client';
 
 // ── Image lightbox ─────────────────────────────────────────────────────────────
 
@@ -429,7 +427,14 @@ function VariantCard({
     <div className="border border-border/50 rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-muted/30">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium">{variant.label}</span>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">
+              {variant.name ?? variant.label ?? 'Variant'}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {variant.slug}
+            </span>
+          </div>
           {variant.is_default && (
             <Badge variant="secondary" className="text-xs">
               Default
@@ -487,6 +492,11 @@ function VariantCard({
           {variant.description && (
             <p className="text-xs text-muted-foreground">
               {variant.description}
+            </p>
+          )}
+          {variant.prompt && (
+            <p className="text-[11px] text-muted-foreground/90 line-clamp-2">
+              Prompt: {variant.prompt}
             </p>
           )}
 
@@ -615,13 +625,13 @@ function AssetCard({
   seriesId,
   onDelete,
   onRefresh,
-  usedVariantIds,
+  usedAssetIds,
 }: {
   asset: SeriesAssetWithVariants;
   seriesId: string;
   onDelete: () => void;
   onRefresh: () => void;
-  usedVariantIds: Set<string>;
+  usedAssetIds: Set<string>;
 }) {
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [variantLabel, setVariantLabel] = useState('');
@@ -689,7 +699,7 @@ function AssetCard({
                 variantId: firstVariantWithImage.id,
                 isFinalized:
                   firstVariantWithImage.is_finalized ||
-                  usedVariantIds.has(firstVariantWithImage.id),
+                  usedAssetIds.has(asset.id),
               })
             }
             className="w-full aspect-square overflow-hidden cursor-pointer"
@@ -756,7 +766,7 @@ function AssetCard({
                   isFinalized: image.isFinalized,
                 })
               }
-              variantInUse={usedVariantIds.has(v.id)}
+              variantInUse={usedAssetIds.has(asset.id)}
             />
           ))}
         </div>
@@ -830,77 +840,123 @@ function AssetCard({
 
 // ── Episode row ────────────────────────────────────────────────────────────────
 
+type CanonicalScene = {
+  id: string;
+  episode_id: string;
+  order: number;
+  prompt: string | null;
+  audio_text: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+  status: 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
+  location_variant_slug: string | null;
+  character_variant_slugs: string[];
+  prop_variant_slugs: string[];
+  updated_at: string;
+};
+
+function normalizeSlugArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function EpisodeRow({
   episode,
-  seriesId,
+  scenes,
+  variantLabelBySlug,
   onDelete,
-  onRefresh,
 }: {
   episode: SeriesEpisodeWithVariants;
-  seriesId: string;
+  scenes: CanonicalScene[];
+  variantLabelBySlug: Map<string, string>;
   onDelete: () => void;
-  onRefresh: () => void;
 }) {
-  const [creating, setCreating] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
-  const handleCreateStoryboard = async () => {
-    setCreating(true);
-    try {
-      await fetch(
-        `/api/series/${seriesId}/episodes/${episode.id}/create-project`,
-        { method: 'POST' }
-      );
-      onRefresh();
-    } finally {
-      setCreating(false);
-    }
+  const map = episode.asset_variant_map ?? {
+    characters: [],
+    locations: [],
+    props: [],
   };
 
+  const statusLabel: Record<string, string> = {
+    draft: 'Draft',
+    ready: 'Ready',
+    in_progress: 'In Progress',
+    done: 'Done',
+  };
+
+  const statusClass: Record<string, string> = {
+    draft: 'border-muted-foreground/30 text-muted-foreground',
+    ready: 'border-blue-500/30 text-blue-400',
+    in_progress: 'border-amber-500/30 text-amber-400',
+    done: 'border-emerald-500/40 text-emerald-400',
+  };
+
+  const sceneStatusClass: Record<string, string> = {
+    draft: 'border-muted-foreground/30 text-muted-foreground',
+    ready: 'border-blue-500/30 text-blue-400',
+    in_progress: 'border-amber-500/30 text-amber-400',
+    done: 'border-emerald-500/40 text-emerald-400',
+    failed: 'border-destructive/40 text-destructive',
+  };
+
+  const slugGroups = [
+    { label: 'Characters', values: map.characters ?? [] },
+    { label: 'Locations', values: map.locations ?? [] },
+    { label: 'Props', values: map.props ?? [] },
+  ].filter((group) => group.values.length > 0);
+
+  const doneScenes = scenes.filter((scene) => scene.status === 'done').length;
+
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 border border-border/50 rounded-lg">
-      <div className="flex items-center gap-3 min-w-0">
-        <span className="text-xs font-mono text-muted-foreground shrink-0">
-          Ep {episode.episode_number}
-        </span>
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">
+    <div className="flex flex-col gap-2 px-4 py-3 border border-border/50 rounded-lg">
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          className="min-w-0 text-left flex-1"
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-mono text-muted-foreground shrink-0">
+              Ep {episode.episode_number}
+            </span>
+            <Badge
+              variant="outline"
+              className={`text-[10px] h-5 px-1.5 ${statusClass[episode.status] ?? statusClass.draft}`}
+            >
+              {statusLabel[episode.status] ?? episode.status}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="text-[10px] h-5 px-1.5 border-border/60 text-muted-foreground"
+            >
+              Scenes {doneScenes}/{scenes.length}
+            </Badge>
+            {expanded ? (
+              <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+          </div>
+          <p className="text-sm font-medium truncate mt-1">
             {episode.title ?? `Episode ${episode.episode_number}`}
           </p>
           {episode.synopsis && (
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
               {episode.synopsis}
             </p>
           )}
-        </div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {episode.project_id ? (
-          <Link href={`/editor/${episode.project_id}`}>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 sm:h-7 gap-1.5 text-xs"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Open in Editor</span>
-              <span className="sm:hidden">Open</span>
-            </Button>
-          </Link>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 sm:h-7 gap-1.5 text-xs"
-            onClick={handleCreateStoryboard}
-            disabled={creating}
-          >
-            <WandSparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">
-              {creating ? 'Creating…' : 'Create Storyboard'}
-            </span>
-            <span className="sm:hidden">{creating ? '…' : 'Create'}</span>
-          </Button>
-        )}
+        </button>
+
         <Button
           variant="ghost"
           size="sm"
@@ -910,6 +966,130 @@ function EpisodeRow({
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
+
+      {slugGroups.length > 0 ? (
+        <div className="space-y-1.5">
+          {slugGroups.map((group) => (
+            <div
+              key={group.label}
+              className="flex flex-wrap items-center gap-1"
+            >
+              <span className="text-[10px] text-muted-foreground w-16">
+                {group.label}
+              </span>
+              {group.values.map((slug) => (
+                <Badge
+                  key={`${episode.id}-${group.label}-${slug}`}
+                  variant="outline"
+                  className="h-5 px-1.5 text-[10px]"
+                >
+                  {variantLabelBySlug.get(slug) ?? slug}
+                </Badge>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70 italic">
+          No asset variants mapped yet.
+        </p>
+      )}
+
+      {expanded && (
+        <div className="space-y-2 border-t border-border/40 pt-2">
+          {scenes.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground/70 italic">
+              No scenes in this episode yet.
+            </p>
+          ) : (
+            scenes.map((scene) => (
+              <div
+                key={scene.id}
+                className="rounded-md border border-border/40 bg-muted/10 p-2.5 space-y-1.5"
+              >
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    Sc {scene.order}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={`h-5 px-1.5 text-[10px] ${sceneStatusClass[scene.status] ?? sceneStatusClass.draft}`}
+                  >
+                    {scene.status.replace('_', ' ')}
+                  </Badge>
+                  {scene.audio_url ? (
+                    <Badge
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px] border-blue-500/30 text-blue-300"
+                    >
+                      audio_url
+                    </Badge>
+                  ) : null}
+                  {scene.video_url ? (
+                    <Badge
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px] border-cyan-500/30 text-cyan-300"
+                    >
+                      video_url
+                    </Badge>
+                  ) : null}
+                </div>
+
+                {scene.prompt ? (
+                  <p className="text-xs text-foreground/90 line-clamp-2">
+                    {scene.prompt}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground/70 italic">
+                    No prompt yet.
+                  </p>
+                )}
+
+                {scene.audio_text ? (
+                  <p className="text-xs text-foreground/80 line-clamp-2">
+                    {scene.audio_text}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground/70 italic">
+                    No audio text yet.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-1">
+                  {scene.location_variant_slug ? (
+                    <Badge
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px] border-violet-500/30 text-violet-300"
+                    >
+                      L:{' '}
+                      {variantLabelBySlug.get(scene.location_variant_slug) ??
+                        scene.location_variant_slug}
+                    </Badge>
+                  ) : null}
+                  {scene.character_variant_slugs.map((slug) => (
+                    <Badge
+                      key={`${scene.id}-char-${slug}`}
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px] border-cyan-500/30 text-cyan-300"
+                    >
+                      C: {variantLabelBySlug.get(slug) ?? slug}
+                    </Badge>
+                  ))}
+                  {scene.prop_variant_slugs.map((slug) => (
+                    <Badge
+                      key={`${scene.id}-prop-${slug}`}
+                      variant="outline"
+                      className="h-5 px-1.5 text-[10px] border-amber-500/30 text-amber-300"
+                    >
+                      P: {variantLabelBySlug.get(slug) ?? slug}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -942,6 +1122,167 @@ export function SeriesDetailPage({
   const [savingEpisode, setSavingEpisode] = useState(false);
 
   const [showBibleDialog, setShowBibleDialog] = useState(false);
+  const [scenesByEpisode, setScenesByEpisode] = useState<
+    Record<string, CanonicalScene[]>
+  >({});
+  const [scenesLoading, setScenesLoading] = useState(false);
+
+  const supabaseRef = useRef(createClient('studio'));
+  const refreshTimerRef = useRef<number | null>(null);
+
+  const loadScenes = useCallback(async () => {
+    const episodeIds = episodes.map((episode) => episode.id);
+
+    if (episodeIds.length === 0) {
+      setScenesByEpisode({});
+      return;
+    }
+
+    setScenesLoading(true);
+
+    const { data, error } = await supabaseRef.current
+      .from('scenes')
+      .select(
+        'id, episode_id, order, prompt, audio_text, audio_url, video_url, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, updated_at'
+      )
+      .in('episode_id', episodeIds)
+      .order('order', { ascending: true });
+
+    if (error) {
+      console.error('Failed to load canonical scenes:', error);
+      setScenesLoading(false);
+      return;
+    }
+
+    const grouped: Record<string, CanonicalScene[]> = {};
+
+    for (const row of data ?? []) {
+      const episodeId = row.episode_id;
+      if (!episodeId) continue;
+
+      grouped[episodeId] ??= [];
+      grouped[episodeId].push({
+        id: row.id,
+        episode_id: episodeId,
+        order: Number(row.order ?? 0),
+        prompt: row.prompt ?? null,
+        audio_text: row.audio_text ?? null,
+        audio_url: row.audio_url ?? null,
+        video_url: row.video_url ?? null,
+        status:
+          row.status === 'ready' ||
+          row.status === 'in_progress' ||
+          row.status === 'done' ||
+          row.status === 'failed'
+            ? row.status
+            : 'draft',
+        location_variant_slug: row.location_variant_slug ?? null,
+        character_variant_slugs: normalizeSlugArray(
+          row.character_variant_slugs
+        ),
+        prop_variant_slugs: normalizeSlugArray(row.prop_variant_slugs),
+        updated_at: row.updated_at ?? new Date().toISOString(),
+      });
+    }
+
+    setScenesByEpisode(grouped);
+    setScenesLoading(false);
+  }, [episodes]);
+
+  useEffect(() => {
+    void loadScenes();
+  }, [loadScenes]);
+
+  useEffect(() => {
+    const episodeIdSet = new Set(episodes.map((episode) => episode.id));
+    const assetIdSet = new Set(series.series_assets.map((asset) => asset.id));
+
+    const scheduleRefresh = (includeSeriesRefresh: boolean) => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+
+      refreshTimerRef.current = window.setTimeout(() => {
+        void loadScenes();
+        if (includeSeriesRefresh) {
+          onRefresh();
+        }
+      }, 250);
+    };
+
+    const channel = supabaseRef.current
+      .channel(`series-detail-live-${series.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'episodes',
+          filter: `series_id=eq.${series.id}`,
+        },
+        () => {
+          scheduleRefresh(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'scenes',
+        },
+        (payload) => {
+          const episodeId =
+            (payload.new as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            (payload.old as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            null;
+
+          if (!episodeId || !episodeIdSet.has(episodeId)) return;
+          scheduleRefresh(false);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_assets',
+          filter: `series_id=eq.${series.id}`,
+        },
+        () => {
+          scheduleRefresh(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_asset_variants',
+        },
+        (payload) => {
+          const assetId =
+            (payload.new as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            (payload.old as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            null;
+
+          if (!assetId || !assetIdSet.has(assetId)) return;
+          scheduleRefresh(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      supabaseRef.current.removeChannel(channel);
+    };
+  }, [episodes, loadScenes, onRefresh, series.id, series.series_assets]);
 
   // ── Auto-refresh: poll for new images while assets are missing images ─────
   useEffect(() => {
@@ -1064,15 +1405,62 @@ export function SeriesDetailPage({
     onRefresh();
   };
 
-  const usedVariantIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const ep of episodes) {
-      for (const ev of ep.episode_asset_variants ?? []) {
-        if (ev.variant_id) ids.add(ev.variant_id);
+  const assetIdByVariantSlug = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const asset of series.series_assets ?? []) {
+      for (const variant of asset.series_asset_variants ?? []) {
+        if (variant.slug) {
+          map.set(variant.slug, asset.id);
+        }
       }
     }
+
+    return map;
+  }, [series.series_assets]);
+
+  const variantLabelBySlug = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const asset of series.series_assets ?? []) {
+      for (const variant of asset.series_asset_variants ?? []) {
+        if (!variant.slug) continue;
+        const label = variant.name?.trim()
+          ? `${asset.name} — ${variant.name.trim()}`
+          : variant.slug;
+        map.set(variant.slug, label);
+      }
+    }
+
+    return map;
+  }, [series.series_assets]);
+
+  const usedAssetIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    for (const ep of episodes) {
+      const map = ep.asset_variant_map ?? {
+        characters: [],
+        locations: [],
+        props: [],
+      };
+
+      for (const slug of [
+        ...(map.characters ?? []),
+        ...(map.locations ?? []),
+        ...(map.props ?? []),
+      ]) {
+        const assetId = assetIdByVariantSlug.get(slug);
+        if (assetId) ids.add(assetId);
+      }
+
+      for (const mapRow of ep.episode_assets ?? []) {
+        if (mapRow.asset_id) ids.add(mapRow.asset_id);
+      }
+    }
+
     return ids;
-  }, [episodes]);
+  }, [assetIdByVariantSlug, episodes]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -1163,6 +1551,25 @@ export function SeriesDetailPage({
                   {series.tone}
                 </Badge>
               )}
+              <Badge variant="outline" className="text-xs capitalize">
+                {series.content_mode}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-xs capitalize border-blue-500/30 text-blue-400"
+              >
+                {series.plan_status}
+              </Badge>
+              {series.language && (
+                <Badge variant="outline" className="text-xs">
+                  {series.language}
+                </Badge>
+              )}
+              {series.aspect_ratio && (
+                <Badge variant="outline" className="text-xs">
+                  {series.aspect_ratio}
+                </Badge>
+              )}
               {series.bible && (
                 <Button
                   variant="outline"
@@ -1178,6 +1585,17 @@ export function SeriesDetailPage({
           </div>
         )}
       </div>
+
+      {series.creative_brief && (
+        <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Creative Brief
+          </p>
+          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/85">
+            {JSON.stringify(series.creative_brief, null, 2)}
+          </pre>
+        </div>
+      )}
 
       <Tabs defaultValue="assets">
         <TabsList>
@@ -1229,7 +1647,7 @@ export function SeriesDetailPage({
                         seriesId={series.id}
                         onDelete={() => handleDeleteAsset(asset.id)}
                         onRefresh={onRefresh}
-                        usedVariantIds={usedVariantIds}
+                        usedAssetIds={usedAssetIds}
                       />
                     ))}
                   </div>
@@ -1251,18 +1669,23 @@ export function SeriesDetailPage({
 
           {episodes.length === 0 ? (
             <p className="text-sm text-muted-foreground/60 py-4">
-              No episodes yet. Add episodes, then use &quot;Create
-              Storyboard&quot; to open them in the editor.
+              No episodes yet. Add episodes to start building canonical episode
+              plans and variant maps.
             </p>
           ) : (
             <div className="space-y-2">
+              {scenesLoading && (
+                <p className="text-[11px] text-muted-foreground/70 px-1">
+                  Syncing scene status in realtime…
+                </p>
+              )}
               {episodes.map((ep) => (
                 <EpisodeRow
                   key={ep.id}
                   episode={ep}
-                  seriesId={series.id}
+                  scenes={scenesByEpisode[ep.id] ?? []}
+                  variantLabelBySlug={variantLabelBySlug}
                   onDelete={() => handleDeleteEpisode(ep.id)}
-                  onRefresh={onRefresh}
                 />
               ))}
             </div>
@@ -1315,8 +1738,7 @@ export function SeriesDetailPage({
           <DialogHeader>
             <DialogTitle>Add Episode</DialogTitle>
             <DialogDescription>
-              Add an episode to this series. Use &quot;Create Storyboard&quot;
-              on the episode row to set it up in the editor.
+              Add an episode to this series with canonical order/title/synopsis.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddEpisode} className="space-y-3">

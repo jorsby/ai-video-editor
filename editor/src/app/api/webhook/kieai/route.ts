@@ -32,6 +32,46 @@ interface SeriesGenerationJobMeta {
   } | null;
 }
 
+type DebugLogClient = {
+  from: (table: string) => {
+    insert: (values: Record<string, unknown>) => Promise<unknown>;
+  };
+};
+
+function extractTraceId(url: URL): string | null {
+  return url.searchParams.get('trace_id') || null;
+}
+
+async function logTraceEvent(
+  supabase: DebugLogClient,
+  event: {
+    traceId: string;
+    step: string;
+    kind:
+      | 'request_start'
+      | 'request_complete'
+      | 'task_queued'
+      | 'webhook_received';
+    storyboardId?: string;
+    data?: Record<string, unknown>;
+  }
+): Promise<void> {
+  try {
+    await supabase.from('debug_logs').insert({
+      step: event.step,
+      payload: {
+        trace_id: event.traceId,
+        trace_kind: event.kind,
+        storyboard_id: event.storyboardId ?? null,
+        ...event.data,
+        logged_at: new Date().toISOString(),
+      },
+    });
+  } catch {
+    // Trace logging should never break webhook processing.
+  }
+}
+
 async function loadSeriesGenerationJob(
   supabase: any,
   taskId: string
@@ -199,6 +239,16 @@ function extractAudioUrl(result: Record<string, unknown>): string | null {
     return direct;
   }
 
+  const resultUrls = result.resultUrls;
+  if (Array.isArray(resultUrls) && resultUrls.length > 0) {
+    const first = resultUrls[0];
+    if (typeof first === 'string' && first.length > 0) return first;
+    if (first && typeof first === 'object' && 'url' in first) {
+      const url = (first as { url?: unknown }).url;
+      if (typeof url === 'string' && url.length > 0) return url;
+    }
+  }
+
   const audio = result.audio;
   if (audio && typeof audio === 'object' && 'url' in audio) {
     const url = (audio as { url?: unknown }).url;
@@ -208,6 +258,63 @@ function extractAudioUrl(result: Record<string, unknown>): string | null {
   }
 
   return null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
+}
+
+type RuntimeTaskKey = 'tts_tasks' | 'video_tasks';
+
+async function consumeEpisodeRuntimeTask(params: {
+  supabase: any;
+  episodeId: string;
+  sceneId: string;
+  taskId: string;
+  taskKey: RuntimeTaskKey;
+}): Promise<
+  { ok: true } | { ok: false; reason: 'episode_missing' | 'task_mismatch' }
+> {
+  const { supabase, episodeId, sceneId, taskId, taskKey } = params;
+
+  const { data: episode } = await supabase
+    .from('episodes')
+    .select('id, plan_json')
+    .eq('id', episodeId)
+    .maybeSingle();
+
+  if (!episode) {
+    return { ok: false, reason: 'episode_missing' };
+  }
+
+  const planJson = toRecord(episode.plan_json);
+  const runtime = toRecord(planJson.generation_runtime);
+  const tasks = toRecord(runtime[taskKey]);
+  const task = toRecord(tasks[sceneId]);
+  const expectedTaskId =
+    typeof task.task_id === 'string' && task.task_id.length > 0
+      ? task.task_id
+      : null;
+
+  if (expectedTaskId && expectedTaskId !== taskId) {
+    return { ok: false, reason: 'task_mismatch' };
+  }
+
+  if (sceneId in tasks) {
+    delete tasks[sceneId];
+    runtime[taskKey] = tasks;
+    planJson.generation_runtime = runtime;
+
+    await supabase
+      .from('episodes')
+      .update({ plan_json: planJson })
+      .eq('id', episodeId);
+  }
+
+  return { ok: true };
 }
 
 async function guardRequest(params: {
@@ -437,6 +544,206 @@ async function handleGenerateTts(params: {
     step: 'GenerateTTS',
     voiceover_id: voiceoverId,
     audio_url: audioUrl,
+  });
+}
+
+async function handleGenerateSceneTts(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, sceneId, log } = params;
+
+  const { data: scene } = await supabase
+    .from('scenes')
+    .select('id, episode_id, status, video_url')
+    .eq('id', sceneId)
+    .maybeSingle();
+
+  if (!scene) {
+    return staleWebhookResponse(
+      'scene_missing',
+      'GenerateSceneTTS',
+      'scene_id',
+      sceneId,
+      log
+    );
+  }
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateSceneTTS',
+    });
+  }
+
+  const taskGuard = await consumeEpisodeRuntimeTask({
+    supabase,
+    episodeId: scene.episode_id,
+    sceneId,
+    taskId,
+    taskKey: 'tts_tasks',
+  });
+
+  if (!taskGuard.ok && taskGuard.reason === 'task_mismatch') {
+    return staleWebhookResponse(
+      'task_id_mismatch',
+      'GenerateSceneTTS',
+      'scene_id',
+      sceneId,
+      log
+    );
+  }
+
+  if (isFailureState(state)) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneTTS',
+      failed: true,
+    });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const audioUrl = extractAudioUrl(result);
+
+  if (!audioUrl) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneTTS',
+      failed: true,
+    });
+  }
+
+  await supabase
+    .from('scenes')
+    .update({
+      audio_url: audioUrl,
+      status: scene.video_url ? 'done' : 'ready',
+    })
+    .eq('id', sceneId)
+    .in('status', ['in_progress', 'ready']);
+
+  return okResponse({
+    success: true,
+    step: 'GenerateSceneTTS',
+    scene_id: sceneId,
+    audio_url: audioUrl,
+  });
+}
+
+async function handleGenerateSceneVideo(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, sceneId, log } = params;
+
+  const { data: scene } = await supabase
+    .from('scenes')
+    .select('id, episode_id, status, audio_url')
+    .eq('id', sceneId)
+    .maybeSingle();
+
+  if (!scene) {
+    return staleWebhookResponse(
+      'scene_missing',
+      'GenerateSceneVideo',
+      'scene_id',
+      sceneId,
+      log
+    );
+  }
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateSceneVideo',
+    });
+  }
+
+  const taskGuard = await consumeEpisodeRuntimeTask({
+    supabase,
+    episodeId: scene.episode_id,
+    sceneId,
+    taskId,
+    taskKey: 'video_tasks',
+  });
+
+  if (!taskGuard.ok && taskGuard.reason === 'task_mismatch') {
+    return staleWebhookResponse(
+      'task_id_mismatch',
+      'GenerateSceneVideo',
+      'scene_id',
+      sceneId,
+      log
+    );
+  }
+
+  if (isFailureState(state)) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneVideo',
+      failed: true,
+    });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const videoUrl = extractVideoUrl(result);
+
+  if (!videoUrl) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneVideo',
+      failed: true,
+    });
+  }
+
+  await supabase
+    .from('scenes')
+    .update({
+      video_url: videoUrl,
+      status: scene.audio_url ? 'done' : 'ready',
+    })
+    .eq('id', sceneId)
+    .in('status', ['in_progress', 'ready']);
+
+  return okResponse({
+    success: true,
+    step: 'GenerateSceneVideo',
+    scene_id: sceneId,
+    video_url: videoUrl,
   });
 }
 
@@ -810,18 +1117,74 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createServiceClient();
+    const traceId = extractTraceId(req.nextUrl);
+
     await supabase.from('debug_logs').insert({
       step: 'KieWebhook',
-      payload,
+      payload: {
+        ...payload,
+        ...(traceId ? { trace_id: traceId } : {}),
+      },
     });
 
     const step = req.nextUrl.searchParams.get('step') ?? payload.data?.model;
+
+    if (traceId && verification.taskId && typeof step === 'string') {
+      await logTraceEvent(supabase, {
+        traceId,
+        step,
+        kind: 'webhook_received',
+        data: {
+          provider: 'kie',
+          provider_task_id: verification.taskId,
+          status: payload.data?.status ?? payload.data?.state ?? null,
+        },
+      });
+    }
 
     if (!verification.taskId) {
       return okResponse({
         success: true,
         ignored: true,
         reason: 'missing_task',
+      });
+    }
+
+    if (step === 'GenerateSceneVideo') {
+      const sceneId = req.nextUrl.searchParams.get('scene_id');
+      if (!sceneId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_scene_id',
+        });
+      }
+
+      return await handleGenerateSceneVideo({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        sceneId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateSceneTTS') {
+      const sceneId = req.nextUrl.searchParams.get('scene_id');
+      if (!sceneId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_scene_id',
+        });
+      }
+
+      return await handleGenerateSceneTts({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        sceneId,
+        log,
       });
     }
 

@@ -1,0 +1,318 @@
+import { type NextRequest, NextResponse } from 'next/server';
+import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+
+type RouteContext = { params: Promise<{ id: string }> };
+
+type EpisodeStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+
+type AssetVariantMap = {
+  characters: string[];
+  locations: string[];
+  props: string[];
+};
+
+const EPISODE_STATUSES: EpisodeStatus[] = [
+  'draft',
+  'ready',
+  'in_progress',
+  'done',
+];
+const EPISODE_SELECT =
+  'id, series_id, order, title, synopsis, audio_content, visual_outline, asset_variant_map, plan_json, status, created_at, updated_at';
+
+type OwnedEpisodeLookup =
+  | {
+      episode: {
+        id: string;
+        series_id: string;
+      };
+      error?: undefined;
+    }
+  | {
+      episode?: undefined;
+      error: NextResponse;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseNullableText(
+  value: unknown,
+  fieldName: string
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === null) return { ok: true, value: null };
+  if (typeof value !== 'string') {
+    return { ok: false, error: `${fieldName} must be a string or null` };
+  }
+
+  const trimmed = value.trim();
+  return { ok: true, value: trimmed.length > 0 ? trimmed : null };
+}
+
+function parseAssetVariantMap(
+  input: unknown
+): { ok: true; value: AssetVariantMap } | { ok: false; error: string } {
+  if (!isRecord(input)) {
+    return {
+      ok: false,
+      error:
+        'asset_variant_map must be an object with string arrays: characters, locations, props',
+    };
+  }
+
+  const keys = ['characters', 'locations', 'props'] as const;
+  const result: AssetVariantMap = {
+    characters: [],
+    locations: [],
+    props: [],
+  };
+
+  for (const key of keys) {
+    const value = input[key];
+    if (
+      !Array.isArray(value) ||
+      !value.every((item) => typeof item === 'string')
+    ) {
+      return {
+        ok: false,
+        error:
+          'asset_variant_map must be an object with string arrays: characters, locations, props',
+      };
+    }
+
+    result[key] = value.map((item) => item.trim()).filter(Boolean);
+  }
+
+  return { ok: true, value: result };
+}
+
+async function getOwnedEpisode(
+  db: ReturnType<typeof createServiceClient>,
+  episodeId: string,
+  userId: string
+): Promise<OwnedEpisodeLookup> {
+  const { data: episode, error: episodeError } = await db
+    .from('episodes')
+    .select('id, series_id')
+    .eq('id', episodeId)
+    .maybeSingle();
+
+  if (episodeError || !episode) {
+    return {
+      error: NextResponse.json({ error: 'Episode not found' }, { status: 404 }),
+    };
+  }
+
+  const { data: series, error: seriesError } = await db
+    .from('series')
+    .select('id, user_id')
+    .eq('id', episode.series_id)
+    .maybeSingle();
+
+  if (seriesError || !series) {
+    return {
+      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+    };
+  }
+
+  if (series.user_id !== userId) {
+    return {
+      error: NextResponse.json({ error: 'Unauthorized' }, { status: 403 }),
+    };
+  }
+
+  return { episode };
+}
+
+export async function GET(req: NextRequest, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+
+    const user = await getUserOrApiKey(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const db = createServiceClient('studio');
+    const owned = await getOwnedEpisode(db, id, user.id);
+    if (owned.error) return owned.error;
+
+    const { data: episode, error } = await db
+      .from('episodes')
+      .select(EPISODE_SELECT)
+      .eq('id', id)
+      .single();
+
+    if (error || !episode) {
+      return NextResponse.json({ error: 'Episode not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(episode);
+  } catch (error) {
+    console.error('[v2/episodes/:id][GET] Unexpected error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+
+    const user = await getUserOrApiKey(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const updates: Record<string, unknown> = {};
+
+    if (body?.order !== undefined) {
+      if (
+        typeof body.order !== 'number' ||
+        !Number.isInteger(body.order) ||
+        body.order < 1
+      ) {
+        return NextResponse.json(
+          { error: 'order must be a positive integer' },
+          { status: 400 }
+        );
+      }
+      updates.order = body.order;
+    }
+
+    const nullableTextFields = [
+      'title',
+      'synopsis',
+      'audio_content',
+      'visual_outline',
+    ] as const;
+    for (const field of nullableTextFields) {
+      if (body?.[field] !== undefined) {
+        const parsed = parseNullableText(body[field], field);
+        if (!parsed.ok) {
+          return NextResponse.json({ error: parsed.error }, { status: 400 });
+        }
+        updates[field] = parsed.value;
+      }
+    }
+
+    if (body?.asset_variant_map !== undefined) {
+      const parsed = parseAssetVariantMap(body.asset_variant_map);
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      updates.asset_variant_map = parsed.value;
+    }
+
+    if (body?.plan_json !== undefined) {
+      if (body.plan_json !== null && !isRecord(body.plan_json)) {
+        return NextResponse.json(
+          { error: 'plan_json must be an object or null' },
+          { status: 400 }
+        );
+      }
+      updates.plan_json = body.plan_json;
+    }
+
+    if (body?.status !== undefined) {
+      if (
+        typeof body.status !== 'string' ||
+        !EPISODE_STATUSES.includes(body.status as EpisodeStatus)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "status must be one of 'draft', 'ready', 'in_progress', or 'done'",
+          },
+          { status: 400 }
+        );
+      }
+      updates.status = body.status;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { error: 'No fields to update' },
+        { status: 400 }
+      );
+    }
+
+    const db = createServiceClient('studio');
+    const owned = await getOwnedEpisode(db, id, user.id);
+    if (owned.error) return owned.error;
+
+    const { data: episode, error } = await db
+      .from('episodes')
+      .update(updates)
+      .eq('id', id)
+      .select(EPISODE_SELECT)
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return NextResponse.json(
+          { error: 'Episode order already exists in this series' },
+          { status: 409 }
+        );
+      }
+
+      console.error(
+        '[v2/episodes/:id][PATCH] Failed to update episode:',
+        error
+      );
+      return NextResponse.json(
+        { error: 'Failed to update episode' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(episode);
+  } catch (error) {
+    console.error('[v2/episodes/:id][PATCH] Unexpected error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+
+    const user = await getUserOrApiKey(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const db = createServiceClient('studio');
+    const owned = await getOwnedEpisode(db, id, user.id);
+    if (owned.error) return owned.error;
+
+    const { error } = await db.from('episodes').delete().eq('id', id);
+
+    if (error) {
+      console.error(
+        '[v2/episodes/:id][DELETE] Failed to delete episode:',
+        error
+      );
+      return NextResponse.json(
+        { error: 'Failed to delete episode' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ id, deleted: true });
+  } catch (error) {
+    console.error('[v2/episodes/:id][DELETE] Unexpected error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

@@ -1,74 +1,19 @@
-import { useEffect, useRef, useCallback } from 'react';
-
-const POLL_INTERVAL_MS = 10_000; // 10 seconds
-
-interface PollResult {
-  success: boolean;
-  has_processing: boolean;
-  total_completed: number;
-  total_still_running: number;
-}
+import { useEffect } from 'react';
 
 /**
- * Generic provider polling hook.
+ * Webhook-only mode.
  *
- * Polls /api/workflow/poll-tasks when items are in a processing state.
- * It acts as a safety net when webhook callbacks are delayed/missed
- * (especially in local/tunnel environments).
+ * Polling is intentionally disabled.
+ * UI state should be updated only via webhook → DB updates + realtime subscriptions.
  */
 export function useProviderPolling(
-  isProcessing: boolean,
-  storyboardId?: string | null,
-  onCompleted?: () => void
+  _isProcessing: boolean,
+  _storyboardId?: string | null,
+  _onCompleted?: () => void
 ) {
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isPollingRef = useRef(false);
-
-  const poll = useCallback(async () => {
-    // Prevent overlapping polls.
-    if (isPollingRef.current) return;
-    isPollingRef.current = true;
-
-    try {
-      const res = await fetch('/api/workflow/poll-tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyboard_id: storyboardId || undefined }),
-      });
-
-      if (!res.ok) return;
-
-      const data: PollResult = await res.json();
-
-      if (data.total_completed > 0 && onCompleted) {
-        onCompleted();
-      }
-    } catch {
-      // Best-effort safety net — ignore polling errors.
-    } finally {
-      isPollingRef.current = false;
-    }
-  }, [storyboardId, onCompleted]);
-
   useEffect(() => {
-    if (!isProcessing) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
-    }
-
-    poll();
-    intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [isProcessing, poll]);
+    // no-op (polling disabled by product decision)
+  }, []);
 }
 
 /**

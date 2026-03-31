@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     let projectId: string;
     let createdProject = false;
-    let charactersBound = 0;
+    const charactersBound = 0;
 
     if (existingProjectId) {
       // Reuse the existing shared project
@@ -105,101 +105,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       projectId = project.id;
       createdProject = true;
 
-      // Bind series characters to the new project (only on first creation)
-      const { data: charAssets } = await dbClient
-        .from('series_assets')
-        .select(
-          `
-          id, name, description,
-          series_asset_variants (
-            id,
-            series_asset_variant_images (id, url, angle)
-          )
-        `
-        )
-        .eq('series_id', seriesId)
-        .eq('type', 'character');
-
-      if (charAssets?.length) {
-        for (let idx = 0; idx < charAssets.length; idx++) {
-          const asset = charAssets[idx];
-          const variants = asset.series_asset_variants ?? [];
-          const allImages = variants.flatMap(
-            (v: {
-              series_asset_variant_images?: Array<{
-                id: string;
-                url: string;
-                angle: string;
-              }>;
-            }) => v.series_asset_variant_images ?? []
-          );
-
-          // Check if a character with this name already exists for this user
-          const { data: existingChar } = await dbClient
-            .from('characters')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('name', asset.name)
-            .maybeSingle();
-
-          let characterId: string;
-
-          if (existingChar) {
-            characterId = existingChar.id;
-          } else {
-            // Create character in universal library
-            const { data: newChar, error: charErr } = await dbClient
-              .from('characters')
-              .insert({
-                user_id: user.id,
-                name: asset.name,
-                description: asset.description,
-                tags: [],
-              })
-              .select('id')
-              .single();
-
-            if (charErr || !newChar) {
-              console.error('Create character error:', charErr);
-              continue;
-            }
-            characterId = newChar.id;
-
-            // Copy images to character_images
-            for (const img of allImages) {
-              if (img.url) {
-                await dbClient.from('character_images').insert({
-                  character_id: characterId,
-                  angle: img.angle ?? 'frontal',
-                  url: img.url,
-                });
-              }
-            }
-          }
-
-          // Bind character to project
-          const frontalImageIds = allImages
-            .filter(
-              (img: { angle: string }) =>
-                img.angle === 'front' || img.angle === 'frontal'
-            )
-            .map((img: { id: string }) => img.id);
-
-          const { error: bindErr } = await dbClient
-            .from('project_characters')
-            .insert({
-              project_id: projectId,
-              character_id: characterId,
-              element_index: idx,
-              role: 'main',
-              description_snapshot: asset.description,
-              resolved_image_ids:
-                frontalImageIds.length > 0 ? frontalImageIds : null,
-            });
-
-          if (!bindErr) charactersBound++;
-        }
-      }
+      // Characters now live entirely in series_assets — no legacy character binding needed
     }
 
     // ── Step 2: Link this episode to the shared project ────────────────────

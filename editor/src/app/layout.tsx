@@ -1,18 +1,15 @@
 import { Toaster } from '@/components/ui/sonner';
 import { BackgroundPostCheck } from '@/components/background-post-check';
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import type { CSSProperties, ReactNode } from 'react';
 import './globals.css';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+const fontVariables = {
+  '--font-geist-sans':
+    'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+  '--font-geist-mono':
+    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace',
+} as CSSProperties;
 
 export const metadata: Metadata = {
   title: 'Combo',
@@ -22,13 +19,11 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} dark antialiased`}
-      >
+      <body className="dark antialiased" style={fontVariables}>
         {children}
         <Toaster />
         <BackgroundPostCheck />

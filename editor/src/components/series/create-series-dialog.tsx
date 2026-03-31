@@ -17,9 +17,15 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (series: Series) => void;
+  projectId?: string;
 }
 
-export function CreateSeriesDialog({ open, onOpenChange, onCreated }: Props) {
+export function CreateSeriesDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  projectId,
+}: Props) {
   const [name, setName] = useState('');
   const [genre, setGenre] = useState('');
   const [tone, setTone] = useState('');
@@ -39,6 +45,7 @@ export function CreateSeriesDialog({ open, onOpenChange, onCreated }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          project_id: projectId,
           name: name.trim(),
           genre: genre.trim() || undefined,
           tone: tone.trim() || undefined,

@@ -197,7 +197,11 @@ export interface Voiceover {
 export interface Scene {
   id: string;
   storyboard_id: string;
+  /** Canonical parent key (episodes.id). Present on migrated datasets. */
+  episode_id?: string;
   order: number;
+  title?: string | null;
+  duration?: number | null;
   prompt: string | null;
   multi_prompt: string[] | null;
   prompt_json?: PromptJSON | null;
@@ -212,6 +216,16 @@ export interface Scene {
   voiceovers: Voiceover[];
   backgrounds: Background[];
   objects: RefObject[];
+  /** Canonical variant-slug references. */
+  location_variant_slug?: string | null;
+  character_variant_slugs?: string[];
+  prop_variant_slugs?: string[];
+  /** Canonical narration/dialogue source text. */
+  audio_text?: string | null;
+  /** Canonical scene lifecycle status used by v2 endpoints/webhooks. */
+  status?: 'draft' | 'ready' | 'in_progress' | 'done' | 'failed' | null;
+  /** Canonical scene-level audio URL written by v2 GenerateSceneTTS webhook path. */
+  audio_url?: string | null;
   video_url: string | null;
   video_status: 'pending' | 'processing' | 'success' | 'failed' | null;
   video_request_id: string | null;
@@ -598,6 +612,7 @@ export interface SceneUpdateCallbacks {
   onFirstFrameUpdate?: (firstFrame: FirstFrame) => void;
   onVoiceoverUpdate?: (voiceover: Voiceover) => void;
   onSceneUpdate?: (scene: SceneRow) => void;
+  onSceneDelete?: (scene: SceneRow) => void;
   onStoryboardUpdate?: (storyboard: StoryboardRow) => void;
   onBackgroundUpdate?: (background: Background) => void;
   onObjectUpdate?: (object: RefObject) => void;
@@ -688,18 +703,30 @@ export function subscribeToSceneUpdates(
     channels.push(ffChannel);
   }
 
-  // Scene updates (for video/sfx status changes)
-  if (callbacks.onSceneUpdate) {
+  // Scene updates (canonical status/prompt/audio/video refs)
+  if (callbacks.onSceneUpdate || callbacks.onSceneDelete) {
     const sceneChannel = supabase
       .channel(`scenes_${channelKey}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'studio',
           table: 'scenes',
         },
-        (payload) => callbacks.onSceneUpdate?.(payload.new as SceneRow)
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            callbacks.onSceneDelete?.(payload.old as SceneRow);
+            return;
+          }
+
+          if (
+            payload.eventType === 'INSERT' ||
+            payload.eventType === 'UPDATE'
+          ) {
+            callbacks.onSceneUpdate?.(payload.new as SceneRow);
+          }
+        }
       )
       .subscribe();
     channels.push(sceneChannel);

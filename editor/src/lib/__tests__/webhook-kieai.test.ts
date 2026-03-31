@@ -399,7 +399,7 @@ describe('webhook/kieai route', () => {
     ).toBe(false);
   });
 
-  it('GenerateTTS success updates voiceovers.status=success', async () => {
+  it('GenerateTTS success parses resultJson.resultUrls[0] and updates voiceovers.status=success', async () => {
     const supabaseMock = createSupabaseMock();
     supabaseMock.setResolver((query) => {
       if (
@@ -424,7 +424,7 @@ describe('webhook/kieai route', () => {
           task_id: 'task-123',
           state: 'success',
           resultJson: JSON.stringify({
-            audio_url: 'https://cdn.example.com/audio.mp3',
+            resultUrls: ['https://cdn.example.com/audio.mp3'],
           }),
         },
       }

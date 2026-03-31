@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/admin';
 import { validateApiKey } from '@/lib/auth/api-key';
+import { createServiceClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import {
   addVariantImage,
   deleteVariantImage,
@@ -16,11 +16,59 @@ type RouteContext = {
   }>;
 };
 
+type AssetVariantMap = {
+  characters: string[];
+  locations: string[];
+  props: string[];
+};
+
+function normalizeMap(value: unknown): AssetVariantMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { characters: [], locations: [], props: [] };
+  }
+
+  const input = value as Record<string, unknown>;
+  const toList = (key: keyof AssetVariantMap) => {
+    const raw = input[key];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((v): v is string => typeof v === 'string');
+  };
+
+  return {
+    characters: toList('characters'),
+    locations: toList('locations'),
+    props: toList('props'),
+  };
+}
+
+async function variantUsedInEpisodeMap(
+  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
+  dbClient: any,
+  seriesId: string,
+  variantSlug: string
+): Promise<boolean> {
+  const { data: episodes, error } = await dbClient
+    .from('episodes')
+    .select('asset_variant_map')
+    .eq('series_id', seriesId);
+
+  if (error) {
+    throw new Error(`Failed to load episodes: ${error.message}`);
+  }
+
+  return (episodes ?? []).some((episode: { asset_variant_map: unknown }) => {
+    const map = normalizeMap(episode.asset_variant_map);
+    return [...map.characters, ...map.locations, ...map.props].includes(
+      variantSlug
+    );
+  });
+}
+
 // POST /api/series/[id]/assets/[assetId]/variants/[variantId]/images
 // Expects multipart/form-data with "file" field
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
-    const { id, variantId } = await context.params;
+    const { id, assetId, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
       data: { user: sessionUser },
@@ -44,32 +92,32 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    const { data: variant } = await dbClient
+    const { data: variant, error: variantError } = await dbClient
       .from('series_asset_variants')
-      .select('*')
+      .select('id, slug')
       .eq('id', variantId)
+      .eq('asset_id', assetId)
       .single();
 
-    if (variant?.is_finalized) {
-      return NextResponse.json(
-        { error: 'Variant is finalized and cannot be modified' },
-        { status: 409 }
-      );
+    if (variantError || !variant) {
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
 
-    const { count: usageCount } = await dbClient
-      .from('episode_asset_variants')
-      .select('*', { count: 'exact', head: true })
-      .eq('variant_id', variantId);
-
-    if ((usageCount ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          error:
-            'Variant is already used in one or more episodes and cannot be modified',
-        },
-        { status: 409 }
+    if (typeof variant.slug === 'string' && variant.slug.trim()) {
+      const inEpisodeMap = await variantUsedInEpisodeMap(
+        dbClient,
+        id,
+        variant.slug
       );
+      if (inEpisodeMap) {
+        return NextResponse.json(
+          {
+            error:
+              'Variant is already mapped to one or more episodes and cannot be modified',
+          },
+          { status: 409 }
+        );
+      }
     }
 
     const formData = await req.formData();
@@ -126,7 +174,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 // DELETE /api/series/[id]/assets/[assetId]/variants/[variantId]/images?imageId=xxx
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
-    const { id, variantId } = await context.params;
+    const { id, assetId, variantId } = await context.params;
     const supabase = await createClient('studio');
     const {
       data: { user: sessionUser },
@@ -150,44 +198,37 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
-    const { data: variant } = await dbClient
+    const { data: variant, error: variantError } = await dbClient
       .from('series_asset_variants')
-      .select('*')
+      .select('id, slug')
       .eq('id', variantId)
+      .eq('asset_id', assetId)
       .single();
 
-    if (variant?.is_finalized) {
-      return NextResponse.json(
-        { error: 'Variant is finalized and cannot be modified' },
-        { status: 409 }
-      );
+    if (variantError || !variant) {
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
 
-    const { count: usageCount } = await dbClient
-      .from('episode_asset_variants')
-      .select('*', { count: 'exact', head: true })
-      .eq('variant_id', variantId);
-
-    if ((usageCount ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          error:
-            'Variant is already used in one or more episodes and cannot be modified',
-        },
-        { status: 409 }
+    if (typeof variant.slug === 'string' && variant.slug.trim()) {
+      const inEpisodeMap = await variantUsedInEpisodeMap(
+        dbClient,
+        id,
+        variant.slug
       );
+      if (inEpisodeMap) {
+        return NextResponse.json(
+          {
+            error:
+              'Variant is already mapped to one or more episodes and cannot be modified',
+          },
+          { status: 409 }
+        );
+      }
     }
 
     const { searchParams } = new URL(req.url);
-    const imageId = searchParams.get('imageId');
+    const imageId = searchParams.get('imageId') ?? `${variantId}::canonical`;
     const storagePath = searchParams.get('storagePath');
-
-    if (!imageId) {
-      return NextResponse.json(
-        { error: 'imageId is required' },
-        { status: 400 }
-      );
-    }
 
     // Remove from storage if path provided
     if (storagePath) {

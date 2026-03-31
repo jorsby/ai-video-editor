@@ -172,17 +172,20 @@ export async function uploadFile(
     });
 
     const data = (await response.json().catch(() => null)) as {
-      data?: { fileUrl?: string };
+      data?: { fileUrl?: string; downloadUrl?: string; url?: string };
       msg?: string;
     } | null;
 
-    if (!response.ok || !data?.data?.fileUrl) {
+    const fileUrl =
+      data?.data?.fileUrl ?? data?.data?.downloadUrl ?? data?.data?.url ?? null;
+
+    if (!response.ok || !fileUrl) {
       throw new Error(
         `kie.ai upload failed (${response.status})${data?.msg ? `: ${data.msg}` : ''}`
       );
     }
 
-    return { fileUrl: data.data.fileUrl, response: data };
+    return { fileUrl, response: data };
   })();
 
   uploadFileCache.set(normalizedSourceUrl, uploadPromise);

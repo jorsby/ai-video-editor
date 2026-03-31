@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,227 +14,311 @@ import {
   IconBook,
   IconChevronDown,
   IconChevronRight,
-  IconChevronUp,
   IconClock,
   IconMovie,
   IconPlayerPlay,
   IconCheck,
   IconLoader2,
+  IconAlertTriangle,
+  IconMapPin,
+  IconPackage,
+  IconUsers,
+  IconMicrophone,
+  IconVideo,
 } from '@tabler/icons-react';
 
-interface Episode {
-  number: number;
-  title: string;
-  summary: string;
-  status: 'planned' | 'in_progress' | 'done';
-}
+type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
+type EpisodeStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+type AssetType = 'character' | 'location' | 'prop';
 
-interface SceneObject {
+interface CanonicalSeries {
+  id: string;
   name: string;
-  imageUrl: string | null;
-  variantId: string | null;
+  bible: string | null;
+  creative_brief: Record<string, unknown> | null;
+  content_mode: string | null;
+  plan_status: string | null;
+  language: string | null;
+  aspect_ratio: string | null;
+  voice_id: string | null;
+  tts_speed: number | null;
 }
 
-interface SceneBackground {
-  imageUrl: string | null;
+interface EpisodeAssetVariantMap {
+  characters: string[];
+  locations: string[];
+  props: string[];
 }
 
-interface StoryboardScene {
+interface EpisodeScene {
   id: string;
   order: number;
+  title: string | null;
   prompt: string | null;
-  multi_prompt?: string[] | null;
-  video_status: string | null;
+  audio_text: string | null;
+  audio_url: string | null;
   video_url: string | null;
-  objects: SceneObject[];
-  background: SceneBackground | null;
+  status: SceneStatus;
+  location_variant_slug: string | null;
+  character_variant_slugs: string[];
+  prop_variant_slugs: string[];
 }
 
-interface StoryboardInfo {
+interface EpisodeCardData {
   id: string;
-  plan_status: string;
-  mode: string;
-  voiceover: string;
-  scriptLanguage: string;
-  scriptLines: string[];
-  scenes: StoryboardScene[];
+  order: number;
+  title: string;
+  synopsis: string | null;
+  audioContent: string | null;
+  visualOutline: string | null;
+  status: EpisodeStatus;
+  assetVariantMap: EpisodeAssetVariantMap;
+  scenes: EpisodeScene[];
 }
 
-interface SeriesMetadata {
-  scene_mode?: string | null;
-  episode_count?: number | null;
-  aspect_ratio?: string | null;
-  language?: string | null;
-  tts_settings?: {
-    voice_id?: string | null;
-    speed?: number | null;
-    model?: string | null;
-  } | null;
-  style?: {
-    visual_style?: string | null;
-    setting?: string | null;
-    custom_notes?: string | null;
-  } | null;
+interface VariantMeta {
+  slug: string;
+  type: AssetType;
+  label: string;
+  imageUrl: string | null;
 }
 
-const STATUS_CONFIG = {
-  planned: {
-    label: 'Planned',
-    color: 'text-muted-foreground',
-    bg: 'bg-muted/30',
-  },
-  in_progress: {
-    label: 'In Progress',
-    color: 'text-amber-400',
-    bg: 'bg-amber-500/10',
-  },
-  done: { label: 'Done', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-} as const;
-
-function trimSentence(value: string, max = 180): string {
-  const text = value.trim();
-  if (!text) return text;
-  return text.length > max ? `${text.slice(0, max)}...` : text;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function deriveScriptLines(params: {
-  voiceover: string;
-  planVoiceoverList: unknown;
-}): { language: string; lines: string[] } {
-  const list = params.planVoiceoverList;
+function normalizeSlugArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
-  if (list && typeof list === 'object') {
-    const entries = Object.entries(list as Record<string, unknown>);
-    for (const [language, value] of entries) {
-      if (!Array.isArray(value)) continue;
-      const lines = value
-        .map((line) => (typeof line === 'string' ? line.trim() : ''))
-        .filter(Boolean);
-      if (lines.length > 0) {
-        return { language, lines };
-      }
-    }
+function normalizeEpisodeAssetVariantMap(
+  value: unknown
+): EpisodeAssetVariantMap {
+  if (!isRecord(value)) {
+    return { characters: [], locations: [], props: [] };
   }
 
-  const fallback = params.voiceover
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
   return {
-    language: 'tr',
-    lines: fallback,
+    characters: normalizeSlugArray(value.characters),
+    locations: normalizeSlugArray(value.locations),
+    props: normalizeSlugArray(value.props),
   };
+}
+
+function resolveStoredUrl(
+  supabase: ReturnType<typeof createClient>,
+  rawUrl: string | null | undefined
+): string | null {
+  if (!rawUrl) return null;
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('series-assets').getPublicUrl(rawUrl);
+
+  return publicUrl || rawUrl;
+}
+
+const EPISODE_STATUS_CONFIG: Record<
+  EpisodeStatus,
+  { label: string; className: string }
+> = {
+  draft: {
+    label: 'Draft',
+    className: 'text-muted-foreground border-muted-foreground/30',
+  },
+  ready: { label: 'Ready', className: 'text-blue-400 border-blue-500/30' },
+  in_progress: {
+    label: 'In Progress',
+    className: 'text-amber-400 border-amber-500/30',
+  },
+  done: { label: 'Done', className: 'text-emerald-400 border-emerald-500/30' },
+};
+
+const SCENE_STATUS_CONFIG: Record<
+  SceneStatus,
+  { label: string; className: string }
+> = {
+  draft: {
+    label: 'Draft',
+    className: 'text-muted-foreground border-muted-foreground/30',
+  },
+  ready: { label: 'Ready', className: 'text-blue-400 border-blue-500/30' },
+  in_progress: {
+    label: 'In Progress',
+    className: 'text-amber-400 border-amber-500/30',
+  },
+  done: { label: 'Done', className: 'text-emerald-400 border-emerald-500/30' },
+  failed: { label: 'Failed', className: 'text-red-400 border-red-500/30' },
+};
+
+function variantTypeBadgeClass(type: AssetType): string {
+  if (type === 'character') return 'text-cyan-300 border-cyan-500/30';
+  if (type === 'location') return 'text-violet-300 border-violet-500/30';
+  return 'text-amber-300 border-amber-500/30';
 }
 
 function SceneRow({
   scene,
-  index,
-  variantImages,
+  variantBySlug,
 }: {
-  scene: StoryboardScene;
-  index: number;
-  variantImages: Map<string, string>;
+  scene: EpisodeScene;
+  variantBySlug: Map<string, VariantMeta>;
 }) {
-  const firstMultiPrompt =
-    Array.isArray(scene.multi_prompt) && scene.multi_prompt.length > 0
-      ? scene.multi_prompt[0]
-      : null;
-  const prompt =
-    scene.prompt?.trim() || firstMultiPrompt?.trim() || 'No prompt yet';
-  const videoStatus = scene.video_status || 'pending';
-  const shotCount = Array.isArray(scene.multi_prompt)
-    ? scene.multi_prompt.length
-    : 0;
+  const sceneStatusConfig =
+    SCENE_STATUS_CONFIG[scene.status] ?? SCENE_STATUS_CONFIG.draft;
+  const promptPreview = scene.prompt?.trim() || 'No prompt yet';
+  const audioPreview = scene.audio_text?.trim() || null;
 
-  // Resolve live thumbnails from variant images map
-  const objectThumbs = scene.objects.map((obj) => ({
-    name: obj.name,
-    url: obj.variantId
-      ? (variantImages.get(obj.variantId) ?? obj.imageUrl)
-      : obj.imageUrl,
-  }));
-  const bgThumb = scene.background?.imageUrl ?? null;
+  const location = scene.location_variant_slug
+    ? [scene.location_variant_slug]
+    : [];
+  const characters = scene.character_variant_slugs;
+  const props = scene.prop_variant_slugs;
+
+  const variantChips = [
+    ...location.map((slug) => ({ slug, type: 'location' as const })),
+    ...characters.map((slug) => ({ slug, type: 'character' as const })),
+    ...props.map((slug) => ({ slug, type: 'prop' as const })),
+  ];
+
+  const thumbSlugs = variantChips
+    .map((item) => item.slug)
+    .filter((slug, index, arr) => arr.indexOf(slug) === index)
+    .slice(0, 3);
 
   return (
     <div className="space-y-1.5 px-2 py-2 rounded bg-muted/10 border border-border/20">
       <div className="flex items-center gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground shrink-0 w-4">
-          {index + 1}
+        <span className="text-[9px] font-mono text-muted-foreground shrink-0 w-8">
+          Sc {scene.order}
         </span>
 
-        {/* Asset thumbnails */}
         <div className="flex items-center gap-1 shrink-0">
-          {bgThumb && (
-            <img
-              src={bgThumb}
-              alt="bg"
-              className="size-6 rounded object-cover border border-border/30 opacity-70"
-              title="Background"
-            />
-          )}
-          {objectThumbs.map((obj, i) => (
-            <img
-              key={`${obj.name}-${i}`}
-              src={obj.url || ''}
-              alt={obj.name}
-              className="size-6 rounded-full object-cover border border-border/30"
-              title={obj.name}
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          ))}
+          {thumbSlugs.map((slug) => {
+            const variant = variantBySlug.get(slug);
+            if (!variant?.imageUrl) return null;
+
+            return (
+              <img
+                key={`${scene.id}-${slug}`}
+                src={variant.imageUrl}
+                alt={variant.label}
+                className="size-6 rounded object-cover border border-border/30"
+                title={variant.label}
+              />
+            );
+          })}
         </div>
 
         <div className="flex-1" />
 
-        {shotCount > 1 && (
-          <span className="text-[8px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 shrink-0">
-            {shotCount}-shot
-          </span>
-        )}
+        {scene.audio_url ? (
+          <Badge
+            variant="outline"
+            className="h-4 px-1 text-[8px] border-blue-500/30 text-blue-300"
+          >
+            <IconMicrophone className="size-2.5 mr-0.5" />
+            Audio
+          </Badge>
+        ) : null}
 
-        <div className="shrink-0">
-          {videoStatus === 'success' ? (
-            <IconCheck className="size-3 text-emerald-400" />
-          ) : videoStatus === 'processing' ? (
-            <IconLoader2 className="size-3 text-amber-400 animate-spin" />
-          ) : (
-            <IconClock className="size-3 text-muted-foreground/50" />
-          )}
-        </div>
+        {scene.video_url ? (
+          <Badge
+            variant="outline"
+            className="h-4 px-1 text-[8px] border-cyan-500/30 text-cyan-300"
+          >
+            <IconVideo className="size-2.5 mr-0.5" />
+            Video
+          </Badge>
+        ) : null}
+
+        <Badge
+          variant="outline"
+          className={`h-4 px-1 text-[8px] ${sceneStatusConfig.className}`}
+        >
+          {sceneStatusConfig.label}
+        </Badge>
+
+        {scene.status === 'done' ? (
+          <IconCheck className="size-3 text-emerald-400 shrink-0" />
+        ) : scene.status === 'in_progress' ? (
+          <IconLoader2 className="size-3 text-amber-400 animate-spin shrink-0" />
+        ) : scene.status === 'failed' ? (
+          <IconAlertTriangle className="size-3 text-red-400 shrink-0" />
+        ) : (
+          <IconClock className="size-3 text-muted-foreground/50 shrink-0" />
+        )}
       </div>
 
-      <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed pl-6">
-        {prompt.length > 120 ? `${prompt.slice(0, 120)}...` : prompt}
+      <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed pl-8">
+        {promptPreview.length > 160
+          ? `${promptPreview.slice(0, 160)}…`
+          : promptPreview}
       </p>
+
+      {audioPreview ? (
+        <p className="text-[10px] text-foreground/80 line-clamp-2 leading-relaxed pl-8">
+          {audioPreview.length > 160
+            ? `${audioPreview.slice(0, 160)}…`
+            : audioPreview}
+        </p>
+      ) : null}
+
+      {variantChips.length > 0 ? (
+        <div className="pl-8 flex flex-wrap gap-1">
+          {variantChips.map((chip) => {
+            const variant = variantBySlug.get(chip.slug);
+            const label = variant?.label ?? chip.slug;
+            const type = variant?.type ?? chip.type;
+
+            return (
+              <Badge
+                key={`${scene.id}-${chip.slug}-${chip.type}`}
+                variant="outline"
+                className={`h-4 px-1 text-[8px] ${variantTypeBadgeClass(type)}`}
+              >
+                {label}
+              </Badge>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function EpisodeCard({
   episode,
-  storyboard,
   isExpanded,
   onToggle,
-  variantImages,
+  variantBySlug,
 }: {
-  episode: Episode;
-  storyboard: StoryboardInfo | null;
+  episode: EpisodeCardData;
   isExpanded: boolean;
   onToggle: () => void;
-  variantImages: Map<string, string>;
+  variantBySlug: Map<string, VariantMeta>;
 }) {
-  const statusConfig = STATUS_CONFIG[episode.status] || STATUS_CONFIG.planned;
-  const sceneCount = storyboard?.scenes?.length ?? 0;
-  const doneScenes =
-    storyboard?.scenes?.filter((s) => s.video_status === 'success').length ?? 0;
+  const statusConfig =
+    EPISODE_STATUS_CONFIG[episode.status] ?? EPISODE_STATUS_CONFIG.draft;
+  const sceneCount = episode.scenes.length;
+  const doneScenes = episode.scenes.filter(
+    (scene) => scene.status === 'done'
+  ).length;
 
-  const simpleFlow =
-    sceneCount > 0
-      ? `${sceneCount} sahne • ${doneScenes}/${sceneCount} video hazır`
-      : 'Storyboard henüz oluşturulmadı';
+  const groupedAssetSlugs = [
+    { label: 'Characters', slugs: episode.assetVariantMap.characters },
+    { label: 'Locations', slugs: episode.assetVariantMap.locations },
+    { label: 'Props', slugs: episode.assetVariantMap.props },
+  ].filter((group) => group.slugs.length > 0);
 
   return (
     <div className="border border-border/40 rounded-md overflow-hidden">
@@ -249,407 +333,482 @@ function EpisodeCard({
           <IconChevronRight className="size-3.5 text-muted-foreground shrink-0" />
         )}
 
-        <span className="text-xs font-mono text-muted-foreground shrink-0 w-5">
-          {episode.number}
+        <span className="text-xs font-mono text-muted-foreground shrink-0 w-10">
+          Ep {episode.order}
         </span>
 
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{episode.title}</p>
+          {episode.synopsis ? (
+            <p className="text-[10px] text-muted-foreground line-clamp-1">
+              {episode.synopsis}
+            </p>
+          ) : null}
         </div>
 
         <Badge
           variant="outline"
-          className={`text-[9px] px-1.5 py-0.5 h-4 shrink-0 ${statusConfig.color} border-current/30`}
+          className={`text-[9px] px-1.5 py-0.5 h-4 shrink-0 ${statusConfig.className}`}
         >
           {statusConfig.label}
         </Badge>
 
-        {sceneCount > 0 && (
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {doneScenes}/{sceneCount}
-          </span>
-        )}
+        <span className="text-[10px] text-muted-foreground shrink-0">
+          {doneScenes}/{sceneCount}
+        </span>
       </button>
 
-      {isExpanded && (
+      {isExpanded ? (
         <div className="px-2.5 pb-2.5 space-y-2">
           <div className="pl-6 space-y-1">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-              Bu bölümde ne olacak?
+            <p className="text-[10px] text-muted-foreground">
+              {sceneCount > 0
+                ? `${sceneCount} scene(s) • ${doneScenes}/${sceneCount} done`
+                : 'No scenes yet for this episode'}
             </p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {episode.summary}
-            </p>
-            <p className="text-[10px] text-muted-foreground">{simpleFlow}</p>
           </div>
 
-          {storyboard && storyboard.scriptLines.length > 0 && (
-            <div className="pl-6 pt-1 space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Full Script ({storyboard.scriptLanguage.toUpperCase()})
-              </p>
-              <div className="space-y-2 max-h-[70vh] overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-3">
-                {storyboard.scriptLines.map((line, idx) => (
-                  <p
-                    key={`${episode.number}-script-${idx}`}
-                    className="text-sm text-foreground/90 leading-relaxed"
+          <div className="pl-6 pt-1 space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Audio Content
+            </p>
+            <div className="space-y-2 max-h-[50vh] overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-3">
+              {episode.audioContent ? (
+                <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  {episode.audioContent}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground/70 italic">
+                  No episode-level audio content yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="pl-6 pt-1 space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Visual Outline
+            </p>
+            <div className="space-y-2 max-h-[50vh] overflow-auto pr-1 rounded bg-muted/10 border border-border/20 p-3">
+              {episode.visualOutline ? (
+                <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  {episode.visualOutline}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground/70 italic">
+                  No visual outline yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="pl-6 pt-1 space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Episode Asset Variant Map
+            </p>
+            {groupedAssetSlugs.length > 0 ? (
+              <div className="rounded bg-muted/10 border border-border/20 p-2 space-y-1.5">
+                {groupedAssetSlugs.map((group) => (
+                  <div
+                    key={`${episode.id}-${group.label}`}
+                    className="space-y-1"
                   >
-                    <span className="text-muted-foreground/70 font-mono">
-                      {idx + 1}.
-                    </span>{' '}
-                    {line}
-                  </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {group.label}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {group.slugs.map((slug) => {
+                        const variant = variantBySlug.get(slug);
+                        const type =
+                          group.label === 'Characters'
+                            ? 'character'
+                            : group.label === 'Locations'
+                              ? 'location'
+                              : 'prop';
+                        return (
+                          <Badge
+                            key={`${episode.id}-${group.label}-${slug}`}
+                            variant="outline"
+                            className={`h-5 px-1.5 text-[10px] ${variantTypeBadgeClass(
+                              (variant?.type ?? type) as AssetType
+                            )}`}
+                          >
+                            {variant?.label ?? slug}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-[11px] text-muted-foreground/70 italic">
+                No variant slugs mapped yet.
+              </p>
+            )}
+          </div>
 
-          {storyboard && storyboard.scenes.length > 0 ? (
+          {sceneCount > 0 ? (
             <div className="pl-6 space-y-1">
               <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
-                Scenes ({storyboard.scenes.length})
+                Scenes ({sceneCount})
               </p>
-              {storyboard.scenes.map((scene, i) => (
+              {episode.scenes.map((scene) => (
                 <SceneRow
                   key={scene.id}
                   scene={scene}
-                  index={i}
-                  variantImages={variantImages}
+                  variantBySlug={variantBySlug}
                 />
               ))}
             </div>
           ) : (
             <p className="text-[9px] text-muted-foreground/50 pl-6 italic">
-              No storyboard generated yet
+              Add scenes under this episode to review prompt/audio/video status.
             </p>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 export default function SeriesRoadmapPanel() {
   const projectId = useProjectId();
-  const [bible, setBible] = useState<string>('');
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [storyboards, setStoryboards] = useState<Map<number, StoryboardInfo>>(
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [series, setSeries] = useState<CanonicalSeries | null>(null);
+  const [episodes, setEpisodes] = useState<EpisodeCardData[]>([]);
+  const [variantBySlug, setVariantBySlug] = useState<Map<string, VariantMeta>>(
     new Map()
   );
-  const [variantImages, setVariantImages] = useState<Map<string, string>>(
-    new Map()
-  );
-  const [expandedEp, setExpandedEp] = useState<number | null>(1);
-  const [showBible, setShowBible] = useState(false);
+  const [expandedEp, setExpandedEp] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [seriesName, setSeriesName] = useState('');
-  const [seriesMetadata, setSeriesMetadata] = useState<SeriesMetadata | null>(
-    null
-  );
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!projectId) return;
+  const episodeIdsRef = useRef<Set<string>>(new Set());
+  const assetIdsRef = useRef<Set<string>>(new Set());
+  const refreshTimerRef = useRef<number | null>(null);
 
-    async function load() {
-      setLoading(true);
-      const supabase = createClient('studio');
+  const loadRoadmap = useCallback(async () => {
+    if (!projectId) {
+      setLoading(false);
+      setError(null);
+      setSeriesId(null);
+      setSeries(null);
+      setEpisodes([]);
+      setVariantBySlug(new Map());
+      episodeIdsRef.current = new Set();
+      assetIdsRef.current = new Set();
+      return;
+    }
 
-      // Find series for this project
-      let seriesId: string | null = null;
+    setLoading(true);
+    setError(null);
 
-      // Try project settings
+    const supabase = createClient('studio');
+
+    try {
+      let resolvedSeriesId: string | null = null;
+
       try {
-        const projRes = await fetch(`/api/projects/${projectId}`);
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          seriesId = projData?.project?.settings?.series_id ?? null;
-        }
-      } catch {}
+        const projectRes = await fetch(`/api/projects/${projectId}`);
+        if (projectRes.ok) {
+          const projectData = await projectRes.json();
+          const settings = isRecord(projectData?.project?.settings)
+            ? projectData.project.settings
+            : null;
 
-      // Fallback: series.project_id
-      if (!seriesId) {
-        const { data: series } = await supabase
+          if (
+            typeof settings?.series_id === 'string' &&
+            settings.series_id.trim()
+          ) {
+            resolvedSeriesId = settings.series_id.trim();
+          }
+        }
+      } catch {
+        // no-op, fallback below
+      }
+
+      if (!resolvedSeriesId) {
+        const { data: seriesFromProject } = await supabase
           .from('series')
           .select('id')
           .eq('project_id', projectId)
+          .order('created_at', { ascending: true })
           .limit(1)
           .maybeSingle();
-        seriesId = series?.id ?? null;
+
+        resolvedSeriesId = seriesFromProject?.id ?? null;
       }
 
-      if (!seriesId) {
-        setSeriesMetadata(null);
+      if (!resolvedSeriesId) {
+        setSeriesId(null);
+        setSeries(null);
+        setEpisodes([]);
+        setVariantBySlug(new Map());
+        episodeIdsRef.current = new Set();
+        assetIdsRef.current = new Set();
         setLoading(false);
         return;
       }
 
-      // Load series data
-      const { data: series } = await supabase
+      const { data: seriesRow, error: seriesError } = await supabase
         .from('series')
-        .select('name, bible, metadata')
-        .eq('id', seriesId)
-        .single();
+        .select(
+          'id, name, bible, creative_brief, content_mode, plan_status, language, aspect_ratio, voice_id, tts_speed'
+        )
+        .eq('id', resolvedSeriesId)
+        .maybeSingle();
 
-      // Load episodes from table (source of truth fallback)
-      const { data: episodeRows } = await supabase
-        .from('series_episodes')
-        .select('episode_number, title, synopsis, storyboard_id')
-        .eq('series_id', seriesId)
-        .order('episode_number', { ascending: true });
+      if (seriesError || !seriesRow) {
+        throw new Error(seriesError?.message ?? 'Failed to load series');
+      }
 
-      const episodesFromTable: Episode[] = (episodeRows ?? []).map((row) => ({
-        number: row.episode_number,
-        title: row.title || `Episode ${row.episode_number}`,
-        summary: row.synopsis || 'No summary yet.',
-        status: 'planned',
-      }));
+      const { data: assetRows, error: assetError } = await supabase
+        .from('series_assets')
+        .select(
+          'id, name, type, series_asset_variants(id, slug, name, image_url)'
+        )
+        .eq('series_id', resolvedSeriesId)
+        .order('sort_order', { ascending: true });
 
-      const storyboardIdToEpisode = new Map<string, number>();
-      for (const row of episodeRows ?? []) {
-        if (row.storyboard_id) {
-          storyboardIdToEpisode.set(row.storyboard_id, row.episode_number);
+      if (assetError) {
+        throw new Error(assetError.message);
+      }
+
+      const nextVariantBySlug = new Map<string, VariantMeta>();
+      const nextAssetIds = new Set<string>();
+
+      for (const asset of assetRows ?? []) {
+        nextAssetIds.add(asset.id);
+        const assetType = asset.type as AssetType;
+        const icon =
+          assetType === 'character'
+            ? '👤'
+            : assetType === 'location'
+              ? '📍'
+              : '📦';
+
+        for (const variant of asset.series_asset_variants ?? []) {
+          if (typeof variant.slug !== 'string' || !variant.slug.trim()) {
+            continue;
+          }
+
+          const variantLabel =
+            typeof variant.name === 'string' && variant.name.trim()
+              ? `${icon} ${asset.name} — ${variant.name.trim()}`
+              : `${icon} ${asset.name} — ${variant.slug}`;
+
+          nextVariantBySlug.set(variant.slug, {
+            slug: variant.slug,
+            type: assetType,
+            label: variantLabel,
+            imageUrl: resolveStoredUrl(supabase, variant.image_url),
+          });
         }
       }
 
-      let resolvedEpisodes: Episode[] = episodesFromTable;
+      const { data: episodeRows, error: episodeError } = await supabase
+        .from('episodes')
+        .select(
+          'id, order, title, synopsis, audio_content, visual_outline, status, asset_variant_map'
+        )
+        .eq('series_id', resolvedSeriesId)
+        .order('order', { ascending: true });
 
-      if (series) {
-        setSeriesName(series.name || '');
-        setBible(series.bible || '');
-        setSeriesMetadata(
-          series.metadata &&
-            typeof series.metadata === 'object' &&
-            !Array.isArray(series.metadata)
-            ? (series.metadata as SeriesMetadata)
-            : null
-        );
-      } else {
-        setSeriesMetadata(null);
+      if (episodeError) {
+        throw new Error(episodeError.message);
       }
 
-      // Load only storyboards linked to episodes (not all project storyboards)
-      const linkedSbIds = (episodeRows ?? [])
-        .map((r) => r.storyboard_id)
-        .filter(Boolean) as string[];
+      const episodeIds = (episodeRows ?? []).map((episode) => episode.id);
+      episodeIdsRef.current = new Set(episodeIds);
+      assetIdsRef.current = nextAssetIds;
 
-      const { data: sbs } = linkedSbIds.length
-        ? await supabase
-            .from('storyboards')
-            .select('id, plan_status, mode, voiceover, plan')
-            .in('id', linkedSbIds)
-        : {
-            data: [] as {
-              id: string;
-              plan_status: string | null;
-              mode: string | null;
-              voiceover: string | null;
-              plan: Record<string, unknown> | null;
-            }[],
-          };
+      const scenesByEpisode = new Map<string, EpisodeScene[]>();
 
-      if (sbs) {
-        const sbMap = new Map<number, StoryboardInfo>();
+      if (episodeIds.length > 0) {
+        const { data: sceneRows, error: sceneError } = await supabase
+          .from('scenes')
+          .select(
+            'id, episode_id, order, title, prompt, audio_text, audio_url, video_url, status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
+          )
+          .in('episode_id', episodeIds)
+          .order('order', { ascending: true });
 
-        for (const sb of sbs) {
-          // Try to match storyboard to episode by title or order
-          const plan = sb.plan as Record<string, unknown> | null;
-          const voiceoverList = plan?.voiceover_list;
-          const { language: scriptLanguage, lines: scriptLines } =
-            deriveScriptLines({
-              voiceover: sb.voiceover || '',
-              planVoiceoverList: voiceoverList,
-            });
-
-          // Load scenes with objects and backgrounds
-          const { data: scenes } = await supabase
-            .from('scenes')
-            .select('id, order, prompt, multi_prompt, video_status, video_url')
-            .eq('storyboard_id', sb.id)
-            .order('order', { ascending: true });
-
-          // Load objects and backgrounds for each scene
-          const sceneIds = (scenes ?? []).map((s) => s.id);
-          const { data: objects } = sceneIds.length
-            ? await supabase
-                .from('objects')
-                .select(
-                  'scene_id, scene_order, name, final_url, series_asset_variant_id'
-                )
-                .in('scene_id', sceneIds)
-                .order('scene_order', { ascending: true })
-            : { data: [] };
-
-          const { data: backgrounds } = sceneIds.length
-            ? await supabase
-                .from('backgrounds')
-                .select('scene_id, final_url')
-                .in('scene_id', sceneIds)
-                .limit(sceneIds.length)
-            : { data: [] };
-
-          // Collect all variant IDs for live image resolution
-          const variantIds = (objects ?? [])
-            .map(
-              (o: { series_asset_variant_id?: string }) =>
-                o.series_asset_variant_id
-            )
-            .filter(Boolean) as string[];
-
-          if (variantIds.length > 0) {
-            const { data: variantImgs } = await supabase
-              .from('series_asset_variant_images')
-              .select('variant_id, url')
-              .in('variant_id', variantIds)
-              .order('created_at', { ascending: false });
-
-            if (variantImgs) {
-              const imgMap = new Map<string, string>();
-              for (const img of variantImgs) {
-                if (img.url && !imgMap.has(img.variant_id)) {
-                  imgMap.set(img.variant_id, img.url);
-                }
-              }
-              setVariantImages((prev) => {
-                const next = new Map(prev);
-                for (const [k, v] of imgMap) next.set(k, v);
-                return next;
-              });
-            }
-          }
-
-          // Group objects/backgrounds by scene
-          const objectsByScene = new Map<string, SceneObject[]>();
-          for (const obj of objects ?? []) {
-            const existing = objectsByScene.get(obj.scene_id) || [];
-            existing.push({
-              name: obj.name || 'Unknown',
-              imageUrl: obj.final_url,
-              variantId: obj.series_asset_variant_id || null,
-            });
-            objectsByScene.set(obj.scene_id, existing);
-          }
-
-          const bgByScene = new Map<string, string>();
-          for (const bg of backgrounds ?? []) {
-            if (bg.final_url && !bgByScene.has(bg.scene_id)) {
-              bgByScene.set(bg.scene_id, bg.final_url);
-            }
-          }
-
-          const sbInfo: StoryboardInfo = {
-            id: sb.id,
-            plan_status: sb.plan_status || 'draft',
-            mode: sb.mode || 'ref_to_video',
-            voiceover: sb.voiceover || '',
-            scriptLanguage,
-            scriptLines,
-            scenes: (scenes ?? []).map((s) => ({
-              id: s.id,
-              order: s.order,
-              prompt: s.prompt,
-              multi_prompt: s.multi_prompt,
-              video_status: s.video_status,
-              video_url: s.video_url,
-              objects: objectsByScene.get(s.id) || [],
-              background: bgByScene.has(s.id)
-                ? { imageUrl: bgByScene.get(s.id)! }
-                : null,
-            })),
-          };
-
-          const epNumber = storyboardIdToEpisode.get(sb.id);
-          if (epNumber) {
-            sbMap.set(epNumber, sbInfo);
-          }
+        if (sceneError) {
+          throw new Error(sceneError.message);
         }
 
-        setStoryboards(sbMap);
+        for (const scene of sceneRows ?? []) {
+          const episodeId = scene.episode_id;
+          if (!episodeId) continue;
 
-        // Update episode statuses from storyboard/scenes availability
-        resolvedEpisodes = resolvedEpisodes.map((ep) => {
-          const sb = sbMap.get(ep.number);
-          if (!sb) return { ...ep, status: 'planned' };
-
-          const total = sb.scenes.length;
-          const done = sb.scenes.filter(
-            (scene) => scene.video_status === 'success'
-          ).length;
-
-          if (total > 0 && done === total) {
-            return { ...ep, status: 'done' };
-          }
-
-          return { ...ep, status: 'in_progress' };
-        });
+          const list = scenesByEpisode.get(episodeId) ?? [];
+          list.push({
+            id: scene.id,
+            order: Number(scene.order ?? 0),
+            title: scene.title ?? null,
+            prompt: scene.prompt ?? null,
+            audio_text: scene.audio_text ?? null,
+            audio_url: scene.audio_url ?? null,
+            video_url: scene.video_url ?? null,
+            status:
+              scene.status && SCENE_STATUS_CONFIG[scene.status as SceneStatus]
+                ? (scene.status as SceneStatus)
+                : 'draft',
+            location_variant_slug: scene.location_variant_slug ?? null,
+            character_variant_slugs: normalizeSlugArray(
+              scene.character_variant_slugs
+            ),
+            prop_variant_slugs: normalizeSlugArray(scene.prop_variant_slugs),
+          });
+          scenesByEpisode.set(episodeId, list);
+        }
       }
 
-      setEpisodes(resolvedEpisodes);
+      const nextEpisodes: EpisodeCardData[] = (episodeRows ?? []).map(
+        (episode) => ({
+          id: episode.id,
+          order: Number(episode.order ?? 0),
+          title: episode.title ?? `Episode ${episode.order}`,
+          synopsis: episode.synopsis ?? null,
+          audioContent: episode.audio_content ?? null,
+          visualOutline: episode.visual_outline ?? null,
+          status:
+            episode.status &&
+            EPISODE_STATUS_CONFIG[episode.status as EpisodeStatus]
+              ? (episode.status as EpisodeStatus)
+              : 'draft',
+          assetVariantMap: normalizeEpisodeAssetVariantMap(
+            episode.asset_variant_map
+          ),
+          scenes: (scenesByEpisode.get(episode.id) ?? []).sort(
+            (a, b) => a.order - b.order
+          ),
+        })
+      );
+
+      setSeriesId(resolvedSeriesId);
+      setSeries({
+        id: seriesRow.id,
+        name: seriesRow.name ?? 'Untitled series',
+        bible: seriesRow.bible ?? null,
+        creative_brief: isRecord(seriesRow.creative_brief)
+          ? seriesRow.creative_brief
+          : null,
+        content_mode: seriesRow.content_mode ?? null,
+        plan_status: seriesRow.plan_status ?? null,
+        language: seriesRow.language ?? null,
+        aspect_ratio: seriesRow.aspect_ratio ?? null,
+        voice_id: seriesRow.voice_id ?? null,
+        tts_speed:
+          typeof seriesRow.tts_speed === 'number' ? seriesRow.tts_speed : null,
+      });
+      setVariantBySlug(nextVariantBySlug);
+      setEpisodes(nextEpisodes);
+      setExpandedEp((prev) => prev ?? nextEpisodes[0]?.order ?? null);
+      setLoading(false);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Failed to load canonical roadmap'
+      );
       setLoading(false);
     }
-
-    load();
   }, [projectId]);
 
-  // --- Realtime subscription for storyboard plan/status updates ---
-  const storyboardEpMapRef = useRef<Map<string, number>>(new Map());
-
-  // Keep the mapping up to date whenever storyboards state changes
-  useEffect(() => {
-    const map = new Map<string, number>();
-    for (const [epNum, sb] of storyboards) {
-      map.set(sb.id, epNum);
+  const scheduleReload = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
     }
-    storyboardEpMapRef.current = map;
-  }, [storyboards]);
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      void loadRoadmap();
+    }, 250);
+  }, [loadRoadmap]);
 
   useEffect(() => {
-    if (!projectId) return;
+    void loadRoadmap();
+  }, [loadRoadmap]);
+
+  useEffect(() => {
+    if (!seriesId) return;
 
     const supabase = createClient('studio');
     const channel = supabase
-      .channel(`roadmap_sb_${projectId}`)
+      .channel(`series-roadmap-live-${seriesId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'studio',
-          table: 'storyboards',
-          filter: `project_id=eq.${projectId}`,
+          table: 'series',
+          filter: `id=eq.${seriesId}`,
+        },
+        () => {
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_assets',
+          filter: `series_id=eq.${seriesId}`,
+        },
+        () => {
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_asset_variants',
         },
         (payload) => {
-          const updated = payload.new as {
-            id: string;
-            plan_status?: string;
-            plan?: Record<string, unknown> | null;
-            voiceover?: string;
-            mode?: string;
-          };
+          const assetId =
+            (payload.new as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            (payload.old as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            null;
 
-          const epNumber = storyboardEpMapRef.current.get(updated.id);
-          if (epNumber == null) return;
+          if (!assetId || !assetIdsRef.current.has(assetId)) return;
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'episodes',
+          filter: `series_id=eq.${seriesId}`,
+        },
+        () => {
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'scenes',
+        },
+        (payload) => {
+          const episodeId =
+            (payload.new as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            (payload.old as { episode_id?: string } | null | undefined)
+              ?.episode_id ??
+            null;
 
-          const voiceoverList = updated.plan?.voiceover_list;
-          const { language: scriptLanguage, lines: scriptLines } =
-            deriveScriptLines({
-              voiceover: updated.voiceover || '',
-              planVoiceoverList: voiceoverList,
-            });
-
-          setStoryboards((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(epNumber);
-            if (existing) {
-              next.set(epNumber, {
-                ...existing,
-                plan_status: updated.plan_status || existing.plan_status,
-                mode: updated.mode || existing.mode,
-                voiceover: updated.voiceover || existing.voiceover,
-                scriptLanguage,
-                scriptLines,
-              });
-            }
-            return next;
-          });
+          if (!episodeId || !episodeIdsRef.current.has(episodeId)) return;
+          scheduleReload();
         }
       )
       .subscribe();
@@ -657,95 +816,68 @@ export default function SeriesRoadmapPanel() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [projectId]);
+  }, [scheduleReload, seriesId]);
 
-  const totalScenes = useMemo(() => {
-    let total = 0;
-    for (const [, sb] of storyboards) {
-      total += sb.scenes.length;
-    }
-    return total;
-  }, [storyboards]);
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
-  const doneEpisodes = episodes.filter((e) => e.status === 'done').length;
-
-  const generalFlowText = useMemo(() => {
-    if (episodes.length === 0) return '';
-    if (episodes.length === 1) return trimSentence(episodes[0].summary, 240);
-
-    const first = trimSentence(episodes[0].summary, 140);
-    const mid = trimSentence(
-      episodes[Math.floor((episodes.length - 1) / 2)].summary,
-      140
-    );
-    const last = trimSentence(episodes[episodes.length - 1].summary, 140);
-
-    return [first, mid, last].filter(Boolean).join(' → ');
-  }, [episodes]);
-
-  const episodeRoadmapLines = useMemo(
-    () =>
-      episodes.map(
-        (episode) =>
-          `Bölüm ${episode.number}: ${episode.title} — ${trimSentence(episode.summary, 120)}`
-      ),
+  const totalScenes = useMemo(
+    () => episodes.reduce((sum, episode) => sum + episode.scenes.length, 0),
     [episodes]
   );
 
-  const metadataBadges = useMemo(() => {
-    if (!seriesMetadata) return [];
+  const doneEpisodes = useMemo(
+    () => episodes.filter((episode) => episode.status === 'done').length,
+    [episodes]
+  );
+
+  const reviewBadges = useMemo(() => {
+    if (!series) return [];
 
     const badges: string[] = [];
-    if (seriesMetadata.scene_mode) badges.push(seriesMetadata.scene_mode);
-    if (seriesMetadata.aspect_ratio) badges.push(seriesMetadata.aspect_ratio);
-    if (seriesMetadata.language) badges.push(seriesMetadata.language);
-    if (typeof seriesMetadata.episode_count === 'number') {
-      badges.push(`${seriesMetadata.episode_count} episodes`);
-    }
+    if (series.content_mode) badges.push(series.content_mode);
+    if (series.plan_status) badges.push(series.plan_status);
+    if (series.aspect_ratio) badges.push(series.aspect_ratio);
+    if (series.language) badges.push(series.language);
+    if (series.voice_id) badges.push(`voice:${series.voice_id}`);
+    if (typeof series.tts_speed === 'number')
+      badges.push(`speed:${series.tts_speed}`);
 
     return badges;
-  }, [seriesMetadata]);
-
-  const metadataStyleText = useMemo(() => {
-    if (!seriesMetadata?.style) return '';
-
-    const parts: string[] = [];
-    if (seriesMetadata.style.visual_style) {
-      parts.push(seriesMetadata.style.visual_style);
-    }
-    if (seriesMetadata.style.setting) {
-      parts.push(seriesMetadata.style.setting);
-    }
-
-    return parts.join(' • ');
-  }, [seriesMetadata]);
-
-  const metadataCustomNotes = seriesMetadata?.style?.custom_notes?.trim() ?? '';
-
-  const metadataTtsText = useMemo(() => {
-    if (!seriesMetadata?.tts_settings) return '';
-
-    const model = seriesMetadata.tts_settings.model?.trim();
-    const speed = seriesMetadata.tts_settings.speed;
-    const speedText =
-      typeof speed === 'number' && Number.isFinite(speed) ? `${speed}x` : null;
-
-    if (!model && !speedText) return '';
-    if (model && speedText) return `${model} • ${speedText}`;
-    return model || speedText || '';
-  }, [seriesMetadata]);
-
-  const hasMetadataSection =
-    metadataBadges.length > 0 ||
-    Boolean(metadataStyleText) ||
-    Boolean(metadataCustomNotes) ||
-    Boolean(metadataTtsText);
+  }, [series]);
 
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
         <p className="text-xs text-muted-foreground animate-pulse">
-          Loading roadmap...
+          Loading canonical roadmap...
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center px-4 text-center">
+        <p className="text-xs text-destructive">{error}</p>
+      </div>
+    );
+  }
+
+  if (!seriesId || !series) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center px-4 text-center">
+        <IconMovie className="size-8 text-muted-foreground/30 mb-2" />
+        <p className="text-xs text-muted-foreground">
+          This project is not linked to a series yet.
+        </p>
+        <p className="text-[10px] text-muted-foreground/70 mt-1">
+          Link a canonical series to review episodes and scenes.
         </p>
       </div>
     );
@@ -755,11 +887,9 @@ export default function SeriesRoadmapPanel() {
     return (
       <div className="h-full flex flex-col items-center justify-center px-4 text-center">
         <IconMovie className="size-8 text-muted-foreground/30 mb-2" />
-        <p className="text-xs text-muted-foreground">
-          No episodes planned yet.
-        </p>
+        <p className="text-xs text-muted-foreground">No episodes yet.</p>
         <p className="text-[10px] text-muted-foreground/70 mt-1">
-          Create episode outlines to see the full roadmap.
+          Create episodes to unlock scene-level roadmap review.
         </p>
       </div>
     );
@@ -768,16 +898,14 @@ export default function SeriesRoadmapPanel() {
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-3">
-        {/* Series header */}
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">{seriesName}</p>
+            <p className="text-sm font-medium">{series.name}</p>
             <span className="text-[9px] text-muted-foreground">
               {doneEpisodes}/{episodes.length} episodes
             </span>
           </div>
 
-          {/* Progress bar */}
           <div className="h-1 bg-muted/30 rounded-full overflow-hidden">
             <div
               className="h-full bg-emerald-500/60 rounded-full transition-all"
@@ -788,87 +916,43 @@ export default function SeriesRoadmapPanel() {
           </div>
         </div>
 
-        {hasMetadataSection && (
-          <div className="rounded border border-border/30 bg-muted/15 p-2 space-y-1">
-            <p className="text-[10px] font-medium">Series Metadata</p>
-
-            {metadataBadges.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1">
-                {metadataBadges.map((badge, index) => (
-                  <Badge
-                    key={`${badge}-${index}`}
-                    variant="outline"
-                    className="h-4 px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground bg-muted/20 border-border/40"
-                  >
-                    {badge}
-                  </Badge>
-                ))}
-              </div>
-            )}
-
-            {metadataStyleText && (
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                {metadataStyleText}
-              </p>
-            )}
-
-            {metadataCustomNotes && (
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                <span className="mr-1">⚠️</span>
-                {metadataCustomNotes}
-              </p>
-            )}
-
-            {metadataTtsText && (
-              <p className="text-[10px] text-muted-foreground">
-                TTS: {metadataTtsText}
-              </p>
-            )}
+        {reviewBadges.length > 0 ? (
+          <div className="rounded border border-border/30 bg-muted/15 p-2 flex flex-wrap gap-1">
+            {reviewBadges.map((badge) => (
+              <Badge
+                key={badge}
+                variant="outline"
+                className="h-4 px-1.5 py-0.5 text-[9px] font-normal text-muted-foreground bg-muted/20 border-border/40"
+              >
+                {badge}
+              </Badge>
+            ))}
           </div>
-        )}
+        ) : null}
 
-        {/* Genel akış */}
-        <div className="rounded border border-border/30 bg-muted/15 p-2 space-y-1.5">
-          <p className="text-[10px] font-medium">Genel Akış</p>
-          <p className="text-[10px] text-muted-foreground leading-relaxed">
-            {generalFlowText || 'Genel akış henüz hazırlanmadı.'}
-          </p>
-        </div>
-
-        {/* Bölüm haritası */}
-        <Collapsible open={showBible} onOpenChange={setShowBible}>
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
-            >
-              <IconBook className="size-3 text-muted-foreground shrink-0" />
-              <span className="text-[10px] font-medium flex-1">
-                Bölüm Bölüm Ne Olacak?
-              </span>
-              {showBible ? (
-                <IconChevronUp className="size-3 text-muted-foreground" />
-              ) : (
+        {series.creative_brief ? (
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
+              >
+                <IconBook className="size-3 text-muted-foreground shrink-0" />
+                <span className="text-[10px] font-medium flex-1">
+                  Creative Brief
+                </span>
                 <IconChevronDown className="size-3 text-muted-foreground" />
-              )}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="px-2 pt-1.5 pb-1 space-y-1">
-              {episodeRoadmapLines.map((line, idx) => (
-                <p
-                  key={`roadmap-line-${idx}`}
-                  className="text-[10px] text-muted-foreground leading-relaxed"
-                >
-                  • {line}
-                </p>
-              ))}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <pre className="text-[10px] text-muted-foreground leading-relaxed px-2 pt-1.5 pb-1 whitespace-pre-wrap break-words">
+                {JSON.stringify(series.creative_brief, null, 2)}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
 
-        {/* Bible (collapsible) */}
-        {bible && (
+        {series.bible ? (
           <Collapsible>
             <CollapsibleTrigger asChild>
               <button
@@ -883,14 +967,13 @@ export default function SeriesRoadmapPanel() {
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <p className="text-[10px] text-muted-foreground leading-relaxed px-2 pt-1.5 pb-1">
-                {bible}
+              <p className="text-[10px] text-muted-foreground leading-relaxed px-2 pt-1.5 pb-1 whitespace-pre-wrap">
+                {series.bible}
               </p>
             </CollapsibleContent>
           </Collapsible>
-        )}
+        ) : null}
 
-        {/* Episode list */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 px-1">
             <IconPlayerPlay className="size-3 text-muted-foreground" />
@@ -898,20 +981,26 @@ export default function SeriesRoadmapPanel() {
               Episodes ({episodes.length})
             </span>
             <span className="text-[9px] text-muted-foreground">
-              · {totalScenes} scenes total
+              · {totalScenes} scene(s)
             </span>
+            <div className="ml-auto flex items-center gap-1 text-[9px] text-muted-foreground">
+              <IconUsers className="size-3" />
+              <IconMapPin className="size-3" />
+              <IconPackage className="size-3" />
+            </div>
           </div>
 
-          {episodes.map((ep) => (
+          {episodes.map((episode) => (
             <EpisodeCard
-              key={ep.number}
-              episode={ep}
-              storyboard={storyboards.get(ep.number) ?? null}
-              isExpanded={expandedEp === ep.number}
+              key={episode.id}
+              episode={episode}
+              isExpanded={expandedEp === episode.order}
               onToggle={() =>
-                setExpandedEp(expandedEp === ep.number ? null : ep.number)
+                setExpandedEp(
+                  expandedEp === episode.order ? null : episode.order
+                )
               }
-              variantImages={variantImages}
+              variantBySlug={variantBySlug}
             />
           ))}
         </div>

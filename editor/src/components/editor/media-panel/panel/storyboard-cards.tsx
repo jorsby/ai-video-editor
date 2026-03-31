@@ -209,11 +209,40 @@ function hasExecutableScenePrompt(scene: Scene): boolean {
   return typeof scene.prompt === 'string' && scene.prompt.trim().length > 0;
 }
 
+function getCanonicalSceneAudioUrl(scene: Scene): string | null {
+  return typeof scene.audio_url === 'string' &&
+    scene.audio_url.trim().length > 0
+    ? scene.audio_url
+    : null;
+}
+
+function getCanonicalSceneStatus(scene: Scene): string | null {
+  return typeof scene.status === 'string' ? scene.status : null;
+}
+
 function hasNarrativeReadyAudio(scene: Scene): boolean {
-  return (scene.voiceovers ?? []).some(
+  const hasLegacyVoiceover = (scene.voiceovers ?? []).some(
     (voiceover) =>
       voiceover.status === 'success' && Boolean(voiceover.audio_url)
   );
+
+  return hasLegacyVoiceover || Boolean(getCanonicalSceneAudioUrl(scene));
+}
+
+function isSceneVideoProcessing(scene: Scene): boolean {
+  return (
+    scene.video_status === 'processing' ||
+    getCanonicalSceneStatus(scene) === 'in_progress'
+  );
+}
+
+function isSceneVideoReady(scene: Scene): boolean {
+  if (!scene.video_url) return false;
+
+  if (scene.video_status === 'success') return true;
+
+  const canonicalStatus = getCanonicalSceneStatus(scene);
+  return canonicalStatus === 'ready' || canonicalStatus === 'done';
 }
 
 function formatSceneNumbers(orders: number[]): string {
@@ -508,7 +537,7 @@ export function StoryboardCards({
 
     return storyboard.scenes.some(
       (scene) =>
-        scene.video_status === 'processing' ||
+        isSceneVideoProcessing(scene) ||
         scene.sfx_status === 'processing' ||
         scene.voiceovers?.some(
           (voiceover) => voiceover.status === 'processing'
@@ -807,6 +836,79 @@ export function StoryboardCards({
       : [];
 
   const sortedScenes = scenes.sort((a, b) => a.order - b.order);
+  const episodeId =
+    sortedScenes.find(
+      (scene) =>
+        typeof scene.episode_id === 'string' && scene.episode_id.length > 0
+    )?.episode_id ??
+    storyboard?.id ??
+    null;
+
+  const invokeEpisodeTts = useCallback(
+    async (input: {
+      scene_ids?: string[];
+      voice?: string;
+      model?: string;
+      language?: string;
+      speed?: number;
+    }) => {
+      if (!episodeId) {
+        return {
+          data: null,
+          error: new Error('No episode selected for TTS generation'),
+        };
+      }
+
+      const ttsModel =
+        input.model === 'turbo-v2.5' || input.model === 'multilingual-v2'
+          ? input.model
+          : undefined;
+
+      return invokeWorkflow(`/api/v2/storyboard/${episodeId}/generate-tts`, {
+        ...(Array.isArray(input.scene_ids) && input.scene_ids.length > 0
+          ? { scene_ids: input.scene_ids }
+          : {}),
+        ...(typeof input.voice === 'string' && input.voice.trim().length > 0
+          ? { voice_id: input.voice }
+          : {}),
+        ...(typeof input.language === 'string' &&
+        input.language.trim().length > 0
+          ? { language: input.language }
+          : {}),
+        ...(typeof input.speed === 'number' ? { speed: input.speed } : {}),
+        ...(ttsModel ? { tts_model: ttsModel } : {}),
+      });
+    },
+    [episodeId]
+  );
+
+  const invokeEpisodeVideo = useCallback(
+    async (input: {
+      scene_ids: string[];
+      audio?: boolean;
+      confirm?: boolean;
+      aspect_ratio?: string;
+    }) => {
+      if (!episodeId) {
+        return {
+          data: null,
+          error: new Error('No episode selected for video generation'),
+        };
+      }
+
+      return invokeWorkflow(`/api/v2/storyboard/${episodeId}/generate-video`, {
+        scene_ids: input.scene_ids,
+        audio: input.audio ?? false,
+        confirm: input.confirm ?? true,
+        ...(typeof input.aspect_ratio === 'string' &&
+        input.aspect_ratio.trim().length > 0
+          ? { aspect_ratio: input.aspect_ratio }
+          : {}),
+      });
+    },
+    [episodeId]
+  );
+
   const storyboardVoiceoverLanguages = useMemo(() => {
     return Array.from(
       new Set(
@@ -879,9 +981,7 @@ export function StoryboardCards({
   const isCinematicMode = isDialogueMode;
 
   const processingVideoCount = useMemo(
-    () =>
-      sortedScenes.filter((scene) => scene.video_status === 'processing')
-        .length,
+    () => sortedScenes.filter((scene) => isSceneVideoProcessing(scene)).length,
     [sortedScenes]
   );
 
@@ -996,7 +1096,7 @@ export function StoryboardCards({
 
     setIsGenerating(true);
     try {
-      const { data, error } = await invokeWorkflow('/api/workflow/tts', {
+      const { data, error } = await invokeEpisodeTts({
         scene_ids: Array.from(selectedSceneIds),
         voice:
           (
@@ -1041,7 +1141,7 @@ export function StoryboardCards({
 
       const results = await Promise.allSettled(
         languages.map((lang) =>
-          invokeWorkflow('/api/workflow/tts', {
+          invokeEpisodeTts({
             scene_ids: sceneIds,
             voice: voiceConfig[lang].voice,
             model: ttsModel,
@@ -1080,7 +1180,7 @@ export function StoryboardCards({
   };
 
   const handleGenerateEpisodeTts = async () => {
-    if (!storyboard?.id) return;
+    if (!episodeId) return;
 
     setIsGeneratingEpisodeTts(true);
     try {
@@ -1097,7 +1197,7 @@ export function StoryboardCards({
         )?.voice ?? FALLBACK_VOICE;
 
       const { data, error } = await invokeWorkflow(
-        `/api/v2/storyboard/${storyboard.id}/generate-tts`,
+        `/api/v2/storyboard/${episodeId}/generate-tts`,
         {
           voice_id: resolvedVoice,
           language: resolvedLanguage,
@@ -1685,18 +1785,14 @@ export function StoryboardCards({
 
     setIsGeneratingVideo(true);
     try {
-      const { data, error } = await invokeWorkflow('/api/workflow/video', {
+      const { data, error } = await invokeEpisodeVideo({
         scene_ids: Array.from(selectedSceneIds),
-        resolution: videoResolution,
-        model: videoModel,
-        generation_path: 'i2v',
+        audio: isCinematicMode,
+        confirm: true,
         aspect_ratio:
           storyboard && 'aspect_ratio' in storyboard
             ? storyboard.aspect_ratio
             : '16:9',
-        ...(storyboard?.mode === 'ref_to_video' && {
-          storyboard_id: storyboard.id,
-        }),
       });
 
       if (error) throw error;
@@ -1744,8 +1840,6 @@ export function StoryboardCards({
     const isRefNarrativeDirect =
       isRefStoryboard && !isRefI2VMode && !isCinematicMode;
 
-    let fallbackDuration: number | undefined;
-
     const shouldSkipMissingVoiceoverCheck =
       // Kling dialogue mode generates native audio — no voiceover expected
       isKlingModel && refVideoMode === 'dialogue_scene';
@@ -1765,14 +1859,10 @@ export function StoryboardCards({
         return;
       }
     } else if (!shouldSkipMissingVoiceoverCheck) {
-      // Check for scenes without voiceover audio
-      const scenesWithoutVoiceover = selectedScenes.filter((s) => {
-        const maxDuration = Math.max(
-          ...(s.voiceovers || []).map((v) => v.duration ?? 0),
-          0
-        );
-        return maxDuration === 0;
-      });
+      // Check for scenes without canonical/legacy audio.
+      const scenesWithoutVoiceover = selectedScenes.filter(
+        (scene) => !hasNarrativeReadyAudio(scene)
+      );
 
       if (scenesWithoutVoiceover.length > 0) {
         const sceneLabels = scenesWithoutVoiceover
@@ -1780,11 +1870,10 @@ export function StoryboardCards({
           .join(', ');
         const confirmed = await confirm({
           title: 'Missing Voiceover Audio',
-          description: `${sceneLabels} ${scenesWithoutVoiceover.length === 1 ? 'has' : 'have'} no voiceover audio. Video duration will default to 3 seconds for ${scenesWithoutVoiceover.length === 1 ? 'this scene' : 'these scenes'}. Continue?`,
+          description: `${sceneLabels} ${scenesWithoutVoiceover.length === 1 ? 'has' : 'have'} no generated audio. Continue anyway?`,
           confirmLabel: 'Continue',
         });
         if (!confirmed) return;
-        fallbackDuration = 3;
       }
     }
 
@@ -1854,41 +1943,29 @@ export function StoryboardCards({
 
     setIsGeneratingVideo(true);
     try {
-      const { data, error } = isRefStoryboard
-        ? await invokeWorkflow(
-            `/api/v2/storyboard/${storyboard?.id}/generate-video`,
-            {
-              scene_ids: Array.from(selectedSceneIds),
-              audio: isCinematicMode,
-              model: refVideoModel,
-              confirm: true,
-            }
-          )
-        : await invokeWorkflow('/api/workflow/video', {
-            scene_ids: Array.from(selectedSceneIds),
-            resolution: videoResolution,
-            model: videoModel,
-            aspect_ratio:
-              storyboard && 'aspect_ratio' in storyboard
-                ? storyboard.aspect_ratio
-                : '16:9',
-            ...(fallbackDuration && { fallback_duration: fallbackDuration }),
-            ...(storyboard?.mode === 'ref_to_video' && {
-              storyboard_id: storyboard.id,
-            }),
-          });
+      const { data, error } = await invokeEpisodeVideo({
+        scene_ids: Array.from(selectedSceneIds),
+        audio: isRefStoryboard ? isCinematicMode : false,
+        confirm: true,
+        aspect_ratio:
+          storyboard && 'aspect_ratio' in storyboard
+            ? storyboard.aspect_ratio
+            : '16:9',
+      });
 
       if (error) throw error;
 
-      const queued = isRefStoryboard
-        ? ((data as any).jobs ?? []).filter((j: any) => j.status === 'queued')
-            .length
-        : (data as any).summary?.queued;
-
-      const skipped = isRefStoryboard
-        ? ((data as any).jobs ?? []).filter((j: any) => j.status === 'skipped')
-            .length
-        : 0;
+      const jobs = Array.isArray((data as any)?.jobs)
+        ? ((data as any).jobs as Array<{ status?: string }>)
+        : [];
+      const queued =
+        jobs.length > 0
+          ? jobs.filter((job) => job.status === 'queued').length
+          : Number((data as any)?.summary?.queued ?? 0);
+      const skipped =
+        jobs.length > 0
+          ? jobs.filter((job) => job.status === 'skipped').length
+          : 0;
 
       toast.success(
         skipped > 0
@@ -2055,21 +2132,26 @@ export function StoryboardCards({
 
   // Check if any selected scenes have videos ready (for SFX and timeline)
   const selectedScenesWithVideoForSfx = sortedScenes.filter(
-    (s) =>
-      selectedSceneIds.has(s.id) && s.video_status === 'success' && s.video_url
+    (scene) => selectedSceneIds.has(scene.id) && isSceneVideoReady(scene)
   );
 
   // Check if any selected scenes have videos ready
   const selectedScenesWithVideo = sortedScenes.filter(
-    (s) =>
-      selectedSceneIds.has(s.id) && s.video_status === 'success' && s.video_url
+    (scene) => selectedSceneIds.has(scene.id) && isSceneVideoReady(scene)
   );
 
   // Check if any selected scenes have voiceovers ready
-  const selectedScenesWithVoiceover = sortedScenes.filter((s) => {
-    if (!selectedSceneIds.has(s.id)) return false;
-    const vo = s.voiceovers?.find((v) => v.language === selectedLanguage);
-    return vo?.status === 'success' && vo?.audio_url;
+  const selectedScenesWithVoiceover = sortedScenes.filter((scene) => {
+    if (!selectedSceneIds.has(scene.id)) return false;
+
+    if (getCanonicalSceneAudioUrl(scene)) {
+      return true;
+    }
+
+    const voiceover = scene.voiceovers?.find(
+      (item) => item.language === selectedLanguage
+    );
+    return Boolean(voiceover?.status === 'success' && voiceover?.audio_url);
   });
 
   const selectedScenesMissingRefs = sortedScenes.filter((scene) => {
@@ -2129,18 +2211,33 @@ export function StoryboardCards({
     const voiceover = scene?.voiceovers?.find(
       (v) => v.language === selectedLanguage
     );
-    if (!voiceover) return;
-    const supabase = createClient('studio');
-    const { error } = await supabase
-      .from('voiceovers')
-      .update({ text: newText })
-      .eq('id', voiceover.id);
 
-    if (error) {
-      console.error('Failed to save voiceover text:', error);
-      toast.error('Failed to save voiceover text');
-      throw error;
+    const supabase = createClient('studio');
+
+    const { error: sceneUpdateError } = await supabase
+      .from('scenes')
+      .update({ audio_text: newText })
+      .eq('id', sceneId);
+
+    if (sceneUpdateError) {
+      console.error('Failed to save scene audio_text:', sceneUpdateError);
+      toast.error('Failed to save scene audio text');
+      throw sceneUpdateError;
     }
+
+    if (voiceover) {
+      const { error: voiceoverError } = await supabase
+        .from('voiceovers')
+        .update({ text: newText })
+        .eq('id', voiceover.id);
+
+      if (voiceoverError) {
+        console.error('Failed to save voiceover text:', voiceoverError);
+        toast.error('Failed to save voiceover text');
+        throw voiceoverError;
+      }
+    }
+
     refresh();
   };
 
@@ -2264,24 +2361,39 @@ export function StoryboardCards({
     const voiceover = scene?.voiceovers?.find(
       (v) => v.language === selectedLanguage
     );
-    if (!voiceover) return;
 
-    const { error: voiceoverError } = await supabase
-      .from('voiceovers')
+    const { error: sceneError } = await supabase
+      .from('scenes')
       .update({
-        text: newVoiceoverText,
-        status: 'pending',
+        audio_text: newVoiceoverText,
         audio_url: null,
-        duration: null,
+        status: 'in_progress',
       })
-      .eq('id', voiceover.id);
+      .eq('id', sceneId);
 
-    if (voiceoverError) {
-      toast.error('Failed to update voiceover text');
-      throw voiceoverError;
+    if (sceneError) {
+      toast.error('Failed to update scene audio text');
+      throw sceneError;
     }
 
-    const { error: ttsError } = await invokeWorkflow('/api/workflow/tts', {
+    if (voiceover) {
+      const { error: voiceoverError } = await supabase
+        .from('voiceovers')
+        .update({
+          text: newVoiceoverText,
+          status: 'pending',
+          audio_url: null,
+          duration: null,
+        })
+        .eq('id', voiceover.id);
+
+      if (voiceoverError) {
+        toast.error('Failed to update voiceover text');
+        throw voiceoverError;
+      }
+    }
+
+    const { error: ttsError } = await invokeEpisodeTts({
       scene_ids: [sceneId],
       voice:
         (
@@ -2409,7 +2521,7 @@ export function StoryboardCards({
     // Fire TTS for all languages in parallel
     const results = await Promise.allSettled(
       allLanguages.map((lang) =>
-        invokeWorkflow('/api/workflow/tts', {
+        invokeEpisodeTts({
           scene_ids: [sceneId],
           voice: voiceConfig[lang]?.voice ?? FALLBACK_VOICE,
           model: ttsModel,
@@ -2498,36 +2610,15 @@ export function StoryboardCards({
       throw resetError;
     }
 
-    const { error: videoError } = useFirstFrameI2V
-      ? await invokeWorkflow('/api/workflow/video', {
-          scene_ids: [sceneId],
-          resolution: videoResolution,
-          model: videoModel,
-          generation_path: 'i2v',
-          aspect_ratio:
-            storyboard && 'aspect_ratio' in storyboard
-              ? storyboard.aspect_ratio
-              : '16:9',
-          ...(isRef && { storyboard_id: storyboard?.id }),
-        })
-      : isRef
-        ? await invokeWorkflow(
-            `/api/v2/storyboard/${storyboard?.id}/generate-video`,
-            {
-              scene_ids: [sceneId],
-              audio: isCinematicMode,
-              confirm: true,
-            }
-          )
-        : await invokeWorkflow('/api/workflow/video', {
-            scene_ids: [sceneId],
-            resolution: videoResolution,
-            model: videoModel,
-            aspect_ratio:
-              storyboard && 'aspect_ratio' in storyboard
-                ? storyboard.aspect_ratio
-                : '16:9',
-          });
+    const { error: videoError } = await invokeEpisodeVideo({
+      scene_ids: [sceneId],
+      audio: isRef ? isCinematicMode : false,
+      confirm: true,
+      aspect_ratio:
+        storyboard && 'aspect_ratio' in storyboard
+          ? storyboard.aspect_ratio
+          : '16:9',
+    });
 
     if (videoError) {
       console.error('Video generation failed:', videoError);

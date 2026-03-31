@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 const SERIES_ASSETS_BUCKET = 'series-assets';
@@ -6,18 +6,14 @@ const SERIES_ASSETS_BUCKET = 'series-assets';
 type AssetType = 'character' | 'location' | 'prop';
 type GridPromptKey = 'characters' | 'locations' | 'props';
 
-interface VariantImageRow {
-  url: string | null;
-  storage_path: string | null;
-  metadata?: Record<string, unknown> | null;
-}
-
 interface VariantRow {
   id: string;
-  label: string;
+  name: string | null;
+  slug: string;
+  image_url: string | null;
   is_default: boolean;
-  is_finalized: boolean;
-  series_asset_variant_images: VariantImageRow[] | null;
+  // Legacy compatibility flag; canonical schema does not require lock state.
+  is_finalized?: boolean | null;
 }
 
 interface AssetRow {
@@ -144,43 +140,21 @@ function resolveGridPrompts(metadata: unknown): SeriesGridPrompts {
   };
 }
 
-function resolveImageUrl(
+function resolveStoredUrl(
   supabase: ReturnType<typeof createClient>,
-  image: VariantImageRow
+  rawUrl: string | null | undefined
 ): string | null {
-  const rawUrl = image.url ?? null;
+  if (!rawUrl) return null;
 
-  if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
+  if (/^https?:\/\//i.test(rawUrl)) {
     return rawUrl;
   }
 
-  const storagePath = image.storage_path ?? rawUrl;
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(SERIES_ASSETS_BUCKET).getPublicUrl(rawUrl);
 
-  if (storagePath) {
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(SERIES_ASSETS_BUCKET).getPublicUrl(storagePath);
-
-    if (publicUrl) {
-      return publicUrl;
-    }
-  }
-
-  return rawUrl;
-}
-
-function pickFirstImageUrl(
-  supabase: ReturnType<typeof createClient>,
-  images: VariantImageRow[]
-): string | null {
-  for (const image of images) {
-    const url = resolveImageUrl(supabase, image);
-    if (url) {
-      return url;
-    }
-  }
-
-  return null;
+  return publicUrl || rawUrl;
 }
 
 function pickThumbnailUrl(
@@ -188,37 +162,15 @@ function pickThumbnailUrl(
   variants: VariantRow[]
 ): string | null {
   for (const variant of variants) {
-    if (variant.is_finalized) {
-      const url = pickFirstImageUrl(
-        supabase,
-        variant.series_asset_variant_images ?? []
-      );
-      if (url) {
-        return url;
-      }
-    }
-  }
-
-  for (const variant of variants) {
     if (variant.is_default) {
-      const url = pickFirstImageUrl(
-        supabase,
-        variant.series_asset_variant_images ?? []
-      );
-      if (url) {
-        return url;
-      }
+      const url = resolveStoredUrl(supabase, variant.image_url);
+      if (url) return url;
     }
   }
 
   for (const variant of variants) {
-    const url = pickFirstImageUrl(
-      supabase,
-      variant.series_asset_variant_images ?? []
-    );
-    if (url) {
-      return url;
-    }
+    const url = resolveStoredUrl(supabase, variant.image_url);
+    if (url) return url;
   }
 
   return null;
@@ -243,6 +195,7 @@ export function useSeriesAssets(
     INITIAL_GENERATION_STATUS
   );
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const assetIdsRef = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
     setRefreshNonce((prev) => prev + 1);
@@ -261,6 +214,7 @@ export function useSeriesAssets(
     async function loadAssets() {
       if (!projectId) {
         if (!cancelled) {
+          assetIdsRef.current = new Set();
           setIsLoading(false);
           setError(null);
           setSeriesId(null);
@@ -320,6 +274,7 @@ export function useSeriesAssets(
 
         if (!foundSeriesId) {
           if (!cancelled) {
+            assetIdsRef.current = new Set();
             setSeriesId(null);
             setAssets([]);
             setSeriesMetadata({});
@@ -332,7 +287,7 @@ export function useSeriesAssets(
 
         const { data: seriesData, error: seriesLoadError } = await supabase
           .from('series')
-          .select('metadata')
+          .select('creative_brief')
           .eq('id', foundSeriesId)
           .maybeSingle();
 
@@ -340,14 +295,14 @@ export function useSeriesAssets(
           throw new Error(seriesLoadError.message);
         }
 
-        const metadata = isRecord(seriesData?.metadata)
-          ? seriesData.metadata
+        const metadata = isRecord(seriesData?.creative_brief)
+          ? seriesData.creative_brief
           : {};
 
         const { data: assetsData, error: assetsError } = await supabase
           .from('series_assets')
           .select(
-            'id, name, type, description, sort_order, series_asset_variants(id, label, is_default, is_finalized, series_asset_variant_images(url, storage_path, metadata))'
+            'id, name, type, description, sort_order, series_asset_variants(id, name, slug, image_url, is_default)'
           )
           .eq('series_id', foundSeriesId)
           .order('type', { ascending: true })
@@ -359,66 +314,6 @@ export function useSeriesAssets(
 
         const assetsRows = (assetsData ?? []) as AssetRow[];
 
-        const savedRequestIds = new Set<string>();
-        for (const asset of assetsRows) {
-          for (const variant of asset.series_asset_variants ?? []) {
-            for (const image of variant.series_asset_variant_images ?? []) {
-              const requestId =
-                image?.metadata?.kie_task_id ?? image?.metadata?.request_id;
-              if (typeof requestId === 'string' && requestId.trim()) {
-                savedRequestIds.add(requestId.trim());
-              }
-            }
-          }
-        }
-
-        const { data: jobsData } = await supabase
-          .from('series_generation_jobs')
-          .select('request_id, created_at, config')
-          .eq('series_id', foundSeriesId)
-          .eq('type', 'asset_image')
-          .order('created_at', { ascending: false })
-          .limit(300);
-
-        const nextGenerationStatus: Record<AssetType, AssetGenerationStatus> = {
-          character: { ...EMPTY_GENERATION_STATUS },
-          location: { ...EMPTY_GENERATION_STATUS },
-          prop: { ...EMPTY_GENERATION_STATUS },
-        };
-
-        const staleThresholdMs = 20 * 60 * 1000;
-
-        for (const job of (jobsData ?? []) as Array<{
-          request_id: string;
-          created_at: string;
-          config: Record<string, unknown> | null;
-        }>) {
-          const assetTypeRaw =
-            isRecord(job.config) && typeof job.config.asset_type === 'string'
-              ? job.config.asset_type
-              : null;
-
-          if (!assetTypeRaw || !isAssetType(assetTypeRaw)) {
-            continue;
-          }
-
-          if (savedRequestIds.has(job.request_id)) {
-            nextGenerationStatus[assetTypeRaw].completed += 1;
-            continue;
-          }
-
-          const createdAtMs = Number(new Date(job.created_at));
-          const isStale =
-            Number.isFinite(createdAtMs) &&
-            Date.now() - createdAtMs > staleThresholdMs;
-
-          if (isStale) {
-            nextGenerationStatus[assetTypeRaw].stale += 1;
-          } else {
-            nextGenerationStatus[assetTypeRaw].pending += 1;
-          }
-        }
-
         const parsedAssets: SeriesAsset[] = assetsRows.flatMap((asset) => {
           if (!isAssetType(asset.type)) {
             return [];
@@ -427,13 +322,12 @@ export function useSeriesAssets(
           const variants = (asset.series_asset_variants ?? []).map(
             (variant) => ({
               id: variant.id,
-              label: variant.label,
+              label:
+                (typeof variant.name === 'string' && variant.name.trim()) ||
+                variant.slug,
               isDefault: variant.is_default,
-              isFinalized: variant.is_finalized,
-              imageUrl: pickFirstImageUrl(
-                supabase,
-                variant.series_asset_variant_images ?? []
-              ),
+              isFinalized: Boolean(variant.is_finalized),
+              imageUrl: resolveStoredUrl(supabase, variant.image_url),
             })
           );
 
@@ -453,7 +347,58 @@ export function useSeriesAssets(
           ];
         });
 
+        const { data: jobsData } = await supabase
+          .from('series_generation_jobs')
+          .select('created_at, config')
+          .eq('series_id', foundSeriesId)
+          .eq('type', 'asset_image')
+          .order('created_at', { ascending: false })
+          .limit(300);
+
+        const nextGenerationStatus: Record<AssetType, AssetGenerationStatus> = {
+          character: { ...EMPTY_GENERATION_STATUS },
+          location: { ...EMPTY_GENERATION_STATUS },
+          prop: { ...EMPTY_GENERATION_STATUS },
+        };
+
+        for (const asset of parsedAssets) {
+          if (
+            asset.thumbnailUrl ||
+            asset.variants.some((variant) => !!variant.imageUrl)
+          ) {
+            nextGenerationStatus[asset.type].completed += 1;
+          }
+        }
+
+        const staleThresholdMs = 20 * 60 * 1000;
+
+        for (const job of (jobsData ?? []) as Array<{
+          created_at: string;
+          config: Record<string, unknown> | null;
+        }>) {
+          const assetTypeRaw =
+            isRecord(job.config) && typeof job.config.asset_type === 'string'
+              ? job.config.asset_type
+              : null;
+
+          if (!assetTypeRaw || !isAssetType(assetTypeRaw)) {
+            continue;
+          }
+
+          const createdAtMs = Number(new Date(job.created_at));
+          const isStale =
+            Number.isFinite(createdAtMs) &&
+            Date.now() - createdAtMs > staleThresholdMs;
+
+          if (isStale) {
+            nextGenerationStatus[assetTypeRaw].stale += 1;
+          } else {
+            nextGenerationStatus[assetTypeRaw].pending += 1;
+          }
+        }
+
         if (!cancelled) {
+          assetIdsRef.current = new Set(parsedAssets.map((asset) => asset.id));
           setSeriesId(foundSeriesId);
           setAssets(parsedAssets);
           setSeriesMetadata(metadata);
@@ -466,6 +411,7 @@ export function useSeriesAssets(
           setError(
             err instanceof Error ? err.message : 'Failed to load series assets'
           );
+          assetIdsRef.current = new Set();
           setSeriesId(null);
           setAssets([]);
           setSeriesMetadata({});
@@ -511,7 +457,7 @@ export function useSeriesAssets(
         const response = await fetch(`/api/series/${seriesId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ metadata: nextMetadata }),
+          body: JSON.stringify({ creative_brief: nextMetadata }),
         });
 
         if (!response.ok) {
@@ -520,9 +466,11 @@ export function useSeriesAssets(
         }
 
         const data = await response.json().catch(() => ({}));
-        const returnedMetadata = isRecord(data?.series?.metadata)
-          ? data.series.metadata
-          : nextMetadata;
+        const returnedMetadata = isRecord(data?.series?.creative_brief)
+          ? data.series.creative_brief
+          : isRecord(data?.series?.metadata)
+            ? data.series.metadata
+            : nextMetadata;
 
         setSeriesMetadata(returnedMetadata);
         setGridPrompts(resolveGridPrompts(returnedMetadata));
@@ -620,6 +568,74 @@ export function useSeriesAssets(
     },
     [assets, refresh, seriesId]
   );
+
+  useEffect(() => {
+    if (!seriesId) return;
+
+    const supabase = createClient('studio');
+    const channel = supabase
+      .channel(`series-assets-live-${seriesId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series',
+          filter: `id=eq.${seriesId}`,
+        },
+        () => {
+          refresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_assets',
+          filter: `series_id=eq.${seriesId}`,
+        },
+        () => {
+          refresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_asset_variants',
+        },
+        (payload) => {
+          const assetId =
+            (payload.new as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            (payload.old as { asset_id?: string } | null | undefined)
+              ?.asset_id ??
+            null;
+
+          if (!assetId || !assetIdsRef.current.has(assetId)) return;
+          refresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'studio',
+          table: 'series_generation_jobs',
+          filter: `series_id=eq.${seriesId}`,
+        },
+        () => {
+          refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refresh, seriesId]);
 
   const totalPending =
     generationStatus.character.pending +
