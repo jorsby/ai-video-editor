@@ -376,7 +376,7 @@ export function DashboardContent() {
   const handleProjectCreated = (project: DBProject) => {
     setProjects((prev) => [project, ...prev]);
     // Open canonical project/series flow in a new tab
-    window.open(`/series/${project.id}`, '_blank');
+    window.open(`/editor/${project.id}`, '_blank');
   };
 
   const handleDeleteProject = (id: string) => {
@@ -408,7 +408,7 @@ export function DashboardContent() {
   };
 
   const handleOpenProject = (id: string) => {
-    window.open(`/series/${id}`, '_blank');
+    window.open(`/editor/${id}`, '_blank');
   };
 
   const handleGroupCreated = (group: AccountGroupWithMembers) => {
