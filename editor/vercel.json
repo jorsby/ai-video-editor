@@ -1,5 +1,5 @@
 {
-  "installCommand": "source ~/.nvm/nvm.sh && nvm install 20 && nvm use 20 && corepack enable && cd .. && pnpm install --no-frozen-lockfile",
+  
   "crons": [
     {
       "path": "/api/cron/publish-scheduled",
