@@ -85,9 +85,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
 
-    const voiceId =
-      body.voice_id ?? series.voice_id ?? 'Rachel';
-    const speed = clampSpeed(body.speed ?? series.tts_speed ?? 1.0);
+    if (!series.voice_id) {
+      return NextResponse.json(
+        { error: 'Series has no voice_id configured. Set it in series settings first.' },
+        { status: 400 }
+      );
+    }
+
+    const voiceId = body.voice_id ?? series.voice_id;
+    const speed = clampSpeed(body.speed ?? series.tts_speed);
     const previousText = body.previous_text ?? '';
     const nextText = body.next_text ?? '';
     const languageCode = body.language_code ?? series.language ?? '';

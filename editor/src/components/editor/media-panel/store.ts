@@ -15,6 +15,7 @@ import {
   IconPackage,
   IconMovie,
   IconLayoutList,
+  IconSettings,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
 
@@ -32,7 +33,8 @@ export type Tab =
   | 'assets'
   | 'roadmap'
   | 'storyboard'
-  | 'renders';
+  | 'renders'
+  | 'settings';
 
 export const tabs: {
   [key in Tab]: { icon: React.FC<IconProps>; label: string };
@@ -48,6 +50,10 @@ export const tabs: {
   storyboard: {
     icon: IconLayoutList,
     label: 'Storyboard',
+  },
+  settings: {
+    icon: IconSettings,
+    label: 'Settings',
   },
   renders: {
     icon: IconDeviceTv,

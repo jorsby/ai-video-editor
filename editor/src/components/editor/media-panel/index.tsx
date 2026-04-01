@@ -15,6 +15,7 @@ import PanelSFX from './panel/sfx';
 import SeriesAssetsPanel from './panel/series-assets-panel';
 import SeriesRoadmapPanel from './panel/series-roadmap-panel';
 import StoryboardPanel from './panel/storyboard-panel';
+import SeriesSettingsPanel from './panel/series-settings-panel';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -39,6 +40,7 @@ const viewMap: Record<Tab, React.ReactNode> = {
   assets: <SeriesAssetsPanel />,
   roadmap: <SeriesRoadmapPanel />,
   storyboard: <StoryboardPanel />,
+  settings: <SeriesSettingsPanel />,
   renders: <PanelRenders />,
 };
 

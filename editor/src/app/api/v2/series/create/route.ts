@@ -42,11 +42,32 @@ export async function POST(req: NextRequest) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const genre = typeof body?.genre === 'string' ? body.genre.trim() : null;
     const tone = typeof body?.tone === 'string' ? body.tone.trim() : null;
+    const language = typeof body?.language === 'string' ? body.language.trim() : null;
+    const voiceId = typeof body?.voice_id === 'string' ? body.voice_id.trim() : null;
+    const ttsSpeed = typeof body?.tts_speed === 'number' ? body.tts_speed : null;
+    const videoModel = typeof body?.video_model === 'string' ? body.video_model.trim() : null;
+    const imageModel = typeof body?.image_model === 'string' ? body.image_model.trim() : null;
+    const aspectRatio = typeof body?.aspect_ratio === 'string' ? body.aspect_ratio.trim() : null;
+    const visualStyle = typeof body?.visual_style === 'string' ? body.visual_style.trim() : null;
     const requestedProjectId =
       typeof body?.project_id === 'string' ? body.project_id.trim() : '';
 
     if (!name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    // Required production settings — no fallbacks
+    const missingFields: string[] = [];
+    if (!voiceId) missingFields.push('voice_id');
+    if (ttsSpeed === null) missingFields.push('tts_speed');
+    if (!videoModel) missingFields.push('video_model');
+    if (!imageModel) missingFields.push('image_model');
+
+    if (missingFields.length > 0) {
+      return NextResponse.json(
+        { error: `Missing required fields: ${missingFields.join(', ')}` },
+        { status: 400 }
+      );
     }
 
     const characters = normalizeAssets(body?.characters);
@@ -108,6 +129,13 @@ export async function POST(req: NextRequest) {
         name,
         genre,
         tone,
+        language,
+        voice_id: voiceId,
+        tts_speed: ttsSpeed,
+        video_model: videoModel,
+        image_model: imageModel,
+        aspect_ratio: aspectRatio,
+        visual_style: visualStyle,
       })
       .select('id')
       .single();

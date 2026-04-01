@@ -7,7 +7,7 @@ import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-const VIDEO_MODEL = 'grok-imagine/image-to-video';
+const DEFAULT_VIDEO_MODEL = 'grok-imagine/image-to-video';
 const VALID_DURATIONS = new Set([6, 10]);
 
 /**
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id')
+      .select('id, user_id, video_model, aspect_ratio')
       .eq('id', episode.series_id)
       .maybeSingle();
 
@@ -81,6 +81,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { error: 'Series not found' },
         { status: 404 }
+      );
+    }
+
+    if (!series.video_model) {
+      return NextResponse.json(
+        { error: 'Series has no video_model configured. Set it in series settings first.' },
+        { status: 400 }
       );
     }
 
@@ -167,14 +174,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // ── Submit to kie.ai ────────────────────────────────────────────────
 
+    const videoModel = series.video_model;
+    const aspectRatio = series.aspect_ratio ?? '9:16';
+
     const result = await createTask({
-      model: VIDEO_MODEL,
+      model: videoModel,
       callbackUrl: webhookUrl.toString(),
       input: {
         prompt: compiledPrompt,
         image_urls: imageUrls,
         duration,
-        aspect_ratio: '9:16',
+        aspect_ratio: aspectRatio,
         resolution: '480p',
       },
     });
@@ -188,10 +198,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     return NextResponse.json({
       task_id: result.taskId,
-      model: VIDEO_MODEL,
+      model: videoModel,
       scene_id: sceneId,
       duration,
-      aspect_ratio: '9:16',
+      aspect_ratio: aspectRatio,
       resolution: '480p',
       image_count: imageUrls.length,
     });

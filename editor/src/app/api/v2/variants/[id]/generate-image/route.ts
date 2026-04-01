@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id, genre, tone')
+      .select('id, user_id, genre, tone, image_model, aspect_ratio')
       .eq('id', asset.series_id)
       .maybeSingle();
 
@@ -68,6 +68,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     if (series.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    if (!series.image_model) {
+      return NextResponse.json(
+        { error: 'Series has no image_model configured. Set it in series settings first.' },
+        { status: 400 }
+      );
     }
 
     // ── Build prompt ────────────────────────────────────────────────────
@@ -121,12 +128,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    // ── Submit to kie.ai — always 1K, 9:16, JPG ────────────────────────
+    // ── Submit to kie.ai ──────────────────────────────────────────────
+
+    const aspectRatio = series.aspect_ratio ?? '9:16';
 
     const queued = await queueKieImageTask({
       prompt,
       callbackUrl: webhookUrl.toString(),
-      aspectRatio: '9:16',
+      aspectRatio,
       resolution: '1K',
       outputFormat: 'jpg',
     });
@@ -142,7 +151,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       task_id: queued.requestId,
       model: queued.model,
       variant_id: variantId,
-      aspect_ratio: '9:16',
+      aspect_ratio: aspectRatio,
       resolution: '1K',
       prompt,
     });
