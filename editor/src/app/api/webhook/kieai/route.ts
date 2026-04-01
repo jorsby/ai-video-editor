@@ -772,32 +772,6 @@ async function handleSeriesAssetImage(params: {
     });
   }
 
-  const { data: existingImages } = await supabase
-    .from('series_asset_variant_images')
-    .select('id, metadata')
-    .eq('variant_id', variantId)
-    .order('created_at', { ascending: false })
-    .limit(20);
-
-  const duplicate = (existingImages ?? []).some(
-    (row: { metadata?: unknown }) => {
-      const metadata =
-        row.metadata && typeof row.metadata === 'object'
-          ? (row.metadata as Record<string, unknown>)
-          : null;
-      return metadata?.kie_task_id === taskId;
-    }
-  );
-
-  if (duplicate) {
-    return okResponse({
-      success: true,
-      step: 'SeriesAssetImage',
-      variant_id: variantId,
-      duplicate: true,
-    });
-  }
-
   // Use kie.ai URL directly — no download/upload to Storage
   await supabase
     .from('series_asset_variants')
