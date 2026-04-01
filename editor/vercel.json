@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install --legacy-peer-deps",
+  "installCommand": "corepack enable && corepack prepare pnpm@9.15.9 --activate && cd .. && pnpm install --no-frozen-lockfile",
   "crons": [
     {
       "path": "/api/cron/publish-scheduled",
