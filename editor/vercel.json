@@ -1,5 +1,5 @@
 {
-  "installCommand": "cd .. && pnpm install --no-frozen-lockfile",
+  "installCommand": "npm i -g pnpm@9 && cd .. && pnpm install --no-frozen-lockfile",
   "crons": [
     {
       "path": "/api/cron/publish-scheduled",
