@@ -2,7 +2,11 @@ import type { NextRequest } from 'next/server';
 import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger, type Logger } from '@/lib/logger';
-import { parseResultJson, verifyWebhookSignature } from '@/lib/kieai';
+import {
+  parseResultJson,
+  verifyWebhookSignature,
+  type KieWebhookVerificationResult,
+} from '@/lib/kieai';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -1097,29 +1101,41 @@ export async function POST(req: NextRequest) {
 
     const signature = req.headers.get('x-webhook-signature');
     const timestamp = req.headers.get('x-webhook-timestamp');
-    const verification = verifyWebhookSignature({
-      payload,
-      signature,
-      timestamp,
-      hmacKey: process.env.KIE_WEBHOOK_HMAC_KEY?.trim() ?? '',
-      nowSeconds: Math.floor(Date.now() / 1000),
-    });
+    const hmacKey = process.env.KIE_WEBHOOK_HMAC_KEY?.trim() ?? '';
 
-    if (!verification.ok) {
-      log.warn('Rejected webhook: invalid signature', {
-        reason: verification.reason,
-        task_id: verification.taskId ?? taskId,
+    // HMAC verification — skip if no key configured or kie.ai didn't send headers
+    let verification: KieWebhookVerificationResult;
+    if (hmacKey && signature && timestamp) {
+      verification = verifyWebhookSignature({
+        payload,
+        signature,
+        timestamp,
+        hmacKey,
+        nowSeconds: Math.floor(Date.now() / 1000),
       });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: verification.reason ?? 'invalid_signature',
-        }),
-        {
-          status: 401,
-          headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-        }
-      );
+
+      if (!verification.ok) {
+        log.warn('Rejected webhook: invalid signature', {
+          reason: verification.reason,
+          task_id: verification.taskId ?? taskId,
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: verification.reason ?? 'invalid_signature',
+          }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+          }
+        );
+      }
+    } else {
+      // No HMAC headers — accept but extract taskId from payload
+      verification = {
+        ok: true,
+        taskId: typeof taskId === 'string' ? taskId : null,
+      };
     }
 
     const supabase = createServiceClient();
