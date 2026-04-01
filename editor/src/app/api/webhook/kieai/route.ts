@@ -1,5 +1,4 @@
 import type { NextRequest } from 'next/server';
-import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createLogger, type Logger } from '@/lib/logger';
 import {
@@ -26,14 +25,6 @@ interface KieWebhookPayload {
     [key: string]: unknown;
   };
   [key: string]: unknown;
-}
-
-interface SeriesGenerationJobMeta {
-  prompt?: string | null;
-  model?: string | null;
-  config?: {
-    cell_prompts?: Array<{ variant_id?: string; prompt?: string }>;
-  } | null;
 }
 
 type DebugLogClient = {
@@ -76,71 +67,9 @@ async function logTraceEvent(
   }
 }
 
-async function loadSeriesGenerationJob(
-  supabase: any,
-  taskId: string
-): Promise<SeriesGenerationJobMeta | null> {
-  const { data } = await supabase
-    .from('series_generation_jobs')
-    .select('prompt, model, config')
-    .eq('request_id', taskId)
-    .maybeSingle();
 
-  return (data ?? null) as SeriesGenerationJobMeta | null;
-}
 
-async function clearVariantImages(supabase: any, variantId: string) {
-  const { data: oldImages } = await supabase
-    .from('series_asset_variant_images')
-    .select('storage_path')
-    .eq('variant_id', variantId);
 
-  const oldPaths = (oldImages ?? [])
-    .map((row: { storage_path?: string | null }) => row.storage_path)
-    .filter(
-      (p: string | null | undefined): p is string =>
-        typeof p === 'string' && p.length > 0
-    );
-
-  if (oldPaths.length > 0) {
-    await supabase.storage.from('series-assets').remove(oldPaths);
-  }
-
-  await supabase
-    .from('series_asset_variant_images')
-    .delete()
-    .eq('variant_id', variantId);
-}
-
-async function uploadVariantImage(params: {
-  supabase: any;
-  variantId: string;
-  imageBuffer: Buffer;
-  contentType: string;
-  suffix: string;
-}): Promise<{ publicUrl: string; storagePath: string }> {
-  const { supabase, variantId, imageBuffer, contentType, suffix } = params;
-
-  const ext = contentType.includes('png') ? 'png' : 'jpg';
-  const storagePath = `generated/${variantId}/${Date.now()}_${suffix}.${ext}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('series-assets')
-    .upload(storagePath, imageBuffer, {
-      contentType,
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw new Error(uploadError.message);
-  }
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('series-assets').getPublicUrl(storagePath);
-
-  return { publicUrl, storagePath };
-}
 
 function okResponse(payload: Record<string, unknown>) {
   return new Response(JSON.stringify(payload), {
@@ -869,203 +798,27 @@ async function handleSeriesAssetImage(params: {
     });
   }
 
-  const imageResponse = await fetch(imageUrl);
-  if (!imageResponse.ok) {
-    return okResponse({
-      success: true,
-      step: 'SeriesAssetImage',
-      failed: true,
-      reason: 'image_download_failed',
-    });
-  }
-
-  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-  const contentType = imageResponse.headers.get('content-type') ?? 'image/jpeg';
-  const jobMeta = await loadSeriesGenerationJob(supabase, taskId);
-
-  await clearVariantImages(supabase, variantId);
-
-  const uploaded = await uploadVariantImage({
-    supabase,
-    variantId,
-    imageBuffer,
-    contentType,
-    suffix: 'kie_single',
-  });
-
-  await supabase.from('series_asset_variant_images').insert({
-    variant_id: variantId,
-    angle: 'front',
-    kind: 'frontal',
-    url: uploaded.publicUrl,
-    storage_path: uploaded.storagePath,
-    source: 'generated',
-    metadata: {
-      provider: 'kie',
-      kie_task_id: taskId,
-      prompt: jobMeta?.prompt ?? null,
-      model: jobMeta?.model ?? payload.data?.model ?? null,
-    },
-  });
-
-  // Update canonical image_url + generation status on the variant
+  // Use kie.ai URL directly — no download/upload to Storage
   await supabase
     .from('series_asset_variants')
     .update({
-      image_url: uploaded.publicUrl,
+      image_url: imageUrl,
       image_gen_status: 'done',
       image_task_id: null,
     })
     .eq('id', variantId);
 
-  log.info('Series asset image persisted from kie webhook', {
+  log.info('Series asset image URL saved from kie webhook', {
     variant_id: variantId,
     task_id: taskId,
+    image_url: imageUrl,
   });
 
   return okResponse({
     success: true,
     step: 'SeriesAssetImage',
     variant_id: variantId,
-    url: uploaded.publicUrl,
-  });
-}
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: grid cell loop
-async function handleSeriesGridImage(params: {
-  supabase: any;
-  payload: KieWebhookPayload;
-  taskId: string;
-  variantIds: string[];
-  cols: number;
-  rows: number;
-  log: Logger;
-}): Promise<Response> {
-  const { supabase, payload, taskId, variantIds, cols, rows, log } = params;
-
-  const state = payload.data?.state ?? null;
-  if (isInProgressState(state)) {
-    return okResponse({
-      success: true,
-      pending: true,
-      step: 'SeriesGridImage',
-    });
-  }
-
-  if (isFailureState(state)) {
-    return okResponse({ success: true, step: 'SeriesGridImage', failed: true });
-  }
-
-  const result = parseResultJson(payload.data?.resultJson);
-  const imageUrl = extractImageUrl(result);
-
-  if (!imageUrl) {
-    return okResponse({
-      success: true,
-      step: 'SeriesGridImage',
-      failed: true,
-      reason: 'missing_image_url',
-    });
-  }
-
-  const imageResponse = await fetch(imageUrl);
-  if (!imageResponse.ok) {
-    return okResponse({
-      success: true,
-      step: 'SeriesGridImage',
-      failed: true,
-      reason: 'image_download_failed',
-    });
-  }
-
-  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-  const metadata = await sharp(imageBuffer).metadata();
-  const width = metadata.width ?? cols * 1024;
-  const height = metadata.height ?? rows * 1024;
-  const cellWidth = Math.floor(width / cols);
-  const cellHeight = Math.floor(height / rows);
-  const jobMeta = await loadSeriesGenerationJob(supabase, taskId);
-  const model = jobMeta?.model ?? payload.data?.model ?? 'nano-banana-2';
-
-  const cellPrompts = Array.isArray(jobMeta?.config?.cell_prompts)
-    ? jobMeta?.config?.cell_prompts
-    : [];
-
-  const results: Array<{
-    variant_id: string;
-    success: boolean;
-    url?: string;
-  }> = [];
-
-  for (let idx = 0; idx < variantIds.length; idx++) {
-    const variantId = variantIds[idx];
-    const col = idx % cols;
-    const row = Math.floor(idx / cols);
-
-    try {
-      const cellBuffer = await sharp(imageBuffer)
-        .extract({
-          left: col * cellWidth,
-          top: row * cellHeight,
-          width: cellWidth,
-          height: cellHeight,
-        })
-        .jpeg({ quality: 95 })
-        .toBuffer();
-
-      await clearVariantImages(supabase, variantId);
-
-      const uploaded = await uploadVariantImage({
-        supabase,
-        variantId,
-        imageBuffer: cellBuffer,
-        contentType: 'image/jpeg',
-        suffix: `kie_grid_${idx}`,
-      });
-
-      const cellPrompt =
-        cellPrompts.find((item) => item?.variant_id === variantId)?.prompt ??
-        null;
-
-      await supabase.from('series_asset_variant_images').insert({
-        variant_id: variantId,
-        angle: 'front',
-        kind: 'frontal',
-        url: uploaded.publicUrl,
-        storage_path: uploaded.storagePath,
-        source: 'generated',
-        metadata: {
-          provider: 'kie',
-          kie_task_id: taskId,
-          grid_position: { row, col, index: idx },
-          generation_mode: 'grid',
-          prompt: cellPrompt ?? jobMeta?.prompt ?? null,
-          cell_prompt: cellPrompt,
-          grid_prompt: jobMeta?.prompt ?? null,
-          model,
-        },
-      });
-
-      results.push({
-        variant_id: variantId,
-        success: true,
-        url: uploaded.publicUrl,
-      });
-    } catch (error) {
-      log.warn('Failed to persist one grid cell', {
-        variant_id: variantId,
-        task_id: taskId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      results.push({ variant_id: variantId, success: false });
-    }
-  }
-
-  return okResponse({
-    success: true,
-    step: 'SeriesGridImage',
-    task_id: taskId,
-    results,
+    url: imageUrl,
   });
 }
 
@@ -1250,45 +1003,6 @@ export async function POST(req: NextRequest) {
         payload,
         taskId: verification.taskId,
         variantId,
-        log,
-      });
-    }
-
-    if (step === 'SeriesGridImage') {
-      const variantIds = (req.nextUrl.searchParams.get('variant_ids') ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-      const cols = Number.parseInt(
-        req.nextUrl.searchParams.get('cols') ?? '',
-        10
-      );
-      const rows = Number.parseInt(
-        req.nextUrl.searchParams.get('rows') ?? '',
-        10
-      );
-
-      if (
-        variantIds.length === 0 ||
-        !Number.isFinite(cols) ||
-        !Number.isFinite(rows) ||
-        cols < 1 ||
-        rows < 1
-      ) {
-        return okResponse({
-          success: true,
-          ignored: true,
-          reason: 'invalid_grid_params',
-        });
-      }
-
-      return await handleSeriesGridImage({
-        supabase,
-        payload,
-        taskId: verification.taskId,
-        variantIds,
-        cols,
-        rows,
         log,
       });
     }
