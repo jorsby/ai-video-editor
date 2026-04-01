@@ -47,7 +47,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         {
           error: 'Variant has no image yet. Generate an image first.',
-          hint: 'POST /api/v2/variants/{id}/generate-image or POST /api/series/{id}/assets/{assetId}/variants/{variantId}/regenerate',
+          hint: 'POST /api/v2/variants/{id}/generate-image',
         },
         { status: 400 }
       );

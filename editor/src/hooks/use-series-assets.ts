@@ -15,6 +15,7 @@ interface VariantRow {
   is_main: boolean;
   where_to_use: string | null;
   reasoning: string | null;
+  image_gen_status?: string | null;
   // Legacy compatibility flag; canonical schema does not require lock state.
   is_finalized?: boolean | null;
 }
@@ -37,6 +38,7 @@ export interface SeriesAssetVariant {
   isMain: boolean;
   isFinalized: boolean;
   imageUrl: string | null;
+  imageGenStatus: string | null;
   whereToUse: string | null;
   reasoning: string | null;
 }
@@ -311,7 +313,7 @@ export function useSeriesAssets(
         const { data: assetsData, error: assetsError } = await supabase
           .from('series_assets')
           .select(
-            'id, name, slug, type, description, sort_order, series_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning)'
+            'id, name, slug, type, description, sort_order, series_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_gen_status)'
           )
           .eq('series_id', foundSeriesId)
           .order('type', { ascending: true })
@@ -339,6 +341,7 @@ export function useSeriesAssets(
               isMain: variant.is_main,
               isFinalized: Boolean(variant.is_finalized),
               imageUrl: resolveStoredUrl(supabase, variant.image_url),
+              imageGenStatus: variant.image_gen_status ?? null,
               whereToUse: variant.where_to_use ?? null,
               reasoning: variant.reasoning ?? null,
             })
@@ -361,14 +364,7 @@ export function useSeriesAssets(
           ];
         });
 
-        const { data: jobsData } = await supabase
-          .from('series_generation_jobs')
-          .select('created_at, config')
-          .eq('series_id', foundSeriesId)
-          .eq('type', 'asset_image')
-          .order('created_at', { ascending: false })
-          .limit(300);
-
+        // Derive generation status from variant image_gen_status (V2 pattern)
         const nextGenerationStatus: Record<AssetType, AssetGenerationStatus> = {
           character: { ...EMPTY_GENERATION_STATUS },
           location: { ...EMPTY_GENERATION_STATUS },
@@ -376,38 +372,15 @@ export function useSeriesAssets(
         };
 
         for (const asset of parsedAssets) {
-          if (
-            asset.thumbnailUrl ||
-            asset.variants.some((variant) => !!variant.imageUrl)
-          ) {
-            nextGenerationStatus[asset.type].completed += 1;
-          }
-        }
-
-        const staleThresholdMs = 20 * 60 * 1000;
-
-        for (const job of (jobsData ?? []) as Array<{
-          created_at: string;
-          config: Record<string, unknown> | null;
-        }>) {
-          const assetTypeRaw =
-            isRecord(job.config) && typeof job.config.asset_type === 'string'
-              ? job.config.asset_type
-              : null;
-
-          if (!assetTypeRaw || !isAssetType(assetTypeRaw)) {
-            continue;
-          }
-
-          const createdAtMs = Number(new Date(job.created_at));
-          const isStale =
-            Number.isFinite(createdAtMs) &&
-            Date.now() - createdAtMs > staleThresholdMs;
-
-          if (isStale) {
-            nextGenerationStatus[assetTypeRaw].stale += 1;
-          } else {
-            nextGenerationStatus[assetTypeRaw].pending += 1;
+          for (const variant of asset.variants) {
+            const rawStatus = variant.imageGenStatus;
+            if (rawStatus === 'generating') {
+              nextGenerationStatus[asset.type].pending += 1;
+            } else if (rawStatus === 'failed') {
+              nextGenerationStatus[asset.type].stale += 1;
+            } else if (variant.imageUrl) {
+              nextGenerationStatus[asset.type].completed += 1;
+            }
           }
         }
 
@@ -551,13 +524,10 @@ export function useSeriesAssets(
       try {
         // Serialize requests to avoid burst rate-limit and keep order predictable
         for (const target of generationTargets) {
-          const res = await fetch(`/api/series/${seriesId}/generate-images`, {
+          const res = await fetch(`/api/v2/variants/${target.variant_id}/generate-image`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              asset_id: target.asset_id,
-              variant_id: target.variant_id,
-            }),
+            body: JSON.stringify({}),
           });
 
           if (!res.ok) {
@@ -637,8 +607,7 @@ export function useSeriesAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'series_generation_jobs',
-          filter: `series_id=eq.${seriesId}`,
+          table: 'series_asset_variants',
         },
         () => {
           refresh();
