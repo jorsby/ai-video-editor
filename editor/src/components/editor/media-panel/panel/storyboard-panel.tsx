@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useProjectId } from '@/contexts/project-context';
 import { createClient } from '@/lib/supabase/client';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,6 +21,9 @@ import {
   IconUser,
   IconBox,
   IconLoader2,
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconEye,
 } from '@tabler/icons-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -56,6 +59,9 @@ interface EpisodeData {
   scenes: SceneData[];
 }
 
+/** slug → image_url lookup */
+type VariantImageMap = Map<string, string>;
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function statusColor(status: string | null): string {
@@ -79,34 +85,180 @@ function slugToLabel(slug: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
+}
+
+// ── Variant Avatar ─────────────────────────────────────────────────────────────
+
+function VariantAvatar({
+  slug,
+  imageMap,
+  size = 'sm',
+}: {
+  slug: string;
+  imageMap: VariantImageMap;
+  size?: 'sm' | 'md';
+}) {
+  const url = imageMap.get(slug);
+  const px = size === 'md' ? 'size-7' : 'size-4';
+
+  if (!url) {
+    return (
+      <div
+        className={`${px} rounded-full bg-muted/40 border border-border/30 flex items-center justify-center shrink-0`}
+        title={slugToLabel(slug)}
+      >
+        <span className="text-[6px] text-muted-foreground">?</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt={slugToLabel(slug)}
+      title={slugToLabel(slug)}
+      className={`${px} rounded-full object-cover border border-border/40 shrink-0`}
+    />
+  );
+}
+
+// ── Mini Audio Player ──────────────────────────────────────────────────────────
+
+function MiniAudioPlayer({ url }: { url: string }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const toggle = useCallback(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+    } else {
+      el.play();
+    }
+    setPlaying(!playing);
+  }, [playing]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const onTimeUpdate = () => {
+      if (el.duration) setProgress(el.currentTime / el.duration);
+    };
+    const onEnded = () => {
+      setPlaying(false);
+      setProgress(0);
+    };
+
+    el.addEventListener('timeupdate', onTimeUpdate);
+    el.addEventListener('ended', onEnded);
+    return () => {
+      el.removeEventListener('timeupdate', onTimeUpdate);
+      el.removeEventListener('ended', onEnded);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      {/* biome-ignore lint/a11y/useMediaCaption: internal tool audio */}
+      <audio ref={audioRef} src={url} preload="none" />
+      <button
+        type="button"
+        onClick={toggle}
+        className="size-5 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center hover:bg-blue-500/30 transition-colors shrink-0"
+        title={playing ? 'Pause' : 'Play audio'}
+      >
+        {playing ? (
+          <IconPlayerPause className="size-2.5 text-blue-400" />
+        ) : (
+          <IconPlayerPlay className="size-2.5 text-blue-400 ml-px" />
+        )}
+      </button>
+      {/* Progress bar */}
+      <div className="flex-1 h-1 bg-muted/30 rounded-full overflow-hidden min-w-[40px]">
+        <div
+          className="h-full bg-blue-400/60 rounded-full transition-all duration-200"
+          style={{ width: `${progress * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Video Thumbnail ────────────────────────────────────────────────────────────
+
+function VideoThumbnail({ url }: { url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+
+  if (showPlayer) {
+    return (
+      <div className="relative rounded-md overflow-hidden border border-border/30 bg-black">
+        {/* biome-ignore lint/a11y/useMediaCaption: internal tool video */}
+        <video
+          src={url}
+          controls
+          autoPlay
+          className="w-full max-h-[200px] object-contain"
+          onEnded={() => setShowPlayer(false)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setShowPlayer(true)}
+      className="relative w-full h-16 rounded-md overflow-hidden border border-border/30 bg-black/60 hover:bg-black/40 transition-colors group"
+      title="Play video"
+    >
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="size-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center group-hover:bg-white/30 transition-colors">
+          <IconPlayerPlay className="size-4 text-white ml-0.5" />
+        </div>
+      </div>
+      <div className="absolute bottom-1 right-1">
+        <Badge variant="outline" className="text-[8px] bg-black/60 border-white/20 text-white/80">
+          <IconVideo className="size-2 mr-0.5" />
+          Video
+        </Badge>
+      </div>
+    </button>
+  );
+}
+
 // ── Prompt Highlighter ─────────────────────────────────────────────────────────
 
-/** Renders prompt text with @slug refs highlighted in their role color */
 function HighlightedPrompt({
   prompt,
   locationSlug,
   characterSlugs,
   propSlugs,
+  imageMap,
 }: {
   prompt: string;
   locationSlug: string | null;
   characterSlugs: string[];
   propSlugs: string[];
+  imageMap: VariantImageMap;
 }) {
-  // Build slug → color map
   const colorMap = new Map<string, string>();
   if (locationSlug) colorMap.set(locationSlug, 'text-emerald-400 bg-emerald-500/15');
   for (const s of characterSlugs) colorMap.set(s, 'text-blue-400 bg-blue-500/15');
   for (const s of propSlugs) colorMap.set(s, 'text-amber-400 bg-amber-500/15');
 
-  // Split prompt on @slug patterns
   const pattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(prompt)) !== null) {
-    // Text before this match
     if (match.index > lastIndex) {
       parts.push(prompt.slice(lastIndex, match.index));
     }
@@ -114,7 +266,8 @@ function HighlightedPrompt({
     const color = colorMap.get(slug);
     if (color) {
       parts.push(
-        <span key={match.index} className={`${color} rounded px-0.5 font-medium`}>
+        <span key={match.index} className={`${color} rounded px-0.5 font-medium inline-flex items-center gap-0.5`}>
+          <VariantAvatar slug={slug} imageMap={imageMap} />
           @{slugToLabel(slug)}
         </span>
       );
@@ -136,7 +289,15 @@ function HighlightedPrompt({
 
 // ── Scene Card ─────────────────────────────────────────────────────────────────
 
-function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
+function SceneCard({
+  scene,
+  index,
+  imageMap,
+}: {
+  scene: SceneData;
+  index: number;
+  imageMap: VariantImageMap;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const hasAudio = !!scene.audio_url;
   const hasVideo = !!scene.video_url;
@@ -144,6 +305,12 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
   const charCount = scene.character_variant_slugs?.length ?? 0;
   const hasLocation = !!scene.location_variant_slug;
   const propCount = scene.prop_variant_slugs?.length ?? 0;
+
+  // Collect all slugs for this scene
+  const allSlugs: string[] = [];
+  if (scene.location_variant_slug) allSlugs.push(scene.location_variant_slug);
+  if (scene.character_variant_slugs) allSlugs.push(...scene.character_variant_slugs);
+  if (scene.prop_variant_slugs) allSlugs.push(...scene.prop_variant_slugs);
 
   return (
     <div className="border border-border/40 rounded-md bg-card/50 overflow-hidden">
@@ -164,11 +331,24 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
         <span className="text-xs font-medium truncate flex-1">
           {scene.title || `Scene ${index + 1}`}
         </span>
+
+        {/* Mini variant avatars in header */}
+        <div className="flex -space-x-1 shrink-0">
+          {allSlugs.slice(0, 4).map((slug) => (
+            <VariantAvatar key={slug} slug={slug} imageMap={imageMap} />
+          ))}
+          {allSlugs.length > 4 && (
+            <span className="size-4 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center text-[7px] text-muted-foreground shrink-0">
+              +{allSlugs.length - 4}
+            </span>
+          )}
+        </div>
+
         <Badge variant="outline" className={`text-[9px] ${statusColor(scene.status)}`}>
           {scene.status || 'draft'}
         </Badge>
         {scene.duration && (
-          <span className="text-[10px] text-muted-foreground">{scene.duration}s</span>
+          <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
         )}
       </button>
 
@@ -181,10 +361,19 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
           </p>
         )}
 
-        {/* Asset refs */}
+        {/* Media row — audio player + video thumbnail */}
+        {(hasAudio || hasVideo) && (
+          <div className="flex flex-col gap-1.5">
+            {hasAudio && <MiniAudioPlayer url={scene.audio_url!} />}
+            {hasVideo && <VideoThumbnail url={scene.video_url!} />}
+          </div>
+        )}
+
+        {/* Asset refs with avatars */}
         <div className="flex flex-wrap gap-1">
           {hasLocation && (
-            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <VariantAvatar slug={scene.location_variant_slug!} imageMap={imageMap} />
               <IconMapPin className="size-2.5" />
               {slugToLabel(scene.location_variant_slug!)}
             </span>
@@ -192,8 +381,9 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
           {scene.character_variant_slugs?.map((slug) => (
             <span
               key={slug}
-              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20"
+              className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20"
             >
+              <VariantAvatar slug={slug} imageMap={imageMap} />
               <IconUser className="size-2.5" />
               {slugToLabel(slug)}
             </span>
@@ -201,8 +391,9 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
           {scene.prop_variant_slugs?.map((slug) => (
             <span
               key={slug}
-              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+              className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
             >
+              <VariantAvatar slug={slug} imageMap={imageMap} />
               <IconBox className="size-2.5" />
               {slugToLabel(slug)}
             </span>
@@ -229,7 +420,7 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
         </div>
       </div>
 
-      {/* Expanded: Full prompt with highlighted slugs */}
+      {/* Expanded: Full prompt with highlighted slugs + avatars */}
       {isExpanded && hasPrompt && (
         <div className="px-3 pb-3 pt-1 border-t border-border/20">
           <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">
@@ -241,12 +432,12 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
               locationSlug={scene.location_variant_slug}
               characterSlugs={scene.character_variant_slugs ?? []}
               propSlugs={scene.prop_variant_slugs ?? []}
+              imageMap={imageMap}
             />
           </div>
         </div>
       )}
 
-      {/* Expanded: No prompt message */}
       {isExpanded && !hasPrompt && (
         <div className="px-3 pb-3 pt-1 border-t border-border/20">
           <p className="text-[10px] text-muted-foreground/50 italic">
@@ -258,15 +449,89 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
   );
 }
 
+// ── Asset Gallery ──────────────────────────────────────────────────────────────
+
+function AssetGallery({
+  slugs,
+  role,
+  imageMap,
+}: {
+  slugs: string[];
+  role: 'character' | 'location' | 'prop';
+  imageMap: VariantImageMap;
+}) {
+  if (slugs.length === 0) return null;
+
+  const roleConfig = {
+    character: { icon: IconUser, color: 'blue', label: 'Characters' },
+    location: { icon: IconMapPin, color: 'emerald', label: 'Locations' },
+    prop: { icon: IconBox, color: 'amber', label: 'Props' },
+  }[role];
+
+  const Icon = roleConfig.icon;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <Icon className="size-3" />
+        <span className="font-medium">{roleConfig.label}</span>
+        <span className="opacity-50">({slugs.length})</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {slugs.map((slug) => {
+          const url = imageMap.get(slug);
+          return (
+            <div key={slug} className="flex flex-col items-center gap-1">
+              {url ? (
+                <img
+                  src={url}
+                  alt={slugToLabel(slug)}
+                  className="w-full aspect-[9/16] rounded-md object-cover border border-border/30"
+                />
+              ) : (
+                <div className="w-full aspect-[9/16] rounded-md bg-muted/30 border border-border/30 flex items-center justify-center">
+                  <Icon className="size-4 text-muted-foreground/30" />
+                </div>
+              )}
+              <span className="text-[8px] text-muted-foreground text-center leading-tight truncate w-full">
+                {slugToLabel(slug)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Episode Accordion ──────────────────────────────────────────────────────────
 
-function EpisodeAccordion({ episode }: { episode: EpisodeData }) {
+function EpisodeAccordion({
+  episode,
+  imageMap,
+}: {
+  episode: EpisodeData;
+  imageMap: VariantImageMap;
+}) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
   const sceneCount = episode.scenes.length;
   const doneCount = episode.scenes.filter((s) => s.status === 'done').length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
   const hasAnyAudio = episode.scenes.some((s) => !!s.audio_url);
   const totalDuration = episode.scenes.reduce((sum, s) => sum + (s.duration || 0), 0);
+
+  // Collect unique slugs per role across all scenes
+  const locationSlugs = [...new Set(
+    episode.scenes.map((s) => s.location_variant_slug).filter(Boolean) as string[]
+  )];
+  const characterSlugs = [...new Set(
+    episode.scenes.flatMap((s) => s.character_variant_slugs ?? [])
+  )];
+  const propSlugs = [...new Set(
+    episode.scenes.flatMap((s) => s.prop_variant_slugs ?? [])
+  )];
+  const totalAssets = locationSlugs.length + characterSlugs.length + propSlugs.length;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -305,13 +570,24 @@ function EpisodeAccordion({ episode }: { episode: EpisodeData }) {
           {/* Episode summary bar */}
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
             <span>{sceneCount} scenes</span>
-            <span>{totalDuration}s total</span>
+            {totalDuration > 0 && <span>{formatDuration(totalDuration)}</span>}
             <span className={hasAnyAudio ? 'text-green-400' : 'opacity-30'}>
               <IconVolume className="size-3 inline" /> Audio
             </span>
             <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
               <IconVideo className="size-3 inline" /> Video
             </span>
+            {totalAssets > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAssets(!showAssets)}
+                className={`ml-auto flex items-center gap-0.5 hover:text-foreground transition-colors ${showAssets ? 'text-foreground' : ''}`}
+                title="Toggle asset gallery"
+              >
+                <IconEye className="size-3" />
+                <span>{totalAssets} assets</span>
+              </button>
+            )}
           </div>
 
           {/* Synopsis */}
@@ -321,11 +597,20 @@ function EpisodeAccordion({ episode }: { episode: EpisodeData }) {
             </p>
           )}
 
+          {/* Asset Gallery (toggle) */}
+          {showAssets && (
+            <div className="px-2 py-2 bg-muted/10 rounded-md border border-border/20 space-y-3">
+              <AssetGallery slugs={locationSlugs} role="location" imageMap={imageMap} />
+              <AssetGallery slugs={characterSlugs} role="character" imageMap={imageMap} />
+              <AssetGallery slugs={propSlugs} role="prop" imageMap={imageMap} />
+            </div>
+          )}
+
           {/* Scenes */}
           {episode.scenes.length > 0 ? (
             <div className="space-y-1.5">
               {episode.scenes.map((scene, i) => (
-                <SceneCard key={scene.id} scene={scene} index={i} />
+                <SceneCard key={scene.id} scene={scene} index={i} imageMap={imageMap} />
               ))}
             </div>
           ) : (
@@ -345,6 +630,7 @@ export default function StoryboardPanel() {
   const projectId = useProjectId();
   const [episodes, setEpisodes] = useState<EpisodeData[]>([]);
   const [seriesName, setSeriesName] = useState<string | null>(null);
+  const [imageMap, setImageMap] = useState<VariantImageMap>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -408,6 +694,30 @@ export default function StoryboardPanel() {
           allScenes = (sceneRows ?? []) as unknown as (SceneData & { episode_id: string })[];
         }
 
+        // Collect all unique variant slugs across scenes
+        const slugSet = new Set<string>();
+        for (const s of allScenes as (SceneData & { episode_id: string })[]) {
+          if (s.location_variant_slug) slugSet.add(s.location_variant_slug);
+          for (const c of s.character_variant_slugs ?? []) slugSet.add(c);
+          for (const p of s.prop_variant_slugs ?? []) slugSet.add(p);
+        }
+
+        // Fetch variant images for all referenced slugs
+        const newImageMap = new Map<string, string>();
+        if (slugSet.size > 0) {
+          const { data: variantRows } = await supabase
+            .from('series_asset_variants')
+            .select('slug, image_url')
+            .in('slug', [...slugSet])
+            .not('image_url', 'is', null);
+
+          for (const v of variantRows ?? []) {
+            if (v.slug && v.image_url) {
+              newImageMap.set(v.slug, v.image_url);
+            }
+          }
+        }
+
         // Group scenes by episode
         const scenesByEp = new Map<string, SceneData[]>();
         for (const s of allScenes as (SceneData & { episode_id: string })[]) {
@@ -430,6 +740,7 @@ export default function StoryboardPanel() {
 
         if (!cancelled) {
           setEpisodes(parsed);
+          setImageMap(newImageMap);
           setIsLoading(false);
         }
       } catch (err) {
@@ -486,6 +797,7 @@ export default function StoryboardPanel() {
     (s, e) => s + e.scenes.reduce((ss, sc) => ss + (sc.duration || 0), 0),
     0
   );
+  const totalVariantImages = imageMap.size;
 
   return (
     <ScrollArea className="h-full">
@@ -495,7 +807,9 @@ export default function StoryboardPanel() {
           <div>
             <h3 className="text-sm font-semibold">{seriesName || 'Storyboard'}</h3>
             <p className="text-[10px] text-muted-foreground">
-              {episodes.length} episodes · {totalScenes} scenes · {Math.round(totalDuration / 60)}min {totalDuration % 60}s
+              {episodes.length} episodes · {totalScenes} scenes
+              {totalDuration > 0 && ` · ${formatDuration(totalDuration)}`}
+              {totalVariantImages > 0 && ` · ${totalVariantImages} images`}
             </p>
           </div>
           <Badge variant="outline" className="text-[9px]">
@@ -505,7 +819,7 @@ export default function StoryboardPanel() {
 
         {/* Episode list */}
         {episodes.map((ep) => (
-          <EpisodeAccordion key={ep.id} episode={ep} />
+          <EpisodeAccordion key={ep.id} episode={ep} imageMap={imageMap} />
         ))}
       </div>
     </ScrollArea>
