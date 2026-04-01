@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: variant, error: variantError } = await supabase
       .from('series_asset_variants')
-      .select('id, asset_id, slug, prompt, image_url, is_main, is_finalized')
+      .select('id, asset_id, slug, prompt, image_url, is_main')
       .eq('id', variantId)
       .maybeSingle();
 
@@ -40,13 +40,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { error: 'Variant not found' },
         { status: 404 }
-      );
-    }
-
-    if (variant.is_finalized) {
-      return NextResponse.json(
-        { error: 'Variant is finalized and cannot be regenerated' },
-        { status: 409 }
       );
     }
 
