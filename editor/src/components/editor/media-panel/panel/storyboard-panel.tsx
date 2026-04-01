@@ -79,9 +79,65 @@ function slugToLabel(slug: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// ── Prompt Highlighter ─────────────────────────────────────────────────────────
+
+/** Renders prompt text with @slug refs highlighted in their role color */
+function HighlightedPrompt({
+  prompt,
+  locationSlug,
+  characterSlugs,
+  propSlugs,
+}: {
+  prompt: string;
+  locationSlug: string | null;
+  characterSlugs: string[];
+  propSlugs: string[];
+}) {
+  // Build slug → color map
+  const colorMap = new Map<string, string>();
+  if (locationSlug) colorMap.set(locationSlug, 'text-emerald-400 bg-emerald-500/15');
+  for (const s of characterSlugs) colorMap.set(s, 'text-blue-400 bg-blue-500/15');
+  for (const s of propSlugs) colorMap.set(s, 'text-amber-400 bg-amber-500/15');
+
+  // Split prompt on @slug patterns
+  const pattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(prompt)) !== null) {
+    // Text before this match
+    if (match.index > lastIndex) {
+      parts.push(prompt.slice(lastIndex, match.index));
+    }
+    const slug = match[1];
+    const color = colorMap.get(slug);
+    if (color) {
+      parts.push(
+        <span key={match.index} className={`${color} rounded px-0.5 font-medium`}>
+          @{slugToLabel(slug)}
+        </span>
+      );
+    } else {
+      parts.push(
+        <span key={match.index} className="text-purple-400 bg-purple-500/15 rounded px-0.5 font-medium">
+          @{slug}
+        </span>
+      );
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < prompt.length) {
+    parts.push(prompt.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
 // ── Scene Card ─────────────────────────────────────────────────────────────────
 
 function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const hasAudio = !!scene.audio_url;
   const hasVideo = !!scene.video_url;
   const hasPrompt = !!scene.prompt;
@@ -91,8 +147,17 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
 
   return (
     <div className="border border-border/40 rounded-md bg-card/50 overflow-hidden">
-      {/* Scene header */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30">
+      {/* Scene header — clickable */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30 hover:bg-muted/40 transition-colors text-left"
+      >
+        {isExpanded ? (
+          <IconChevronUp className="size-3 text-muted-foreground shrink-0" />
+        ) : (
+          <IconChevronDown className="size-3 text-muted-foreground shrink-0" />
+        )}
         <span className="text-[10px] font-mono text-muted-foreground w-5 shrink-0">
           S{index + 1}
         </span>
@@ -105,9 +170,9 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
         {scene.duration && (
           <span className="text-[10px] text-muted-foreground">{scene.duration}s</span>
         )}
-      </div>
+      </button>
 
-      {/* Scene body */}
+      {/* Scene summary (always visible) */}
       <div className="px-3 py-2 space-y-2">
         {/* Narration */}
         {scene.audio_text && (
@@ -163,6 +228,32 @@ function SceneCard({ scene, index }: { scene: SceneData; index: number }) {
           </span>
         </div>
       </div>
+
+      {/* Expanded: Full prompt with highlighted slugs */}
+      {isExpanded && hasPrompt && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/20">
+          <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">
+            Visual Prompt
+          </p>
+          <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
+            <HighlightedPrompt
+              prompt={scene.prompt!}
+              locationSlug={scene.location_variant_slug}
+              characterSlugs={scene.character_variant_slugs ?? []}
+              propSlugs={scene.prop_variant_slugs ?? []}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Expanded: No prompt message */}
+      {isExpanded && !hasPrompt && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/20">
+          <p className="text-[10px] text-muted-foreground/50 italic">
+            No visual prompt written yet.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
