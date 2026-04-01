@@ -24,6 +24,7 @@ import {
   IconPlayerPlay,
   IconPlayerPause,
   IconEye,
+  IconX,
 } from '@tabler/icons-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -91,6 +92,55 @@ function formatDuration(seconds: number): string {
   return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
 }
 
+// ── Image Lightbox ─────────────────────────────────────────────────────────────
+
+function ImageLightbox({
+  url,
+  label,
+  onClose,
+}: {
+  url: string;
+  label: string;
+  onClose: () => void;
+}) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
+      <div
+        className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={() => {}}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute -top-2 -right-2 z-10 size-7 rounded-full bg-black/60 border border-white/20 flex items-center justify-center hover:bg-black/80 transition-colors"
+        >
+          <IconX className="size-4 text-white" />
+        </button>
+        <img
+          src={url}
+          alt={label}
+          className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl"
+        />
+        <span className="text-sm text-white/80 font-medium">{label}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Variant Avatar ─────────────────────────────────────────────────────────────
 
 function VariantAvatar({
@@ -102,6 +152,7 @@ function VariantAvatar({
   imageMap: VariantImageMap;
   size?: 'sm' | 'md';
 }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const url = imageMap.get(slug);
   const px = size === 'md' ? 'size-7' : 'size-4';
 
@@ -117,12 +168,30 @@ function VariantAvatar({
   }
 
   return (
-    <img
-      src={url}
-      alt={slugToLabel(slug)}
-      title={slugToLabel(slug)}
-      className={`${px} rounded-full object-cover border border-border/40 shrink-0`}
-    />
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setLightboxOpen(true);
+        }}
+        className={`${px} rounded-full overflow-hidden border border-border/40 shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all`}
+        title={`Click to expand: ${slugToLabel(slug)}`}
+      >
+        <img
+          src={url}
+          alt={slugToLabel(slug)}
+          className="w-full h-full object-cover"
+        />
+      </button>
+      {lightboxOpen && (
+        <ImageLightbox
+          url={url}
+          label={slugToLabel(slug)}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -449,6 +518,58 @@ function SceneCard({
   );
 }
 
+// ── Gallery Card (expandable) ──────────────────────────────────────────────────
+
+function GalleryCard({
+  slug,
+  imageMap,
+  fallbackIcon: FallbackIcon,
+}: {
+  slug: string;
+  imageMap: VariantImageMap;
+  fallbackIcon: React.FC<{ className?: string }>;
+}) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const url = imageMap.get(slug);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {url ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="w-full aspect-[9/16] rounded-md overflow-hidden border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 hover:brightness-110 transition-all relative group"
+          >
+            <img
+              src={url}
+              alt={slugToLabel(slug)}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <IconEye className="size-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+            </div>
+          </button>
+          {lightboxOpen && (
+            <ImageLightbox
+              url={url}
+              label={slugToLabel(slug)}
+              onClose={() => setLightboxOpen(false)}
+            />
+          )}
+        </>
+      ) : (
+        <div className="w-full aspect-[9/16] rounded-md bg-muted/30 border border-border/30 flex items-center justify-center">
+          <FallbackIcon className="size-4 text-muted-foreground/30" />
+        </div>
+      )}
+      <span className="text-[8px] text-muted-foreground text-center leading-tight truncate w-full">
+        {slugToLabel(slug)}
+      </span>
+    </div>
+  );
+}
+
 // ── Asset Gallery ──────────────────────────────────────────────────────────────
 
 function AssetGallery({
@@ -478,27 +599,9 @@ function AssetGallery({
         <span className="opacity-50">({slugs.length})</span>
       </div>
       <div className="grid grid-cols-3 gap-1.5">
-        {slugs.map((slug) => {
-          const url = imageMap.get(slug);
-          return (
-            <div key={slug} className="flex flex-col items-center gap-1">
-              {url ? (
-                <img
-                  src={url}
-                  alt={slugToLabel(slug)}
-                  className="w-full aspect-[9/16] rounded-md object-cover border border-border/30"
-                />
-              ) : (
-                <div className="w-full aspect-[9/16] rounded-md bg-muted/30 border border-border/30 flex items-center justify-center">
-                  <Icon className="size-4 text-muted-foreground/30" />
-                </div>
-              )}
-              <span className="text-[8px] text-muted-foreground text-center leading-tight truncate w-full">
-                {slugToLabel(slug)}
-              </span>
-            </div>
-          );
-        })}
+        {slugs.map((slug) => (
+          <GalleryCard key={slug} slug={slug} imageMap={imageMap} fallbackIcon={Icon} />
+        ))}
       </div>
     </div>
   );
