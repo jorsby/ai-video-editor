@@ -25,6 +25,8 @@ import {
   IconPlayerPause,
   IconEye,
   IconX,
+  IconSparkles,
+  IconRefresh,
 } from '@tabler/icons-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -62,8 +64,13 @@ interface EpisodeData {
   scenes: SceneData[];
 }
 
-/** slug → image_url lookup */
-type VariantImageMap = Map<string, string>;
+/** slug → variant info lookup */
+interface VariantInfo {
+  image_url: string | null;
+  id: string;
+  image_gen_status: string;
+}
+type VariantImageMap = Map<string, VariantInfo>;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -178,7 +185,8 @@ function VariantAvatar({
   size?: 'sm' | 'md';
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const url = imageMap.get(slug);
+  const info = imageMap.get(slug);
+  const url = info?.image_url;
   const px = size === 'md' ? 'size-7' : 'size-4';
 
   if (!url) {
@@ -381,6 +389,94 @@ function HighlightedPrompt({
   return <>{parts}</>;
 }
 
+// ── Generate API Calls ─────────────────────────────────────────────────────────
+
+async function callGenerateApi(
+  path: string,
+  body: Record<string, unknown> = {}
+): Promise<{ ok: boolean; task_id?: string; error?: string }> {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error ?? `HTTP ${res.status}` };
+    return { ok: true, task_id: data.task_id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+// ── Generate Button ────────────────────────────────────────────────────────────
+
+function GenerateButton({
+  label,
+  genStatus,
+  hasResult,
+  onClick,
+  size = 'sm',
+}: {
+  label: string;
+  genStatus: string;
+  hasResult: boolean;
+  onClick: () => void;
+  size?: 'sm' | 'md';
+}) {
+  if (genStatus === 'generating') {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+        <IconLoader2 className="size-2.5 animate-spin" />
+        {size === 'md' && 'Generating...'}
+      </span>
+    );
+  }
+
+  // Already has result — show regenerate option
+  if (hasResult) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border/30 hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
+        title={`Regenerate ${label}`}
+      >
+        <IconRefresh className="size-2.5" />
+        {size === 'md' && label}
+      </button>
+    );
+  }
+
+  // Failed — show retry
+  if (genStatus === 'failed') {
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors cursor-pointer"
+        title={`Retry ${label}`}
+      >
+        <IconRefresh className="size-2.5" />
+        {size === 'md' && `Retry ${label}`}
+      </button>
+    );
+  }
+
+  // Idle — show generate
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
+      title={`Generate ${label}`}
+    >
+      <IconSparkles className="size-2.5" />
+      {size === 'md' && label}
+    </button>
+  );
+}
+
 // ── Generation Status Indicator ─────────────────────────────────────────────────
 
 function GenerationStatus({
@@ -581,6 +677,39 @@ function SceneCard({
           </p>
         </div>
       )}
+
+      {/* Expanded: Generate action buttons */}
+      {isExpanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/20">
+          <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">
+            Generate
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {scene.audio_text && (
+              <GenerateButton
+                label="TTS"
+                genStatus={scene.tts_status}
+                hasResult={hasAudio}
+                size="md"
+                onClick={() => {
+                  callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+                }}
+              />
+            )}
+            {hasPrompt && (
+              <GenerateButton
+                label="Video"
+                genStatus={scene.video_status}
+                hasResult={hasVideo}
+                size="md"
+                onClick={() => {
+                  callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -597,7 +726,8 @@ function GalleryCard({
   fallbackIcon: React.FC<{ className?: string }>;
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const url = imageMap.get(slug);
+  const info = imageMap.get(slug);
+  const url = info?.image_url;
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -633,6 +763,17 @@ function GalleryCard({
       <span className="text-[8px] text-muted-foreground text-center leading-tight truncate w-full">
         {slugToLabel(slug)}
       </span>
+      {info && (
+        <GenerateButton
+          label="Image"
+          genStatus={info.image_gen_status}
+          hasResult={!!url}
+          size="md"
+          onClick={() => {
+            callGenerateApi(`/api/v2/variants/${info.id}/generate-image`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -872,18 +1013,21 @@ export default function StoryboardPanel() {
           for (const p of s.prop_variant_slugs ?? []) slugSet.add(p);
         }
 
-        // Fetch variant images for all referenced slugs
-        const newImageMap = new Map<string, string>();
+        // Fetch variant info for all referenced slugs
+        const newImageMap = new Map<string, VariantInfo>();
         if (slugSet.size > 0) {
           const { data: variantRows } = await supabase
             .from('series_asset_variants')
-            .select('slug, image_url')
-            .in('slug', [...slugSet])
-            .not('image_url', 'is', null);
+            .select('id, slug, image_url, image_gen_status')
+            .in('slug', [...slugSet]);
 
           for (const v of variantRows ?? []) {
-            if (v.slug && v.image_url) {
-              newImageMap.set(v.slug, v.image_url);
+            if (v.slug) {
+              newImageMap.set(v.slug, {
+                id: v.id,
+                image_url: v.image_url,
+                image_gen_status: v.image_gen_status ?? 'idle',
+              });
             }
           }
         }
@@ -991,7 +1135,7 @@ export default function StoryboardPanel() {
     (s, e) => s + e.scenes.reduce((ss, sc) => ss + (sc.duration || 0), 0),
     0
   );
-  const totalVariantImages = imageMap.size;
+  const totalVariantImages = [...imageMap.values()].filter((v) => !!v.image_url).length;
 
   return (
     <ScrollArea className="h-full">
