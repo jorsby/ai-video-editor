@@ -10,6 +10,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { toast } from 'sonner';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -426,9 +427,9 @@ function GenerateButton({
 }) {
   if (genStatus === 'generating') {
     return (
-      <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-        <IconLoader2 className="size-2.5 animate-spin" />
-        {size === 'md' && 'Generating...'}
+      <span className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 animate-pulse font-medium">
+        <IconLoader2 className="size-3 animate-spin" />
+        Generating {label}...
       </span>
     );
   }
@@ -492,9 +493,10 @@ function GenerationStatus({
 }) {
   if (genStatus === 'generating') {
     return (
-      <span className="text-yellow-400 animate-pulse" title={`${label}: Generating...`}>
+      <span className="inline-flex items-center gap-0.5 text-yellow-400 animate-pulse bg-yellow-500/10 px-1.5 py-0.5 rounded border border-yellow-500/20" title={`${label}: Generating...`}>
         {icon}
-        <IconLoader2 className="size-2.5 inline animate-spin ml-0.5" />
+        <IconLoader2 className="size-2.5 inline animate-spin" />
+        <span className="text-[8px] font-medium">Generating</span>
       </span>
     );
   }
@@ -545,7 +547,7 @@ function SceneCard({
   if (scene.prop_variant_slugs) allSlugs.push(...scene.prop_variant_slugs);
 
   return (
-    <div className="border border-border/40 rounded-md bg-card/50 overflow-hidden">
+    <div className={`rounded-md overflow-hidden transition-colors ${isSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-card/50'}`}>
       {/* Scene header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30">
         <input
@@ -553,7 +555,7 @@ function SceneCard({
           checked={isSelected}
           onChange={onToggleSelected}
           onClick={(event) => event.stopPropagation()}
-          className="size-3.5 shrink-0 rounded border-border/60 bg-background"
+          className="size-3.5 shrink-0 rounded border-border/60 bg-background accent-primary"
           aria-label={`Select scene ${index + 1}`}
         />
 
@@ -668,7 +670,14 @@ function SceneCard({
               hasResult={hasAudio}
               size="md"
               onClick={() => {
-                void callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+                void (async () => {
+                  const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+                  if (result.ok) {
+                    toast.success(`TTS generation started for S${index + 1}`);
+                  } else {
+                    toast.error(result.error ?? 'Failed to start TTS generation');
+                  }
+                })();
               }}
             />
           )}
@@ -679,7 +688,14 @@ function SceneCard({
               hasResult={hasVideo}
               size="md"
               onClick={() => {
-                void callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+                void (async () => {
+                  const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+                  if (result.ok) {
+                    toast.success(`Video generation started for S${index + 1}`);
+                  } else {
+                    toast.error(result.error ?? 'Failed to start Video generation');
+                  }
+                })();
               }}
             />
           )}

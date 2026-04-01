@@ -153,13 +153,13 @@ function VariantCard({
 
   return (
     <>
-      <div className="rounded-md border border-border/30 bg-muted/10 overflow-hidden">
+      <div className={`rounded-md overflow-hidden transition-colors ${selected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/30 bg-muted/10'}`}>
         <div className="flex items-center gap-2 px-2.5 py-1.5 bg-muted/20">
           <input
             type="checkbox"
             checked={selected}
             onChange={onToggleSelected}
-            className="size-3.5 shrink-0 rounded border-border/60 bg-background"
+            className="size-3.5 shrink-0 rounded border-border/60 bg-background accent-primary"
             aria-label={`Select variant ${variant.label}`}
           />
 
@@ -213,9 +213,9 @@ function VariantCard({
           </div>
 
           {isGenerating ? (
-            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400 animate-pulse">
-              <IconLoader2 className="size-2.5 animate-spin" />
-              Generating
+            <span className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded border border-amber-500/40 bg-amber-500/15 text-amber-400 animate-pulse font-medium">
+              <IconLoader2 className="size-3 animate-spin" />
+              Generating...
             </span>
           ) : null}
 
