@@ -3,7 +3,7 @@ import {
   IconLetterT,
   IconSubtitles,
   IconMusic,
-  IconMicrophone,
+
   IconWaveSine,
   IconArrowsLeftRight,
   IconSparkles,
@@ -26,7 +26,6 @@ export type Tab =
   | 'text'
   | 'captions'
   | 'effects'
-  | 'voiceovers'
   | 'sfx'
   | 'transitions'
   | 'assistant'
@@ -78,10 +77,7 @@ export const tabs: {
     icon: IconMusic,
     label: 'Music',
   },
-  voiceovers: {
-    icon: IconMicrophone,
-    label: 'Voiceovers',
-  },
+
   sfx: {
     icon: IconWaveSine,
     label: 'SFX',
@@ -106,12 +102,8 @@ interface MediaPanelStore {
   highlightMediaId: string | null;
   requestRevealMedia: (mediaId: string) => void;
   clearHighlight: () => void;
-  selectedStoryboardId: string | null;
-  setSelectedStoryboardId: (id: string | null) => void;
   showProperties: boolean;
   setShowProperties: (show: boolean) => void;
-  showStoryboardDebugPanel: boolean;
-  setShowStoryboardDebugPanel: (show: boolean) => void;
 }
 
 export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
@@ -125,11 +117,6 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
       showProperties: false,
     }),
   clearHighlight: () => set({ highlightMediaId: null }),
-  selectedStoryboardId: null,
-  setSelectedStoryboardId: (id) => set({ selectedStoryboardId: id }),
   showProperties: false,
   setShowProperties: (show) => set({ showProperties: show }),
-  showStoryboardDebugPanel: false,
-  setShowStoryboardDebugPanel: (show) =>
-    set({ showStoryboardDebugPanel: show }),
 }));

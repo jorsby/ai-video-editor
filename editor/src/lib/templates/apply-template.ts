@@ -37,18 +37,12 @@ export async function applyTemplate(
     const imageUrl = getSceneImageUrl(scene);
     if (!imageUrl) continue;
 
-    // --- 2. Find voiceover ---
-    const voiceover = language
-      ? scene.voiceovers?.find(
-          (v) =>
-            v.language === language && v.status === 'success' && v.audio_url
-        )
-      : scene.voiceovers?.find((v) => v.status === 'success' && v.audio_url);
-
-    // --- 3. Determine scene duration ---
+    // --- 2. Scene duration ---
     let sceneDurationUs: number;
-    if (voiceover?.duration) {
-      sceneDurationUs = voiceover.duration; // already in microseconds
+    if (scene.audio_duration) {
+      sceneDurationUs = scene.audio_duration * 1e6; // seconds → microseconds
+    } else if (scene.duration) {
+      sceneDurationUs = scene.duration * 1e6;
     } else {
       sceneDurationUs = DEFAULT_SCENE_DURATION;
     }
@@ -145,16 +139,15 @@ export async function applyTemplate(
       }
     }
 
-    // --- 7. Add voiceover audio ---
-    if (voiceover?.audio_url) {
-      const audioClip = await Audio.fromUrl(voiceover.audio_url);
-      audioClip.style = { ...audioClip.style, voiceoverId: voiceover.id };
+    // --- 7. Add audio ---
+    if (scene.audio_url) {
+      const audioClip = await Audio.fromUrl(scene.audio_url);
       audioClip.display.from = runningEnd;
       audioClip.display.to = runningEnd + audioClip.duration;
 
       await studio.addClip(audioClip, {
         trackId: audioTrackId,
-        audioSource: voiceover.audio_url,
+        audioSource: scene.audio_url,
       });
       if (!audioTrackId) {
         const track = studio.tracks.find(
@@ -171,33 +164,13 @@ export async function applyTemplate(
 // --- Helpers ---
 
 function getSceneImageUrl(scene: Scene): string | null {
-  // Prefer final_url > outpainted_url > url from first_frame
-  const ff = scene.first_frames?.[0];
-  if (ff) {
-    const ffUrl = ff.final_url || ff.outpainted_url || ff.url;
-    if (ffUrl) return ffUrl;
-  }
-  // Fallback to background image (ref_to_video mode)
-  const bg = scene.backgrounds?.[0];
-  if (bg) {
-    const bgUrl = bg.final_url || bg.url;
-    if (bgUrl) return bgUrl;
-  }
-  // Fallback to object image
-  const obj = scene.objects?.[0];
-  if (obj) {
-    const objUrl = obj.final_url || obj.url;
-    if (objUrl) return objUrl;
-  }
+  // Use video_url as the primary source (video still/thumbnail)
+  if (scene.video_url) return scene.video_url;
   return null;
 }
 
-function getSceneText(scene: Scene, language?: string): string | null {
-  // Use voiceover text as the overlay text
-  const vo = language
-    ? scene.voiceovers?.find((v) => v.language === language)
-    : scene.voiceovers?.[0];
-  return vo?.text || null;
+function getSceneText(scene: Scene, _language?: string): string | null {
+  return scene.audio_text || null;
 }
 
 function scaleImageToCanvas(

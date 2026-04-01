@@ -11,11 +11,9 @@ import PanelTransition from './panel/transition';
 import PanelText from './panel/text';
 import PanelCaptions from './panel/captions';
 import PanelMusic from './panel/music';
-import PanelVoiceovers from './panel/voiceovers';
 import PanelSFX from './panel/sfx';
 import SeriesAssetsPanel from './panel/series-assets-panel';
 import SeriesRoadmapPanel from './panel/series-roadmap-panel';
-import PanelStoryboard from './panel/storyboard';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -31,7 +29,6 @@ const viewMap: Record<Tab, React.ReactNode> = {
   images: <PanelImages />,
   videos: <PanelVideos />,
   music: <PanelMusic />,
-  voiceovers: <PanelVoiceovers />,
   sfx: <PanelSFX />,
   text: <PanelText />,
   captions: <PanelCaptions />,
@@ -40,7 +37,7 @@ const viewMap: Record<Tab, React.ReactNode> = {
   assistant: <Assistant />,
   assets: <SeriesAssetsPanel />,
   roadmap: <SeriesRoadmapPanel />,
-  storyboard: <PanelStoryboard />,
+  storyboard: <SeriesRoadmapPanel />,
   renders: <PanelRenders />,
 };
 

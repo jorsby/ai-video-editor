@@ -16,7 +16,7 @@ import { Loading } from '@/components/editor/loading';
 import { ProjectProvider, useProjectId } from '@/contexts/project-context';
 import { DeleteConfirmationProvider } from '@/contexts/delete-confirmation-context';
 import { useAutoSave, type SaveStatus } from '@/hooks/use-auto-save';
-import { useWorkflowToasts } from '@/hooks/use-workflow-toasts';
+
 
 interface EditorPageProps {
   params: Promise<{ projectId: string }>;
@@ -108,7 +108,7 @@ function EditorShell() {
   const { saveNow, saveStatus } = useAutoSave();
   const handleReady = useCallback(() => setIsReady(true), []);
   const projectId = useProjectId();
-  useWorkflowToasts(projectId);
+
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">

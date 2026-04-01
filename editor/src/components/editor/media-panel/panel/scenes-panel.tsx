@@ -35,9 +35,6 @@ export default function ScenesPanel() {
   const projectId = useProjectId();
   const { isLoading, series, episodes, error } = useSeriesEpisodes(projectId);
   const setActiveTab = useMediaPanelStore((state) => state.setActiveTab);
-  const setSelectedStoryboardId = useMediaPanelStore(
-    (state) => state.setSelectedStoryboardId
-  );
 
   const readyCount = episodes.filter(
     (episode) => episode.status === 'ready'
@@ -46,10 +43,7 @@ export default function ScenesPanel() {
     (episode) => episode.status === 'planned'
   ).length;
 
-  const handleOpenEpisode = (storyboardId: string | null) => {
-    if (!storyboardId) return;
-
-    setSelectedStoryboardId(storyboardId);
+  const handleOpenEpisode = (_episodeId: string | null) => {
     setActiveTab('roadmap');
   };
 
