@@ -235,6 +235,8 @@ function MiniAudioPlayer({ url }: { url: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
 
   const toggle = useCallback(() => {
     const el = audioRef.current;
@@ -252,25 +254,42 @@ function MiniAudioPlayer({ url }: { url: string }) {
     if (!el) return;
 
     const onTimeUpdate = () => {
-      if (el.duration) setProgress(el.currentTime / el.duration);
+      if (el.duration) {
+        setProgress(el.currentTime / el.duration);
+        setCurrentTime(el.currentTime);
+      }
     };
     const onEnded = () => {
       setPlaying(false);
       setProgress(0);
+      setCurrentTime(0);
+    };
+    const onLoadedMetadata = () => {
+      if (el.duration && Number.isFinite(el.duration)) {
+        setAudioDuration(el.duration);
+      }
     };
 
     el.addEventListener('timeupdate', onTimeUpdate);
     el.addEventListener('ended', onEnded);
+    el.addEventListener('loadedmetadata', onLoadedMetadata);
     return () => {
       el.removeEventListener('timeupdate', onTimeUpdate);
       el.removeEventListener('ended', onEnded);
+      el.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
   }, []);
+
+  const fmtTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {/* biome-ignore lint/a11y/useMediaCaption: internal tool audio */}
-      <audio ref={audioRef} src={url} preload="none" />
+      <audio ref={audioRef} src={url} preload="metadata" />
       <button
         type="button"
         onClick={toggle}
@@ -290,6 +309,12 @@ function MiniAudioPlayer({ url }: { url: string }) {
           style={{ width: `${progress * 100}%` }}
         />
       </div>
+      {/* Duration */}
+      {audioDuration !== null && (
+        <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+          {playing ? fmtTime(currentTime) : fmtTime(audioDuration)}
+        </span>
+      )}
     </div>
   );
 }
@@ -301,13 +326,14 @@ function VideoThumbnail({ url }: { url: string }) {
 
   if (showPlayer) {
     return (
-      <div className="relative rounded-md overflow-hidden border border-border/30 bg-black">
+      <div className="relative rounded-md overflow-hidden border border-border/30 bg-black flex justify-center">
         {/* biome-ignore lint/a11y/useMediaCaption: internal tool video */}
         <video
           src={url}
           controls
           autoPlay
-          className="w-full max-h-[200px] object-contain"
+          className="max-w-full max-h-[300px] object-contain"
+          style={{ aspectRatio: '9/16' }}
           onEnded={() => setShowPlayer(false)}
         />
       </div>
@@ -318,7 +344,8 @@ function VideoThumbnail({ url }: { url: string }) {
     <button
       type="button"
       onClick={() => setShowPlayer(true)}
-      className="relative w-full h-16 rounded-md overflow-hidden border border-border/30 bg-black/60 hover:bg-black/40 transition-colors group"
+      className="relative w-24 rounded-md overflow-hidden border border-border/30 bg-black/60 hover:bg-black/40 transition-colors group"
+      style={{ aspectRatio: '9/16' }}
       title="Play video"
     >
       <div className="absolute inset-0 flex items-center justify-center">
@@ -326,10 +353,10 @@ function VideoThumbnail({ url }: { url: string }) {
           <IconPlayerPlay className="size-4 text-white ml-0.5" />
         </div>
       </div>
-      <div className="absolute bottom-1 right-1">
+      <div className="absolute bottom-1 left-1/2 -translate-x-1/2">
         <Badge variant="outline" className="text-[8px] bg-black/60 border-white/20 text-white/80">
           <IconVideo className="size-2 mr-0.5" />
-          Video
+          9:16
         </Badge>
       </div>
     </button>
@@ -533,6 +560,25 @@ function SceneCard({
   onToggleSelected: () => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [localTtsStatus, setLocalTtsStatus] = useState<string | null>(null);
+  const [localVideoStatus, setLocalVideoStatus] = useState<string | null>(null);
+
+  // Reset local overrides when DB status arrives via Realtime
+  useEffect(() => {
+    if (scene.tts_status === 'generating' || scene.tts_status === 'done' || scene.tts_status === 'failed') {
+      setLocalTtsStatus(null);
+    }
+  }, [scene.tts_status]);
+
+  useEffect(() => {
+    if (scene.video_status === 'generating' || scene.video_status === 'done' || scene.video_status === 'failed') {
+      setLocalVideoStatus(null);
+    }
+  }, [scene.video_status]);
+
+  const effectiveTtsStatus = localTtsStatus ?? scene.tts_status;
+  const effectiveVideoStatus = localVideoStatus ?? scene.video_status;
+
   const hasAudio = !!scene.audio_url;
   const hasVideo = !!scene.video_url;
   const hasPrompt = !!scene.prompt;
@@ -588,8 +634,8 @@ function SceneCard({
             )}
           </div>
 
-          <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus(scene))}`}>
-            {deriveSceneStatus(scene)}
+          <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus }))}`}>
+            {deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus })}
           </Badge>
           {scene.duration && (
             <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
@@ -654,27 +700,29 @@ function SceneCard({
           <GenerationStatus
             label="Audio"
             icon={<IconVolume className="size-3 inline mr-0.5" />}
-            genStatus={scene.tts_status}
+            genStatus={effectiveTtsStatus}
             hasResult={hasAudio}
           />
           <GenerationStatus
             label="Video"
             icon={<IconVideo className="size-3 inline mr-0.5" />}
-            genStatus={scene.video_status}
+            genStatus={effectiveVideoStatus}
             hasResult={hasVideo}
           />
           {scene.audio_text && (
             <GenerateButton
               label="TTS"
-              genStatus={scene.tts_status}
+              genStatus={effectiveTtsStatus}
               hasResult={hasAudio}
               size="md"
               onClick={() => {
+                setLocalTtsStatus('generating');
                 void (async () => {
                   const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
                   if (result.ok) {
                     toast.success(`TTS generation started for S${index + 1}`);
                   } else {
+                    setLocalTtsStatus(null);
                     toast.error(result.error ?? 'Failed to start TTS generation');
                   }
                 })();
@@ -684,15 +732,17 @@ function SceneCard({
           {hasPrompt && (
             <GenerateButton
               label="Video"
-              genStatus={scene.video_status}
+              genStatus={effectiveVideoStatus}
               hasResult={hasVideo}
               size="md"
               onClick={() => {
+                setLocalVideoStatus('generating');
                 void (async () => {
                   const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
                   if (result.ok) {
                     toast.success(`Video generation started for S${index + 1}`);
                   } else {
+                    setLocalVideoStatus(null);
                     toast.error(result.error ?? 'Failed to start Video generation');
                   }
                 })();

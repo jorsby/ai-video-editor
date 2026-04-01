@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, episode_id, prompt, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -98,7 +98,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // ── Parse body ──────────────────────────────────────────────────────
 
     const body = await req.json().catch(() => ({}));
-    const duration = VALID_DURATIONS.has(body.duration) ? body.duration : 6;
+    // Priority: body override > scene.duration from DB > default 6
+    const rawDuration = body.duration ?? scene.duration ?? 6;
+    const duration = VALID_DURATIONS.has(rawDuration) ? rawDuration : 6;
 
     let compiledPrompt: string;
     let imageUrls: string[];
