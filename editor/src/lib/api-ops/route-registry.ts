@@ -944,6 +944,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
             'As the sun dipped below the horizon, Ali approached the village gate...',
           audio_url: null,
           audio_duration: null,
+          image_url: null,
           video_url: null,
           video_duration: null,
           duration: null,
@@ -1026,6 +1027,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
       audio_text: 'As the sun dipped below the horizon...',
       audio_url: 'https://storage.example.com/tts/scene-uuid.mp3',
       audio_duration: 12.5,
+      image_url: null,
       video_url: null,
       video_duration: null,
       duration: 12.5,
@@ -1082,6 +1084,101 @@ const sceneRoutes: ApiRouteDefinition[] = [
 
 // ─── Webhook ─────────────────────────────────────────────────────────────────
 
+// ─── Generation ──────────────────────────────────────────────────────────────
+
+const generationRoutes: ApiRouteDefinition[] = [
+  {
+    id: 'v2-scene-generate-tts',
+    label: 'Generate TTS for scene',
+    method: 'POST',
+    pathTemplate: '/api/v2/scenes/{id}/generate-tts',
+    category: 'scene',
+    auth: 'session-or-api-key',
+    description:
+      'Generates TTS audio for a scene using ElevenLabs multilingual-v2 via kie.ai. Uses scene audio_text as input. Supports voice_id, speed, previous_text, next_text for continuity. Async — webhook updates scene.audio_url on completion.',
+    pathParams: { id: 'scene-uuid' },
+    body: {
+      voice_id: 'Rachel',
+      speed: 1.0,
+      previous_text: 'Previous scene narration for speech continuity...',
+      next_text: 'Next scene narration for speech continuity...',
+    },
+    response: {
+      task_id: 'kie-task-id',
+      model: 'elevenlabs/text-to-speech-multilingual-v2',
+      scene_id: 'scene-uuid',
+      voice_id: 'Rachel',
+      speed: 1.0,
+    },
+  },
+  {
+    id: 'v2-scene-generate-image',
+    label: 'Generate image for scene',
+    method: 'POST',
+    pathTemplate: '/api/v2/scenes/{id}/generate-image',
+    category: 'scene',
+    auth: 'session-or-api-key',
+    description:
+      'Generates a first-frame image for a scene using Nano Banana 2 via kie.ai. Always 1K resolution, 9:16, JPG. Uses scene.prompt as input. Async — webhook updates scene.image_url on completion.',
+    pathParams: { id: 'scene-uuid' },
+    body: {
+      prompt_override: 'Optional custom prompt instead of scene.prompt',
+    },
+    response: {
+      task_id: 'kie-task-id',
+      model: 'nano-banana-2',
+      scene_id: 'scene-uuid',
+      aspect_ratio: '9:16',
+      resolution: '1K',
+    },
+  },
+  {
+    id: 'v2-scene-generate-video',
+    label: 'Generate video for scene',
+    method: 'POST',
+    pathTemplate: '/api/v2/scenes/{id}/generate-video',
+    category: 'scene',
+    auth: 'session-or-api-key',
+    description:
+      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6 or 10 sec. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
+    pathParams: { id: 'scene-uuid' },
+    body: {
+      duration: 6,
+      prompt_override: 'Optional compiled prompt (bypasses auto-compile)',
+      image_urls_override: ['https://...variant1.jpg', 'https://...variant2.jpg'],
+    },
+    response: {
+      task_id: 'kie-task-id',
+      model: 'grok-imagine/image-to-video',
+      scene_id: 'scene-uuid',
+      duration: 6,
+      aspect_ratio: '9:16',
+      resolution: '480p',
+      image_count: 2,
+    },
+  },
+  {
+    id: 'v2-variant-edit-image',
+    label: 'Edit variant image',
+    method: 'POST',
+    pathTemplate: '/api/v2/variants/{id}/edit-image',
+    category: 'variant',
+    auth: 'session-or-api-key',
+    description:
+      'Edits a variant\'s existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook updates variant.image_url on completion.',
+    pathParams: { id: 'variant-uuid' },
+    body: {
+      prompt: 'Make the character wear a red robe instead of blue',
+    },
+    response: {
+      task_id: 'kie-task-id',
+      model: 'grok-imagine/image-to-image',
+      variant_id: 'variant-uuid',
+      source_image: 'https://...current-image.jpg',
+    },
+  },
+];
+
 const webhookRoutes: ApiRouteDefinition[] = [
   {
     id: 'kie-webhook',
@@ -1121,6 +1218,7 @@ export const API_OPS_ROUTES: ApiRouteDefinition[] = [
   ...assetRoutes,
   ...variantRoutes,
   ...sceneRoutes,
+  ...generationRoutes,
   ...webhookRoutes,
 ];
 

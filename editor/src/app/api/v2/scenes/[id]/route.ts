@@ -21,6 +21,7 @@ type SceneRecord = {
   prop_variant_slugs: string[];
   audio_text: string | null;
   audio_url: string | null;
+  image_url: string | null;
   video_url: string | null;
   status: SceneStatus;
   created_at: string;
@@ -28,7 +29,7 @@ type SceneRecord = {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, duration, status, created_at, updated_at';
+  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, image_url, video_url, video_duration, duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',

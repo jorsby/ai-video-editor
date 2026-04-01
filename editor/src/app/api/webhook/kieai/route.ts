@@ -647,6 +647,89 @@ async function handleGenerateSceneTts(params: {
   });
 }
 
+async function handleGenerateSceneImage(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, sceneId, log } = params;
+
+  const { data: scene } = await supabase
+    .from('scenes')
+    .select('id, episode_id, status')
+    .eq('id', sceneId)
+    .maybeSingle();
+
+  if (!scene) {
+    return staleWebhookResponse(
+      'scene_missing',
+      'GenerateSceneImage',
+      'scene_id',
+      sceneId,
+      log
+    );
+  }
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateSceneImage',
+    });
+  }
+
+  if (isFailureState(state)) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneImage',
+      failed: true,
+    });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const imageUrl = extractImageUrl(result);
+
+  if (!imageUrl) {
+    await supabase
+      .from('scenes')
+      .update({ status: 'failed' })
+      .eq('id', sceneId)
+      .eq('status', 'in_progress');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateSceneImage',
+      failed: true,
+    });
+  }
+
+  // Store image_url on scene, set status to ready (image done, video pending)
+  await supabase
+    .from('scenes')
+    .update({
+      image_url: imageUrl,
+      status: 'ready',
+    })
+    .eq('id', sceneId)
+    .in('status', ['in_progress', 'draft']);
+
+  return okResponse({
+    success: true,
+    step: 'GenerateSceneImage',
+    scene_id: sceneId,
+    image_url: imageUrl,
+  });
+}
+
 async function handleGenerateSceneVideo(params: {
   supabase: any;
   payload: KieWebhookPayload;
@@ -1147,6 +1230,25 @@ export async function POST(req: NextRequest) {
         success: true,
         ignored: true,
         reason: 'missing_task',
+      });
+    }
+
+    if (step === 'GenerateSceneImage') {
+      const sceneId = req.nextUrl.searchParams.get('scene_id');
+      if (!sceneId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_scene_id',
+        });
+      }
+
+      return await handleGenerateSceneImage({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        sceneId,
+        log,
       });
     }
 
