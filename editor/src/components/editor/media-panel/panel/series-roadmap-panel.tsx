@@ -27,8 +27,14 @@ import {
   IconVideo,
 } from '@tabler/icons-react';
 
-type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
-type EpisodeStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+type SceneStatus =
+  | 'draft'
+  | 'ready'
+  | 'generating'
+  | 'partial'
+  | 'done'
+  | 'failed';
+type EpisodeStatus = 'draft' | 'generating' | 'partial' | 'done' | 'failed';
 type AssetType = 'character' | 'location' | 'prop';
 
 interface CanonicalSeries {
@@ -58,7 +64,8 @@ interface EpisodeScene {
   audio_text: string | null;
   audio_url: string | null;
   video_url: string | null;
-  status: SceneStatus;
+  tts_status: string | null;
+  video_status: string | null;
   location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
@@ -71,7 +78,6 @@ interface EpisodeCardData {
   synopsis: string | null;
   audioContent: string | null;
   visualOutline: string | null;
-  status: EpisodeStatus;
   assetVariantMap: EpisodeAssetVariantMap;
   scenes: EpisodeScene[];
 }
@@ -135,12 +141,13 @@ const EPISODE_STATUS_CONFIG: Record<
     label: 'Draft',
     className: 'text-muted-foreground border-muted-foreground/30',
   },
-  ready: { label: 'Ready', className: 'text-blue-400 border-blue-500/30' },
-  in_progress: {
-    label: 'In Progress',
+  generating: {
+    label: 'Generating',
     className: 'text-amber-400 border-amber-500/30',
   },
+  partial: { label: 'Partial', className: 'text-blue-400 border-blue-500/30' },
   done: { label: 'Done', className: 'text-emerald-400 border-emerald-500/30' },
+  failed: { label: 'Failed', className: 'text-red-400 border-red-500/30' },
 };
 
 const SCENE_STATUS_CONFIG: Record<
@@ -152,13 +159,47 @@ const SCENE_STATUS_CONFIG: Record<
     className: 'text-muted-foreground border-muted-foreground/30',
   },
   ready: { label: 'Ready', className: 'text-blue-400 border-blue-500/30' },
-  in_progress: {
-    label: 'In Progress',
+  generating: {
+    label: 'Generating',
     className: 'text-amber-400 border-amber-500/30',
   },
+  partial: { label: 'Partial', className: 'text-blue-400 border-blue-500/30' },
   done: { label: 'Done', className: 'text-emerald-400 border-emerald-500/30' },
   failed: { label: 'Failed', className: 'text-red-400 border-red-500/30' },
 };
+
+function deriveSceneStatus(scene: EpisodeScene): SceneStatus {
+  if (scene.tts_status === 'generating' || scene.video_status === 'generating') {
+    return 'generating';
+  }
+  if (scene.tts_status === 'failed' || scene.video_status === 'failed') {
+    return 'failed';
+  }
+  if (scene.audio_url && scene.video_url) {
+    return 'done';
+  }
+  if (scene.audio_url || scene.video_url) {
+    return 'partial';
+  }
+  if (scene.prompt) {
+    return 'ready';
+  }
+  return 'draft';
+}
+
+function deriveEpisodeStatus(episode: EpisodeCardData): EpisodeStatus {
+  if (episode.scenes.length < 1) return 'draft';
+  const sceneStatuses = episode.scenes.map(deriveSceneStatus);
+  if (sceneStatuses.some((status) => status === 'generating')) return 'generating';
+  if (sceneStatuses.every((status) => status === 'done')) return 'done';
+  if (sceneStatuses.some((status) => status === 'failed')) return 'failed';
+  if (
+    sceneStatuses.some((status) => status === 'done' || status === 'partial')
+  ) {
+    return 'partial';
+  }
+  return 'draft';
+}
 
 function variantTypeBadgeClass(type: AssetType): string {
   if (type === 'character') return 'text-cyan-300 border-cyan-500/30';
@@ -173,8 +214,8 @@ function SceneRow({
   scene: EpisodeScene;
   variantBySlug: Map<string, VariantMeta>;
 }) {
-  const sceneStatusConfig =
-    SCENE_STATUS_CONFIG[scene.status] ?? SCENE_STATUS_CONFIG.draft;
+  const sceneStatus = deriveSceneStatus(scene);
+  const sceneStatusConfig = SCENE_STATUS_CONFIG[sceneStatus] ?? SCENE_STATUS_CONFIG.draft;
   const promptPreview = scene.prompt?.trim() || 'No prompt yet';
   const audioPreview = scene.audio_text?.trim() || null;
 
@@ -248,11 +289,11 @@ function SceneRow({
           {sceneStatusConfig.label}
         </Badge>
 
-        {scene.status === 'done' ? (
+        {sceneStatus === 'done' ? (
           <IconCheck className="size-3 text-emerald-400 shrink-0" />
-        ) : scene.status === 'in_progress' ? (
+        ) : sceneStatus === 'generating' ? (
           <IconLoader2 className="size-3 text-amber-400 animate-spin shrink-0" />
-        ) : scene.status === 'failed' ? (
+        ) : sceneStatus === 'failed' ? (
           <IconAlertTriangle className="size-3 text-red-400 shrink-0" />
         ) : (
           <IconClock className="size-3 text-muted-foreground/50 shrink-0" />
@@ -307,11 +348,11 @@ function EpisodeCard({
   onToggle: () => void;
   variantBySlug: Map<string, VariantMeta>;
 }) {
-  const statusConfig =
-    EPISODE_STATUS_CONFIG[episode.status] ?? EPISODE_STATUS_CONFIG.draft;
+  const episodeStatus = deriveEpisodeStatus(episode);
+  const statusConfig = EPISODE_STATUS_CONFIG[episodeStatus] ?? EPISODE_STATUS_CONFIG.draft;
   const sceneCount = episode.scenes.length;
   const doneScenes = episode.scenes.filter(
-    (scene) => scene.status === 'done'
+    (scene) => deriveSceneStatus(scene) === 'done'
   ).length;
 
   const groupedAssetSlugs = [
@@ -610,7 +651,7 @@ export default function SeriesRoadmapPanel() {
       const { data: episodeRows, error: episodeError } = await supabase
         .from('episodes')
         .select(
-          'id, order, title, synopsis, audio_content, visual_outline, status, asset_variant_map'
+          'id, order, title, synopsis, audio_content, visual_outline, asset_variant_map'
         )
         .eq('series_id', resolvedSeriesId)
         .order('order', { ascending: true });
@@ -629,7 +670,7 @@ export default function SeriesRoadmapPanel() {
         const { data: sceneRows, error: sceneError } = await supabase
           .from('scenes')
           .select(
-            'id, episode_id, order, title, prompt, audio_text, audio_url, video_url, status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
+            'id, episode_id, order, title, prompt, audio_text, audio_url, video_url, tts_status, video_status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
           )
           .in('episode_id', episodeIds)
           .order('order', { ascending: true });
@@ -651,10 +692,8 @@ export default function SeriesRoadmapPanel() {
             audio_text: scene.audio_text ?? null,
             audio_url: scene.audio_url ?? null,
             video_url: scene.video_url ?? null,
-            status:
-              scene.status && SCENE_STATUS_CONFIG[scene.status as SceneStatus]
-                ? (scene.status as SceneStatus)
-                : 'draft',
+            tts_status: scene.tts_status ?? null,
+            video_status: scene.video_status ?? null,
             location_variant_slug: scene.location_variant_slug ?? null,
             character_variant_slugs: normalizeSlugArray(
               scene.character_variant_slugs
@@ -673,11 +712,6 @@ export default function SeriesRoadmapPanel() {
           synopsis: episode.synopsis ?? null,
           audioContent: episode.audio_content ?? null,
           visualOutline: episode.visual_outline ?? null,
-          status:
-            episode.status &&
-            EPISODE_STATUS_CONFIG[episode.status as EpisodeStatus]
-              ? (episode.status as EpisodeStatus)
-              : 'draft',
           assetVariantMap: normalizeEpisodeAssetVariantMap(
             episode.asset_variant_map
           ),
@@ -832,7 +866,9 @@ export default function SeriesRoadmapPanel() {
   );
 
   const doneEpisodes = useMemo(
-    () => episodes.filter((episode) => episode.status === 'done').length,
+    () =>
+      episodes.filter((episode) => deriveEpisodeStatus(episode) === 'done')
+        .length,
     [episodes]
   );
 

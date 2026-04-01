@@ -521,10 +521,14 @@ function SceneCard({
   scene,
   index,
   imageMap,
+  isSelected,
+  onToggleSelected,
 }: {
   scene: SceneData;
   index: number;
   imageMap: VariantImageMap;
+  isSelected: boolean;
+  onToggleSelected: () => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const hasAudio = !!scene.audio_url;
@@ -542,43 +546,54 @@ function SceneCard({
 
   return (
     <div className="border border-border/40 rounded-md bg-card/50 overflow-hidden">
-      {/* Scene header — clickable */}
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30 hover:bg-muted/40 transition-colors text-left"
-      >
-        {isExpanded ? (
-          <IconChevronUp className="size-3 text-muted-foreground shrink-0" />
-        ) : (
-          <IconChevronDown className="size-3 text-muted-foreground shrink-0" />
-        )}
-        <span className="text-[10px] font-mono text-muted-foreground w-5 shrink-0">
-          S{index + 1}
-        </span>
-        <span className="text-xs font-medium truncate flex-1">
-          {scene.title || `Scene ${index + 1}`}
-        </span>
+      {/* Scene header */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelected}
+          onClick={(event) => event.stopPropagation()}
+          className="size-3.5 shrink-0 rounded border-border/60 bg-background"
+          aria-label={`Select scene ${index + 1}`}
+        />
 
-        {/* Mini variant avatars in header */}
-        <div className="flex -space-x-1 shrink-0">
-          {allSlugs.slice(0, 4).map((slug) => (
-            <VariantAvatar key={slug} slug={slug} imageMap={imageMap} />
-          ))}
-          {allSlugs.length > 4 && (
-            <span className="size-4 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center text-[7px] text-muted-foreground shrink-0">
-              +{allSlugs.length - 4}
-            </span>
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex-1 flex items-center gap-2 min-w-0 hover:bg-muted/40 transition-colors text-left rounded-sm px-1 py-0.5"
+        >
+          {isExpanded ? (
+            <IconChevronUp className="size-3 text-muted-foreground shrink-0" />
+          ) : (
+            <IconChevronDown className="size-3 text-muted-foreground shrink-0" />
           )}
-        </div>
+          <span className="text-[10px] font-mono text-muted-foreground w-5 shrink-0">
+            S{index + 1}
+          </span>
+          <span className="text-xs font-medium truncate flex-1">
+            {scene.title || `Scene ${index + 1}`}
+          </span>
 
-        <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus(scene))}`}>
-          {deriveSceneStatus(scene)}
-        </Badge>
-        {scene.duration && (
-          <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
-        )}
-      </button>
+          {/* Mini variant avatars in header */}
+          <div className="flex -space-x-1 shrink-0">
+            {allSlugs.slice(0, 4).map((slug) => (
+              <VariantAvatar key={slug} slug={slug} imageMap={imageMap} />
+            ))}
+            {allSlugs.length > 4 && (
+              <span className="size-4 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center text-[7px] text-muted-foreground shrink-0">
+                +{allSlugs.length - 4}
+              </span>
+            )}
+          </div>
+
+          <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus(scene))}`}>
+            {deriveSceneStatus(scene)}
+          </Badge>
+          {scene.duration && (
+            <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
+          )}
+        </button>
+      </div>
 
       {/* Scene summary (always visible) */}
       <div className="px-3 py-2 space-y-2">
@@ -629,7 +644,7 @@ function SceneCard({
         </div>
 
         {/* Status indicators */}
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           <span className={hasPrompt ? 'text-green-400' : 'opacity-30'} title="Visual prompt">
             <IconPhoto className="size-3 inline mr-0.5" />
             Prompt
@@ -646,7 +661,29 @@ function SceneCard({
             genStatus={scene.video_status}
             hasResult={hasVideo}
           />
-          <span className="ml-auto opacity-50">
+          {scene.audio_text && (
+            <GenerateButton
+              label="TTS"
+              genStatus={scene.tts_status}
+              hasResult={hasAudio}
+              size="md"
+              onClick={() => {
+                void callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+              }}
+            />
+          )}
+          {hasPrompt && (
+            <GenerateButton
+              label="Video"
+              genStatus={scene.video_status}
+              hasResult={hasVideo}
+              size="md"
+              onClick={() => {
+                void callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+              }}
+            />
+          )}
+          <span className="ml-auto opacity-50 whitespace-nowrap">
             {charCount}ch {hasLocation ? '1loc' : '0loc'} {propCount}pr
           </span>
         </div>
@@ -675,39 +712,6 @@ function SceneCard({
           <p className="text-[10px] text-muted-foreground/50 italic">
             No visual prompt written yet.
           </p>
-        </div>
-      )}
-
-      {/* Expanded: Generate action buttons */}
-      {isExpanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/20">
-          <p className="text-[10px] font-medium text-muted-foreground mb-1.5 uppercase tracking-wider">
-            Generate
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {scene.audio_text && (
-              <GenerateButton
-                label="TTS"
-                genStatus={scene.tts_status}
-                hasResult={hasAudio}
-                size="md"
-                onClick={() => {
-                  callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
-                }}
-              />
-            )}
-            {hasPrompt && (
-              <GenerateButton
-                label="Video"
-                genStatus={scene.video_status}
-                hasResult={hasVideo}
-                size="md"
-                onClick={() => {
-                  callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
-                }}
-              />
-            )}
-          </div>
         </div>
       )}
     </div>
@@ -826,6 +830,9 @@ function EpisodeAccordion({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
+  const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
+  const [ttsBatchProgress, setTtsBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [videoBatchProgress, setVideoBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const sceneCount = episode.scenes.length;
   const doneCount = episode.scenes.filter((s) => !!s.audio_url && !!s.video_url).length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
@@ -843,6 +850,86 @@ function EpisodeAccordion({
     episode.scenes.flatMap((s) => s.prop_variant_slugs ?? [])
   )];
   const totalAssets = locationSlugs.length + characterSlugs.length + propSlugs.length;
+  const allSelected =
+    sceneCount > 0 && episode.scenes.every((scene) => selectedScenes.has(scene.id));
+  const selectedSceneList = episode.scenes.filter((scene) =>
+    selectedScenes.has(scene.id)
+  );
+  const selectedTtsCount = selectedSceneList.filter(
+    (scene) => !!scene.audio_text && !scene.audio_url
+  ).length;
+  const selectedVideoCount = selectedSceneList.filter(
+    (scene) => !!scene.prompt && !scene.video_url
+  ).length;
+  const isBatchRunning = ttsBatchProgress !== null || videoBatchProgress !== null;
+
+  useEffect(() => {
+    setSelectedScenes((prev) => {
+      const currentIds = new Set(episode.scenes.map((scene) => scene.id));
+      const next = new Set<string>();
+      for (const sceneId of prev) {
+        if (currentIds.has(sceneId)) {
+          next.add(sceneId);
+        }
+      }
+      return next;
+    });
+  }, [episode.scenes]);
+
+  const toggleSceneSelection = (sceneId: string) => {
+    setSelectedScenes((prev) => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) {
+        next.delete(sceneId);
+      } else {
+        next.add(sceneId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedScenes(new Set());
+      return;
+    }
+
+    setSelectedScenes(new Set(episode.scenes.map((scene) => scene.id)));
+  };
+
+  const runBatchTts = async () => {
+    const targets = episode.scenes.filter(
+      (scene) => selectedScenes.has(scene.id) && !!scene.audio_text && !scene.audio_url
+    );
+    if (targets.length < 1) return;
+
+    setTtsBatchProgress({ done: 0, total: targets.length });
+    try {
+      for (const [index, scene] of targets.entries()) {
+        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+        setTtsBatchProgress({ done: index + 1, total: targets.length });
+      }
+    } finally {
+      setTtsBatchProgress(null);
+    }
+  };
+
+  const runBatchVideo = async () => {
+    const targets = episode.scenes.filter(
+      (scene) => selectedScenes.has(scene.id) && !!scene.prompt && !scene.video_url
+    );
+    if (targets.length < 1) return;
+
+    setVideoBatchProgress({ done: 0, total: targets.length });
+    try {
+      for (const [index, scene] of targets.entries()) {
+        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        setVideoBatchProgress({ done: index + 1, total: targets.length });
+      }
+    } finally {
+      setVideoBatchProgress(null);
+    }
+  };
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -879,7 +966,7 @@ function EpisodeAccordion({
       <CollapsibleContent>
         <div className="pl-4 pr-1 pb-3 space-y-2">
           {/* Episode summary bar */}
-          <div className="flex items-center gap-3 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
             <span>{sceneCount} scenes</span>
             {totalDuration > 0 && <span>{formatDuration(totalDuration)}</span>}
             <span className={hasAnyAudio ? 'text-green-400' : 'opacity-30'}>
@@ -888,6 +975,50 @@ function EpisodeAccordion({
             <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
               <IconVideo className="size-3 inline" /> Video
             </span>
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              disabled={sceneCount < 1 || isBatchRunning}
+              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border/30 hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {allSelected ? 'Deselect All' : 'Select All'}
+            </button>
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => {
+                  void runBatchTts();
+                }}
+                disabled={selectedTtsCount === 0 || isBatchRunning}
+                className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <IconSparkles className="size-2.5" />
+                Generate TTS ({selectedTtsCount})
+              </button>
+              {ttsBatchProgress && (
+                <span className="text-[9px] text-yellow-400 mt-0.5">
+                  Generating {ttsBatchProgress.done}/{ttsBatchProgress.total}...
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => {
+                  void runBatchVideo();
+                }}
+                disabled={selectedVideoCount === 0 || isBatchRunning}
+                className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <IconSparkles className="size-2.5" />
+                Generate Video ({selectedVideoCount})
+              </button>
+              {videoBatchProgress && (
+                <span className="text-[9px] text-yellow-400 mt-0.5">
+                  Generating {videoBatchProgress.done}/{videoBatchProgress.total}...
+                </span>
+              )}
+            </div>
             {totalAssets > 0 && (
               <button
                 type="button"
@@ -921,7 +1052,14 @@ function EpisodeAccordion({
           {episode.scenes.length > 0 ? (
             <div className="space-y-1.5">
               {episode.scenes.map((scene, i) => (
-                <SceneCard key={scene.id} scene={scene} index={i} imageMap={imageMap} />
+                <SceneCard
+                  key={scene.id}
+                  scene={scene}
+                  index={i}
+                  imageMap={imageMap}
+                  isSelected={selectedScenes.has(scene.id)}
+                  onToggleSelected={() => toggleSceneSelection(scene.id)}
+                />
               ))}
             </div>
           ) : (
