@@ -402,21 +402,6 @@ async function handleGenerateVideo(params: {
 }): Promise<Response> {
   const { supabase, payload, taskId, sceneId, log } = params;
 
-  const guard = await guardRequest({
-    supabase,
-    table: 'scenes',
-    idColumn: 'id',
-    id: sceneId,
-    statusColumn: 'video_status',
-    requestIdColumn: 'video_request_id',
-    allowedStatuses: ['processing'],
-    taskId,
-    step: 'GenerateVideo',
-    log,
-  });
-
-  if (!guard.ok) return guard.response;
-
   const state = payload.data?.state ?? null;
   if (isInProgressState(state)) {
     return okResponse({ success: true, pending: true, step: 'GenerateVideo' });
@@ -425,13 +410,8 @@ async function handleGenerateVideo(params: {
   if (isFailureState(state)) {
     await supabase
       .from('scenes')
-      .update({
-        video_status: 'failed',
-        video_error_message: `kie.ai task failed (${state})`,
-      })
-      .eq('id', sceneId)
-      .eq('video_request_id', taskId)
-      .eq('video_status', 'processing');
+      .update({ video_status: 'failed', video_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({ success: true, step: 'GenerateVideo', failed: true });
   }
@@ -442,13 +422,8 @@ async function handleGenerateVideo(params: {
   if (!videoUrl) {
     await supabase
       .from('scenes')
-      .update({
-        video_status: 'failed',
-        video_error_message: 'No video URL in kie.ai resultJson',
-      })
-      .eq('id', sceneId)
-      .eq('video_request_id', taskId)
-      .eq('video_status', 'processing');
+      .update({ video_status: 'failed', video_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({ success: true, step: 'GenerateVideo', failed: true });
   }
@@ -456,13 +431,11 @@ async function handleGenerateVideo(params: {
   await supabase
     .from('scenes')
     .update({
-      video_status: 'success',
       video_url: videoUrl,
-      video_error_message: null,
+      video_status: 'done',
+      video_task_id: null,
     })
-    .eq('id', sceneId)
-    .eq('video_request_id', taskId)
-    .eq('video_status', 'processing');
+    .eq('id', sceneId);
 
   return okResponse({
     success: true,
@@ -562,7 +535,7 @@ async function handleGenerateSceneTts(params: {
 
   const { data: scene } = await supabase
     .from('scenes')
-    .select('id, episode_id, status, video_url')
+    .select('id, episode_id, video_url')
     .eq('id', sceneId)
     .maybeSingle();
 
@@ -606,9 +579,8 @@ async function handleGenerateSceneTts(params: {
   if (isFailureState(state)) {
     await supabase
       .from('scenes')
-      .update({ status: 'failed' })
-      .eq('id', sceneId)
-      .eq('status', 'in_progress');
+      .update({ tts_status: 'failed', tts_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({
       success: true,
@@ -623,9 +595,8 @@ async function handleGenerateSceneTts(params: {
   if (!audioUrl) {
     await supabase
       .from('scenes')
-      .update({ status: 'failed' })
-      .eq('id', sceneId)
-      .eq('status', 'in_progress');
+      .update({ tts_status: 'failed', tts_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({
       success: true,
@@ -638,10 +609,10 @@ async function handleGenerateSceneTts(params: {
     .from('scenes')
     .update({
       audio_url: audioUrl,
-      status: scene.video_url ? 'done' : 'ready',
+      tts_status: 'done',
+      tts_task_id: null,
     })
-    .eq('id', sceneId)
-    .in('status', ['in_progress', 'ready']);
+    .eq('id', sceneId);
 
   return okResponse({
     success: true,
@@ -662,7 +633,7 @@ async function handleGenerateSceneVideo(params: {
 
   const { data: scene } = await supabase
     .from('scenes')
-    .select('id, episode_id, status, audio_url')
+    .select('id, episode_id, audio_url')
     .eq('id', sceneId)
     .maybeSingle();
 
@@ -706,9 +677,8 @@ async function handleGenerateSceneVideo(params: {
   if (isFailureState(state)) {
     await supabase
       .from('scenes')
-      .update({ status: 'failed' })
-      .eq('id', sceneId)
-      .eq('status', 'in_progress');
+      .update({ video_status: 'failed', video_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({
       success: true,
@@ -723,9 +693,8 @@ async function handleGenerateSceneVideo(params: {
   if (!videoUrl) {
     await supabase
       .from('scenes')
-      .update({ status: 'failed' })
-      .eq('id', sceneId)
-      .eq('status', 'in_progress');
+      .update({ video_status: 'failed', video_task_id: null })
+      .eq('id', sceneId);
 
     return okResponse({
       success: true,
@@ -738,10 +707,10 @@ async function handleGenerateSceneVideo(params: {
     .from('scenes')
     .update({
       video_url: videoUrl,
-      status: scene.audio_url ? 'done' : 'ready',
+      video_status: 'done',
+      video_task_id: null,
     })
-    .eq('id', sceneId)
-    .in('status', ['in_progress', 'ready']);
+    .eq('id', sceneId);
 
   return okResponse({
     success: true,
@@ -845,6 +814,11 @@ async function handleSeriesAssetImage(params: {
   }
 
   if (isFailureState(state)) {
+    await supabase
+      .from('series_asset_variants')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', variantId);
+
     return okResponse({
       success: true,
       step: 'SeriesAssetImage',
@@ -856,6 +830,11 @@ async function handleSeriesAssetImage(params: {
   const imageUrl = extractImageUrl(result);
 
   if (!imageUrl) {
+    await supabase
+      .from('series_asset_variants')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', variantId);
+
     return okResponse({
       success: true,
       step: 'SeriesAssetImage',
@@ -929,10 +908,14 @@ async function handleSeriesAssetImage(params: {
     },
   });
 
-  // Also update canonical image_url on the variant itself
+  // Update canonical image_url + generation status on the variant
   await supabase
     .from('series_asset_variants')
-    .update({ image_url: uploaded.publicUrl })
+    .update({
+      image_url: uploaded.publicUrl,
+      image_gen_status: 'done',
+      image_task_id: null,
+    })
     .eq('id', variantId);
 
   log.info('Series asset image persisted from kie webhook', {

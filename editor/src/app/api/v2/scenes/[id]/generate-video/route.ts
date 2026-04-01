@@ -179,11 +179,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
 
-    // ── Mark scene as in_progress ───────────────────────────────────────
+    // ── Mark video as generating ───────────────────────────────────────
 
     await supabase
       .from('scenes')
-      .update({ status: 'in_progress' })
+      .update({ video_status: 'generating', video_task_id: result.taskId })
       .eq('id', sceneId);
 
     return NextResponse.json({

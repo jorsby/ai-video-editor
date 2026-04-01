@@ -116,6 +116,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
 
+    // ── Mark variant as generating ─────────────────────────────────────
+
+    await supabase
+      .from('series_asset_variants')
+      .update({ image_gen_status: 'generating', image_task_id: result.taskId })
+      .eq('id', variantId);
+
     return NextResponse.json({
       task_id: result.taskId,
       model: IMAGE_EDIT_MODEL,

@@ -42,6 +42,8 @@ interface SceneData {
   location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
+  tts_status: string;
+  video_status: string;
 }
 
 interface EpisodeData {
@@ -69,9 +71,11 @@ function statusColor(status: string | null): string {
   switch (status) {
     case 'done':
       return 'border-green-500/40 bg-green-500/10 text-green-400';
+    case 'partial':
     case 'ready':
-    case 'in_progress':
       return 'border-blue-500/40 bg-blue-500/10 text-blue-400';
+    case 'generating':
+      return 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400';
     case 'failed':
       return 'border-red-500/40 bg-red-500/10 text-red-400';
     default:
@@ -84,6 +88,27 @@ function slugToLabel(slug: string): string {
     .replace(/-main$/, '')
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Derive episode display status from its scenes */
+function deriveEpisodeStatus(episode: EpisodeData): string {
+  if (episode.scenes.length === 0) return 'draft';
+  const statuses = episode.scenes.map(deriveSceneStatus);
+  if (statuses.some((s) => s === 'generating')) return 'generating';
+  if (statuses.every((s) => s === 'done')) return 'done';
+  if (statuses.some((s) => s === 'failed')) return 'failed';
+  if (statuses.some((s) => s === 'done' || s === 'partial')) return 'partial';
+  return 'draft';
+}
+
+/** Derive a display status from generation states + URL presence */
+function deriveSceneStatus(scene: SceneData): string {
+  if (scene.tts_status === 'generating' || scene.video_status === 'generating') return 'generating';
+  if (scene.tts_status === 'failed' || scene.video_status === 'failed') return 'failed';
+  if (scene.audio_url && scene.video_url) return 'done';
+  if (scene.audio_url || scene.video_url) return 'partial';
+  if (scene.prompt) return 'ready';
+  return 'draft';
 }
 
 function formatDuration(seconds: number): string {
@@ -356,6 +381,44 @@ function HighlightedPrompt({
   return <>{parts}</>;
 }
 
+// ── Generation Status Indicator ─────────────────────────────────────────────────
+
+function GenerationStatus({
+  label,
+  icon,
+  genStatus,
+  hasResult,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  genStatus: string;
+  hasResult: boolean;
+}) {
+  if (genStatus === 'generating') {
+    return (
+      <span className="text-yellow-400 animate-pulse" title={`${label}: Generating...`}>
+        {icon}
+        <IconLoader2 className="size-2.5 inline animate-spin ml-0.5" />
+      </span>
+    );
+  }
+  if (genStatus === 'failed') {
+    return (
+      <span className="text-red-400" title={`${label}: Failed`}>
+        {icon}
+        <span className="text-[8px]">✗</span>
+      </span>
+    );
+  }
+  // done or idle — show green if result exists
+  return (
+    <span className={hasResult ? 'text-green-400' : 'opacity-30'} title={label}>
+      {icon}
+      {label}
+    </span>
+  );
+}
+
 // ── Scene Card ─────────────────────────────────────────────────────────────────
 
 function SceneCard({
@@ -413,8 +476,8 @@ function SceneCard({
           )}
         </div>
 
-        <Badge variant="outline" className={`text-[9px] ${statusColor(scene.status)}`}>
-          {scene.status || 'draft'}
+        <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus(scene))}`}>
+          {deriveSceneStatus(scene)}
         </Badge>
         {scene.duration && (
           <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
@@ -475,14 +538,18 @@ function SceneCard({
             <IconPhoto className="size-3 inline mr-0.5" />
             Prompt
           </span>
-          <span className={hasAudio ? 'text-green-400' : 'opacity-30'} title="Audio/TTS">
-            <IconVolume className="size-3 inline mr-0.5" />
-            Audio
-          </span>
-          <span className={hasVideo ? 'text-green-400' : 'opacity-30'} title="Video">
-            <IconVideo className="size-3 inline mr-0.5" />
-            Video
-          </span>
+          <GenerationStatus
+            label="Audio"
+            icon={<IconVolume className="size-3 inline mr-0.5" />}
+            genStatus={scene.tts_status}
+            hasResult={hasAudio}
+          />
+          <GenerationStatus
+            label="Video"
+            icon={<IconVideo className="size-3 inline mr-0.5" />}
+            genStatus={scene.video_status}
+            hasResult={hasVideo}
+          />
           <span className="ml-auto opacity-50">
             {charCount}ch {hasLocation ? '1loc' : '0loc'} {propCount}pr
           </span>
@@ -619,7 +686,7 @@ function EpisodeAccordion({
   const [isOpen, setIsOpen] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
   const sceneCount = episode.scenes.length;
-  const doneCount = episode.scenes.filter((s) => s.status === 'done').length;
+  const doneCount = episode.scenes.filter((s) => !!s.audio_url && !!s.video_url).length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
   const hasAnyAudio = episode.scenes.some((s) => !!s.audio_url);
   const totalDuration = episode.scenes.reduce((sum, s) => sum + (s.duration || 0), 0);
@@ -662,8 +729,8 @@ function EpisodeAccordion({
             {doneCount}/{sceneCount}
           </span>
 
-          <Badge variant="outline" className={`text-[9px] shrink-0 ${statusColor(episode.status)}`}>
-            {episode.status || 'draft'}
+          <Badge variant="outline" className={`text-[9px] shrink-0 ${statusColor(deriveEpisodeStatus(episode))}`}>
+            {deriveEpisodeStatus(episode)}
           </Badge>
         </button>
       </CollapsibleTrigger>
@@ -788,7 +855,7 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, episode_id, "order", title, prompt, audio_text, audio_url, video_url, status, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs'
+              'id, episode_id, "order", title, prompt, audio_text, audio_url, video_url, status, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
             .in('episode_id', epIds)
             .order('"order"', { ascending: true });
@@ -855,8 +922,32 @@ export default function StoryboardPanel() {
     }
 
     load();
+
+    // ── Realtime: auto-refresh on scene/variant changes ─────────────────
+    const supabaseRT = createClient('studio');
+
+    const sceneSub = supabaseRT
+      .channel('storyboard-scenes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'scenes' },
+        () => { if (!cancelled) load(); }
+      )
+      .subscribe();
+
+    const variantSub = supabaseRT
+      .channel('storyboard-variants')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'series_asset_variants' },
+        () => { if (!cancelled) load(); }
+      )
+      .subscribe();
+
     return () => {
       cancelled = true;
+      supabaseRT.removeChannel(sceneSub);
+      supabaseRT.removeChannel(variantSub);
     };
   }, [projectId]);
 
@@ -893,7 +984,7 @@ export default function StoryboardPanel() {
   // Stats
   const totalScenes = episodes.reduce((s, e) => s + e.scenes.length, 0);
   const doneScenes = episodes.reduce(
-    (s, e) => s + e.scenes.filter((sc) => sc.status === 'done').length,
+    (s, e) => s + e.scenes.filter((sc) => !!sc.audio_url && !!sc.video_url).length,
     0
   );
   const totalDuration = episodes.reduce(

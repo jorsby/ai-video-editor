@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
-      .select('id, episode_id, audio_text, audio_url, status')
+      .select('id, episode_id, audio_text, audio_url')
       .eq('id', sceneId)
       .maybeSingle();
 
@@ -125,11 +125,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
       },
     });
 
-    // ── Mark scene as in_progress ───────────────────────────────────────
+    // ── Mark TTS as generating ─────────────────────────────────────────
 
     await supabase
       .from('scenes')
-      .update({ status: 'in_progress' })
+      .update({ tts_status: 'generating', tts_task_id: result.taskId })
       .eq('id', sceneId);
 
     return NextResponse.json({
