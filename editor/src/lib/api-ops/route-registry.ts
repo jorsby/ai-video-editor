@@ -1095,17 +1095,18 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Generates TTS audio for a scene using ElevenLabs multilingual-v2 via kie.ai. Uses scene audio_text as input. Supports voice_id, speed, previous_text, next_text for continuity. Async — webhook updates scene.audio_url on completion.',
+      'Generates TTS audio for a scene using ElevenLabs Turbo v2.5 via kie.ai. Uses scene audio_text as input. Supports voice_id, speed, language_code, previous_text, next_text for continuity. Async — webhook updates scene.audio_url on completion.',
     pathParams: { id: 'scene-uuid' },
     body: {
       voice_id: 'Rachel',
       speed: 1.0,
+      language_code: 'tr',
       previous_text: 'Previous scene narration for speech continuity...',
       next_text: 'Next scene narration for speech continuity...',
     },
     response: {
       task_id: 'kie-task-id',
-      model: 'elevenlabs/text-to-speech-multilingual-v2',
+      model: 'elevenlabs/text-to-speech-turbo-2-5',
       scene_id: 'scene-uuid',
       voice_id: 'Rachel',
       speed: 1.0,

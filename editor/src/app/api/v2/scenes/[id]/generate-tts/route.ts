@@ -6,7 +6,7 @@ import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-const TTS_MODEL = 'elevenlabs/text-to-speech-multilingual-v2';
+const TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
 
 /**
  * POST /api/v2/scenes/{id}/generate-tts
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, voice_id, tts_speed, user_id')
+      .select('id, voice_id, tts_speed, language, user_id')
       .eq('id', episode.series_id)
       .maybeSingle();
 
@@ -90,6 +90,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const speed = clampSpeed(body.speed ?? series.tts_speed ?? 1.0);
     const previousText = body.previous_text ?? '';
     const nextText = body.next_text ?? '';
+    const languageCode = body.language_code ?? series.language ?? '';
 
     // ── Build webhook URL ───────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         timestamps: false,
         previous_text: previousText,
         next_text: nextText,
+        language_code: languageCode,
       },
     });
 
