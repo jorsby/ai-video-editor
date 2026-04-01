@@ -335,50 +335,133 @@ function AssetCard({
   const emoji = getAssetEmoji(asset.type);
 
   if (viewMode === 'grid') {
+    // In grid mode, show each variant as its own card
     return (
       <>
-        <div className="group/asset relative rounded-md overflow-hidden border border-border/40 bg-muted/10 hover:bg-muted/20 transition-colors">
-          <div className="relative aspect-square">
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={asset.name}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-2xl">
-                {emoji}
+        {asset.variants.map((variant) => {
+          const display = variantDisplayById.get(variant.id);
+          const variantImageUrl = display?.imageUrl ?? variant.imageUrl ?? null;
+          const variantStatus = display?.imageGenStatus ?? normalizeVariantStatus(null, variantImageUrl);
+          const isVariantSelected = selectedVariantIds.has(variant.id);
+          const isGenerating = variantStatus === 'generating';
+          const isFailed = variantStatus === 'failed';
+          const hasVariantImage = !!variantImageUrl;
+
+          return (
+            <div
+              key={variant.id}
+              className={`group/asset relative rounded-md overflow-hidden transition-colors ${isVariantSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-muted/10 hover:bg-muted/20'}`}
+            >
+              <div className="relative aspect-square">
+                {hasVariantImage ? (
+                  <img
+                    src={variantImageUrl}
+                    alt={variant.label}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center text-2xl">
+                    {isGenerating ? (
+                      <IconLoader2 className="size-8 animate-spin text-amber-400" />
+                    ) : (
+                      emoji
+                    )}
+                  </div>
+                )}
+
+                {/* Checkbox top-left */}
+                <div className="absolute top-1 left-1 z-10">
+                  <input
+                    type="checkbox"
+                    checked={isVariantSelected}
+                    onChange={() => onToggleVariantSelection(variant.id)}
+                    className="size-4 rounded border-border/60 bg-black/50 accent-primary cursor-pointer"
+                    aria-label={`Select ${variant.label}`}
+                  />
+                </div>
+
+                {/* Expand button top-right */}
+                {hasVariantImage && (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOpen(true)}
+                    className="absolute top-1 right-1 p-1 rounded bg-black/60 text-white opacity-0 group-hover/asset:opacity-100 transition-opacity hover:bg-black/80"
+                    title="Expand"
+                  >
+                    <IconMaximize size={12} />
+                  </button>
+                )}
+
+                {/* Status overlay bottom */}
+                {isGenerating && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 flex items-center justify-center gap-1">
+                    <IconLoader2 className="size-3 animate-spin text-amber-400" />
+                    <span className="text-[9px] text-amber-400 font-medium animate-pulse">Generating...</span>
+                  </div>
+                )}
+                {isFailed && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 flex items-center justify-center gap-1">
+                    <span className="text-[9px] text-red-400 font-medium">Failed</span>
+                  </div>
+                )}
+
+                {variant.isFinalized && (
+                  <div className="absolute top-1 left-6">
+                    <Badge
+                      variant="outline"
+                      className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 bg-black/50 text-emerald-400"
+                    >
+                      Locked
+                    </Badge>
+                  </div>
+                )}
               </div>
-            )}
-            {imageUrl && (
-              <button
-                type="button"
-                onClick={() => setPreviewOpen(true)}
-                className="absolute top-1 right-1 p-1 rounded bg-black/60 text-white opacity-0 group-hover/asset:opacity-100 transition-opacity hover:bg-black/80"
-                title="Expand"
-              >
-                <IconMaximize size={12} />
-              </button>
-            )}
-            {asset.variants.some((v) => v.isFinalized) && (
-              <div className="absolute top-1 left-1">
-                <Badge
-                  variant="outline"
-                  className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 bg-black/50 text-emerald-400"
-                >
-                  Finalized
-                </Badge>
+
+              <div className="p-1.5 space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="text-[10px] font-medium truncate flex-1">{variant.label}</p>
+                  {!isGenerating && !hasVariantImage && !isFailed && (
+                    <button
+                      type="button"
+                      onClick={() => onGenerateVariant(variant.id)}
+                      disabled={isBatchGenerating}
+                      className="inline-flex items-center gap-0.5 text-[8px] px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      <IconSparkles className="size-2" />
+                      Gen
+                    </button>
+                  )}
+                  {!isGenerating && isFailed && (
+                    <button
+                      type="button"
+                      onClick={() => onGenerateVariant(variant.id)}
+                      disabled={isBatchGenerating}
+                      className="inline-flex items-center gap-0.5 text-[8px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 shrink-0"
+                    >
+                      <IconRefresh className="size-2" />
+                      Retry
+                    </button>
+                  )}
+                  {!isGenerating && hasVariantImage && !isFailed && (
+                    <button
+                      type="button"
+                      onClick={() => onGenerateVariant(variant.id)}
+                      disabled={isBatchGenerating}
+                      className="inline-flex items-center justify-center size-5 rounded border border-border/30 bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-40 shrink-0"
+                      title="Regenerate"
+                    >
+                      <IconRefresh className="size-2.5" />
+                    </button>
+                  )}
+                </div>
+                <SlugBadge slug={variant.slug} />
+                {variant.isMain && (
+                  <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3">Main</Badge>
+                )}
               </div>
-            )}
-          </div>
-          <div className="p-1.5 space-y-0.5">
-            <p className="text-[10px] font-medium truncate">{asset.name}</p>
-            {asset.slug && <SlugBadge slug={asset.slug} />}
-            <p className="text-[9px] text-muted-foreground line-clamp-1">
-              {description}
-            </p>
-          </div>
-        </div>
+            </div>
+          );
+        })}
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
           <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 sm:p-4 bg-black/90 border-white/10">
             <DialogTitle className="sr-only">{asset.name}</DialogTitle>
