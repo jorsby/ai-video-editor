@@ -925,6 +925,12 @@ async function handleSeriesAssetImage(params: {
     },
   });
 
+  // Also update canonical image_url on the variant itself
+  await supabase
+    .from('series_asset_variants')
+    .update({ image_url: uploaded.publicUrl })
+    .eq('id', variantId);
+
   log.info('Series asset image persisted from kie webhook', {
     variant_id: variantId,
     task_id: taskId,

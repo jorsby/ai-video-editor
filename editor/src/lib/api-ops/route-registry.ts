@@ -1118,7 +1118,7 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'variant',
     auth: 'session-or-api-key',
     description:
-      'Generates an image for an asset variant using Nano Banana 2 via kie.ai. Always 1K resolution, 9:16, JPG. Uses variant.prompt as input. Async — webhook updates variant.image_url on completion.',
+      'Generates an image for an asset variant using Nano Banana 2 via kie.ai. Always 1K resolution, 9:16, JPG. Uses variant.prompt + asset context as input. Async — webhook uploads to storage, inserts into variant_images, and updates variant.image_url.',
     pathParams: { id: 'variant-uuid' },
     body: {
       prompt_override: 'Optional custom prompt instead of variant.prompt',
@@ -1164,7 +1164,7 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'variant',
     auth: 'session-or-api-key',
     description:
-      'Edits a variant\'s existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook updates variant.image_url on completion.',
+      'Edits a variant\'s existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook uploads to storage, inserts into variant_images, and updates variant.image_url.',
     pathParams: { id: 'variant-uuid' },
     body: {
       prompt: 'Make the character wear a red robe instead of blue',
