@@ -22,7 +22,7 @@ interface Variant {
   id: string;
   label: string;
   description: string | null;
-  is_default: boolean;
+  is_main: boolean;
   is_finalized: boolean;
   series_asset_variant_images: VariantImage[];
 }
@@ -51,9 +51,9 @@ const ASSET_TYPE_CONFIG = {
 
 function AssetItem({ asset }: { asset: Asset }) {
   const [expanded, setExpanded] = useState(false);
-  const defaultVariant = asset.series_asset_variants.find((v) => v.is_default);
+  const mainVariant = asset.series_asset_variants.find((v) => v.is_main);
   const heroImage =
-    defaultVariant?.series_asset_variant_images?.[0] ??
+    mainVariant?.series_asset_variant_images?.[0] ??
     asset.series_asset_variants.flatMap(
       (v) => v.series_asset_variant_images ?? []
     )?.[0];
@@ -116,12 +116,12 @@ function AssetItem({ asset }: { asset: Asset }) {
                 <div className="w-6 h-6 rounded bg-muted/30 shrink-0" />
               )}
               <span className="text-[10px] flex-1 truncate">{v.label}</span>
-              {v.is_default && (
+              {v.is_main && (
                 <Badge
                   variant="secondary"
                   className="text-[8px] px-1 py-0 h-3.5"
                 >
-                  Default
+                  Main
                 </Badge>
               )}
               {v.is_finalized && (

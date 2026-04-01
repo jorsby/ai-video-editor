@@ -64,7 +64,7 @@ interface SchemaSeriesAssetVariant {
   name: string;
   prompt: string | null;
   image_url: string | null;
-  is_default: boolean;
+  is_main: boolean;
   where_to_use: string | null;
   reasoning: string | null;
   created_at: string;
@@ -533,7 +533,7 @@ function createMockInspectorData(userId: string) {
         'Ava Kim in modern newsroom, charcoal blazer, soft key light, cinematic realism, shallow depth of field.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-studio-intro.jpg',
-      is_default: true,
+      is_main: true,
       where_to_use:
         'Opening monologues, recap moments, and direct-to-camera sections.',
       reasoning:
@@ -550,7 +550,7 @@ function createMockInspectorData(userId: string) {
         'Ava Kim on rainy neon-lit street in weatherproof jacket, documentary handheld framing.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-field-reporter.jpg',
-      is_default: false,
+      is_main: false,
       where_to_use: 'On-location scenes and high-risk discovery beats.',
       reasoning:
         'Adds urgency and environmental context while keeping character identity fixed.',
@@ -566,7 +566,7 @@ function createMockInspectorData(userId: string) {
         'Wide cinematic harbor shot at blue hour with fog, wet asphalt reflections, and crane silhouettes.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-blue-hour.jpg',
-      is_default: true,
+      is_main: true,
       where_to_use: 'Cold opens and transition shots into field investigation.',
       reasoning:
         'Reliable establishing frame that quickly orients viewers in recurring episodes.',
@@ -582,7 +582,7 @@ function createMockInspectorData(userId: string) {
         'Same harbor at night with rotating searchlights, stronger contrast, and volumetric fog.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-searchlight-night.jpg',
-      is_default: false,
+      is_main: false,
       where_to_use: 'Pursuit scenes and escalating tension moments.',
       reasoning: 'Introduces danger cues while preserving location continuity.',
       created_at: createdAt,
@@ -597,7 +597,7 @@ function createMockInspectorData(userId: string) {
         'Close-up of vintage steel wristwatch on matte surface, engraved bezel, practical highlights.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-closed.jpg',
-      is_default: true,
+      is_main: true,
       where_to_use: 'Continuity shots when the watch is present but unopened.',
       reasoning:
         'Defines baseline silhouette and material consistency for prop tracking.',
@@ -613,7 +613,7 @@ function createMockInspectorData(userId: string) {
         'Macro shot of opened watch bezel exposing hidden microfilm key, noir practical lighting.',
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-open.jpg',
-      is_default: false,
+      is_main: false,
       where_to_use: 'Reveal moments and clue decoding sequences.',
       reasoning:
         'Makes the hidden mechanism explicit during pivotal narrative turns.',
@@ -1007,7 +1007,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       ? await supabase
           .from('series_asset_variants')
           .select(
-            'id, asset_id, slug, name, prompt, image_url, is_default, where_to_use, reasoning, created_at, updated_at'
+            'id, asset_id, slug, name, prompt, image_url, is_main, where_to_use, reasoning, created_at, updated_at'
           )
           .in('asset_id', assetIds)
           .order('created_at', { ascending: true })
@@ -1924,8 +1924,8 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                               value: variant.image_url,
                                             },
                                             {
-                                              label: 'is_default',
-                                              value: variant.is_default,
+                                              label: 'is_main',
+                                              value: variant.is_main,
                                             },
                                             {
                                               label: 'created_at',

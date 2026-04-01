@@ -30,7 +30,18 @@ function EditorContent({ onReady }: { onReady: () => void }) {
     setToolsPanel,
     setMainContent,
     setTimeline,
+    isToolsExpanded,
   } = usePanelStore();
+
+  if (isToolsExpanded) {
+    return (
+      <div className="flex-1 min-h-0 min-w-0 px-3">
+        <div className="h-full w-full bg-card rounded-sm overflow-hidden">
+          <MediaPanel />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 min-h-0 min-w-0 px-3">

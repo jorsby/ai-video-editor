@@ -10,7 +10,7 @@
  * Matching logic:
  * - Normalize both names: lowercase, trim, remove "the ", strip text after "/" or "("
  * - Exact match first, then substring match (either direction)
- * - For variants: prefer finalized → default → first with image
+ * - For variants: prefer finalized → main → first with image
  * - Only return assets that have an actual image URL
  */
 
@@ -144,14 +144,14 @@ function pickVariantImageUrl(
 
 /**
  * From a list of variants (with images), pick the best variant image.
- * Priority: finalized → default → first with any image
+ * Priority: finalized → main → first with any image
  */
 function pickBestVariantImage(
   supabase: SupabaseClient,
   variants: Array<{
     id: string;
     is_finalized: boolean;
-    is_default: boolean;
+    is_main: boolean;
     series_asset_variant_images: Array<{
       url: string | null;
       storage_path: string | null;
@@ -172,9 +172,9 @@ function pickBestVariantImage(
     }
   }
 
-  // 2. Default variant with image
+  // 2. Main variant with image
   for (const v of variants) {
-    if (v.is_default) {
+    if (v.is_main) {
       const match = pickVariantImageUrl(
         supabase,
         v.id,
@@ -247,7 +247,7 @@ export async function resolveSeriesAssetCandidatesForProject(
   const { data: assets, error: assetsError } = await supabase
     .from('series_assets')
     .select(
-      'id, name, type, description, series_asset_variants (id, is_default, is_finalized, series_asset_variant_images (id, url, storage_path))'
+      'id, name, type, description, series_asset_variants (id, is_main, is_finalized, series_asset_variant_images (id, url, storage_path))'
     )
     .eq('series_id', seriesId);
 
@@ -319,7 +319,7 @@ export async function resolveSeriesAssetsForProject(
   const { data: assets, error: assetsError } = await supabase
     .from('series_assets')
     .select(
-      'id, name, type, series_asset_variants (id, is_default, is_finalized, series_asset_variant_images (id, url, storage_path))'
+      'id, name, type, series_asset_variants (id, is_main, is_finalized, series_asset_variant_images (id, url, storage_path))'
     )
     .eq('series_id', seriesId);
 

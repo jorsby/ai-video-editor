@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
     const tone = typeof body?.tone === 'string' ? body.tone.trim() : null;
     const requestedProjectId =
       typeof body?.project_id === 'string' ? body.project_id.trim() : '';
-    const metadata = isRecord(body?.metadata) ? body.metadata : {};
 
     if (!name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
@@ -56,28 +55,7 @@ export async function POST(req: NextRequest) {
 
     const dbClient = createServiceClient('studio');
 
-    const { data: series, error: seriesError } = await dbClient
-      .from('series')
-      .insert({
-        user_id: user.id,
-        name,
-        genre,
-        tone,
-        metadata,
-      })
-      .select('id')
-      .single();
-
-    if (seriesError || !series?.id) {
-      console.error('[v2/series/create] Failed to create series:', seriesError);
-      return NextResponse.json(
-        { error: 'Failed to create series' },
-        { status: 500 }
-      );
-    }
-
-    const seriesId = series.id as string;
-
+    // --- Resolve or create project FIRST (series.project_id is NOT NULL) ---
     let projectId = '';
 
     if (requestedProjectId) {
@@ -97,39 +75,12 @@ export async function POST(req: NextRequest) {
       }
 
       projectId = existingProject.id as string;
-
-      const existingSettings = isRecord(existingProject.settings)
-        ? existingProject.settings
-        : {};
-
-      const { error: projectSettingsError } = await dbClient
-        .from('projects')
-        .update({
-          settings: {
-            ...existingSettings,
-            series_id: seriesId,
-          },
-        })
-        .eq('id', projectId)
-        .eq('user_id', user.id);
-
-      if (projectSettingsError) {
-        console.error(
-          '[v2/series/create] Failed to update project settings:',
-          projectSettingsError
-        );
-        return NextResponse.json(
-          { error: 'Failed to update project settings' },
-          { status: 500 }
-        );
-      }
     } else {
       const { data: project, error: projectError } = await dbClient
         .from('projects')
         .insert({
           user_id: user.id,
           name,
-          settings: { series_id: seriesId },
         })
         .select('id')
         .single();
@@ -148,116 +99,124 @@ export async function POST(req: NextRequest) {
       projectId = project.id as string;
     }
 
-    const { error: seriesProjectUpdateError } = await dbClient
+    // --- Create series with project_id ---
+    const { data: series, error: seriesError } = await dbClient
       .from('series')
-      .update({ project_id: projectId })
-      .eq('id', seriesId)
+      .insert({
+        user_id: user.id,
+        project_id: projectId,
+        name,
+        genre,
+        tone,
+      })
+      .select('id')
+      .single();
+
+    if (seriesError || !series?.id) {
+      console.error('[v2/series/create] Failed to create series:', seriesError);
+      return NextResponse.json(
+        { error: 'Failed to create series' },
+        { status: 500 }
+      );
+    }
+
+    const seriesId = series.id as string;
+
+    // --- Update project settings with series_id ---
+    const existingSettings = requestedProjectId
+      ? await dbClient
+          .from('projects')
+          .select('settings')
+          .eq('id', projectId)
+          .single()
+          .then(
+            (r: { data: { settings: unknown } | null }) =>
+              (isRecord(r.data?.settings) ? r.data!.settings : {}) as Record<
+                string,
+                unknown
+              >
+          )
+      : {};
+
+    const { error: projectSettingsError } = await dbClient
+      .from('projects')
+      .update({
+        settings: {
+          ...existingSettings,
+          series_id: seriesId,
+        },
+      })
+      .eq('id', projectId)
       .eq('user_id', user.id);
 
-    if (seriesProjectUpdateError) {
+    if (projectSettingsError) {
       console.error(
-        '[v2/series/create] Failed to link series to project:',
-        seriesProjectUpdateError
+        '[v2/series/create] Failed to update project settings:',
+        projectSettingsError
       );
-      return NextResponse.json(
-        { error: 'Failed to link series and project' },
-        { status: 500 }
-      );
+      // Non-fatal — series + project already created and linked
     }
 
-    const { data: characterRows, error: characterInsertError } = await dbClient
-      .from('series_assets')
-      .insert(
-        characters.map((asset, index) => ({
-          series_id: seriesId,
-          type: 'character',
-          name: asset.name,
-          description: asset.description ?? null,
-          sort_order: index,
-        }))
-      )
-      .select('id');
+    // --- Batch-insert assets (skip if empty) ---
+    const assetTypes = [
+      { key: 'characters', type: 'character', items: characters, offset: 0 },
+      {
+        key: 'locations',
+        type: 'location',
+        items: locations,
+        offset: characters.length,
+      },
+      {
+        key: 'props',
+        type: 'prop',
+        items: props,
+        offset: characters.length + locations.length,
+      },
+    ] as const;
 
-    if (characterInsertError) {
-      console.error(
-        '[v2/series/create] Failed to create character assets:',
-        characterInsertError
-      );
-      return NextResponse.json(
-        { error: 'Failed to create character assets' },
-        { status: 500 }
-      );
+    const assetIds: Record<string, string[]> = {
+      characters: [],
+      locations: [],
+      props: [],
+    };
+
+    for (const { key, type, items, offset } of assetTypes) {
+      if (items.length === 0) continue;
+
+      const { data: rows, error: insertError } = await dbClient
+        .from('series_assets')
+        .insert(
+          items.map((asset, index) => ({
+            series_id: seriesId,
+            type,
+            name: asset.name,
+            description: asset.description ?? null,
+            sort_order: offset + index,
+          }))
+        )
+        .select('id');
+
+      if (insertError) {
+        console.error(
+          `[v2/series/create] Failed to create ${type} assets:`,
+          insertError
+        );
+        return NextResponse.json(
+          { error: `Failed to create ${type} assets` },
+          { status: 500 }
+        );
+      }
+
+      assetIds[key] = (rows ?? [])
+        .map((row: { id?: string }) => row.id)
+        .filter((id: string | undefined): id is string => !!id);
     }
-
-    const characterAssetIds = (characterRows ?? [])
-      .map((row: { id?: string }) => row.id)
-      .filter((id: string | undefined): id is string => !!id);
-
-    const { data: locationRows, error: locationInsertError } = await dbClient
-      .from('series_assets')
-      .insert(
-        locations.map((asset, index) => ({
-          series_id: seriesId,
-          type: 'location',
-          name: asset.name,
-          description: asset.description ?? null,
-          sort_order: characters.length + index,
-        }))
-      )
-      .select('id');
-
-    if (locationInsertError) {
-      console.error(
-        '[v2/series/create] Failed to create location assets:',
-        locationInsertError
-      );
-      return NextResponse.json(
-        { error: 'Failed to create location assets' },
-        { status: 500 }
-      );
-    }
-
-    const locationAssetIds = (locationRows ?? [])
-      .map((row: { id?: string }) => row.id)
-      .filter((id: string | undefined): id is string => !!id);
-
-    const { data: propRows, error: propInsertError } = await dbClient
-      .from('series_assets')
-      .insert(
-        props.map((asset, index) => ({
-          series_id: seriesId,
-          type: 'prop',
-          name: asset.name,
-          description: asset.description ?? null,
-          sort_order: characters.length + locations.length + index,
-        }))
-      )
-      .select('id');
-
-    if (propInsertError) {
-      console.error(
-        '[v2/series/create] Failed to create prop assets:',
-        propInsertError
-      );
-      return NextResponse.json(
-        { error: 'Failed to create prop assets' },
-        { status: 500 }
-      );
-    }
-
-    const propAssetIds = (propRows ?? [])
-      .map((row: { id?: string }) => row.id)
-      .filter((id: string | undefined): id is string => !!id);
 
     return NextResponse.json(
       {
         series_id: seriesId,
         project_id: projectId,
-        asset_ids: {
-          characters: characterAssetIds,
-          locations: locationAssetIds,
-          props: propAssetIds,
-        },
+        asset_ids: assetIds,
       },
       { status: 201 }
     );

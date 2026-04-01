@@ -13,7 +13,7 @@ type AssetVariantSeed = {
   name: string;
   prompt: string;
   image_url: string;
-  is_default: boolean;
+  is_main: boolean;
   where_to_use: string;
   reasoning: string;
 };
@@ -42,7 +42,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Asian woman in her late 20s with short black bob haircut, charcoal blazer over cream turtleneck, subtle cinematic key light, modern investigative newsroom set, realistic skin texture, 35mm depth of field',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-studio-intro.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'Opening monologues, recap moments, and direct-to-camera narration.',
         reasoning:
@@ -54,7 +54,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Same woman on rainy neon-lit street, dark weatherproof jacket, in-ear monitor, practical backlight from storefront signs, handheld documentary framing, cinematic realism',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-field-reporter.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'On-location scenes, tense discovery beats, and transitions between locations.',
         reasoning:
@@ -76,7 +76,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Man in mid-30s, warm brown skin, wireframe glasses, rolled-up shirt sleeves, gloves handling old records, tungsten desk lamp, archival room with steel shelves, cinematic realism',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/marcus-vale-archive-worker.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'Flashbacks, evidence review scenes, and explanatory dialogue moments.',
         reasoning:
@@ -88,7 +88,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Same man in dim parking structure, hoodie and messenger bag, side-lit face, shallow depth of field, tense noir mood, realistic cinematic frame',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/marcus-vale-anonymous-source.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'Secret handoff scenes, threat moments, and cliffhanger reveals.',
         reasoning:
@@ -110,7 +110,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Wide cinematic shot of industrial harbor at blue hour, stacked containers, distant crane silhouettes, wet asphalt reflections, volumetric fog, realistic 4k film look',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-blue-hour.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'Episode cold opens and scene transitions into field investigation.',
         reasoning:
@@ -122,7 +122,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Same harbor at night with rotating security searchlight beams, stronger fog, high contrast pools of light, cinematic thriller composition',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-searchlight-night.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'High-risk pursuit scenes, surveillance beats, and escalating tension moments.',
         reasoning:
@@ -144,7 +144,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Narrow archive aisle with compact shelves, labeled boxes, soft overhead fluorescent light, subtle dust particles, realistic institutional environment',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/city-records-vault-catalog-aisle.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'Research scenes where dialogue and object details need high readability.',
         reasoning:
@@ -156,7 +156,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Same archive vault under emergency red backup lights, deeper shadows, warning LEDs, cinematic suspense framing',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/city-records-vault-emergency-power.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'Power-failure twists, alarm-triggered beats, and deadline-pressure moments.',
         reasoning:
@@ -178,7 +178,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Close-up product-style shot of vintage steel wristwatch on dark matte surface, engraved bezel, subtle scratches, cinematic practical highlights',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-closed.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'General continuity shots when the watch is present but unopened.',
         reasoning:
@@ -190,7 +190,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Macro shot of same wristwatch with bezel opened to reveal hidden microfilm key, precise mechanical details, shallow depth of field, noir lighting',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-open.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'Reveal moments, clue decoding scenes, and episode turning points.',
         reasoning:
@@ -212,7 +212,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Aged kraft dossier folder with stamped label ECHO-9, red evidence tape, overhead desk lamp vignette, high-detail paper texture',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/echo-9-dossier-sealed.jpg',
-        is_default: true,
+        is_main: true,
         where_to_use:
           'Teases, transition inserts, and setup beats before information is revealed.',
         reasoning:
@@ -224,7 +224,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'Same dossier opened on metal table with pinned photos, map printouts, handwritten notes, directional practical lighting, cinematic top-down composition',
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/echo-9-dossier-open-layout.jpg',
-        is_default: false,
+        is_main: false,
         where_to_use:
           'Investigation breakdowns and explanatory narration sections.',
         reasoning:
@@ -266,12 +266,7 @@ type EpisodeSeed = {
   scenes: SceneSeed[];
 };
 
-function toSlug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { slugify as toSlug } from '@/lib/utils/slugify';
 
 function toVariantSlug(assetSlug: string, variantName: string) {
   return toSlug(`${assetSlug}-${variantName}`);
@@ -1005,7 +1000,7 @@ export async function POST(request: NextRequest) {
         name: variant.name,
         prompt: variant.prompt,
         image_url: variant.image_url,
-        is_default: variant.is_default,
+        is_main: variant.is_main,
         where_to_use: variant.where_to_use,
         reasoning: variant.reasoning,
       };

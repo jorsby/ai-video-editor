@@ -26,7 +26,7 @@ type VariantRecord = {
   asset_id: string;
   slug: string;
   name: string;
-  is_default: boolean;
+  is_main: boolean;
 };
 
 type AuthContext = {
@@ -137,7 +137,7 @@ async function loadSeriesAssetAndVariantMaps(
   const { data: assetsData, error: assetsError } = await dbClient
     .from('series_assets')
     .select(
-      'id, name, slug, type, series_asset_variants(id, asset_id, slug, name, is_default)'
+      'id, name, slug, type, series_asset_variants(id, asset_id, slug, name, is_main)'
     )
     .eq('series_id', seriesId)
     .order('sort_order', { ascending: true });
@@ -214,7 +214,7 @@ function mapFromLegacyAssetIds(
     if (variants.length === 0) return null;
 
     const selected =
-      variants.find((variant) => variant.is_default) ??
+      variants.find((variant) => variant.is_main) ??
       variants.sort((a, b) => a.name.localeCompare(b.name))[0];
 
     if (!selected?.slug) return null;
@@ -301,7 +301,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
 
     let nextMap = normalizeAssetVariantMap(body?.asset_variant_map);
 
-    // Legacy compatibility: allow asset_ids input and map to default variant slugs.
+    // Legacy compatibility: allow asset_ids input and map to main variant slugs.
     if (!nextMap && Array.isArray(body?.asset_ids)) {
       const normalizedAssetIds = body.asset_ids
         .filter((value: unknown): value is string => typeof value === 'string')

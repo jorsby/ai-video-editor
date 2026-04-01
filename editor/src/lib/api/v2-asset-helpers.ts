@@ -7,14 +7,9 @@ export type AssetType = 'character' | 'location' | 'prop';
 const ASSET_SELECT =
   'id, series_id, type, name, slug, description, sort_order, created_at, updated_at';
 const VARIANT_SELECT =
-  'id, asset_id, name, slug, prompt, image_url, is_default, where_to_use, reasoning, created_at, updated_at';
+  'id, asset_id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, created_at, updated_at';
 
-function toSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
+import { slugify as toSlug } from '@/lib/utils/slugify';
 
 function toNullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -137,7 +132,17 @@ export async function postAssetsByType(
   let nextSort =
     typeof maxRow?.sort_order === 'number' ? maxRow.sort_order + 1 : 0;
 
-  const rows = [];
+  const rows: Array<{
+    series_id: string;
+    type: AssetType;
+    name: string;
+    slug: string;
+    description: string | null;
+    sort_order: number;
+    _variant_prompt: string;
+    _variant_where_to_use: string;
+    _variant_reasoning: string;
+  }> = [];
   for (const item of body) {
     const name = typeof item?.name === 'string' ? item.name.trim() : '';
     if (!name)
@@ -155,6 +160,21 @@ export async function postAssetsByType(
         { status: 400 }
       );
 
+    // prompt and where_to_use are required — they flow into the auto-created main variant
+    const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
+    const whereToUse =
+      typeof item?.where_to_use === 'string' ? item.where_to_use.trim() : '';
+    if (!prompt)
+      return NextResponse.json(
+        { error: `"prompt" is required for "${name}"` },
+        { status: 400 }
+      );
+    if (!whereToUse)
+      return NextResponse.json(
+        { error: `"where_to_use" is required for "${name}"` },
+        { status: 400 }
+      );
+
     rows.push({
       series_id: seriesId,
       type,
@@ -162,12 +182,25 @@ export async function postAssetsByType(
       slug,
       description: toNullableString(item?.description),
       sort_order: nextSort++,
+      _variant_prompt: prompt,
+      _variant_where_to_use: whereToUse,
+      _variant_reasoning: toNullableString(item?.reasoning) ?? '',
     });
   }
 
+  // Strip _variant_* fields before inserting into series_assets (those are for the variant)
+  const dbRows = rows.map(
+    ({
+      _variant_prompt,
+      _variant_where_to_use,
+      _variant_reasoning,
+      ...rest
+    }) => rest
+  );
+
   const { data: assets, error: insertErr } = await db
     .from('series_assets')
-    .insert(rows)
+    .insert(dbRows)
     .select(ASSET_SELECT);
 
   if (insertErr) {
@@ -183,18 +216,24 @@ export async function postAssetsByType(
     );
   }
 
-  // auto-create default variant per asset
-  const defaultVariants = (assets ?? []).map(
-    (a: { id: string; slug: string }) => ({
-      asset_id: a.id,
-      name: 'Default',
-      slug: `${a.slug}-default`,
-      is_default: true,
-    })
+  // auto-create main variant per asset with prompt/where_to_use from input
+  const mainVariants = (assets ?? []).map(
+    (a: { id: string; slug: string }, idx: number) => {
+      const inputRow = rows[idx] as Record<string, unknown>;
+      return {
+        asset_id: a.id,
+        name: 'Main',
+        slug: `${a.slug}-main`,
+        is_main: true,
+        prompt: (inputRow._variant_prompt as string) ?? '',
+        where_to_use: (inputRow._variant_where_to_use as string) ?? '',
+        reasoning: (inputRow._variant_reasoning as string) ?? '',
+      };
+    }
   );
 
-  if (defaultVariants.length > 0) {
-    await db.from('series_asset_variants').insert(defaultVariants);
+  if (mainVariants.length > 0) {
+    await db.from('series_asset_variants').insert(mainVariants);
   }
 
   // re-fetch with variants
@@ -366,7 +405,7 @@ export async function postVariantsByAsset(
   if (!asset)
     return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
 
-  const rows = [];
+  const rows: Array<Record<string, unknown>> = [];
   for (const item of items) {
     const name = typeof item?.name === 'string' ? item.name.trim() : '';
     if (!name)
@@ -379,24 +418,38 @@ export async function postVariantsByAsset(
         ? item.slug.trim()
         : toSlug(name);
 
-    // if marking as default, reset others
-    if (item?.is_default === true) {
+    // if marking as main, reset others
+    if (item?.is_main === true) {
       await db
         .from('series_asset_variants')
-        .update({ is_default: false })
+        .update({ is_main: false })
         .eq('asset_id', assetId)
-        .eq('is_default', true);
+        .eq('is_main', true);
     }
+
+    const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
+    const whereToUse =
+      typeof item?.where_to_use === 'string' ? item.where_to_use.trim() : '';
+    if (!prompt)
+      return NextResponse.json(
+        { error: `"prompt" is required for variant "${name}"` },
+        { status: 400 }
+      );
+    if (!whereToUse)
+      return NextResponse.json(
+        { error: `"where_to_use" is required for variant "${name}"` },
+        { status: 400 }
+      );
 
     rows.push({
       asset_id: assetId,
       name,
       slug,
-      prompt: toNullableString(item?.prompt),
+      prompt,
       image_url: toNullableString(item?.image_url),
-      is_default: item?.is_default === true,
-      where_to_use: toNullableString(item?.where_to_use),
-      reasoning: toNullableString(item?.reasoning),
+      is_main: item?.is_main === true,
+      where_to_use: whereToUse,
+      reasoning: typeof item?.reasoning === 'string' ? item.reasoning.trim() : '',
     });
   }
 
@@ -456,13 +509,13 @@ export async function patchVariantById(
     updates.where_to_use = toNullableString(body.where_to_use);
   if (body?.reasoning !== undefined)
     updates.reasoning = toNullableString(body.reasoning);
-  if (body?.is_default !== undefined) {
-    if (typeof body.is_default !== 'boolean')
+  if (body?.is_main !== undefined) {
+    if (typeof body.is_main !== 'boolean')
       return NextResponse.json(
-        { error: 'is_default must be boolean' },
+        { error: 'is_main must be boolean' },
         { status: 400 }
       );
-    updates.is_default = body.is_default;
+    updates.is_main = body.is_main;
   }
 
   if (Object.keys(updates).length === 0)
@@ -473,12 +526,12 @@ export async function patchVariantById(
   if (!owned)
     return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
 
-  if (updates.is_default === true) {
+  if (updates.is_main === true) {
     await db
       .from('series_asset_variants')
-      .update({ is_default: false })
+      .update({ is_main: false })
       .eq('asset_id', owned.asset.id)
-      .eq('is_default', true)
+      .eq('is_main', true)
       .neq('id', id);
   }
 

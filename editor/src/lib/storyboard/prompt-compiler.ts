@@ -17,6 +17,93 @@ import {
 
 export const SCENE_PROMPT_CONTRACT_META_KEY = 'prompt_contract';
 
+// ---------------------------------------------------------------------------
+// Grok compile: @variant-slug → @imageN + ordered image_urls[]
+// ---------------------------------------------------------------------------
+
+export interface GrokCompileInput {
+  /** Raw prompt with @variant-slug references (e.g. "@mekke-sokaklari-main dark streets") */
+  prompt: string;
+  /** Location variant slug for this scene */
+  locationVariantSlug: string | null;
+  /** Character variant slugs in scene order */
+  characterVariantSlugs: string[];
+  /** Prop variant slugs in scene order */
+  propVariantSlugs: string[];
+  /** Map of variant slug → image URL (from DB) */
+  slugToImageUrl: Map<string, string> | Record<string, string>;
+}
+
+export interface GrokCompileOutput {
+  /** Compiled prompt with @image1, @image2... references */
+  prompt: string;
+  /** Ordered image URLs matching @imageN numbering */
+  imageUrls: string[];
+  /** Mapping for debugging: @imageN → slug */
+  refMap: Array<{ ref: string; slug: string; imageUrl: string | null }>;
+}
+
+/**
+ * Compile a scene prompt for Grok video generation.
+ *
+ * Replaces `@variant-slug` references in the prompt with `@imageN` syntax
+ * and builds the ordered `image_urls` array that Grok expects.
+ *
+ * Order convention: background first, then characters, then props.
+ */
+export function compileForGrok(input: GrokCompileInput): GrokCompileOutput {
+  const imageMap =
+    input.slugToImageUrl instanceof Map
+      ? input.slugToImageUrl
+      : new Map(Object.entries(input.slugToImageUrl));
+
+  // Build ordered slug list: background → characters → props
+  const orderedSlugs: string[] = [];
+  if (input.locationVariantSlug) {
+    orderedSlugs.push(input.locationVariantSlug);
+  }
+  for (const slug of input.characterVariantSlugs) {
+    if (slug && !orderedSlugs.includes(slug)) orderedSlugs.push(slug);
+  }
+  for (const slug of input.propVariantSlugs) {
+    if (slug && !orderedSlugs.includes(slug)) orderedSlugs.push(slug);
+  }
+
+  // Also pick up any @slug references in the prompt that aren't in the lists
+  const slugPattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = slugPattern.exec(input.prompt)) !== null) {
+    const foundSlug = match[1];
+    // Skip if it's already @imageN (legacy prompt) or already tracked
+    if (/^image\d+$/.test(foundSlug)) continue;
+    if (!orderedSlugs.includes(foundSlug) && imageMap.has(foundSlug)) {
+      orderedSlugs.push(foundSlug);
+    }
+  }
+
+  // Build image_urls array and ref map
+  const imageUrls: string[] = [];
+  const refMap: GrokCompileOutput['refMap'] = [];
+
+  for (let i = 0; i < orderedSlugs.length; i++) {
+    const slug = orderedSlugs[i];
+    const url = imageMap.get(slug) ?? null;
+    if (url) imageUrls.push(url);
+    refMap.push({ ref: `@image${i + 1}`, slug, imageUrl: url });
+  }
+
+  // Replace @slug → @imageN in prompt (longest slugs first to avoid partial matches)
+  let compiled = input.prompt;
+  const sortedSlugs = [...orderedSlugs].sort((a, b) => b.length - a.length);
+  for (const slug of sortedSlugs) {
+    const idx = orderedSlugs.indexOf(slug);
+    const regex = new RegExp(`@${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[.,;:!?])`, 'g');
+    compiled = compiled.replace(regex, `@image${idx + 1}`);
+  }
+
+  return { prompt: compiled, imageUrls, refMap };
+}
+
 function toRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return { ...(value as Record<string, unknown>) };

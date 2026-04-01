@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useAssetStore } from '@/stores/asset-store';
 import { useProjectId } from '@/contexts/project-context';
+import { usePanelStore } from '@/stores/panel-store';
 
 const viewMap: Record<Tab, React.ReactNode> = {
   uploads: <PanelUploads />,
@@ -88,10 +89,22 @@ export function MediaPanel() {
     }
   }, [activeTab]);
 
+  const { isToolsExpanded, toggleToolsExpanded } = usePanelStore();
+
   return (
     <div className="h-full flex flex-col bg-card rounded-sm overflow-hidden w-full">
-      <div className="flex-none">
-        <TabBar />
+      <div className="flex-none flex items-center">
+        <div className="flex-1 min-w-0">
+          <TabBar />
+        </div>
+        <button
+          type="button"
+          onClick={toggleToolsExpanded}
+          className="flex-none px-2 py-1 mr-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded transition-colors"
+          title={isToolsExpanded ? 'Collapse panel' : 'Expand panel full width'}
+        >
+          {isToolsExpanded ? '⇤' : '⇥'}
+        </button>
       </div>
       <Separator orientation="horizontal" />
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">

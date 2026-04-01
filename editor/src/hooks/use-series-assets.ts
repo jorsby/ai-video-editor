@@ -10,8 +10,11 @@ interface VariantRow {
   id: string;
   name: string | null;
   slug: string;
+  prompt: string | null;
   image_url: string | null;
-  is_default: boolean;
+  is_main: boolean;
+  where_to_use: string | null;
+  reasoning: string | null;
   // Legacy compatibility flag; canonical schema does not require lock state.
   is_finalized?: boolean | null;
 }
@@ -19,6 +22,7 @@ interface VariantRow {
 interface AssetRow {
   id: string;
   name: string;
+  slug: string | null;
   type: string;
   description: string | null;
   sort_order: number | null;
@@ -28,14 +32,19 @@ interface AssetRow {
 export interface SeriesAssetVariant {
   id: string;
   label: string;
-  isDefault: boolean;
+  slug: string;
+  prompt: string | null;
+  isMain: boolean;
   isFinalized: boolean;
   imageUrl: string | null;
+  whereToUse: string | null;
+  reasoning: string | null;
 }
 
 export interface SeriesAsset {
   id: string;
   name: string;
+  slug: string | null;
   type: AssetType;
   description: string | null;
   sortOrder: number | null;
@@ -162,7 +171,7 @@ function pickThumbnailUrl(
   variants: VariantRow[]
 ): string | null {
   for (const variant of variants) {
-    if (variant.is_default) {
+    if (variant.is_main) {
       const url = resolveStoredUrl(supabase, variant.image_url);
       if (url) return url;
     }
@@ -302,7 +311,7 @@ export function useSeriesAssets(
         const { data: assetsData, error: assetsError } = await supabase
           .from('series_assets')
           .select(
-            'id, name, type, description, sort_order, series_asset_variants(id, name, slug, image_url, is_default)'
+            'id, name, slug, type, description, sort_order, series_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning)'
           )
           .eq('series_id', foundSeriesId)
           .order('type', { ascending: true })
@@ -325,9 +334,13 @@ export function useSeriesAssets(
               label:
                 (typeof variant.name === 'string' && variant.name.trim()) ||
                 variant.slug,
-              isDefault: variant.is_default,
+              slug: variant.slug,
+              prompt: variant.prompt ?? null,
+              isMain: variant.is_main,
               isFinalized: Boolean(variant.is_finalized),
               imageUrl: resolveStoredUrl(supabase, variant.image_url),
+              whereToUse: variant.where_to_use ?? null,
+              reasoning: variant.reasoning ?? null,
             })
           );
 
@@ -335,6 +348,7 @@ export function useSeriesAssets(
             {
               id: asset.id,
               name: asset.name,
+              slug: asset.slug ?? null,
               type: asset.type,
               description: asset.description,
               sortOrder: asset.sort_order,
@@ -514,7 +528,7 @@ export function useSeriesAssets(
         .map((asset) => ({
           asset_id: asset.id,
           variant_id:
-            asset.variants.find((variant) => variant.isDefault)?.id ??
+            asset.variants.find((variant) => variant.isMain)?.id ??
             asset.variants[0]?.id ??
             null,
           isFinalized: asset.variants.some((variant) => variant.isFinalized),

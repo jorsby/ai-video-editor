@@ -13,7 +13,11 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useProjectId } from '@/contexts/project-context';
-import { type SeriesAsset, useSeriesAssets } from '@/hooks/use-series-assets';
+import {
+  type SeriesAsset,
+  type SeriesAssetVariant,
+  useSeriesAssets,
+} from '@/hooks/use-series-assets';
 import {
   IconChevronDown,
   IconChevronRight,
@@ -46,6 +50,128 @@ const SECTION_CONFIG: Record<
 
 function getAssetEmoji(type: AssetType): string {
   return type === 'character' ? '👤' : type === 'location' ? '🏠' : '📦';
+}
+
+function SlugBadge({ slug }: { slug: string }) {
+  return (
+    <code className="text-[9px] px-1.5 py-0.5 rounded bg-muted/40 border border-border/30 text-muted-foreground font-mono">
+      {slug}
+    </code>
+  );
+}
+
+function DetailRow({
+  label,
+  children,
+}: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider w-16 shrink-0 pt-0.5">
+        {label}
+      </span>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function VariantCard({ variant }: { variant: SeriesAssetVariant }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  return (
+    <>
+      <div className="rounded-md border border-border/30 bg-muted/10 overflow-hidden">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-muted/20">
+          {variant.imageUrl ? (
+            <div className="relative group/thumb shrink-0">
+              <img
+                src={variant.imageUrl}
+                alt={variant.label}
+                className="size-7 rounded object-cover border border-border/30"
+              />
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+              >
+                <IconMaximize size={10} className="text-white" />
+              </button>
+            </div>
+          ) : (
+            <div className="size-7 rounded bg-muted/30 border border-border/30 shrink-0 flex items-center justify-center text-[9px] text-muted-foreground">
+              —
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-medium truncate">
+                {variant.label}
+              </span>
+              {variant.isMain && (
+                <Badge
+                  variant="secondary"
+                  className="text-[7px] px-1 py-0 h-3"
+                >
+                  Main
+                </Badge>
+              )}
+              {variant.isFinalized && (
+                <Badge
+                  variant="outline"
+                  className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
+                >
+                  Locked
+                </Badge>
+              )}
+            </div>
+            <SlugBadge slug={variant.slug} />
+          </div>
+        </div>
+
+        {(variant.prompt || variant.whereToUse || variant.reasoning) && (
+          <div className="px-2.5 py-1.5 space-y-1 border-t border-border/20">
+            {variant.prompt && (
+              <DetailRow label="Prompt">
+                <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-3">
+                  {variant.prompt}
+                </p>
+              </DetailRow>
+            )}
+            {variant.whereToUse && (
+              <DetailRow label="Where">
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  {variant.whereToUse}
+                </p>
+              </DetailRow>
+            )}
+            {variant.reasoning && (
+              <DetailRow label="Notes">
+                <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">
+                  {variant.reasoning}
+                </p>
+              </DetailRow>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 sm:p-4 bg-black/90 border-white/10">
+          <DialogTitle className="sr-only">{variant.label}</DialogTitle>
+          {variant.imageUrl && (
+            <img
+              src={variant.imageUrl}
+              alt={variant.label}
+              className="w-full h-auto max-h-[80vh] object-contain rounded"
+            />
+          )}
+          <div className="text-center mt-2">
+            <p className="text-sm font-medium text-white">{variant.label}</p>
+            <p className="text-xs text-white/60 font-mono">{variant.slug}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function AssetCard({
@@ -103,8 +229,9 @@ function AssetCard({
               </div>
             )}
           </div>
-          <div className="p-1.5">
+          <div className="p-1.5 space-y-0.5">
             <p className="text-[10px] font-medium truncate">{asset.name}</p>
+            {asset.slug && <SlugBadge slug={asset.slug} />}
             <p className="text-[9px] text-muted-foreground line-clamp-1">
               {description}
             </p>
@@ -122,6 +249,9 @@ function AssetCard({
             )}
             <div className="text-center mt-2">
               <p className="text-sm font-medium text-white">{asset.name}</p>
+              {asset.slug && (
+                <p className="text-xs text-white/50 font-mono">{asset.slug}</p>
+              )}
               <p className="text-xs text-white/60">{description}</p>
             </div>
           </DialogContent>
@@ -132,111 +262,89 @@ function AssetCard({
 
   // List mode
   return (
-    <>
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="w-full border border-border/40 rounded-md px-2.5 py-2 text-left hover:bg-muted/20 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              {imageUrl ? (
-                <div className="relative group/thumb shrink-0">
-                  <img
-                    src={imageUrl}
-                    alt={`${asset.name} reference`}
-                    className="size-10 rounded object-cover border border-border/30"
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPreviewOpen(true);
-                    }}
-                    className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
-                  >
-                    <IconMaximize size={12} className="text-white" />
-                  </button>
-                </div>
-              ) : (
-                <div className="size-10 rounded border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-sm">
-                  {emoji}
-                </div>
-              )}
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-xs font-medium truncate">{asset.name}</p>
-                  {asset.variants.some((v) => v.isFinalized) && (
-                    <Badge
-                      variant="outline"
-                      className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 shrink-0"
-                    >
-                      Finalized
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-[10px] text-muted-foreground line-clamp-1">
-                  {description}
-                </p>
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="w-full border border-border/40 rounded-md px-2.5 py-2 text-left hover:bg-muted/20 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            {imageUrl ? (
+              <div className="relative group/thumb shrink-0">
+                <img
+                  src={imageUrl}
+                  alt={`${asset.name} reference`}
+                  className="size-10 rounded object-cover border border-border/30"
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewOpen(true);
+                  }}
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                >
+                  <IconMaximize size={12} className="text-white" />
+                </button>
               </div>
-
-              {isExpanded ? (
-                <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
-              ) : (
-                <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-              )}
-            </div>
-          </button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <div className="px-2.5 pt-1 pb-2 space-y-1.5">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              {description}
-            </p>
-            {asset.variants.length > 0 && (
-              <div className="space-y-1">
-                {asset.variants.map((variant) => (
-                  <div
-                    key={variant.id}
-                    className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
-                  >
-                    {variant.imageUrl ? (
-                      <img
-                        src={variant.imageUrl}
-                        alt={variant.label}
-                        className="size-6 rounded object-cover border border-border/30 shrink-0"
-                      />
-                    ) : (
-                      <div className="size-6 rounded bg-muted/30 shrink-0" />
-                    )}
-                    <span className="text-[10px] flex-1 truncate">
-                      {variant.label}
-                    </span>
-                    {variant.isDefault && (
-                      <Badge
-                        variant="secondary"
-                        className="text-[7px] px-1 py-0 h-3"
-                      >
-                        Default
-                      </Badge>
-                    )}
-                    {variant.isFinalized && (
-                      <Badge
-                        variant="outline"
-                        className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
-                      >
-                        Locked
-                      </Badge>
-                    )}
-                  </div>
-                ))}
+            ) : (
+              <div className="size-10 rounded border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-sm">
+                {emoji}
               </div>
             )}
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-xs font-medium truncate">{asset.name}</p>
+                {asset.slug && <SlugBadge slug={asset.slug} />}
+                {asset.variants.some((v) => v.isFinalized) && (
+                  <Badge
+                    variant="outline"
+                    className="text-[7px] px-1 py-0 h-3 border-emerald-500/40 shrink-0"
+                  >
+                    Finalized
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground line-clamp-1">
+                {description}
+              </p>
+              <p className="text-[9px] text-muted-foreground/60">
+                {asset.variants.length} variant
+                {asset.variants.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+
+            {isExpanded ? (
+              <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
+            ) : (
+              <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+            )}
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+        </button>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent>
+        <div className="px-2.5 pt-1.5 pb-2 space-y-2">
+          {/* Description */}
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            {description}
+          </p>
+
+          {/* Variants */}
+          {asset.variants.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] text-muted-foreground/70 uppercase tracking-wider">
+                Variants
+              </p>
+              {asset.variants.map((variant) => (
+                <VariantCard key={variant.id} variant={variant} />
+              ))}
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-2 sm:p-4 bg-black/90 border-white/10">
           <DialogTitle className="sr-only">{asset.name}</DialogTitle>
@@ -249,11 +357,14 @@ function AssetCard({
           )}
           <div className="text-center mt-2">
             <p className="text-sm font-medium text-white">{asset.name}</p>
+            {asset.slug && (
+              <p className="text-xs text-white/50 font-mono">{asset.slug}</p>
+            )}
             <p className="text-xs text-white/60">{description}</p>
           </div>
         </DialogContent>
       </Dialog>
-    </>
+    </Collapsible>
   );
 }
 

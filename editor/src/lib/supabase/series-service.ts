@@ -89,7 +89,7 @@ export interface SeriesAssetVariant {
   slug: string;
   prompt: string | null;
   image_url: string | null;
-  is_default: boolean;
+  is_main: boolean;
   where_to_use: string | null;
   reasoning: string | null;
   created_at: string;
@@ -176,14 +176,7 @@ const DEFAULT_EPISODE_ASSET_VARIANT_MAP: EpisodeAssetVariantMap = {
   props: [],
 };
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
-}
+import { slugify } from '@/lib/utils/slugify';
 
 function asNullableText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -772,7 +765,7 @@ export async function createAssetVariant(
     slug?: string;
     prompt?: string;
     image_url?: string;
-    is_default?: boolean;
+    is_main?: boolean;
     where_to_use?: string;
     reasoning?: string;
     description?: string;
@@ -785,16 +778,16 @@ export async function createAssetVariant(
 
   const resolvedSlug = asNullableText(input.slug) ?? slugify(resolvedName);
 
-  if (input.is_default) {
+  if (input.is_main) {
     const { error: resetError } = await supabase
       .from('series_asset_variants')
-      .update({ is_default: false })
+      .update({ is_main: false })
       .eq('asset_id', assetId)
-      .eq('is_default', true);
+      .eq('is_main', true);
 
     if (resetError) {
       throw new Error(
-        `Failed to clear previous default variant: ${resetError.message}`
+        `Failed to clear previous main variant: ${resetError.message}`
       );
     }
   }
@@ -807,7 +800,7 @@ export async function createAssetVariant(
       slug: resolvedSlug,
       prompt: asNullableText(input.prompt),
       image_url: asNullableText(input.image_url),
-      is_default: Boolean(input.is_default),
+      is_main: Boolean(input.is_main),
       where_to_use: asNullableText(input.where_to_use ?? input.description),
       reasoning: asNullableText(input.reasoning),
     })
@@ -832,7 +825,7 @@ export async function updateAssetVariant(
     slug?: string;
     prompt?: string | null;
     image_url?: string | null;
-    is_default?: boolean;
+    is_main?: boolean;
     where_to_use?: string | null;
     reasoning?: string | null;
     description?: string | null;
@@ -866,7 +859,7 @@ export async function updateAssetVariant(
   if (input.reasoning !== undefined)
     updates.reasoning = asNullableText(input.reasoning);
 
-  if (input.is_default === true) {
+  if (input.is_main === true) {
     const { data: variantData, error: variantError } = await supabase
       .from('series_asset_variants')
       .select('asset_id')
@@ -879,20 +872,20 @@ export async function updateAssetVariant(
 
     const { error: resetError } = await supabase
       .from('series_asset_variants')
-      .update({ is_default: false })
+      .update({ is_main: false })
       .eq('asset_id', variantData.asset_id)
-      .eq('is_default', true)
+      .eq('is_main', true)
       .neq('id', variantId);
 
     if (resetError) {
       throw new Error(
-        `Failed to clear previous default variant: ${resetError.message}`
+        `Failed to clear previous main variant: ${resetError.message}`
       );
     }
 
-    updates.is_default = true;
-  } else if (input.is_default === false) {
-    updates.is_default = false;
+    updates.is_main = true;
+  } else if (input.is_main === false) {
+    updates.is_main = false;
   }
 
   const { data, error } = await supabase

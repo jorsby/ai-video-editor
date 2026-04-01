@@ -435,9 +435,9 @@ function VariantCard({
               {variant.slug}
             </span>
           </div>
-          {variant.is_default && (
+          {variant.is_main && (
             <Badge variant="secondary" className="text-xs">
-              Default
+              Main
             </Badge>
           )}
           {variant.is_finalized && (
@@ -636,7 +636,7 @@ function AssetCard({
   const [showAddVariant, setShowAddVariant] = useState(false);
   const [variantLabel, setVariantLabel] = useState('');
   const [variantDesc, setVariantDesc] = useState('');
-  const [isDefault, setIsDefault] = useState(false);
+  const [isMain, setIsMain] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lightboxState, setLightboxState] = useState<LightboxState | null>(
     null
@@ -653,12 +653,12 @@ function AssetCard({
         body: JSON.stringify({
           label: variantLabel.trim(),
           description: variantDesc.trim() || undefined,
-          is_default: isDefault,
+          is_main: isMain,
         }),
       });
       setVariantLabel('');
       setVariantDesc('');
-      setIsDefault(false);
+      setIsMain(false);
       setShowAddVariant(false);
       onRefresh();
     } finally {
@@ -789,8 +789,8 @@ function AssetCard({
               <input
                 type="checkbox"
                 id={`default-${asset.id}`}
-                checked={isDefault}
-                onChange={(e) => setIsDefault(e.target.checked)}
+                checked={isMain}
+                onChange={(e) => setIsMain(e.target.checked)}
                 className="w-4 h-4"
               />
               <label

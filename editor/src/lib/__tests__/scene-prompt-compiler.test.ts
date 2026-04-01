@@ -297,3 +297,114 @@ describe('scene prompt compiler', () => {
     expect(storedContract?.resolved_asset_refs).toHaveLength(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// compileForGrok tests
+// ---------------------------------------------------------------------------
+import { compileForGrok } from '@/lib/storyboard/prompt-compiler';
+
+describe('compileForGrok', () => {
+  const slugToImageUrl = new Map([
+    ['mekke-sokaklari-main', 'https://cdn.example.com/mekke-sokaklari.jpg'],
+    ['hz-ali-main', 'https://cdn.example.com/hz-ali.jpg'],
+    ['ebu-cehil-main', 'https://cdn.example.com/ebu-cehil.jpg'],
+    ['binek-devesi-main', 'https://cdn.example.com/deve.jpg'],
+  ]);
+
+  it('replaces @slug with @imageN in correct order (bg → chars → props)', () => {
+    const result = compileForGrok({
+      prompt:
+        '@mekke-sokaklari-main dark narrow streets at night. @hz-ali-main stands guard. @ebu-cehil-main approaches.',
+      locationVariantSlug: 'mekke-sokaklari-main',
+      characterVariantSlugs: ['hz-ali-main', 'ebu-cehil-main'],
+      propVariantSlugs: [],
+      slugToImageUrl,
+    });
+
+    expect(result.prompt).toBe(
+      '@image1 dark narrow streets at night. @image2 stands guard. @image3 approaches.'
+    );
+    expect(result.imageUrls).toEqual([
+      'https://cdn.example.com/mekke-sokaklari.jpg',
+      'https://cdn.example.com/hz-ali.jpg',
+      'https://cdn.example.com/ebu-cehil.jpg',
+    ]);
+    expect(result.refMap).toHaveLength(3);
+    expect(result.refMap[0]).toEqual({
+      ref: '@image1',
+      slug: 'mekke-sokaklari-main',
+      imageUrl: 'https://cdn.example.com/mekke-sokaklari.jpg',
+    });
+  });
+
+  it('includes props after characters', () => {
+    const result = compileForGrok({
+      prompt:
+        '@mekke-sokaklari-main courtyard. @hz-ali-main rides @binek-devesi-main into the city.',
+      locationVariantSlug: 'mekke-sokaklari-main',
+      characterVariantSlugs: ['hz-ali-main'],
+      propVariantSlugs: ['binek-devesi-main'],
+      slugToImageUrl,
+    });
+
+    expect(result.prompt).toBe(
+      '@image1 courtyard. @image2 rides @image3 into the city.'
+    );
+    expect(result.imageUrls).toHaveLength(3);
+    expect(result.refMap[2].slug).toBe('binek-devesi-main');
+  });
+
+  it('handles null location slug', () => {
+    const result = compileForGrok({
+      prompt: '@hz-ali-main walks alone through the desert.',
+      locationVariantSlug: null,
+      characterVariantSlugs: ['hz-ali-main'],
+      propVariantSlugs: [],
+      slugToImageUrl,
+    });
+
+    expect(result.prompt).toBe('@image1 walks alone through the desert.');
+    expect(result.imageUrls).toEqual(['https://cdn.example.com/hz-ali.jpg']);
+  });
+
+  it('deduplicates slugs', () => {
+    const result = compileForGrok({
+      prompt: '@hz-ali-main speaks. Later @hz-ali-main leaves.',
+      locationVariantSlug: null,
+      characterVariantSlugs: ['hz-ali-main', 'hz-ali-main'],
+      propVariantSlugs: [],
+      slugToImageUrl,
+    });
+
+    expect(result.imageUrls).toHaveLength(1);
+    expect(result.prompt).toBe('@image1 speaks. Later @image1 leaves.');
+  });
+
+  it('works with Record instead of Map', () => {
+    const result = compileForGrok({
+      prompt: '@hz-ali-main stands guard.',
+      locationVariantSlug: null,
+      characterVariantSlugs: ['hz-ali-main'],
+      propVariantSlugs: [],
+      slugToImageUrl: { 'hz-ali-main': 'https://cdn.example.com/hz-ali.jpg' },
+    });
+
+    expect(result.prompt).toBe('@image1 stands guard.');
+    expect(result.imageUrls).toEqual(['https://cdn.example.com/hz-ali.jpg']);
+  });
+
+  it('picks up extra @slug refs from prompt not in slug lists', () => {
+    const result = compileForGrok({
+      prompt:
+        '@mekke-sokaklari-main streets. @hz-ali-main walks. @ebu-cehil-main watches.',
+      locationVariantSlug: 'mekke-sokaklari-main',
+      characterVariantSlugs: ['hz-ali-main'],
+      propVariantSlugs: [],
+      slugToImageUrl,
+    });
+
+    // ebu-cehil-main found in prompt but not in characterVariantSlugs
+    expect(result.imageUrls).toHaveLength(3);
+    expect(result.refMap[2].slug).toBe('ebu-cehil-main');
+  });
+});

@@ -9,6 +9,7 @@ interface PanelState {
   mainContent: number;
   timeline: number;
   isCopilotVisible: boolean;
+  isToolsExpanded: boolean;
 
   setToolsPanel: (size: number) => void;
   setCopilotPanel: (size: number) => void;
@@ -17,6 +18,7 @@ interface PanelState {
   setMainContent: (size: number) => void;
   setTimeline: (size: number) => void;
   toggleCopilot: () => void;
+  toggleToolsExpanded: () => void;
 }
 
 export const usePanelStore = create<PanelState>()(
@@ -29,6 +31,7 @@ export const usePanelStore = create<PanelState>()(
       mainContent: 70,
       timeline: 30,
       isCopilotVisible: true,
+      isToolsExpanded: false,
 
       setToolsPanel: (size) => set({ toolsPanel: size }),
       setPreviewPanel: (size) => set({ previewPanel: size }),
@@ -38,9 +41,15 @@ export const usePanelStore = create<PanelState>()(
       setCopilotPanel: (size) => set({ copilotPanel: size }),
       toggleCopilot: () =>
         set((state) => ({ isCopilotVisible: !state.isCopilotVisible })),
+      toggleToolsExpanded: () =>
+        set((state) => ({ isToolsExpanded: !state.isToolsExpanded })),
     }),
     {
       name: 'panel-sizes',
+      partialize: (state) => {
+        const { isToolsExpanded, ...rest } = state;
+        return rest;
+      },
     }
   )
 );
