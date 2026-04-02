@@ -11,6 +11,17 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
+import { Slider } from '@/components/ui/slider';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { useStudioStore } from '@/stores/studio-store';
+import { useProjectStore } from '@/stores/project-store';
+import {
+  type SceneForTimeline,
+  type SceneTimelineSettings,
+  calculateSceneTiming,
+  buildSceneClips,
+} from '@/lib/timeline/scene-to-timeline';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -28,6 +39,7 @@ import {
   IconX,
   IconSparkles,
   IconRefresh,
+  IconSend,
 } from '@tabler/icons-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -39,7 +51,9 @@ interface SceneData {
   prompt: string | null;
   audio_text: string | null;
   audio_url: string | null;
+  audio_duration: number | null;
   video_url: string | null;
+  video_duration: number | null;
   status: string | null;
   duration: number | null;
   location_variant_slug: string | null;
@@ -956,6 +970,267 @@ function AssetGallery({
   );
 }
 
+// ── Send to Timeline Modal ──────────────────────────────────────────────────────
+
+function SendToTimelineModal({
+  scenes,
+  open,
+  onOpenChange,
+}: {
+  scenes: SceneData[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { studio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
+
+  const [settings, setSettings] = useState<SceneTimelineSettings[]>(() =>
+    scenes.map((s) => ({
+      sceneId: s.id,
+      audioTrimPercent: 100,
+      videoTrimPercent: 100,
+      matchVideoToAudio: !!s.audio_text, // default ON for narrative
+    }))
+  );
+  const [isSending, setIsSending] = useState(false);
+
+  // Reset settings when scenes change
+  useEffect(() => {
+    setSettings(
+      scenes.map((s) => ({
+        sceneId: s.id,
+        audioTrimPercent: 100,
+        videoTrimPercent: 100,
+        matchVideoToAudio: !!s.audio_text,
+      }))
+    );
+  }, [scenes]);
+
+  const updateSetting = (sceneId: string, patch: Partial<SceneTimelineSettings>) => {
+    setSettings((prev) =>
+      prev.map((s) => (s.sceneId === sceneId ? { ...s, ...patch } : s))
+    );
+  };
+
+  // Calculate total duration
+  const totalDuration = scenes.reduce((sum, scene) => {
+    const s = settings.find((x) => x.sceneId === scene.id);
+    if (!s) return sum;
+    const timing = calculateSceneTiming(scene as SceneForTimeline, s);
+    return sum + timing.sceneDuration;
+  }, 0);
+
+  const handleSend = async () => {
+    if (!studio) {
+      toast.error('Editor not ready');
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const results = await buildSceneClips({
+        scenes: scenes as SceneForTimeline[],
+        settings,
+        canvasWidth: canvasSize.width,
+        canvasHeight: canvasSize.height,
+      });
+
+      // Add all clips to studio
+      for (const result of results) {
+        if (result.videoClip) {
+          await studio.addClip(result.videoClip);
+        }
+        if (result.audioClip) {
+          await studio.addClip(result.audioClip);
+        }
+      }
+
+      const videoCount = results.filter((r) => r.videoClip).length;
+      const audioCount = results.filter((r) => r.audioClip).length;
+      toast.success(`Added ${videoCount} video + ${audioCount} audio clips to timeline`);
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to add clips');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+          <IconSend className="size-4" />
+          Send to Timeline
+          <Badge variant="secondary" className="text-[10px]">
+            {scenes.length} scene{scenes.length !== 1 ? 's' : ''}
+          </Badge>
+        </DialogTitle>
+
+        <ScrollArea className="flex-1 -mx-6 px-6">
+          <div className="space-y-3 py-2">
+            {scenes.map((scene, i) => {
+              const s = settings.find((x) => x.sceneId === scene.id);
+              if (!s) return null;
+
+              const isNarrative = !!scene.audio_text;
+              const timing = calculateSceneTiming(scene as SceneForTimeline, s);
+              const hasAudio = !!scene.audio_url;
+              const hasVideo = !!scene.video_url;
+
+              return (
+                <div
+                  key={scene.id}
+                  className="rounded-md border border-border/40 bg-card/50 p-3 space-y-2.5"
+                >
+                  {/* Scene header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        S{i + 1}
+                      </span>
+                      <span className="text-xs font-medium truncate">
+                        {scene.title || `Scene ${i + 1}`}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {timing.sceneDuration.toFixed(1)}s
+                    </span>
+                  </div>
+
+                  {/* Audio trim slider */}
+                  {hasAudio && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <IconVolume className="size-3" />
+                          Audio
+                          <span className="font-mono">
+                            {(scene.audio_duration ?? 0).toFixed(1)}s
+                          </span>
+                        </span>
+                        <span className="font-mono font-medium text-foreground">
+                          {s.audioTrimPercent}%
+                          <span className="text-muted-foreground ml-1">
+                            ({timing.effectiveAudioDuration.toFixed(1)}s)
+                          </span>
+                        </span>
+                      </div>
+                      <Slider
+                        value={[s.audioTrimPercent]}
+                        onValueChange={([v]) =>
+                          updateSetting(scene.id, { audioTrimPercent: v })
+                        }
+                        min={10}
+                        max={100}
+                        step={5}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
+
+                  {/* Video trim slider */}
+                  {hasVideo && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <IconVideo className="size-3" />
+                          Video
+                          <span className="font-mono">
+                            {(scene.video_duration ?? 0).toFixed(1)}s
+                          </span>
+                        </span>
+                        <span className="font-mono font-medium text-foreground">
+                          {s.videoTrimPercent}%
+                          <span className="text-muted-foreground ml-1">
+                            ({timing.effectiveVideoDuration.toFixed(1)}s)
+                          </span>
+                        </span>
+                      </div>
+                      <Slider
+                        value={[s.videoTrimPercent]}
+                        onValueChange={([v]) =>
+                          updateSetting(scene.id, { videoTrimPercent: v })
+                        }
+                        min={10}
+                        max={100}
+                        step={5}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
+
+                  {/* Speed match toggle (narrative only) */}
+                  {isNarrative && hasAudio && hasVideo && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={s.matchVideoToAudio}
+                        onChange={(e) =>
+                          updateSetting(scene.id, {
+                            matchVideoToAudio: e.target.checked,
+                          })
+                        }
+                        className="size-3.5 rounded border-border/60 accent-primary"
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        Match video speed to audio
+                        {s.matchVideoToAudio && timing.videoPlaybackRate !== 1 && (
+                          <span className="ml-1 font-mono text-primary">
+                            ({timing.videoPlaybackRate.toFixed(2)}x)
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Warnings */}
+                  {!hasVideo && !hasAudio && (
+                    <p className="text-[9px] text-amber-400">
+                      No media — scene will be skipped
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-3 border-t border-border/40">
+          <div className="text-[11px] text-muted-foreground">
+            Total: <span className="font-mono font-medium text-foreground">{totalDuration.toFixed(1)}s</span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => onOpenChange(false)}
+              disabled={isSending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={handleSend}
+              disabled={isSending || scenes.every((s) => !s.video_url && !s.audio_url)}
+            >
+              {isSending ? (
+                <IconLoader2 className="size-3 animate-spin" />
+              ) : (
+                <IconSend className="size-3" />
+              )}
+              Add to Timeline
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Episode Accordion ──────────────────────────────────────────────────────────
 
 function EpisodeAccordion({
@@ -970,6 +1245,7 @@ function EpisodeAccordion({
   const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
   const [ttsBatchProgress, setTtsBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const [videoBatchProgress, setVideoBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [timelineModalOpen, setTimelineModalOpen] = useState(false);
   const sceneCount = episode.scenes.length;
   const doneCount = episode.scenes.filter((s) => !!s.audio_url && !!s.video_url).length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
@@ -1080,6 +1356,7 @@ function EpisodeAccordion({
   };
 
   return (
+    <>
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger asChild>
         <button
@@ -1167,6 +1444,24 @@ function EpisodeAccordion({
                 </span>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setTimelineModalOpen(true)}
+              disabled={
+                selectedScenes.size === 0 ||
+                !episode.scenes.some(
+                  (s) =>
+                    selectedScenes.has(s.id) &&
+                    (s.video_url || s.audio_url)
+                ) ||
+                isBatchRunning
+              }
+              className="inline-flex items-center gap-1 h-6 px-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Send selected scenes to timeline"
+            >
+              <IconSend className="size-3" />
+              To Timeline
+            </button>
             {totalAssets > 0 && (
               <button
                 type="button"
@@ -1218,6 +1513,18 @@ function EpisodeAccordion({
         </div>
       </CollapsibleContent>
     </Collapsible>
+
+    {/* Send to Timeline modal */}
+    <SendToTimelineModal
+      scenes={episode.scenes.filter(
+        (s) =>
+          selectedScenes.has(s.id) &&
+          (s.video_url || s.audio_url)
+      )}
+      open={timelineModalOpen}
+      onOpenChange={setTimelineModalOpen}
+    />
+    </>
   );
 }
 
@@ -1286,7 +1593,7 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, episode_id, "order", title, prompt, audio_text, audio_url, video_url, status, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
             .in('episode_id', epIds)
             .order('"order"', { ascending: true });
