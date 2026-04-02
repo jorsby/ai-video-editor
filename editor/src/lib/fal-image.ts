@@ -114,6 +114,7 @@ export async function queueFalImageTask(
     output_format: normalizeFalOutputFormat(params.outputFormat),
     safety_tolerance: params.safetyTolerance ?? 6,
     limit_generations: true,
+    enable_web_search: true,
   };
 
   if (Array.isArray(params.imageInput) && params.imageInput.length > 0) {
