@@ -56,10 +56,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (!episode) {
-      return NextResponse.json(
-        { error: 'Episode not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Episode not found' }, { status: 404 });
     }
 
     const { data: series } = await supabase
@@ -69,10 +66,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (!series) {
-      return NextResponse.json(
-        { error: 'Series not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
     // ── Auth: user must own the series ──────────────────────────────────
@@ -87,7 +81,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     if (!series.voice_id) {
       return NextResponse.json(
-        { error: 'Series has no voice_id configured. Set it in series settings first.' },
+        {
+          error:
+            'Series has no voice_id configured. Set it in series settings first.',
+        },
         { status: 400 }
       );
     }
@@ -119,7 +116,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       callbackUrl: webhookUrl.toString(),
       input: {
         text: scene.audio_text.trim(),
-        voice: voiceId,
+        voice_id: voiceId,
         speed,
         stability: 0.5,
         similarity_boost: 0.75,
@@ -146,16 +143,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       speed,
     });
   } catch (error) {
-    console.error('[v2/scenes/:id/generate-tts] Error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+    console.error('[v2/scenes/:id/generate-tts] Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 function clampSpeed(value: unknown): number {
-  const n = typeof value === 'number' ? value : Number.parseFloat(String(value));
+  const n =
+    typeof value === 'number' ? value : Number.parseFloat(String(value));
   if (Number.isNaN(n)) return 1.0;
   return Math.max(0.7, Math.min(1.2, n));
 }
