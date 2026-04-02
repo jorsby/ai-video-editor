@@ -2,15 +2,12 @@ import { useEffect, useRef } from 'react';
 import { Player } from '../player';
 import { Studio, Compositor, fontManager } from 'openvideo';
 import { useStudioStore } from '@/stores/studio-store';
-import { useLanguageStore } from '@/stores/language-store';
 import { editorFont } from './constants';
 import {
   loadTimeline,
   reconstructProjectJSON,
-  getAvailableLanguages,
 } from '@/lib/supabase/timeline-service';
 import { useProjectId } from '@/contexts/project-context';
-import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const defaultSize = {
@@ -27,7 +24,6 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   const onReadyRef = useRef(onReady);
   const { setStudio } = useStudioStore();
   const projectId = useProjectId();
-  const isLanguageSwitching = useLanguageStore((s) => s.isLanguageSwitching);
 
   // Keep onReady ref up to date
   useEffect(() => {
@@ -48,7 +44,8 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
     });
 
     // Create studio instance with initial dimensions
-    previewRef.current = new Studio({
+    // Create studio instance with initial dimensions
+    const studioInstance = new Studio({
       width: defaultSize.width,
       height: defaultSize.height,
       fps: 30,
@@ -57,9 +54,11 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
       interactivity: true,
       spacing: 20,
     });
+    previewRef.current = studioInstance;
 
     const init = async () => {
       try {
+        // Load fonts + wait for readiness in parallel
         await Promise.all([
           fontManager.loadFonts([
             {
@@ -72,25 +71,8 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
 
         if (abortController.signal.aborted) return;
 
-        // Fetch available languages (queries tracks + voiceovers + storyboard plan)
-        const langs = await getAvailableLanguages(projectId);
-        if (abortController.signal.aborted) return;
-
-        let { activeLanguage } = useLanguageStore.getState();
-
-        if (langs.length > 0 && !langs.includes(activeLanguage)) {
-          activeLanguage = langs[0];
-          useLanguageStore.getState().setActiveLanguage(activeLanguage);
-        }
-
-        // Always ensure activeLanguage is in the list
-        if (!langs.includes(activeLanguage)) {
-          langs.push(activeLanguage);
-        }
-        useLanguageStore.getState().setAvailableLanguages(langs);
-
-        // Load timeline for the correct language
-        const savedData = await loadTimeline(projectId, activeLanguage);
+        // Load timeline
+        const savedData = await loadTimeline(projectId);
         if (abortController.signal.aborted) return;
 
         if (savedData && savedData.length > 0) {
@@ -98,7 +80,7 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
           const projectJson = reconstructProjectJSON(savedData);
           await previewRef.current?.loadFromJSON(projectJson as any);
         } else {
-          // No timeline data for this language — ensure clean slate
+          // No timeline data — ensure clean slate
           await previewRef.current?.clear();
         }
 
@@ -135,14 +117,6 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   return (
     <div className="h-full w-full flex flex-col min-h-0 min-w-0 bg-panel rounded-sm relative">
       <Player canvasRef={previewCanvasRef} />
-      {isLanguageSwitching && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10 rounded-sm">
-          <div className="flex items-center gap-2 text-sm text-white">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Switching language...
-          </div>
-        </div>
-      )}
     </div>
   );
 }

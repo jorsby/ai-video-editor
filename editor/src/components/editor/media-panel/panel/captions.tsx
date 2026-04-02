@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Play, Trash2, RefreshCw } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
-import { useLanguageStore } from '@/stores/language-store';
+
 import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
 import { fontManager, jsonToClip, Log, type IClip } from 'openvideo';
 import { generateCaptionClips } from '@/lib/caption-generator';
@@ -20,21 +20,14 @@ import {
 
 export default function PanelCaptions() {
   const { studio } = useStudioStore();
-  const { activeLanguage } = useLanguageStore();
   const projectId = useProjectId();
   const [mediaItems, setMediaItems] = useState<IClip[]>([]);
   const [captionItems, setCaptionItems] = useState<IClip[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
   const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
-  const [captionLanguage, setCaptionLanguage] =
-    useState<string>(activeLanguage);
+  const [captionLanguage, setCaptionLanguage] = useState<string>('en');
   const [hookClip, setHookClip] = useState<IClip | null>(null);
-
-  // Sync captionLanguage when the global language store changes
-  useEffect(() => {
-    setCaptionLanguage(activeLanguage);
-  }, [activeLanguage]);
 
   // Use refs to access latest state inside event listeners without re-binding
   const captionItemsRef = useRef<IClip[]>([]);

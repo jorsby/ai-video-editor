@@ -8,7 +8,7 @@ import { useTextPresets } from '@/hooks/use-text-presets';
 import type { SavedTextPreset } from '@/types/text-presets';
 import { IconTrash } from '@tabler/icons-react';
 import { Loader2, RefreshCw, Trash2, Sparkles } from 'lucide-react';
-import { useLanguageStore } from '@/stores/language-store';
+
 import { useProjectId } from '@/contexts/project-context';
 import {
   generateHookTextConfig,
@@ -375,7 +375,6 @@ function formatTime(seconds: number) {
 export default function PanelText() {
   const { studio } = useStudioStore();
   const { savedPresets, removePreset } = useTextPresets();
-  const { activeLanguage } = useLanguageStore();
   const projectId = useProjectId();
 
   const [hookClip, setHookClip] = useState<IClip | null>(null);
@@ -432,11 +431,9 @@ export default function PanelText() {
 
     setIsGeneratingHook(true);
     try {
-      const isRTL = activeLanguage === 'ar';
-      const fontName = isRTL ? 'Cairo' : 'Montserrat';
-      const fontUrl = isRTL
-        ? 'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpcWmhzfH5lWWgcQyyS4J0.ttf'
-        : 'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf';
+      const fontName = 'Montserrat';
+      const fontUrl =
+        'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf';
 
       await fontManager.addFont({ name: fontName, url: fontUrl });
 
@@ -458,7 +455,7 @@ export default function PanelText() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_id: projectId,
-          language: activeLanguage === 'auto' ? 'en' : activeLanguage,
+          language: 'en',
         }),
       });
 
@@ -477,7 +474,7 @@ export default function PanelText() {
         durationUs: calculateHookDuration(hookText),
         fontFamily: presetStyle?.fontFamily ?? fontName,
         fontUrl: presetStyle ? undefined : fontUrl,
-        isRTL,
+        isRTL: false,
       });
 
       // Override with preset style if provided

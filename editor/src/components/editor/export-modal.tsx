@@ -5,10 +5,9 @@ import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Cloud, Check, Download, Send, Layers } from 'lucide-react';
+import { Loader2, Cloud, Check, Download, Send } from 'lucide-react';
 import { useStudioStore } from '@/stores/studio-store';
-import { useLanguageStore } from '@/stores/language-store';
-import { SUPPORTED_LANGUAGES } from '@/lib/constants/languages';
+
 import {
   INSTAGRAM_REELS_MAX_SECONDS,
   INSTAGRAM_REELS_MAX_MICROS,
@@ -17,14 +16,7 @@ import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
 import type { RenderedVideo } from '@/types/rendered-video';
-import {
-  loadTimeline,
-  reconstructProjectJSON,
-  saveTimeline,
-  getAvailableLanguages,
-} from '@/lib/supabase/timeline-service';
-import { waitForSave } from '@/hooks/use-auto-save';
-import type { LanguageCode } from '@/lib/constants/languages';
+
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
 function proxyClipUrl(src: string): string {
@@ -96,8 +88,6 @@ export function ExportModal({
   mode = 'download',
 }: ExportModalProps) {
   const { studio, setIsExporting: setStoreIsExporting } = useStudioStore();
-  const activeLanguage = useLanguageStore((s) => s.activeLanguage);
-  const availableLanguages = useLanguageStore((s) => s.availableLanguages);
   const projectId = useProjectId();
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
@@ -106,7 +96,6 @@ export function ExportModal({
   const [exportCombinator, setExportCombinator] = useState<Compositor | null>(
     null
   );
-  const [selectedLanguage, setSelectedLanguage] = useState(activeLanguage);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isRemuxing, setIsRemuxing] = useState(false);
@@ -115,10 +104,6 @@ export function ExportModal({
   const [showCompletion, setShowCompletion] = useState(false);
   const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
   const uploadAbortRef = useRef<AbortController | null>(null);
-  const [isBatchRender, setIsBatchRender] = useState(false);
-  const [batchQueue, setBatchQueue] = useState<LanguageCode[]>([]);
-  const [batchIndex, setBatchIndex] = useState(0);
-  const batchCancelledRef = useRef(false);
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
@@ -146,21 +131,12 @@ export function ExportModal({
     setRenderStarted(false);
     setShowCompletion(false);
     setAllRenders([]);
-    setIsBatchRender(false);
-    setBatchQueue([]);
-    setBatchIndex(0);
-    batchCancelledRef.current = true; // signal any running batch loop to stop
   };
 
   const handleClose = () => {
     onOpenChange(false);
     resetState();
   };
-
-  // Sync selectedLanguage when activeLanguage changes (e.g. switched elsewhere)
-  useEffect(() => {
-    setSelectedLanguage(activeLanguage);
-  }, [activeLanguage]);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -274,15 +250,13 @@ export function ExportModal({
 
   const handleCloudUpload = async (
     blob: Blob,
-    settings: any,
-    opts: { language?: LanguageCode; skipCompletion?: boolean } = {}
+    settings: any
   ) => {
-    const lang = opts.language ?? selectedLanguage;
     try {
       setIsUploading(true);
       uploadAbortRef.current = new AbortController();
 
-      const file = new File([blob], `render-${lang}-${Date.now()}.mp4`, {
+      const file = new File([blob], `render-${Date.now()}.mp4`, {
         type: 'video/mp4',
       });
 
@@ -297,7 +271,6 @@ export function ExportModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_id: projectId,
-          language: lang,
           url: uploadResult.url,
           file_size: file.size,
           duration: maxDuration / 1e6,
@@ -305,28 +278,25 @@ export function ExportModal({
         }),
       });
 
-      toast.success(`${lang.toUpperCase()} uploaded to cloud!`);
+      toast.success('Uploaded to cloud!');
 
-      if (!opts.skipCompletion) {
-        // Fetch all renders for this project to show in completion screen
-        try {
-          const res = await fetch(
-            `/api/rendered-videos?project_id=${projectId}`
-          );
-          if (res.ok) {
-            const { rendered_videos } = await res.json();
-            setAllRenders(rendered_videos || []);
-          }
-        } catch {
-          // Non-critical — completion screen still works without the list
+      // Fetch all renders for this project to show in completion screen
+      try {
+        const res = await fetch(
+          `/api/rendered-videos?project_id=${projectId}`
+        );
+        if (res.ok) {
+          const { rendered_videos } = await res.json();
+          setAllRenders(rendered_videos || []);
         }
-
-        setShowCompletion(true);
+      } catch {
+        // Non-critical — completion screen still works without the list
       }
+
+      setShowCompletion(true);
     } catch (error) {
       if ((error as DOMException)?.name === 'AbortError') {
         Log.info('Cloud upload cancelled by user');
-        if (opts.skipCompletion) throw error; // propagate so batch loop can stop
       } else {
         Log.error('Cloud upload error:', error);
         toast.error(`Cloud upload failed: ${(error as Error).message}`);
@@ -334,160 +304,8 @@ export function ExportModal({
     } finally {
       uploadAbortRef.current = null;
       setIsUploading(false);
-      if (!opts.skipCompletion) {
-        setStoreIsExporting(false);
-      }
+      setStoreIsExporting(false);
     }
-  };
-
-  const startMultiRender = async () => {
-    if (!studio) return;
-
-    // 1. Flush any in-flight auto-save, then persist active language to DB
-    await waitForSave();
-    await saveTimeline(projectId, studio.tracks, studio.clips, activeLanguage);
-
-    // 2. Discover which languages have saved timeline data
-    const langs = await getAvailableLanguages(projectId);
-    if (langs.length === 0) {
-      toast.error('No language timelines found in database');
-      return;
-    }
-
-    // 3. Initialize batch state
-    setBatchQueue(langs);
-    setBatchIndex(0);
-    setIsBatchRender(true);
-    setRenderStarted(true);
-    setStoreIsExporting(true);
-    batchCancelledRef.current = false;
-
-    for (let i = 0; i < langs.length; i++) {
-      if (batchCancelledRef.current) break;
-
-      const lang = langs[i];
-      setBatchIndex(i);
-      setSelectedLanguage(lang); // drives "Language" row on progress screen
-
-      // Reset per-language progress
-      setIsExporting(true);
-      setExportProgress(0);
-      setIsRemuxing(false);
-      setIsUploading(false);
-      setExportStartTime(Date.now());
-
-      try {
-        // 4. Build project JSON for this language
-        let json: any;
-        if (lang === activeLanguage) {
-          json = studio.exportToJSON(); // already in memory
-        } else {
-          const tracks = await loadTimeline(projectId, lang);
-          if (!tracks || tracks.length === 0) {
-            toast.warning(
-              `No timeline saved for ${lang.toUpperCase()} — skipping`
-            );
-            continue;
-          }
-          const studioOpts = studio.getOptions();
-          // reconstructProjectJSON returns {clips, tracks} — inject settings from active studio
-          json = {
-            ...reconstructProjectJSON(tracks),
-            settings: {
-              width: studioOpts.width,
-              height: studioOpts.height,
-              fps: studioOpts.fps,
-              bgColor: studioOpts.bgColor ?? '#000000',
-            },
-          };
-        }
-
-        // 5. Filter valid clips (same logic as startExport)
-        if (!json.clips || json.clips.length === 0) {
-          toast.warning(`No clips in ${lang.toUpperCase()} — skipping`);
-          continue;
-        }
-        const validClips = json.clips.filter((clipJSON: any) => {
-          if (
-            ['Text', 'Caption', 'Effect', 'Transition', 'Audio'].includes(
-              clipJSON.type
-            )
-          )
-            return true;
-          return clipJSON.src && clipJSON.src.trim() !== '';
-        });
-        if (validClips.length === 0) {
-          toast.warning(`No valid clips in ${lang.toUpperCase()} — skipping`);
-          continue;
-        }
-
-        // 6. Render
-        const settings = json.settings || {};
-        const combinatorOpts: any = {
-          width: settings.width || 1920,
-          height: settings.height || 1080,
-          fps: settings.fps || 30,
-          bgColor: settings.bgColor || '#000000',
-          videoCodec: 'avc1.640028',
-          bitrate: 3_500_000,
-          audio: true,
-        };
-
-        const com = new Compositor(combinatorOpts);
-        await com.initPixiApp();
-        setExportCombinator(com);
-        com.on('OutputProgress', (v) => setExportProgress(v));
-
-        const proxiedClips = validClips.map((clip: any) => ({
-          ...clip,
-          src: clip.src ? proxyClipUrl(clip.src) : clip.src,
-        }));
-        await com.loadFromJSON({ ...json, clips: proxiedClips });
-        const stream = com.output();
-        const rawBlob = await new Response(stream).blob();
-        setIsExporting(false);
-        com.destroy();
-        setExportCombinator(null);
-
-        // 7. Remux
-        setIsRemuxing(true);
-        setRemuxProgress(0);
-        const blob = await remuxToInstagramMp4(rawBlob, (p) =>
-          setRemuxProgress(p)
-        );
-        setIsRemuxing(false);
-
-        // 8. Upload — pass explicit language, skip per-language completion logic
-        await handleCloudUpload(blob, combinatorOpts, {
-          language: lang,
-          skipCompletion: true,
-        });
-      } catch (error) {
-        if ((error as DOMException)?.name === 'AbortError') {
-          break; // user cancelled — stop batch
-        }
-        Log.error(`Render failed for ${lang}:`, error);
-        toast.error(
-          `Failed to render ${lang.toUpperCase()}: ${(error as Error).message}`
-        );
-        // continue to next language
-      }
-    }
-
-    // 9. Show completion with all renders
-    try {
-      const res = await fetch(`/api/rendered-videos?project_id=${projectId}`);
-      if (res.ok) {
-        const { rendered_videos } = await res.json();
-        setAllRenders(rendered_videos || []);
-      }
-    } catch {
-      /* non-critical */
-    }
-
-    setShowCompletion(true);
-    setStoreIsExporting(false);
-    // Note: isBatchRender stays true until resetState() so completion screen title is correct
   };
 
   // Auto-start export when modal opens (download mode only)
@@ -523,12 +341,10 @@ export function ExportModal({
         >
           <div className="flex flex-col p-8 pt-10 overflow-y-auto">
             <DialogTitle className="mb-2 text-center text-xl font-medium tracking-tight">
-              {isBatchRender ? 'All Renders Complete' : 'Render Complete'}
+              Render Complete
             </DialogTitle>
             <p className="mb-6 text-center text-sm text-zinc-400">
-              {isBatchRender
-                ? `All ${batchQueue.length} language timelines rendered and uploaded.`
-                : 'Your video has been rendered and uploaded to the cloud.'}
+              Your video has been rendered and uploaded to the cloud.
             </p>
 
             {/* Video preview */}
@@ -543,11 +359,11 @@ export function ExportModal({
               </div>
             )}
 
-            {/* All language variants */}
+            {/* All renders */}
             {allRenders.length > 0 && (
               <div className="mb-6">
                 <h3 className="mb-3 text-xs font-medium text-zinc-400">
-                  All Language Variants
+                  Rendered Videos
                 </h3>
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
                   {allRenders.map((rv) => (
@@ -558,26 +374,6 @@ export function ExportModal({
             )}
 
             <div className="flex w-full gap-3">
-              {!isBatchRender && (
-                <Button
-                  variant="outline"
-                  disabled
-                  className="flex-1 h-11 rounded-xl border-zinc-800 bg-zinc-900/50 text-[13px] font-medium text-white opacity-50 cursor-not-allowed"
-                >
-                  Render Another Language
-                </Button>
-              )}
-              {allRenders.length > 1 && (
-                <Button
-                  onClick={() =>
-                    window.open(`/workflow/${projectId}`, '_blank')
-                  }
-                  className="flex-1 h-11 gap-2 rounded-xl text-[13px] font-medium"
-                >
-                  <Layers className="h-4 w-4" />
-                  Publish All Languages
-                </Button>
-              )}
               {allRenders.length > 0 && (
                 <Button
                   variant="outline"
@@ -619,33 +415,8 @@ export function ExportModal({
               Render to Cloud
             </DialogTitle>
             <p className="mb-8 text-sm text-zinc-400">
-              Select a language and start rendering. The video will be uploaded
-              to the cloud automatically.
+              Your video will be rendered and uploaded to the cloud automatically.
             </p>
-
-            <div className="mb-8 w-full">
-              <label className="mb-3 block text-xs font-medium text-zinc-400">
-                Language
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => setSelectedLanguage(lang.code)}
-                    className={`flex h-10 w-12 items-center justify-center rounded-lg border text-sm font-medium transition-all ${
-                      selectedLanguage === lang.code
-                        ? 'border-white bg-white text-black'
-                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'
-                    }`}
-                  >
-                    {selectedLanguage === lang.code && (
-                      <Check className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {maxDuration > INSTAGRAM_REELS_MAX_MICROS && (
               <div className="mb-4 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
@@ -678,36 +449,7 @@ export function ExportModal({
               </Button>
             </div>
 
-            {availableLanguages.length > 1 && (
-              <>
-                <div className="mt-4 flex w-full items-center gap-3">
-                  <div className="flex-1 border-t border-zinc-800" />
-                  <span className="shrink-0 text-xs text-zinc-600">or</span>
-                  <div className="flex-1 border-t border-zinc-800" />
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={startMultiRender}
-                  className="mt-4 w-full h-11 gap-2 rounded-xl border-zinc-700 bg-zinc-900/50 text-[13px] font-medium text-zinc-300 hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
-                >
-                  <Layers className="h-4 w-4" />
-                  Render All Languages ({availableLanguages.length})
-                </Button>
-                <p className="mt-2 text-center text-[11px] text-zinc-600">
-                  Renders each language timeline sequentially and uploads to
-                  cloud
-                </p>
-                <p className="mt-1 text-center text-[11px] text-zinc-500">
-                  {availableLanguages
-                    .map(
-                      (code) =>
-                        SUPPORTED_LANGUAGES.find((l) => l.code === code)
-                          ?.label ?? code.toUpperCase()
-                    )
-                    .join(', ')}
-                </p>
-              </>
-            )}
+
           </div>
         </DialogContent>
       </Dialog>
@@ -765,16 +507,7 @@ export function ExportModal({
                 <span className="text-zinc-500">Sample Rate</span>
                 <span className="font-medium">48 KHz</span>
               </div>
-              {mode === 'cloud' && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-zinc-500">Language</span>
-                  <span className="font-medium uppercase">
-                    {isBatchRender
-                      ? `${selectedLanguage} (${batchIndex + 1}/${batchQueue.length})`
-                      : selectedLanguage}
-                  </span>
-                </div>
-              )}
+
             </div>
           </div>
 
@@ -782,16 +515,10 @@ export function ExportModal({
             <div className="mb-3 flex items-center justify-between text-[13px]">
               <span className="font-medium text-zinc-300">
                 {isUploading
-                  ? isBatchRender
-                    ? `Uploading ${selectedLanguage.toUpperCase()}...`
-                    : 'Uploading to cloud...'
+                  ? 'Uploading to cloud...'
                   : isRemuxing
-                    ? isBatchRender
-                      ? `Converting ${selectedLanguage.toUpperCase()}...`
-                      : 'Converting for social media...'
-                    : isBatchRender
-                      ? `Rendering ${selectedLanguage.toUpperCase()}...`
-                      : 'Progress'}
+                    ? 'Converting for social media...'
+                    : 'Progress'}
               </span>
               <span className="font-mono text-zinc-400">
                 {isUploading ? (
