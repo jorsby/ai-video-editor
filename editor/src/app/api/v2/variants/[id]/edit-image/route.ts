@@ -2,11 +2,16 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask } from '@/lib/kieai';
+import {
+  queueImageTask,
+  resolveImageProvider,
+  type ImageProvider,
+} from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-const IMAGE_EDIT_MODEL = 'grok-imagine/image-to-image';
+const KIE_IMAGE_EDIT_MODEL = 'grok-imagine/image-to-image';
 
 /**
  * POST /api/v2/variants/{id}/edit-image
@@ -37,10 +42,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (variantError || !variant) {
-      return NextResponse.json(
-        { error: 'Variant not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
 
     if (!variant.image_url) {
@@ -65,15 +67,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id')
+      .select('id, user_id, image_provider')
       .eq('id', asset.series_id)
       .maybeSingle();
 
     if (!series) {
-      return NextResponse.json(
-        { error: 'Series not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
     if (series.user_id !== user.id) {
@@ -101,31 +100,55 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
+    // ── Resolve provider & webhook ────────────────────────────────────
+
+    const provider = resolveImageProvider(series.image_provider);
+    const webhookPath =
+      provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
+    const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    // ── Submit to kie.ai ────────────────────────────────────────────────
+    // ── Submit edit task ────────────────────────────────────────────────
 
-    const result = await createTask({
-      model: IMAGE_EDIT_MODEL,
-      callbackUrl: webhookUrl.toString(),
-      input: {
+    let taskId: string;
+    let model: string;
+
+    if (provider === 'fal') {
+      // FAL: use image_input for editing with nano-banana-2
+      const queued = await queueImageTask({
+        provider: 'fal',
         prompt: body.prompt.trim(),
-        image_urls: [variant.image_url],
-      },
-    });
+        webhookUrl: webhookUrl.toString(),
+        imageInput: [variant.image_url],
+      });
+      taskId = queued.requestId;
+      model = queued.model;
+    } else {
+      // KIE: use grok-imagine image-to-image model
+      const result = await createTask({
+        model: KIE_IMAGE_EDIT_MODEL,
+        callbackUrl: webhookUrl.toString(),
+        input: {
+          prompt: body.prompt.trim(),
+          image_urls: [variant.image_url],
+        },
+      });
+      taskId = result.taskId;
+      model = KIE_IMAGE_EDIT_MODEL;
+    }
 
     // ── Mark variant as generating ─────────────────────────────────────
 
     await supabase
       .from('series_asset_variants')
-      .update({ image_gen_status: 'generating', image_task_id: result.taskId })
+      .update({ image_gen_status: 'generating', image_task_id: taskId })
       .eq('id', variantId);
 
     return NextResponse.json({
-      task_id: result.taskId,
-      model: IMAGE_EDIT_MODEL,
+      task_id: taskId,
+      model,
+      provider,
       variant_id: variantId,
       source_image: variant.image_url,
     });

@@ -7,6 +7,8 @@ const ALLOWED_DOMAINS = [
   'r2.dev',
   'fal.media',
   'fal.ai',
+  'falserverless',
+  'googleapis.com',
   'pexels.com',
   'cloud-45c.workers.dev',
   'elevenlabs.io',

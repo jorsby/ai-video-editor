@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { queueKieImageTask } from '@/lib/kie-image';
+import { queueImageTask, resolveImageProvider } from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -37,10 +37,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (variantError || !variant) {
-      return NextResponse.json(
-        { error: 'Variant not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
     }
 
     const { data: asset } = await supabase
@@ -55,15 +52,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id, genre, tone, image_model, aspect_ratio')
+      .select(
+        'id, user_id, genre, tone, image_model, image_provider, aspect_ratio'
+      )
       .eq('id', asset.series_id)
       .maybeSingle();
 
     if (!series) {
-      return NextResponse.json(
-        { error: 'Series not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
     if (series.user_id !== user.id) {
@@ -72,7 +68,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     if (!series.image_model) {
       return NextResponse.json(
-        { error: 'Series has no image_model configured. Set it in series settings first.' },
+        {
+          error:
+            'Series has no image_model configured. Set it in series settings first.',
+        },
         { status: 400 }
       );
     }
@@ -124,17 +123,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
+    // ── Resolve provider & webhook ────────────────────────────────────
+
+    const provider = resolveImageProvider(series.image_provider);
+    const webhookPath =
+      provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
+    const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
     webhookUrl.searchParams.set('step', 'SeriesAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    // ── Submit to kie.ai ──────────────────────────────────────────────
-
     const aspectRatio = series.aspect_ratio ?? '9:16';
 
-    const queued = await queueKieImageTask({
+    const queued = await queueImageTask({
+      provider,
       prompt,
-      callbackUrl: webhookUrl.toString(),
+      webhookUrl: webhookUrl.toString(),
       aspectRatio,
       resolution: '1K',
       outputFormat: 'jpg',
@@ -144,12 +147,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     await supabase
       .from('series_asset_variants')
-      .update({ image_gen_status: 'generating', image_task_id: queued.requestId })
+      .update({
+        image_gen_status: 'generating',
+        image_task_id: queued.requestId,
+      })
       .eq('id', variantId);
 
     return NextResponse.json({
       task_id: queued.requestId,
       model: queued.model,
+      provider: queued.provider,
       variant_id: variantId,
       aspect_ratio: aspectRatio,
       resolution: '1K',
