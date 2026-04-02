@@ -41,8 +41,8 @@ export async function applyTemplate(
     let sceneDurationUs: number;
     if (scene.audio_duration) {
       sceneDurationUs = scene.audio_duration * 1e6; // seconds → microseconds
-    } else if (scene.duration) {
-      sceneDurationUs = scene.duration * 1e6;
+    } else if (scene.video_duration) {
+      sceneDurationUs = scene.video_duration * 1e6;
     } else {
       sceneDurationUs = DEFAULT_SCENE_DURATION;
     }

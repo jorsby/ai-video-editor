@@ -12,7 +12,8 @@ type SceneRecord = {
   episode_id: string;
   order: number;
   title: string | null;
-  duration: number | null;
+  audio_duration: number | null;
+  video_duration: number | null;
   content_mode: ContentMode | null;
   visual_direction: string | null;
   prompt: string | null;
@@ -28,7 +29,7 @@ type SceneRecord = {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, duration, status, created_at, updated_at';
+  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -178,8 +179,7 @@ function parseScenePatch(body: Record<string, unknown>): {
   if (order.error) return { updates, error: order.error };
   if (order.value !== undefined) updates.order = order.value;
 
-  // duration is a GENERATED column (= COALESCE(audio_duration, video_duration))
-  // Set audio_duration / video_duration instead
+  // Update audio_duration / video_duration directly
   const audioDuration = toNullableFloat(body.audio_duration, 'audio_duration');
   if (audioDuration.error) return { updates, error: audioDuration.error };
   if (audioDuration.value !== undefined)

@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -111,12 +111,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // Duration logic:
     // Narrative scenes: derive from audio_duration (≤6→6, ≤10→10, >10→10)
-    // Non-narrative: body override > scene.duration > default 6
+    // Non-narrative: body override > video_duration > default 6
     let duration: number;
     if (isNarrative && typeof scene.audio_duration === 'number' && scene.audio_duration > 0) {
       duration = scene.audio_duration <= 6 ? 6 : 10;
     } else {
-      const rawDuration = body.duration ?? scene.duration ?? 6;
+      const rawDuration = body.duration ?? scene.video_duration ?? 6;
       duration = VALID_DURATIONS.has(rawDuration) ? rawDuration : 6;
     }
 

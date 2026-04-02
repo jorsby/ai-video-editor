@@ -55,7 +55,6 @@ interface SceneData {
   video_url: string | null;
   video_duration: number | null;
   status: string | null;
-  duration: number | null;
   location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
@@ -720,8 +719,8 @@ function SceneCard({
           <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus }))}`}>
             {deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus })}
           </Badge>
-          {scene.duration && (
-            <span className="text-[10px] text-muted-foreground">{formatDuration(scene.duration)}</span>
+          {(scene.audio_duration || scene.video_duration) && (
+            <span className="text-[10px] text-muted-foreground">{formatDuration(scene.audio_duration ?? scene.video_duration ?? 0)}</span>
           )}
         </button>
       </div>
@@ -739,7 +738,7 @@ function SceneCard({
         {(hasAudio || hasVideo) && (
           <div className="flex flex-col gap-1.5">
             {hasAudio && <MiniAudioPlayer url={scene.audio_url!} />}
-            {hasVideo && <VideoThumbnail url={scene.video_url!} duration={scene.duration} />}
+            {hasVideo && <VideoThumbnail url={scene.video_url!} duration={scene.video_duration} />}
           </div>
         )}
 
@@ -1318,7 +1317,7 @@ function EpisodeAccordion({
   const doneCount = episode.scenes.filter((s) => !!s.audio_url && !!s.video_url).length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
   const hasAnyAudio = episode.scenes.some((s) => !!s.audio_url);
-  const totalDuration = episode.scenes.reduce((sum, s) => sum + (s.duration || 0), 0);
+  const totalDuration = episode.scenes.reduce((sum, s) => sum + (s.audio_duration ?? s.video_duration ?? 0), 0);
 
   // Collect unique slugs per role across all scenes
   const locationSlugs = [...new Set(
@@ -1661,7 +1660,7 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
             .in('episode_id', epIds)
             .order('"order"', { ascending: true });
@@ -1798,7 +1797,7 @@ export default function StoryboardPanel() {
     0
   );
   const totalDuration = episodes.reduce(
-    (s, e) => s + e.scenes.reduce((ss, sc) => ss + (sc.duration || 0), 0),
+    (s, e) => s + e.scenes.reduce((ss, sc) => ss + (sc.audio_duration ?? sc.video_duration ?? 0), 0),
     0
   );
   const totalVariantImages = [...imageMap.values()].filter((v) => !!v.image_url).length;

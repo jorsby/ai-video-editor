@@ -1061,7 +1061,7 @@ export async function POST(request: NextRequest) {
       episode_id: episodeId,
       order: scene.order,
       title: scene.title,
-      duration: scene.duration,
+      video_duration: scene.duration ?? null,
       content_mode: scene.content_mode,
       visual_direction: scene.visual_direction,
       prompt: scene.prompt,

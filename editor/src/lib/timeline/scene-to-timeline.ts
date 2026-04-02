@@ -22,7 +22,6 @@ export interface SceneForTimeline {
   audio_text: string | null;
   audio_duration: number | null; // seconds (from DB, may be inaccurate)
   video_duration: number | null; // seconds (from DB, may be inaccurate)
-  duration: number | null;
 }
 
 /**

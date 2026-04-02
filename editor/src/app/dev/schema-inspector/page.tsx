@@ -91,7 +91,8 @@ interface SchemaScene {
   episode_id: string;
   order: number;
   title: string | null;
-  duration: number | null;
+  audio_duration: number | null;
+  video_duration: number | null;
   content_mode: ContentMode | null;
   visual_direction: string | null;
   prompt: string | null;
@@ -226,11 +227,11 @@ function getDurationResolutionLabel(scene: SchemaScene) {
     return 'resolved from audio_url (actual audio duration)';
   }
 
-  if (scene.duration) {
-    return 'fallback to estimated/manual runtime (no audio_url)';
+  if (scene.video_duration) {
+    return 'fallback to video_duration (no audio_url)';
   }
 
-  return 'missing duration and audio_url';
+  return 'missing audio_duration and video_duration';
 }
 
 function getStatusBadgeClass(status: EpisodeStatus | SceneStatus) {
@@ -712,7 +713,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-1',
       order: 1,
       title: 'Cold Open at Pier 17',
-      duration: 16,
+      audio_duration: null,
+      video_duration: 16,
       content_mode: 'cinematic',
       visual_direction:
         'Begin with wide harbor establish and push in to Ava scanning container IDs through fog.',
@@ -736,7 +738,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-1',
       order: 2,
       title: 'Evidence Locker Pull',
-      duration: 18,
+      audio_duration: null,
+      video_duration: 18,
       content_mode: 'narrative',
       visual_direction:
         'Cut to controlled archive inserts and close-up watch handling under practical desk light.',
@@ -760,7 +763,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-1',
       order: 3,
       title: 'Pattern Match',
-      duration: 20,
+      audio_duration: null,
+      video_duration: 20,
       content_mode: 'hybrid',
       visual_direction:
         'Intercut voiceover narration with macro inserts of bezel mechanics and timeline overlays.',
@@ -784,7 +788,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-1',
       order: 4,
       title: 'Searchlight Interruption',
-      duration: 14,
+      audio_duration: null,
+      video_duration: 14,
       content_mode: 'cinematic',
       visual_direction:
         'Hard cut back to dock as searchlights sweep fog and force abrupt movement off-route.',
@@ -808,7 +813,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-2',
       order: 1,
       title: 'Recap Signal Sweep',
-      duration: 11,
+      audio_duration: null,
+      video_duration: 11,
       content_mode: 'narrative',
       visual_direction:
         'Brief timeline recap over surveillance stills with one moving camera pass.',
@@ -830,7 +836,8 @@ function createMockInspectorData(userId: string) {
       episode_id: 'mock-episode-echo-2',
       order: 2,
       title: 'Dawn Hand-off Checkpoint',
-      duration: null,
+      audio_duration: null,
+      video_duration: null,
       content_mode: 'cinematic',
       visual_direction:
         'Low-angle dawn sweep as two unmarked vans exchange parcels under low light.',
@@ -1043,7 +1050,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       ? await supabase
           .from('scenes')
           .select(
-            'id, episode_id, order, title, duration, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
+            'id, episode_id, order, title, audio_duration, video_duration, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
           )
           .in('episode_id', episodeIds)
           .order('episode_id', { ascending: true })
@@ -2122,7 +2129,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                           },
                                           {
                                             label: 'duration_seconds',
-                                            value: scene.duration,
+                                            value: scene.audio_duration ?? scene.video_duration,
                                           },
                                           {
                                             label: 'duration_resolution',
