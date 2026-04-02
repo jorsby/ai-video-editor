@@ -34,6 +34,7 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
+import { SeriesMusicSection } from './series-music-section';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -1270,6 +1271,9 @@ export default function SeriesAssetsPanel() {
             }
           />
         ))}
+
+        {/* Music Section */}
+        <SeriesMusicSection seriesId={seriesId} />
       </div>
     </ScrollArea>
   );
