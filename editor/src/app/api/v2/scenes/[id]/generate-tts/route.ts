@@ -116,6 +116,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       callbackUrl: webhookUrl.toString(),
       input: {
         text: scene.audio_text.trim(),
+        // Kie.ai reads 'voice' for ElevenLabs voice selection.
+        // Send both fields for maximum compatibility — some IDs only work
+        // via voice_id, but the voice field is what Kie.ai actually routes.
+        voice: voiceId,
         voice_id: voiceId,
         speed,
         stability: 0.5,
