@@ -17,6 +17,7 @@ import {
   IconMusic,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
+  IconPlaylistAdd,
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react';
@@ -244,6 +245,54 @@ export function SeriesMusicSection({
     [studio],
   );
 
+  const [addingAll, setAddingAll] = useState(false);
+
+  const handleAddAllToTimeline = useCallback(async () => {
+    if (!studio) return;
+    const doneTracks = tracks.filter(
+      (t) => t.status === 'done' && t.audio_url,
+    );
+    if (doneTracks.length === 0) {
+      toast.error('No completed music tracks to add');
+      return;
+    }
+
+    setAddingAll(true);
+    try {
+      // Create a dedicated audio track for music
+      const musicTrack = studio.addTrack({
+        type: 'Audio',
+        name: 'Music',
+      });
+
+      let offsetMicroseconds = 0;
+
+      for (const track of doneTracks) {
+        const proxyUrl = `/api/proxy/media?url=${encodeURIComponent(track.audio_url!)}`;
+        const audioClip = await Audio.fromUrl(proxyUrl);
+        audioClip.name = track.name;
+        audioClip.volume = 1;
+
+        // Position sequentially: each clip starts where the previous one ended
+        audioClip.display.from = offsetMicroseconds;
+        audioClip.display.to = offsetMicroseconds + audioClip.duration;
+
+        await studio.addClip(audioClip, { trackId: musicTrack.id });
+
+        offsetMicroseconds += audioClip.duration;
+      }
+
+      toast.success(
+        `Added ${doneTracks.length} music track${doneTracks.length > 1 ? 's' : ''} sequentially to timeline`,
+      );
+    } catch (error) {
+      Log.error('Failed to add all music to timeline:', error);
+      toast.error('Failed to add music to timeline');
+    } finally {
+      setAddingAll(false);
+    }
+  }, [studio, tracks]);
+
   const handleDelete = useCallback(
     async (trackId: string) => {
       try {
@@ -295,6 +344,23 @@ export function SeriesMusicSection({
             )}
           </button>
         </CollapsibleTrigger>
+
+        {doneCount >= 2 && (
+          <button
+            type="button"
+            onClick={handleAddAllToTimeline}
+            disabled={addingAll}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+            title="Add all music tracks sequentially to timeline"
+          >
+            {addingAll ? (
+              <IconLoader2 className="size-3 animate-spin" />
+            ) : (
+              <IconPlaylistAdd className="size-3.5" />
+            )}
+            Add All
+          </button>
+        )}
       </div>
 
       <CollapsibleContent>
