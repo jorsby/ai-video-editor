@@ -6,6 +6,7 @@ import {
   verifyWebhookSignature,
   type KieWebhookVerificationResult,
 } from '@/lib/kieai';
+import { probeMediaDuration } from '@/lib/media-probe';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -153,40 +154,6 @@ function extractVideoUrl(result: Record<string, unknown>): string | null {
     if (first && typeof first === 'object' && 'url' in first) {
       const url = (first as { url?: unknown }).url;
       if (typeof url === 'string' && url.length > 0) return url;
-    }
-  }
-
-  return null;
-}
-
-function extractDuration(result: Record<string, unknown>): number | null {
-  // Try common duration fields from kie.ai / provider result payloads
-  for (const key of [
-    'duration',
-    'duration_seconds',
-    'audio_duration',
-    'video_duration',
-    'length',
-  ]) {
-    const val = result[key];
-    if (typeof val === 'number' && val > 0) return val;
-    if (typeof val === 'string') {
-      const parsed = parseFloat(val);
-      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-    }
-  }
-
-  // Check nested output object
-  const output = result.output;
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    const out = output as Record<string, unknown>;
-    for (const key of ['duration', 'duration_seconds']) {
-      const val = out[key];
-      if (typeof val === 'number' && val > 0) return val;
-      if (typeof val === 'string') {
-        const parsed = parseFloat(val);
-        if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-      }
     }
   }
 
@@ -564,7 +531,8 @@ async function handleGenerateSceneTts(params: {
     });
   }
 
-  const audioDuration = extractDuration(result);
+  // Probe the actual audio file for exact duration
+  const audioDuration = await probeMediaDuration(audioUrl);
 
   await supabase
     .from('scenes')
@@ -590,7 +558,6 @@ async function handleGenerateSceneVideo(params: {
   payload: KieWebhookPayload;
   taskId: string;
   sceneId: string;
-  requestedDuration?: number | null;
   log: Logger;
 }): Promise<Response> {
   const { supabase, payload, taskId, sceneId, log } = params;
@@ -667,11 +634,8 @@ async function handleGenerateSceneVideo(params: {
     });
   }
 
-  // Try duration from kie.ai result JSON first, fall back to webhook query param
-  let videoDuration = extractDuration(result);
-  if (videoDuration == null && params.requestedDuration != null) {
-    videoDuration = params.requestedDuration;
-  }
+  // Probe the actual video file for exact duration
+  const videoDuration = await probeMediaDuration(videoUrl);
 
   await supabase
     .from('scenes')
@@ -935,20 +899,11 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const durationParam = req.nextUrl.searchParams.get('duration');
-      const requestedDuration = durationParam
-        ? parseFloat(durationParam)
-        : null;
-
       return await handleGenerateSceneVideo({
         supabase,
         payload,
         taskId: verification.taskId,
         sceneId,
-        requestedDuration:
-          requestedDuration && !Number.isNaN(requestedDuration)
-            ? requestedDuration
-            : null,
         log,
       });
     }

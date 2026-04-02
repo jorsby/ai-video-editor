@@ -170,7 +170,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
     webhookUrl.searchParams.set('step', 'GenerateSceneVideo');
     webhookUrl.searchParams.set('scene_id', sceneId);
-    webhookUrl.searchParams.set('duration', String(duration));
 
     // ── Submit to kie.ai ────────────────────────────────────────────────
 
