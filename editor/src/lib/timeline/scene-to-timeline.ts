@@ -20,9 +20,9 @@ export interface SceneForTimeline {
   audio_url: string | null;
   video_url: string | null;
   audio_text: string | null;
-  audio_duration: number | null; // seconds
-  video_duration: number | null; // seconds (probed exact)
-  duration: number | null; // generated column = COALESCE(audio_duration, video_duration)
+  audio_duration: number | null; // seconds (from DB, may be inaccurate)
+  video_duration: number | null; // seconds (from DB, may be inaccurate)
+  duration: number | null;
 }
 
 /**
@@ -42,49 +42,40 @@ export interface SceneClipResult {
   sceneId: string;
   videoClip: InstanceType<typeof Video> | null;
   audioClip: InstanceType<typeof Audio> | null;
-  displayFrom: number; // microseconds — where this scene starts on timeline
-  videoDuration: number; // microseconds — final video duration on timeline
-  audioDuration: number; // microseconds — final audio duration on timeline
+  displayFrom: number; // microseconds
+  videoDuration: number; // microseconds
+  audioDuration: number; // microseconds
   videoPlaybackRate: number;
 }
 
 /**
- * Calculate the effective duration and playback rate for a scene
+ * Calculate the effective duration and playback rate for a scene.
+ * Uses the real probed durations passed in (not DB values).
  */
 export function calculateSceneTiming(
-  scene: SceneForTimeline,
+  audioDurationSec: number,
+  videoDurationSec: number,
+  isNarrative: boolean,
   settings: SceneTimelineSettings
 ): {
   effectiveAudioDuration: number; // seconds
   effectiveVideoDuration: number; // seconds
   videoPlaybackRate: number;
-  sceneDuration: number; // seconds — the longer of the two
+  sceneDuration: number; // seconds
 } {
-  const rawAudioDur = scene.audio_duration ?? 0;
-  const rawVideoDur = scene.video_duration ?? 0;
-
-  // Apply trim percentages
-  const effectiveAudioDuration = rawAudioDur * (settings.audioTrimPercent / 100);
-  let effectiveVideoDuration = rawVideoDur * (settings.videoTrimPercent / 100);
+  const effectiveAudioDuration = audioDurationSec * (settings.audioTrimPercent / 100);
+  let effectiveVideoDuration = videoDurationSec * (settings.videoTrimPercent / 100);
   let videoPlaybackRate = 1;
 
   // For narrative scenes: match video speed to audio
-  const isNarrative = !!scene.audio_text;
   if (
     settings.matchVideoToAudio &&
     isNarrative &&
     effectiveAudioDuration > 0 &&
     effectiveVideoDuration > 0
   ) {
-    // playbackRate = videoDuration / audioDuration
-    // audio 8s, video 6s → rate = 6/8 = 0.75 (slow down)
-    // audio 5s, video 10s → rate = 10/5 = 2.0 (speed up)
     videoPlaybackRate = effectiveVideoDuration / effectiveAudioDuration;
-
-    // Clamp to reasonable range (0.25x – 4x)
     videoPlaybackRate = Math.max(0.25, Math.min(4, videoPlaybackRate));
-
-    // After rate adjustment, the video will play for audioDuration
     effectiveVideoDuration = effectiveAudioDuration;
   }
 
@@ -99,17 +90,27 @@ export function calculateSceneTiming(
 }
 
 /**
+ * Get the real duration from a loaded openvideo clip in seconds.
+ * The clip's `duration` is set by fromUrl probe (in microseconds).
+ */
+function clipDurationSec(clip: { duration: number }): number {
+  return clip.duration / MICROSECONDS_PER_SECOND;
+}
+
+/**
  * Build clips for multiple scenes and add them to the studio sequentially.
  *
- * Returns the list of results for UI feedback.
+ * IMPORTANT: Uses the clip's own probed duration (from fromUrl), NOT DB values.
+ * DB audio_duration/video_duration are often stale or wrong.
  */
 export async function buildSceneClips(params: {
   scenes: SceneForTimeline[];
   settings: SceneTimelineSettings[];
   canvasWidth: number;
   canvasHeight: number;
+  onProgress?: (done: number, total: number) => void;
 }): Promise<SceneClipResult[]> {
-  const { scenes, settings, canvasWidth, canvasHeight } = params;
+  const { scenes, settings, canvasWidth, canvasHeight, onProgress } = params;
   const results: SceneClipResult[] = [];
 
   // Sort by scene order
@@ -117,25 +118,49 @@ export async function buildSceneClips(params: {
 
   let currentOffset = 0; // microseconds
 
-  for (const scene of sorted) {
+  for (const [idx, scene] of sorted.entries()) {
     const sceneSettings = settings.find((s) => s.sceneId === scene.id);
     if (!sceneSettings) continue;
 
-    const timing = calculateSceneTiming(scene, sceneSettings);
+    onProgress?.(idx, sorted.length);
 
     let videoClip: InstanceType<typeof Video> | null = null;
     let audioClip: InstanceType<typeof Audio> | null = null;
 
-    // Build video clip
+    // ── Load clips first, probe real durations ──────────────────────
+
     if (scene.video_url) {
       videoClip = await Video.fromUrl(proxyUrl(scene.video_url));
       videoClip.name = scene.title
         ? `S${scene.order} – ${scene.title}`
         : `Scene ${scene.order}`;
-
       await videoClip.scaleToFit(canvasWidth, canvasHeight);
       videoClip.centerInScene(canvasWidth, canvasHeight);
+    }
 
+    if (scene.audio_url) {
+      audioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
+      audioClip.name = scene.title
+        ? `VO – S${scene.order} – ${scene.title}`
+        : `VO – Scene ${scene.order}`;
+    }
+
+    // ── Get real durations from probed clips ────────────────────────
+
+    const realAudioDur = audioClip ? clipDurationSec(audioClip) : 0;
+    const realVideoDur = videoClip ? clipDurationSec(videoClip) : 0;
+    const isNarrative = !!scene.audio_text;
+
+    const timing = calculateSceneTiming(
+      realAudioDur,
+      realVideoDur,
+      isNarrative,
+      sceneSettings
+    );
+
+    // ── Apply timing to video clip ──────────────────────────────────
+
+    if (videoClip) {
       const videoDurUs = Math.round(timing.effectiveVideoDuration * MICROSECONDS_PER_SECOND);
       videoClip.display = {
         from: currentOffset,
@@ -144,10 +169,8 @@ export async function buildSceneClips(params: {
       videoClip.duration = videoDurUs;
       videoClip.playbackRate = timing.videoPlaybackRate;
 
-      // Apply trim (from start of source)
-      const rawVideoDurUs = Math.round(
-        (scene.video_duration ?? 0) * MICROSECONDS_PER_SECOND
-      );
+      // Trim from start of source
+      const rawVideoDurUs = Math.round(realVideoDur * MICROSECONDS_PER_SECOND);
       const trimmedSourceDurUs = Math.round(
         rawVideoDurUs * (sceneSettings.videoTrimPercent / 100)
       );
@@ -159,13 +182,9 @@ export async function buildSceneClips(params: {
       }
     }
 
-    // Build audio clip
-    if (scene.audio_url) {
-      audioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
-      audioClip.name = scene.title
-        ? `VO – S${scene.order} – ${scene.title}`
-        : `VO – Scene ${scene.order}`;
+    // ── Apply timing to audio clip ──────────────────────────────────
 
+    if (audioClip) {
       const audioDurUs = Math.round(timing.effectiveAudioDuration * MICROSECONDS_PER_SECOND);
       audioClip.display = {
         from: currentOffset,
@@ -173,15 +192,15 @@ export async function buildSceneClips(params: {
       };
       audioClip.duration = audioDurUs;
 
-      // Apply trim (from start of source)
-      const rawAudioDurUs = Math.round(
-        (scene.audio_duration ?? 0) * MICROSECONDS_PER_SECOND
-      );
+      // Trim from start of source
+      const rawAudioDurUs = Math.round(realAudioDur * MICROSECONDS_PER_SECOND);
       const trimmedSourceDurUs = Math.round(
         rawAudioDurUs * (sceneSettings.audioTrimPercent / 100)
       );
       audioClip.trim = { from: 0, to: trimmedSourceDurUs };
     }
+
+    // ── Record result ───────────────────────────────────────────────
 
     const videoDurUs = Math.round(timing.effectiveVideoDuration * MICROSECONDS_PER_SECOND);
     const audioDurUs = Math.round(timing.effectiveAudioDuration * MICROSECONDS_PER_SECOND);
@@ -201,5 +220,6 @@ export async function buildSceneClips(params: {
     currentOffset += sceneDurUs;
   }
 
+  onProgress?.(sorted.length, sorted.length);
   return results;
 }

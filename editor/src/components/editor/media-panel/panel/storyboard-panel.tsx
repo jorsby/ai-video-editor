@@ -1012,11 +1012,16 @@ function SendToTimelineModal({
     );
   };
 
-  // Calculate total duration
+  // Calculate total duration (estimate from DB values — real durations probed at send time)
   const totalDuration = scenes.reduce((sum, scene) => {
     const s = settings.find((x) => x.sceneId === scene.id);
     if (!s) return sum;
-    const timing = calculateSceneTiming(scene as SceneForTimeline, s);
+    const timing = calculateSceneTiming(
+      scene.audio_duration ?? 0,
+      scene.video_duration ?? 0,
+      !!scene.audio_text,
+      s
+    );
     return sum + timing.sceneDuration;
   }, 0);
 
@@ -1132,7 +1137,12 @@ function SendToTimelineModal({
               if (!s) return null;
 
               const isNarrative = !!scene.audio_text;
-              const timing = calculateSceneTiming(scene as SceneForTimeline, s);
+              const timing = calculateSceneTiming(
+                scene.audio_duration ?? 0,
+                scene.video_duration ?? 0,
+                !!scene.audio_text,
+                s
+              );
               const hasAudio = !!scene.audio_url;
               const hasVideo = !!scene.video_url;
 
