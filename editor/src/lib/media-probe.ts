@@ -2,13 +2,21 @@ import { parseBuffer } from 'music-metadata';
 
 /**
  * Probe a remote media file (MP3/MP4/WAV/OGG) and return its exact duration
- * in seconds.
+ * in seconds, rounded to 2 decimal places.
  *
  * Uses `music-metadata` (pure JS, no native deps — works on Vercel serverless).
- * Returns `null` on any failure — callers should treat duration as optional
- * and not block the webhook flow.
+ * Retries once on failure before returning `null`.
  */
 export async function probeMediaDuration(url: string): Promise<number | null> {
+  const result = await probeOnce(url);
+  if (result != null) return result;
+
+  // One retry — transient network/CDN hiccups are common with provider URLs
+  await new Promise((r) => setTimeout(r, 1_000));
+  return probeOnce(url);
+}
+
+async function probeOnce(url: string): Promise<number | null> {
   try {
     const response = await fetch(url);
 
@@ -30,7 +38,7 @@ export async function probeMediaDuration(url: string): Promise<number | null> {
       duration > 0 &&
       Number.isFinite(duration)
     ) {
-      // Round to 2 decimal places
+      // Round to 2 decimal places — SSOT precision
       return Math.round(duration * 100) / 100;
     }
 

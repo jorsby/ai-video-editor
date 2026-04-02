@@ -13,7 +13,7 @@ type SceneInsert = Record<string, unknown> & {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, duration, status, created_at, updated_at';
+  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -163,7 +163,7 @@ function parseSceneCreateInput(
   const order = toPositiveInteger(input.order, 'order');
   if (order.error) return { error: `scenes[${index}].${order.error}` };
 
-  // duration is GENERATED. Set audio_duration / video_duration instead.
+  // audio_duration / video_duration are the SSOT — set at webhook probe time.
   const audioDuration = toNullableFloat(input.audio_duration, 'audio_duration');
   if (audioDuration.error)
     return { error: `scenes[${index}].${audioDuration.error}` };
