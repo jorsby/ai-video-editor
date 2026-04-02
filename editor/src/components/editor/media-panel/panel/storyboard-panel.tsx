@@ -321,21 +321,30 @@ function MiniAudioPlayer({ url }: { url: string }) {
 
 // ── Video Thumbnail ────────────────────────────────────────────────────────────
 
-function VideoThumbnail({ url }: { url: string }) {
+function VideoThumbnail({ url, duration }: { url: string; duration?: number | null }) {
   const [showPlayer, setShowPlayer] = useState(false);
+  const thumbRef = useRef<HTMLVideoElement | null>(null);
+  const [thumbReady, setThumbReady] = useState(false);
 
   if (showPlayer) {
     return (
-      <div className="relative rounded-md overflow-hidden border border-border/30 bg-black flex justify-center">
+      <div className="relative rounded-lg overflow-hidden border border-border/30 bg-black">
         {/* biome-ignore lint/a11y/useMediaCaption: internal tool video */}
         <video
           src={url}
           controls
           autoPlay
-          className="max-w-full max-h-[300px] object-contain"
-          style={{ aspectRatio: '9/16' }}
+          className="w-full max-h-[400px] object-contain rounded-lg"
           onEnded={() => setShowPlayer(false)}
         />
+        <button
+          type="button"
+          onClick={() => setShowPlayer(false)}
+          className="absolute top-2 right-2 size-6 rounded-full bg-black/70 border border-white/20 flex items-center justify-center hover:bg-black/90 transition-colors z-10"
+          title="Close"
+        >
+          <IconX className="size-3 text-white" />
+        </button>
       </div>
     );
   }
@@ -344,20 +353,47 @@ function VideoThumbnail({ url }: { url: string }) {
     <button
       type="button"
       onClick={() => setShowPlayer(true)}
-      className="relative w-24 rounded-md overflow-hidden border border-border/30 bg-black/60 hover:bg-black/40 transition-colors group"
-      style={{ aspectRatio: '9/16' }}
-      title="Play video"
+      className="relative w-full rounded-lg overflow-hidden border border-border/30 bg-black hover:border-primary/40 transition-all group cursor-pointer"
+      style={{ aspectRatio: '16/9' }}
+      title="Click to play"
     >
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="size-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center group-hover:bg-white/30 transition-colors">
-          <IconPlayerPlay className="size-4 text-white ml-0.5" />
+      {/* Hidden video element to extract poster frame */}
+      {/* biome-ignore lint/a11y/useMediaCaption: thumbnail extraction */}
+      <video
+        ref={thumbRef}
+        src={url}
+        preload="metadata"
+        muted
+        playsInline
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity ${thumbReady ? 'opacity-100' : 'opacity-0'}`}
+        onLoadedData={(e) => {
+          const vid = e.currentTarget;
+          vid.currentTime = 0.1;
+        }}
+        onSeeked={() => setThumbReady(true)}
+      />
+
+      {/* Fallback gradient when poster not ready */}
+      {!thumbReady && (
+        <div className="absolute inset-0 bg-gradient-to-br from-muted/40 to-muted/20" />
+      )}
+
+      {/* Play overlay */}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors">
+        <div className="size-10 rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/30 group-hover:scale-110 transition-all shadow-lg">
+          <IconPlayerPlay className="size-5 text-white ml-0.5" />
         </div>
       </div>
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2">
-        <Badge variant="outline" className="text-[8px] bg-black/60 border-white/20 text-white/80">
-          <IconVideo className="size-2 mr-0.5" />
-          9:16
+
+      {/* Bottom info bar */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 flex items-center justify-between">
+        <Badge variant="outline" className="text-[9px] bg-black/40 border-white/20 text-white/90 backdrop-blur-sm">
+          <IconVideo className="size-2.5 mr-1" />
+          Video
         </Badge>
+        {duration != null && duration > 0 && (
+          <span className="text-[10px] font-mono text-white/80">{formatDuration(duration)}</span>
+        )}
       </div>
     </button>
   );
@@ -656,7 +692,7 @@ function SceneCard({
         {(hasAudio || hasVideo) && (
           <div className="flex flex-col gap-1.5">
             {hasAudio && <MiniAudioPlayer url={scene.audio_url!} />}
-            {hasVideo && <VideoThumbnail url={scene.video_url!} />}
+            {hasVideo && <VideoThumbnail url={scene.video_url!} duration={scene.duration} />}
           </div>
         )}
 
@@ -1148,6 +1184,7 @@ export default function StoryboardPanel() {
   const [imageMap, setImageMap] = useState<VariantImageMap>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1158,7 +1195,10 @@ export default function StoryboardPanel() {
         return;
       }
 
-      setIsLoading(true);
+      // Only show loading spinner on first load — not on Realtime refreshes
+      if (!hasLoadedOnce.current) {
+        setIsLoading(true);
+      }
       setError(null);
 
       const supabase = createClient('studio');
@@ -1260,6 +1300,7 @@ export default function StoryboardPanel() {
           setEpisodes(parsed);
           setImageMap(newImageMap);
           setIsLoading(false);
+          hasLoadedOnce.current = true;
         }
       } catch (err) {
         if (!cancelled) {

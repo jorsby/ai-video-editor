@@ -168,18 +168,18 @@ function VariantCard({
               <img
                 src={imageUrl}
                 alt={variant.label}
-                className="size-7 rounded object-cover border border-border/30"
+                className="w-10 h-12 rounded-md object-cover border border-border/30"
               />
               <button
                 type="button"
                 onClick={() => setPreviewOpen(true)}
-                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md opacity-0 group-hover/thumb:opacity-100 transition-opacity"
               >
-                <IconMaximize size={10} className="text-white" />
+                <IconMaximize size={12} className="text-white" />
               </button>
             </div>
           ) : (
-            <div className="size-7 rounded bg-muted/30 border border-border/30 shrink-0 flex items-center justify-center text-[9px] text-muted-foreground">
+            <div className="w-10 h-12 rounded-md bg-muted/30 border border-border/30 shrink-0 flex items-center justify-center text-[9px] text-muted-foreground">
               {isGenerating ? (
                 <IconLoader2 className="size-3 animate-spin text-amber-400" />
               ) : (
@@ -493,13 +493,13 @@ function AssetCard({
           type="button"
           className="w-full border border-border/40 rounded-md px-2.5 py-2 text-left hover:bg-muted/20 transition-colors"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {imageUrl ? (
               <div className="relative group/thumb shrink-0">
                 <img
                   src={imageUrl}
                   alt={`${asset.name} reference`}
-                  className="size-10 rounded object-cover border border-border/30"
+                  className="w-16 h-20 rounded-md object-cover border border-border/30"
                 />
                 <button
                   type="button"
@@ -507,13 +507,13 @@ function AssetCard({
                     e.stopPropagation();
                     setPreviewOpen(true);
                   }}
-                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md opacity-0 group-hover/thumb:opacity-100 transition-opacity"
                 >
-                  <IconMaximize size={12} className="text-white" />
+                  <IconMaximize size={14} className="text-white" />
                 </button>
               </div>
             ) : (
-              <div className="size-10 rounded border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-sm">
+              <div className="w-16 h-20 rounded-md border border-border/30 bg-muted/30 shrink-0 flex items-center justify-center text-lg">
                 {emoji}
               </div>
             )}
