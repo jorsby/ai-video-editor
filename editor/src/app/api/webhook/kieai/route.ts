@@ -20,9 +20,12 @@ interface KieWebhookPayload {
   msg?: string;
   data?: {
     task_id?: string;
+    taskId?: string;
     state?: string;
     resultJson?: string;
     model?: string;
+    callbackType?: string;
+    data?: unknown;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -188,6 +191,35 @@ function extractAudioUrl(result: Record<string, unknown>): string | null {
   }
 
   return null;
+}
+
+interface SunoTrack {
+  id?: unknown;
+  audio_url?: unknown;
+  image_url?: unknown;
+  duration?: unknown;
+  title?: unknown;
+  tags?: unknown;
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeNullableNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function parseSunoTracks(payload: KieWebhookPayload): SunoTrack[] {
+  const rawTracks = payload.data?.data;
+  if (!Array.isArray(rawTracks)) return [];
+
+  return rawTracks.filter(
+    (item): item is SunoTrack => !!item && typeof item === 'object'
+  );
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -803,6 +835,182 @@ async function handleSeriesAssetImage(params: {
   });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: webhook completion and alt-track handling
+async function handleGenerateMusic(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  musicId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, musicId, log } = params;
+  const callbackType = payload.data?.callbackType ?? null;
+
+  if (callbackType !== 'complete') {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateMusic',
+      callback_type: callbackType,
+    });
+  }
+
+  const tracks = parseSunoTracks(payload);
+  const primaryTrack = tracks[0];
+  if (!primaryTrack) {
+    await supabase
+      .from('series_music')
+      .update({
+        status: 'failed',
+        generation_metadata: payload,
+      })
+      .eq('id', musicId)
+      .eq('task_id', taskId)
+      .eq('status', 'generating');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateMusic',
+      failed: true,
+      reason: 'missing_primary_track',
+    });
+  }
+
+  const primaryAudioUrl = normalizeNonEmptyString(primaryTrack.audio_url);
+  const primaryImageUrl = normalizeNonEmptyString(primaryTrack.image_url);
+  const primaryDuration = normalizeNullableNumber(primaryTrack.duration);
+  const primaryTrackId = normalizeNonEmptyString(primaryTrack.id);
+
+  if (!primaryAudioUrl) {
+    await supabase
+      .from('series_music')
+      .update({
+        status: 'failed',
+        generation_metadata: payload,
+      })
+      .eq('id', musicId)
+      .eq('task_id', taskId)
+      .eq('status', 'generating');
+
+    return okResponse({
+      success: true,
+      step: 'GenerateMusic',
+      failed: true,
+      reason: 'missing_audio_url',
+    });
+  }
+
+  const { data: updatedMusic, error: updateError } = await supabase
+    .from('series_music')
+    .update({
+      audio_url: primaryAudioUrl,
+      cover_image_url: primaryImageUrl,
+      duration: primaryDuration,
+      suno_track_id: primaryTrackId,
+      status: 'done',
+      generation_metadata: payload,
+    })
+    .eq('id', musicId)
+    .eq('task_id', taskId)
+    .eq('status', 'generating')
+    .select('id, series_id, name, music_type, prompt, style, title, sort_order')
+    .maybeSingle();
+
+  if (updateError) {
+    log.error('Failed to update series_music from GenerateMusic webhook', {
+      music_id: musicId,
+      task_id: taskId,
+      error: updateError,
+    });
+    return okResponse({
+      success: true,
+      step: 'GenerateMusic',
+      failed: true,
+      reason: 'update_failed',
+    });
+  }
+
+  if (!updatedMusic) {
+    return staleWebhookResponse(
+      'status_mismatch',
+      'GenerateMusic',
+      'music_id',
+      musicId,
+      log
+    );
+  }
+
+  const altTrack = tracks[1];
+  let altTrackId: string | null = null;
+
+  if (altTrack) {
+    const altAudioUrl = normalizeNonEmptyString(altTrack.audio_url);
+    if (altAudioUrl) {
+      const altImageUrl = normalizeNonEmptyString(altTrack.image_url);
+      const altDuration = normalizeNullableNumber(altTrack.duration);
+      const altSunoTrackId = normalizeNonEmptyString(altTrack.id);
+      const altTitle =
+        normalizeNonEmptyString(altTrack.title) ??
+        normalizeNonEmptyString(updatedMusic.title) ??
+        null;
+
+      const { data: maxSortRow } = await supabase
+        .from('series_music')
+        .select('sort_order')
+        .eq('series_id', updatedMusic.series_id)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const nextSortOrder =
+        typeof maxSortRow?.sort_order === 'number'
+          ? maxSortRow.sort_order + 1
+          : typeof updatedMusic.sort_order === 'number'
+            ? updatedMusic.sort_order + 1
+            : 0;
+
+      const { data: altRow, error: altInsertError } = await supabase
+        .from('series_music')
+        .insert({
+          series_id: updatedMusic.series_id,
+          name: `${updatedMusic.name} (Alt)`,
+          music_type: updatedMusic.music_type,
+          prompt: updatedMusic.prompt,
+          style: updatedMusic.style,
+          title: altTitle,
+          audio_url: altAudioUrl,
+          cover_image_url: altImageUrl,
+          duration: altDuration,
+          status: 'done',
+          task_id: taskId,
+          suno_track_id: altSunoTrackId,
+          generation_metadata: payload,
+          sort_order: nextSortOrder,
+        })
+        .select('id')
+        .maybeSingle();
+
+      if (altInsertError) {
+        log.error('Failed to insert alternate series_music row', {
+          music_id: musicId,
+          task_id: taskId,
+          error: altInsertError,
+        });
+      } else if (altRow?.id) {
+        altTrackId = altRow.id as string;
+      }
+    }
+  }
+
+  return okResponse({
+    success: true,
+    step: 'GenerateMusic',
+    music_id: musicId,
+    audio_url: primaryAudioUrl,
+    ...(altTrackId ? { alt_music_id: altTrackId } : {}),
+  });
+}
+
 export async function OPTIONS() {
   return new Response(null, { headers: CORS_HEADERS });
 }
@@ -965,6 +1173,25 @@ export async function POST(req: NextRequest) {
         payload,
         taskId: verification.taskId,
         voiceoverId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateMusic') {
+      const musicId = req.nextUrl.searchParams.get('music_id');
+      if (!musicId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_music_id',
+        });
+      }
+
+      return await handleGenerateMusic({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        musicId,
         log,
       });
     }
