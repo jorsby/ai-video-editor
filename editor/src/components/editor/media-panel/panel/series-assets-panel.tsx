@@ -117,7 +117,10 @@ function SlugBadge({ slug }: { slug: string }) {
 function DetailRow({
   label,
   children,
-}: { label: string; children: React.ReactNode }) {
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-start gap-2">
       <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider w-16 shrink-0 pt-0.5">
@@ -153,7 +156,9 @@ function VariantCard({
 
   return (
     <>
-      <div className={`rounded-md overflow-hidden transition-colors ${selected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/30 bg-muted/10'}`}>
+      <div
+        className={`rounded-md overflow-hidden transition-colors ${selected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/30 bg-muted/10'}`}
+      >
         <div className="flex items-center gap-2 px-2.5 py-1.5 bg-muted/20">
           <input
             type="checkbox"
@@ -168,7 +173,7 @@ function VariantCard({
               <img
                 src={imageUrl}
                 alt={variant.label}
-                className="w-10 h-12 rounded-md object-cover border border-border/30"
+                className="w-10 h-14 rounded-md object-contain bg-black/20 border border-border/30"
               />
               <button
                 type="button"
@@ -193,10 +198,7 @@ function VariantCard({
                 {variant.label}
               </span>
               {variant.isMain && (
-                <Badge
-                  variant="secondary"
-                  className="text-[7px] px-1 py-0 h-3"
-                >
+                <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3">
                   Main
                 </Badge>
               )}
@@ -341,7 +343,9 @@ function AssetCard({
         {asset.variants.map((variant) => {
           const display = variantDisplayById.get(variant.id);
           const variantImageUrl = display?.imageUrl ?? variant.imageUrl ?? null;
-          const variantStatus = display?.imageGenStatus ?? normalizeVariantStatus(null, variantImageUrl);
+          const variantStatus =
+            display?.imageGenStatus ??
+            normalizeVariantStatus(null, variantImageUrl);
           const isVariantSelected = selectedVariantIds.has(variant.id);
           const isGenerating = variantStatus === 'generating';
           const isFailed = variantStatus === 'failed';
@@ -352,12 +356,12 @@ function AssetCard({
               key={variant.id}
               className={`group/asset relative rounded-md overflow-hidden transition-colors ${isVariantSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-muted/10 hover:bg-muted/20'}`}
             >
-              <div className="relative aspect-square">
+              <div className="relative aspect-[9/16]">
                 {hasVariantImage ? (
                   <img
                     src={variantImageUrl}
                     alt={variant.label}
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-contain bg-black/20"
                   />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center text-2xl">
@@ -396,12 +400,16 @@ function AssetCard({
                 {isGenerating && (
                   <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 flex items-center justify-center gap-1">
                     <IconLoader2 className="size-3 animate-spin text-amber-400" />
-                    <span className="text-[9px] text-amber-400 font-medium animate-pulse">Generating...</span>
+                    <span className="text-[9px] text-amber-400 font-medium animate-pulse">
+                      Generating...
+                    </span>
                   </div>
                 )}
                 {isFailed && (
                   <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1.5 py-1 flex items-center justify-center gap-1">
-                    <span className="text-[9px] text-red-400 font-medium">Failed</span>
+                    <span className="text-[9px] text-red-400 font-medium">
+                      Failed
+                    </span>
                   </div>
                 )}
 
@@ -419,7 +427,9 @@ function AssetCard({
 
               <div className="p-1.5 space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
-                  <p className="text-[10px] font-medium truncate flex-1">{variant.label}</p>
+                  <p className="text-[10px] font-medium truncate flex-1">
+                    {variant.label}
+                  </p>
                   {!isGenerating && !hasVariantImage && !isFailed && (
                     <button
                       type="button"
@@ -456,7 +466,12 @@ function AssetCard({
                 </div>
                 <SlugBadge slug={variant.slug} />
                 {variant.isMain && (
-                  <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3">Main</Badge>
+                  <Badge
+                    variant="secondary"
+                    className="text-[7px] px-1 py-0 h-3"
+                  >
+                    Main
+                  </Badge>
                 )}
               </div>
             </div>
@@ -499,7 +514,7 @@ function AssetCard({
                 <img
                   src={imageUrl}
                   alt={`${asset.name} reference`}
-                  className="w-16 h-20 rounded-md object-cover border border-border/30"
+                  className="w-20 h-28 rounded-md object-contain bg-black/20 border border-border/30"
                 />
                 <button
                   type="button"
@@ -642,7 +657,10 @@ function AssetSection({
   status: { pending: number; completed: number; stale: number };
   selectedVariantIds: Set<string>;
   onToggleVariantSelection: (variantId: string) => void;
-  onToggleSelectAllInSection: (type: AssetType, shouldSelectAll: boolean) => void;
+  onToggleSelectAllInSection: (
+    type: AssetType,
+    shouldSelectAll: boolean
+  ) => void;
   onGenerateVariant: (variantId: string) => void;
   onGenerateSelectedInSection: (type: AssetType) => void;
   variantDisplayById: Map<
@@ -864,7 +882,7 @@ export default function SeriesAssetsPanel() {
     generateGrid,
   } = useSeriesAssets(projectId);
 
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [cardMinWidth, setCardMinWidth] = useState(120);
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(
     new Set()
@@ -872,7 +890,10 @@ export default function SeriesAssetsPanel() {
   const [variantDisplayById, setVariantDisplayById] = useState<
     Map<
       string,
-      { imageUrl: string | null; imageGenStatus: VariantGenerationDisplayStatus }
+      {
+        imageUrl: string | null;
+        imageGenStatus: VariantGenerationDisplayStatus;
+      }
     >
   >(new Map());
   const [batchState, setBatchState] = useState<{
@@ -902,7 +923,10 @@ export default function SeriesAssetsPanel() {
   const mergedVariantDisplayById = useMemo(() => {
     const map = new Map<
       string,
-      { imageUrl: string | null; imageGenStatus: VariantGenerationDisplayStatus }
+      {
+        imageUrl: string | null;
+        imageGenStatus: VariantGenerationDisplayStatus;
+      }
     >();
 
     for (const asset of assets) {
@@ -944,7 +968,10 @@ export default function SeriesAssetsPanel() {
 
     const next = new Map<
       string,
-      { imageUrl: string | null; imageGenStatus: VariantGenerationDisplayStatus }
+      {
+        imageUrl: string | null;
+        imageGenStatus: VariantGenerationDisplayStatus;
+      }
     >();
 
     for (const variant of (data ?? []) as Array<{
@@ -955,7 +982,10 @@ export default function SeriesAssetsPanel() {
       const imageUrl = resolveStoredUrl(supabase, variant.image_url);
       next.set(variant.id, {
         imageUrl,
-        imageGenStatus: normalizeVariantStatus(variant.image_gen_status, imageUrl),
+        imageGenStatus: normalizeVariantStatus(
+          variant.image_gen_status,
+          imageUrl
+        ),
       });
     }
 
@@ -1109,7 +1139,13 @@ export default function SeriesAssetsPanel() {
 
       setBatchState(null);
     },
-    [batchState, groupedAssets, markVariantStatus, mergedVariantDisplayById, selectedVariantIds]
+    [
+      batchState,
+      groupedAssets,
+      markVariantStatus,
+      mergedVariantDisplayById,
+      selectedVariantIds,
+    ]
   );
 
   if (isLoading) {
