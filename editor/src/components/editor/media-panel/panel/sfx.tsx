@@ -81,7 +81,7 @@ export default function PanelSFX() {
     try {
       const audioClip = await Audio.fromUrl(url);
       audioClip.name = name;
-      audioClip.volume = 0.35;
+      audioClip.volume = 1;
       await studio.addClip(audioClip);
     } catch (error) {
       Log.error('Failed to add audio:', error);

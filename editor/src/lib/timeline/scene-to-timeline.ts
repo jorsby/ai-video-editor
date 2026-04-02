@@ -180,10 +180,7 @@ export async function buildSceneClips(params: {
       const rawVideoDurUs = Math.round(realVideoDur * MICROSECONDS_PER_SECOND);
       videoClip.trim = { from: 0, to: rawVideoDurUs };
 
-      // Mute video's own audio (we use separate audio track for voiceover)
-      if ('volume' in videoClip) {
-        (videoClip as any).volume = 0;
-      }
+      // Video keeps its original audio volume — user adjusts via mixer
     }
 
     // ── Apply timing to audio clip ──────────────────────────────────
