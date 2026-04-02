@@ -229,7 +229,9 @@ export function SeriesMusicSection({
     async (track: MusicTrack) => {
       if (!studio || !track.audio_url) return;
       try {
-        const audioClip = await Audio.fromUrl(track.audio_url);
+        // Proxy through our API to avoid CORS issues with external audio URLs
+        const proxyUrl = `/api/proxy/media?url=${encodeURIComponent(track.audio_url)}`;
+        const audioClip = await Audio.fromUrl(proxyUrl);
         audioClip.name = track.name;
         audioClip.volume = 1;
         await studio.addClip(audioClip);
