@@ -1067,6 +1067,49 @@ function SendToTimelineModal({
           </Badge>
         </DialogTitle>
 
+        {/* Bulk controls */}
+        <div className="space-y-2 pb-2 border-b border-border/30">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">All Scenes</p>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <IconVolume className="size-3" />
+                  Audio
+                </span>
+                <span className="font-mono">{settings[0]?.audioTrimPercent ?? 100}%</span>
+              </div>
+              <Slider
+                value={[settings[0]?.audioTrimPercent ?? 100]}
+                onValueChange={([v]) =>
+                  setSettings((prev) => prev.map((s) => ({ ...s, audioTrimPercent: v })))
+                }
+                min={10}
+                max={100}
+                step={5}
+              />
+            </div>
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <IconVideo className="size-3" />
+                  Video
+                </span>
+                <span className="font-mono">{settings[0]?.videoTrimPercent ?? 100}%</span>
+              </div>
+              <Slider
+                value={[settings[0]?.videoTrimPercent ?? 100]}
+                onValueChange={([v]) =>
+                  setSettings((prev) => prev.map((s) => ({ ...s, videoTrimPercent: v })))
+                }
+                min={10}
+                max={100}
+                step={5}
+              />
+            </div>
+          </div>
+        </div>
+
         <ScrollArea className="flex-1 -mx-6 px-6">
           <div className="space-y-3 py-2">
             {scenes.map((scene, i) => {
