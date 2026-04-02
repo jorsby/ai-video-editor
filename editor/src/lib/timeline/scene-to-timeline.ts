@@ -2,6 +2,15 @@ import { Video, Audio } from 'openvideo';
 import { MICROSECONDS_PER_SECOND } from '@/types/timeline';
 
 /**
+ * Wrap an external URL through our CORS proxy so openvideo can fetch it
+ * from the browser. Only proxies non-local URLs.
+ */
+function proxyUrl(url: string): string {
+  if (url.startsWith('/') || url.startsWith('blob:')) return url;
+  return `/api/proxy/media?url=${encodeURIComponent(url)}`;
+}
+
+/**
  * Scene data needed for timeline insertion
  */
 export interface SceneForTimeline {
@@ -119,7 +128,7 @@ export async function buildSceneClips(params: {
 
     // Build video clip
     if (scene.video_url) {
-      videoClip = await Video.fromUrl(scene.video_url);
+      videoClip = await Video.fromUrl(proxyUrl(scene.video_url));
       videoClip.name = scene.title
         ? `S${scene.order} – ${scene.title}`
         : `Scene ${scene.order}`;
@@ -152,7 +161,7 @@ export async function buildSceneClips(params: {
 
     // Build audio clip
     if (scene.audio_url) {
-      audioClip = await Audio.fromUrl(scene.audio_url);
+      audioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
       audioClip.name = scene.title
         ? `VO – S${scene.order} – ${scene.title}`
         : `VO – Scene ${scene.order}`;
