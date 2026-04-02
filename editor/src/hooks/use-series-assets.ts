@@ -206,6 +206,7 @@ export function useSeriesAssets(
     INITIAL_GENERATION_STATUS
   );
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const initialLoadDoneRef = useRef(false);
   const assetIdsRef = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(() => {
@@ -238,7 +239,11 @@ export function useSeriesAssets(
       }
 
       if (!cancelled) {
-        setIsLoading(true);
+        // Only show loading spinner on initial load, not on Realtime-triggered refreshes.
+        // Realtime refreshes should silently update data without tearing down the UI tree.
+        if (!initialLoadDoneRef.current) {
+          setIsLoading(true);
+        }
         setError(null);
       }
 
@@ -392,6 +397,7 @@ export function useSeriesAssets(
           setGridPrompts(resolveGridPrompts(metadata));
           setGenerationStatus(nextGenerationStatus);
           setIsLoading(false);
+          initialLoadDoneRef.current = true;
         }
       } catch (err) {
         if (!cancelled) {
@@ -524,11 +530,14 @@ export function useSeriesAssets(
       try {
         // Serialize requests to avoid burst rate-limit and keep order predictable
         for (const target of generationTargets) {
-          const res = await fetch(`/api/v2/variants/${target.variant_id}/generate-image`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          });
+          const res = await fetch(
+            `/api/v2/variants/${target.variant_id}/generate-image`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            }
+          );
 
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
@@ -599,17 +608,6 @@ export function useSeriesAssets(
             null;
 
           if (!assetId || !assetIdsRef.current.has(assetId)) return;
-          refresh();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'studio',
-          table: 'series_asset_variants',
-        },
-        () => {
           refresh();
         }
       )
