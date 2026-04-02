@@ -11,7 +11,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
-import { Slider } from '@/components/ui/slider';
+
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useStudioStore } from '@/stores/studio-store';
@@ -986,8 +986,6 @@ function SendToTimelineModal({
   const [settings, setSettings] = useState<SceneTimelineSettings[]>(() =>
     scenes.map((s) => ({
       sceneId: s.id,
-      audioTrimPercent: 100,
-      videoTrimPercent: 100,
       matchVideoToAudio: !!s.audio_text, // default ON for narrative
     }))
   );
@@ -998,8 +996,6 @@ function SendToTimelineModal({
     setSettings(
       scenes.map((s) => ({
         sceneId: s.id,
-        audioTrimPercent: 100,
-        videoTrimPercent: 100,
         matchVideoToAudio: !!s.audio_text,
       }))
     );
@@ -1089,44 +1085,21 @@ function SendToTimelineModal({
         {/* Bulk controls */}
         <div className="space-y-2 pb-2 border-b border-border/30">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">All Scenes</p>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <IconVolume className="size-3" />
-                  Audio
-                </span>
-                <span className="font-mono">{settings[0]?.audioTrimPercent ?? 100}%</span>
-              </div>
-              <Slider
-                value={[settings[0]?.audioTrimPercent ?? 100]}
-                onValueChange={([v]) =>
-                  setSettings((prev) => prev.map((s) => ({ ...s, audioTrimPercent: v })))
-                }
-                min={10}
-                max={100}
-                step={5}
-              />
-            </div>
-            <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <IconVideo className="size-3" />
-                  Video
-                </span>
-                <span className="font-mono">{settings[0]?.videoTrimPercent ?? 100}%</span>
-              </div>
-              <Slider
-                value={[settings[0]?.videoTrimPercent ?? 100]}
-                onValueChange={([v]) =>
-                  setSettings((prev) => prev.map((s) => ({ ...s, videoTrimPercent: v })))
-                }
-                min={10}
-                max={100}
-                step={5}
-              />
-            </div>
-          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.every((s) => s.matchVideoToAudio)}
+              onChange={(e) =>
+                setSettings((prev) =>
+                  prev.map((s) => ({ ...s, matchVideoToAudio: e.target.checked }))
+                )
+              }
+              className="size-3.5 rounded border-border/60 accent-primary"
+            />
+            <span className="text-[10px] text-muted-foreground">
+              Match video speed to audio (all scenes)
+            </span>
+          </label>
         </div>
 
         <ScrollArea className="flex-1 -mx-6 px-6">
@@ -1165,67 +1138,26 @@ function SendToTimelineModal({
                     </span>
                   </div>
 
-                  {/* Audio trim slider */}
-                  {hasAudio && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <IconVolume className="size-3" />
-                          Audio
-                          <span className="font-mono">
-                            {(scene.audio_duration ?? 0).toFixed(1)}s
-                          </span>
-                        </span>
-                        <span className="font-mono font-medium text-foreground">
-                          {s.audioTrimPercent}%
-                          <span className="text-muted-foreground ml-1">
-                            ({timing.effectiveAudioDuration.toFixed(1)}s)
-                          </span>
-                        </span>
-                      </div>
-                      <Slider
-                        value={[s.audioTrimPercent]}
-                        onValueChange={([v]) =>
-                          updateSetting(scene.id, { audioTrimPercent: v })
-                        }
-                        min={10}
-                        max={100}
-                        step={5}
-                        className="w-full"
-                      />
-                    </div>
-                  )}
-
-                  {/* Video trim slider */}
-                  {hasVideo && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <IconVideo className="size-3" />
-                          Video
-                          <span className="font-mono">
-                            {(scene.video_duration ?? 0).toFixed(1)}s
-                          </span>
-                        </span>
-                        <span className="font-mono font-medium text-foreground">
-                          {s.videoTrimPercent}%
-                          <span className="text-muted-foreground ml-1">
-                            ({timing.effectiveVideoDuration.toFixed(1)}s)
-                          </span>
-                        </span>
-                      </div>
-                      <Slider
-                        value={[s.videoTrimPercent]}
-                        onValueChange={([v]) =>
-                          updateSetting(scene.id, { videoTrimPercent: v })
-                        }
-                        min={10}
-                        max={100}
-                        step={5}
-                        className="w-full"
-                      />
-                    </div>
-                  )}
+                  {/* Media info */}
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                    {hasAudio && (
+                      <span className="flex items-center gap-1">
+                        <IconVolume className="size-3" />
+                        {(scene.audio_duration ?? 0).toFixed(1)}s
+                      </span>
+                    )}
+                    {hasVideo && (
+                      <span className="flex items-center gap-1">
+                        <IconVideo className="size-3" />
+                        {(scene.video_duration ?? 0).toFixed(1)}s
+                      </span>
+                    )}
+                    {s.matchVideoToAudio && timing.videoPlaybackRate !== 1 && (
+                      <span className="font-mono text-primary">
+                        {timing.videoPlaybackRate.toFixed(2)}x
+                      </span>
+                    )}
+                  </div>
 
                   {/* Speed match toggle (narrative only) */}
                   {isNarrative && hasAudio && hasVideo && (
@@ -1241,7 +1173,7 @@ function SendToTimelineModal({
                         className="size-3.5 rounded border-border/60 accent-primary"
                       />
                       <span className="text-[10px] text-muted-foreground">
-                        Match video speed to audio
+                        Match video to audio
                         {s.matchVideoToAudio && timing.videoPlaybackRate !== 1 && (
                           <span className="ml-1 font-mono text-primary">
                             ({timing.videoPlaybackRate.toFixed(2)}x)

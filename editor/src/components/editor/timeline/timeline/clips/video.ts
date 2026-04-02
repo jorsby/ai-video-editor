@@ -1,5 +1,5 @@
 import { BaseTimelineClip, type BaseClipProps } from './base';
-import { type Control, Pattern } from 'fabric';
+import type { Control } from 'fabric';
 import { createTrimControls } from '../controls';
 import { editorFont } from '@/components/editor/constants';
 import { TIMELINE_CONSTANTS } from '@/components/editor/timeline/timeline-constants';
@@ -12,7 +12,7 @@ const MICROSECONDS_IN_SECOND = 1_000_000;
 const DEFAULT_THUMBNAIL_HEIGHT = 52;
 const DEFAULT_ASPECT_RATIO = 16 / 9;
 const FALLBACK_COLOR = '#1e1b4b'; // Deep Indigo
-const THUMBNAIL_STEP_US = 1_000_000; // 1fps
+const _THUMBNAIL_STEP_US = 1_000_000; // 1fps
 
 export class Video extends BaseTimelineClip {
   static createControls(): { controls: Record<string, Control> } {
@@ -148,11 +148,13 @@ export class Video extends BaseTimelineClip {
     if (sourceDuration && sourceDuration !== this.sourceDuration) {
       this.sourceDuration = sourceDuration;
 
-      // Clamp current trim and duration to new source duration
+      // Clamp trim to source bounds but do NOT recalculate duration.
+      // Duration is the *timeline* duration set by scene-to-timeline
+      // (which accounts for playbackRate). Recalculating here would
+      // override the intended slow-mo / speed-up timing.
       if (this.trim.to > sourceDuration) {
         this.trim.to = sourceDuration;
         this.trim.from = Math.min(this.trim.from, this.trim.to);
-        this.duration = (this.trim.to - this.trim.from) / this.playbackRate;
         needsUpdate = true;
       }
     }

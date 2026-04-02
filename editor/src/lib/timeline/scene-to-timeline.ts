@@ -25,13 +25,12 @@ export interface SceneForTimeline {
 }
 
 /**
- * Per-scene settings from the pre-send UI
+ * Per-scene settings from the pre-send UI.
+ * matchVideoToAudio: slow/speed video so it plays for exactly the audio duration.
  */
 export interface SceneTimelineSettings {
   sceneId: string;
-  audioTrimPercent: number; // 0-100, how much of audio to use
-  videoTrimPercent: number; // 0-100, how much of video to use
-  matchVideoToAudio: boolean; // adjust video playbackRate to match audio duration
+  matchVideoToAudio: boolean;
 }
 
 /**
@@ -49,7 +48,14 @@ export interface SceneClipResult {
 
 /**
  * Calculate the effective duration and playback rate for a scene.
- * Uses the real probed durations passed in (not DB values).
+ *
+ * When matchVideoToAudio is true (narrative scenes):
+ *   - playbackRate = videoDuration / audioDuration
+ *   - video stretches/compresses to exactly match audio length
+ *   - trim.to on the video source = full source duration (no trimming)
+ *
+ * The only "trim" is a micro-trim on the video source end to ensure
+ * exact frame alignment (handled in buildSceneClips, not here).
  */
 export function calculateSceneTiming(
   audioDurationSec: number,
@@ -57,32 +63,33 @@ export function calculateSceneTiming(
   isNarrative: boolean,
   settings: SceneTimelineSettings
 ): {
-  effectiveAudioDuration: number; // seconds
-  effectiveVideoDuration: number; // seconds
+  audioDuration: number; // seconds — full audio
+  videoDuration: number; // seconds — timeline duration of video (after rate change)
   videoPlaybackRate: number;
-  sceneDuration: number; // seconds
+  sceneDuration: number; // seconds — max of audio/video
 } {
-  const effectiveAudioDuration = audioDurationSec * (settings.audioTrimPercent / 100);
-  let effectiveVideoDuration = videoDurationSec * (settings.videoTrimPercent / 100);
+  let videoDuration = videoDurationSec;
   let videoPlaybackRate = 1;
 
   // For narrative scenes: match video speed to audio
   if (
     settings.matchVideoToAudio &&
     isNarrative &&
-    effectiveAudioDuration > 0 &&
-    effectiveVideoDuration > 0
+    audioDurationSec > 0 &&
+    videoDurationSec > 0
   ) {
-    videoPlaybackRate = effectiveVideoDuration / effectiveAudioDuration;
+    // Rate < 1 = slow-mo, rate > 1 = speed-up
+    videoPlaybackRate = videoDurationSec / audioDurationSec;
     videoPlaybackRate = Math.max(0.25, Math.min(4, videoPlaybackRate));
-    effectiveVideoDuration = effectiveAudioDuration;
+    // Video timeline duration = audio duration (they play together)
+    videoDuration = audioDurationSec;
   }
 
-  const sceneDuration = Math.max(effectiveAudioDuration, effectiveVideoDuration);
+  const sceneDuration = Math.max(audioDurationSec, videoDuration);
 
   return {
-    effectiveAudioDuration,
-    effectiveVideoDuration,
+    audioDuration: audioDurationSec,
+    videoDuration,
     videoPlaybackRate,
     sceneDuration,
   };
@@ -160,7 +167,7 @@ export async function buildSceneClips(params: {
     // ── Apply timing to video clip ──────────────────────────────────
 
     if (videoClip) {
-      const videoDurUs = Math.round(timing.effectiveVideoDuration * MICROSECONDS_PER_SECOND);
+      const videoDurUs = Math.round(timing.videoDuration * MICROSECONDS_PER_SECOND);
       videoClip.display = {
         from: currentOffset,
         to: currentOffset + videoDurUs,
@@ -168,12 +175,10 @@ export async function buildSceneClips(params: {
       videoClip.duration = videoDurUs;
       videoClip.playbackRate = timing.videoPlaybackRate;
 
-      // Trim from start of source
+      // Use full source — no user trimming.
+      // Micro-trim: clamp to exact source length so player doesn't overshoot.
       const rawVideoDurUs = Math.round(realVideoDur * MICROSECONDS_PER_SECOND);
-      const trimmedSourceDurUs = Math.round(
-        rawVideoDurUs * (sceneSettings.videoTrimPercent / 100)
-      );
-      videoClip.trim = { from: 0, to: trimmedSourceDurUs };
+      videoClip.trim = { from: 0, to: rawVideoDurUs };
 
       // Mute video's own audio (we use separate audio track for voiceover)
       if ('volume' in videoClip) {
@@ -184,25 +189,22 @@ export async function buildSceneClips(params: {
     // ── Apply timing to audio clip ──────────────────────────────────
 
     if (audioClip) {
-      const audioDurUs = Math.round(timing.effectiveAudioDuration * MICROSECONDS_PER_SECOND);
+      const audioDurUs = Math.round(timing.audioDuration * MICROSECONDS_PER_SECOND);
       audioClip.display = {
         from: currentOffset,
         to: currentOffset + audioDurUs,
       };
       audioClip.duration = audioDurUs;
 
-      // Trim from start of source
+      // Full audio source, no trimming
       const rawAudioDurUs = Math.round(realAudioDur * MICROSECONDS_PER_SECOND);
-      const trimmedSourceDurUs = Math.round(
-        rawAudioDurUs * (sceneSettings.audioTrimPercent / 100)
-      );
-      audioClip.trim = { from: 0, to: trimmedSourceDurUs };
+      audioClip.trim = { from: 0, to: rawAudioDurUs };
     }
 
     // ── Record result ───────────────────────────────────────────────
 
-    const videoDurUs = Math.round(timing.effectiveVideoDuration * MICROSECONDS_PER_SECOND);
-    const audioDurUs = Math.round(timing.effectiveAudioDuration * MICROSECONDS_PER_SECOND);
+    const videoDurUs = Math.round(timing.videoDuration * MICROSECONDS_PER_SECOND);
+    const audioDurUs = Math.round(timing.audioDuration * MICROSECONDS_PER_SECOND);
 
     results.push({
       sceneId: scene.id,
