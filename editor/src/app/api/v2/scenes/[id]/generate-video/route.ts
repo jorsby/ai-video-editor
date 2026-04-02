@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, episode_id, prompt, duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -52,6 +52,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!scene.prompt?.trim()) {
       return NextResponse.json(
         { error: 'Scene has no visual prompt.' },
+        { status: 400 }
+      );
+    }
+
+    // ── Narrative guard: require TTS before video ───────────────────────
+
+    const isNarrative = !!scene.audio_text?.trim();
+    if (isNarrative && !scene.audio_url) {
+      return NextResponse.json(
+        {
+          error: 'Narrative scene requires voice-over first. Generate TTS before video.',
+          code: 'TTS_REQUIRED',
+        },
         { status: 400 }
       );
     }
@@ -95,9 +108,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // ── Parse body ──────────────────────────────────────────────────────
 
     const body = await req.json().catch(() => ({}));
-    // Priority: body override > scene.duration from DB > default 6
-    const rawDuration = body.duration ?? scene.duration ?? 6;
-    const duration = VALID_DURATIONS.has(rawDuration) ? rawDuration : 6;
+
+    // Duration logic:
+    // Narrative scenes: derive from audio_duration (≤6→6, ≤10→10, >10→10)
+    // Non-narrative: body override > scene.duration > default 6
+    let duration: number;
+    if (isNarrative && typeof scene.audio_duration === 'number' && scene.audio_duration > 0) {
+      duration = scene.audio_duration <= 6 ? 6 : 10;
+    } else {
+      const rawDuration = body.duration ?? scene.duration ?? 6;
+      duration = VALID_DURATIONS.has(rawDuration) ? rawDuration : 6;
+    }
 
     let compiledPrompt: string;
     let imageUrls: string[];

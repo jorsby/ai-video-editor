@@ -495,13 +495,30 @@ function GenerateButton({
   hasResult,
   onClick,
   size = 'sm',
+  disabled = false,
+  disabledReason,
 }: {
   label: string;
   genStatus: string;
   hasResult: boolean;
   onClick: () => void;
   size?: 'sm' | 'md';
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
+  // Blocked — show disabled state with reason
+  if (disabled && !hasResult && genStatus !== 'generating') {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground/50 border border-border/20 cursor-not-allowed"
+        title={disabledReason ?? `Cannot generate ${label}`}
+      >
+        <IconSparkles className="size-2.5 opacity-40" />
+        {size === 'md' && label}
+      </span>
+    );
+  }
+
   if (genStatus === 'generating') {
     return (
       <span className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 animate-pulse font-medium">
@@ -632,6 +649,8 @@ function SceneCard({
   const hasAudio = !!scene.audio_url;
   const hasVideo = !!scene.video_url;
   const hasPrompt = !!scene.prompt;
+  const isNarrative = !!scene.audio_text;
+  const needsTtsFirst = isNarrative && !hasAudio;
   const charCount = scene.character_variant_slugs?.length ?? 0;
   const hasLocation = !!scene.location_variant_slug;
   const propCount = scene.prop_variant_slugs?.length ?? 0;
@@ -785,6 +804,8 @@ function SceneCard({
               genStatus={effectiveVideoStatus}
               hasResult={hasVideo}
               size="md"
+              disabled={needsTtsFirst}
+              disabledReason="Generate voice-over first"
               onClick={() => {
                 setLocalVideoStatus('generating');
                 void (async () => {
@@ -975,7 +996,12 @@ function EpisodeAccordion({
     (scene) => !!scene.audio_text && !scene.audio_url
   ).length;
   const selectedVideoCount = selectedSceneList.filter(
-    (scene) => !!scene.prompt && !scene.video_url
+    (scene) => {
+      if (!scene.prompt || scene.video_url) return false;
+      // Don't count narrative scenes that need TTS first
+      if (scene.audio_text && !scene.audio_url) return false;
+      return true;
+    }
   ).length;
   const isBatchRunning = ttsBatchProgress !== null || videoBatchProgress !== null;
 
@@ -1032,7 +1058,13 @@ function EpisodeAccordion({
 
   const runBatchVideo = async () => {
     const targets = episode.scenes.filter(
-      (scene) => selectedScenes.has(scene.id) && !!scene.prompt && !scene.video_url
+      (scene) => {
+        if (!selectedScenes.has(scene.id) || !scene.prompt || scene.video_url) return false;
+        // Skip narrative scenes that still need TTS
+        const isNarrative = !!scene.audio_text;
+        if (isNarrative && !scene.audio_url) return false;
+        return true;
+      }
     );
     if (targets.length < 1) return;
 
