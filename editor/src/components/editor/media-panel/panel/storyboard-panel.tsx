@@ -40,6 +40,7 @@ import {
   IconSparkles,
   IconRefresh,
   IconSend,
+  IconSelectAll,
 } from '@tabler/icons-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1235,9 +1236,13 @@ function SendToTimelineModal({
 function EpisodeAccordion({
   episode,
   imageMap,
+  isEpisodeSelected,
+  onToggleEpisodeSelected,
 }: {
   episode: EpisodeData;
   imageMap: VariantImageMap;
+  isEpisodeSelected: boolean;
+  onToggleEpisodeSelected: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
@@ -1357,10 +1362,18 @@ function EpisodeAccordion({
   return (
     <>
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <div className="flex items-center gap-1">
+        <input
+          type="checkbox"
+          checked={isEpisodeSelected}
+          onChange={onToggleEpisodeSelected}
+          className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
+          title={`Select EP${episode.order} for timeline`}
+        />
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors rounded-md text-left"
+          className="flex-1 flex items-center gap-2 px-2 py-2.5 hover:bg-muted/30 transition-colors rounded-md text-left"
         >
           {isOpen ? (
             <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
@@ -1386,6 +1399,7 @@ function EpisodeAccordion({
           </Badge>
         </button>
       </CollapsibleTrigger>
+      </div>
 
       <CollapsibleContent>
         <div className="pl-4 pr-1 pb-3 space-y-2">
@@ -1537,6 +1551,10 @@ export default function StoryboardPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(new Set());
+  const [isSendingEpisodes, setIsSendingEpisodes] = useState(false);
+  const { studio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
 
   useEffect(() => {
     let cancelled = false;
@@ -1752,9 +1770,136 @@ export default function StoryboardPanel() {
           </Badge>
         </div>
 
+        {/* Episode selection controls */}
+        {episodes.length > 0 && (
+          <div className="flex items-center gap-2 py-1.5 px-1 border-b border-border/20 mb-1">
+            <button
+              type="button"
+              onClick={() => {
+                const allSelected = episodes.every((ep) => selectedEpisodeIds.has(ep.id));
+                if (allSelected) {
+                  setSelectedEpisodeIds(new Set());
+                } else {
+                  setSelectedEpisodeIds(new Set(episodes.map((ep) => ep.id)));
+                }
+              }}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <input
+                type="checkbox"
+                checked={episodes.length > 0 && episodes.every((ep) => selectedEpisodeIds.has(ep.id))}
+                readOnly
+                className="size-3 rounded border-border accent-primary cursor-pointer"
+              />
+              <span>All Episodes</span>
+            </button>
+
+            {selectedEpisodeIds.size > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!studio) {
+                    toast.error('Editor not ready');
+                    return;
+                  }
+                  setIsSendingEpisodes(true);
+                  try {
+                    // Gather all scenes from selected episodes in order
+                    const selectedEps = episodes.filter((ep) => selectedEpisodeIds.has(ep.id));
+                    const allScenes: SceneForTimeline[] = [];
+                    for (const ep of selectedEps) {
+                      for (const scene of ep.scenes) {
+                        if (scene.video_url || scene.audio_url) {
+                          allScenes.push(scene as SceneForTimeline);
+                        }
+                      }
+                    }
+                    if (allScenes.length === 0) {
+                      toast.error('No scenes with audio/video in selected episodes');
+                      setIsSendingEpisodes(false);
+                      return;
+                    }
+
+                    // Build clips with matchVideoToAudio for all narrative scenes
+                    const settings: SceneTimelineSettings[] = allScenes.map((s) => ({
+                      sceneId: s.id,
+                      matchVideoToAudio: !!s.audio_text,
+                    }));
+                    const results = await buildSceneClips({
+                      scenes: allScenes,
+                      settings,
+                      canvasWidth: canvasSize.width,
+                      canvasHeight: canvasSize.height,
+                    });
+
+                    const hasAnyVideo = results.some((r) => r.videoClip);
+                    const hasAnyAudio = results.some((r) => r.audioClip);
+
+                    let videoTrackId: string | undefined;
+                    let audioTrackId: string | undefined;
+
+                    if (hasAnyVideo) {
+                      const track = studio.addTrack({ type: 'Video', name: 'Episode Video' });
+                      videoTrackId = track.id;
+                    }
+                    if (hasAnyAudio) {
+                      const track = studio.addTrack({ type: 'Audio', name: 'Episode Audio' });
+                      audioTrackId = track.id;
+                    }
+
+                    for (const result of results) {
+                      if (result.videoClip && videoTrackId) {
+                        await studio.addClip(result.videoClip, { trackId: videoTrackId });
+                      }
+                      if (result.audioClip && audioTrackId) {
+                        await studio.addClip(result.audioClip, { trackId: audioTrackId });
+                      }
+                    }
+
+                    const videoCount = results.filter((r) => r.videoClip).length;
+                    const audioCount = results.filter((r) => r.audioClip).length;
+                    toast.success(
+                      `Added ${videoCount} video + ${audioCount} audio clips from ${selectedEps.length} episode${selectedEps.length > 1 ? 's' : ''}`
+                    );
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Failed to send to timeline');
+                  } finally {
+                    setIsSendingEpisodes(false);
+                  }
+                }}
+                disabled={isSendingEpisodes}
+                className="ml-auto inline-flex items-center gap-1 h-6 px-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isSendingEpisodes ? (
+                  <IconLoader2 className="size-3 animate-spin" />
+                ) : (
+                  <IconSend className="size-3" />
+                )}
+                {selectedEpisodeIds.size} EP{selectedEpisodeIds.size > 1 ? 's' : ''} → Timeline
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Episode list */}
         {episodes.map((ep) => (
-          <EpisodeAccordion key={ep.id} episode={ep} imageMap={imageMap} />
+          <EpisodeAccordion
+            key={ep.id}
+            episode={ep}
+            imageMap={imageMap}
+            isEpisodeSelected={selectedEpisodeIds.has(ep.id)}
+            onToggleEpisodeSelected={() => {
+              setSelectedEpisodeIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(ep.id)) {
+                  next.delete(ep.id);
+                } else {
+                  next.add(ep.id);
+                }
+                return next;
+              });
+            }}
+          />
         ))}
       </div>
     </ScrollArea>
