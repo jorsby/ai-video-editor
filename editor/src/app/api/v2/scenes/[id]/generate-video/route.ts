@@ -65,10 +65,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (!episode) {
-      return NextResponse.json(
-        { error: 'Episode not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Episode not found' }, { status: 404 });
     }
 
     const { data: series } = await supabase
@@ -78,15 +75,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .maybeSingle();
 
     if (!series) {
-      return NextResponse.json(
-        { error: 'Series not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
     }
 
     if (!series.video_model) {
       return NextResponse.json(
-        { error: 'Series has no video_model configured. Set it in series settings first.' },
+        {
+          error:
+            'Series has no video_model configured. Set it in series settings first.',
+        },
         { status: 400 }
       );
     }
@@ -173,6 +170,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
     webhookUrl.searchParams.set('step', 'GenerateSceneVideo');
     webhookUrl.searchParams.set('scene_id', sceneId);
+    webhookUrl.searchParams.set('duration', String(duration));
 
     // ── Submit to kie.ai ────────────────────────────────────────────────
 
