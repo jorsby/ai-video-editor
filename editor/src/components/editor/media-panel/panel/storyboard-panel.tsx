@@ -325,16 +325,20 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
   const [showPlayer, setShowPlayer] = useState(false);
   const thumbRef = useRef<HTMLVideoElement | null>(null);
   const [thumbReady, setThumbReady] = useState(false);
+  const [isVertical, setIsVertical] = useState(false);
 
   if (showPlayer) {
     return (
-      <div className="relative rounded-lg overflow-hidden border border-border/30 bg-black">
+      <div className={`relative rounded-lg overflow-hidden border border-border/30 bg-black ${isVertical ? 'flex justify-center' : ''}`}>
         {/* biome-ignore lint/a11y/useMediaCaption: internal tool video */}
         <video
           src={url}
           controls
           autoPlay
-          className="w-full max-h-[400px] object-contain rounded-lg"
+          className={isVertical
+            ? 'h-[400px] max-w-full object-contain rounded-lg'
+            : 'w-full max-h-[400px] object-contain rounded-lg'
+          }
           onEnded={() => setShowPlayer(false)}
         />
         <button
@@ -349,15 +353,22 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
     );
   }
 
+  // Vertical: compact portrait card, Horizontal: full-width landscape
+  const thumbClasses = isVertical
+    ? 'relative w-28 rounded-lg overflow-hidden border border-border/30 bg-black hover:border-primary/40 transition-all group cursor-pointer'
+    : 'relative w-full rounded-lg overflow-hidden border border-border/30 bg-black hover:border-primary/40 transition-all group cursor-pointer';
+
+  const thumbAspect = isVertical ? '9/16' : '16/9';
+
   return (
     <button
       type="button"
       onClick={() => setShowPlayer(true)}
-      className="relative w-full rounded-lg overflow-hidden border border-border/30 bg-black hover:border-primary/40 transition-all group cursor-pointer"
-      style={{ aspectRatio: '16/9' }}
+      className={thumbClasses}
+      style={{ aspectRatio: thumbAspect }}
       title="Click to play"
     >
-      {/* Hidden video element to extract poster frame */}
+      {/* Video element to extract poster frame + detect orientation */}
       {/* biome-ignore lint/a11y/useMediaCaption: thumbnail extraction */}
       <video
         ref={thumbRef}
@@ -366,8 +377,11 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
         muted
         playsInline
         className={`absolute inset-0 w-full h-full object-cover transition-opacity ${thumbReady ? 'opacity-100' : 'opacity-0'}`}
-        onLoadedData={(e) => {
+        onLoadedMetadata={(e) => {
           const vid = e.currentTarget;
+          if (vid.videoHeight > vid.videoWidth) {
+            setIsVertical(true);
+          }
           vid.currentTime = 0.1;
         }}
         onSeeked={() => setThumbReady(true)}
@@ -380,19 +394,19 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
 
       {/* Play overlay */}
       <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors">
-        <div className="size-10 rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/30 group-hover:scale-110 transition-all shadow-lg">
-          <IconPlayerPlay className="size-5 text-white ml-0.5" />
+        <div className={`rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/30 group-hover:scale-110 transition-all shadow-lg ${isVertical ? 'size-8' : 'size-10'}`}>
+          <IconPlayerPlay className={`text-white ml-0.5 ${isVertical ? 'size-4' : 'size-5'}`} />
         </div>
       </div>
 
       {/* Bottom info bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 flex items-center justify-between">
-        <Badge variant="outline" className="text-[9px] bg-black/40 border-white/20 text-white/90 backdrop-blur-sm">
-          <IconVideo className="size-2.5 mr-1" />
-          Video
+        <Badge variant="outline" className="text-[8px] bg-black/40 border-white/20 text-white/90 backdrop-blur-sm">
+          <IconVideo className="size-2 mr-0.5" />
+          {isVertical ? '9:16' : '16:9'}
         </Badge>
         {duration != null && duration > 0 && (
-          <span className="text-[10px] font-mono text-white/80">{formatDuration(duration)}</span>
+          <span className="text-[9px] font-mono text-white/80">{formatDuration(duration)}</span>
         )}
       </div>
     </button>
