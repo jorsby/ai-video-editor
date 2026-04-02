@@ -1035,13 +1035,28 @@ function SendToTimelineModal({
         canvasHeight: canvasSize.height,
       });
 
-      // Add all clips to studio
+      // Create one video track + one audio track, add all clips there
+      const hasAnyVideo = results.some((r) => r.videoClip);
+      const hasAnyAudio = results.some((r) => r.audioClip);
+
+      let videoTrackId: string | undefined;
+      let audioTrackId: string | undefined;
+
+      if (hasAnyVideo) {
+        const track = studio.addTrack({ type: 'Video', name: 'Scene Video' });
+        videoTrackId = track.id;
+      }
+      if (hasAnyAudio) {
+        const track = studio.addTrack({ type: 'Audio', name: 'Scene Audio' });
+        audioTrackId = track.id;
+      }
+
       for (const result of results) {
-        if (result.videoClip) {
-          await studio.addClip(result.videoClip);
+        if (result.videoClip && videoTrackId) {
+          await studio.addClip(result.videoClip, { trackId: videoTrackId });
         }
-        if (result.audioClip) {
-          await studio.addClip(result.audioClip);
+        if (result.audioClip && audioTrackId) {
+          await studio.addClip(result.audioClip, { trackId: audioTrackId });
         }
       }
 
