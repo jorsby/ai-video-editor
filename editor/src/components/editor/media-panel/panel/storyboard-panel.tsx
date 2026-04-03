@@ -25,6 +25,7 @@ import {
 import {
   IconChevronDown,
   IconChevronUp,
+  IconFilter,
   IconMovie,
   IconPhoto,
   IconVolume,
@@ -42,6 +43,7 @@ import {
   IconSend,
   IconSelectAll,
 } from '@tabler/icons-react';
+import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1408,6 +1410,25 @@ function EpisodeAccordion({
   const isBatchRunning =
     ttsBatchProgress !== null || videoBatchProgress !== null;
 
+  const { focusedEpisodeId, setFocus, clearFocus } = useEpisodeFocusStore();
+  const isThisEpisodeFocused = focusedEpisodeId === episode.id;
+
+  const handleFilterAssets = () => {
+    if (isThisEpisodeFocused) {
+      clearFocus();
+      return;
+    }
+    // Collect all variant slugs used in this episode's scenes
+    const allSlugs = [
+      ...locationSlugs,
+      ...characterSlugs,
+      ...propSlugs,
+    ];
+    if (allSlugs.length > 0) {
+      setFocus(episode.id, allSlugs);
+    }
+  };
+
   useEffect(() => {
     setSelectedScenes((prev) => {
       const currentIds = new Set(episode.scenes.map((scene) => scene.id));
@@ -1493,6 +1514,24 @@ function EpisodeAccordion({
             className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
             title={`Select EP${episode.order} for timeline`}
           />
+          {totalAssets > 0 && (
+            <button
+              type="button"
+              onClick={handleFilterAssets}
+              className={`shrink-0 p-0.5 rounded transition-colors ${
+                isThisEpisodeFocused
+                  ? 'text-primary bg-primary/15'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30'
+              }`}
+              title={
+                isThisEpisodeFocused
+                  ? 'Clear asset filter'
+                  : `Filter assets to EP${episode.order}`
+              }
+            >
+              <IconFilter className="size-3" />
+            </button>
+          )}
           <CollapsibleTrigger asChild>
             <button
               type="button"

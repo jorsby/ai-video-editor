@@ -23,18 +23,23 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
+  IconFilter,
+  IconFilterOff,
   IconLayoutGrid,
   IconList,
   IconLoader2,
   IconMapPin,
   IconMaximize,
+  IconMinus,
   IconPackage,
+  IconPlus,
   IconRefresh,
   IconSparkles,
   IconUsers,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { ProjectMusicSection } from './project-music-section';
+import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -644,6 +649,7 @@ function AssetSection({
   variantDisplayById,
   isBatchGenerating,
   batchProgress,
+  forceOpen,
 }: {
   type: AssetType;
   assets: ProjectAsset[];
@@ -670,9 +676,17 @@ function AssetSection({
   >;
   isBatchGenerating: boolean;
   batchProgress: { done: number; total: number } | null;
+  forceOpen?: boolean | null;
 }) {
   const config = SECTION_CONFIG[type];
   const [isOpen, setIsOpen] = useState(true);
+
+  // Respond to parent collapse/expand all
+  useEffect(() => {
+    if (forceOpen !== null && forceOpen !== undefined) {
+      setIsOpen(forceOpen);
+    }
+  }, [forceOpen]);
   const [isGridPromptOpen, setIsGridPromptOpen] = useState(false);
   const sectionVariantIds = assets.flatMap((asset) =>
     asset.variants.map((variant) => variant.id)
@@ -887,6 +901,11 @@ export default function ProjectAssetsPanel() {
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(
     new Set()
   );
+  // Collapse all / Expand all: null = individual control, true/false = forced
+  const [forceOpen, setForceOpen] = useState<boolean | null>(null);
+  // Episode filter
+  const { focusedEpisodeId, focusedVariantSlugs, clearFocus } =
+    useEpisodeFocusStore();
   const [variantDisplayById, setVariantDisplayById] = useState<
     Map<
       string,
@@ -902,13 +921,21 @@ export default function ProjectAssetsPanel() {
     total: number;
   } | null>(null);
 
+  // Filter assets by episode focus (if active)
+  const filteredAssets = useMemo(() => {
+    if (!focusedEpisodeId || focusedVariantSlugs.size === 0) return assets;
+    return assets.filter((asset) =>
+      asset.variants.some((v) => focusedVariantSlugs.has(v.slug))
+    );
+  }, [assets, focusedEpisodeId, focusedVariantSlugs]);
+
   const groupedAssets = useMemo(() => {
     return {
-      character: assets.filter((asset) => asset.type === 'character'),
-      location: assets.filter((asset) => asset.type === 'location'),
-      prop: assets.filter((asset) => asset.type === 'prop'),
+      character: filteredAssets.filter((asset) => asset.type === 'character'),
+      location: filteredAssets.filter((asset) => asset.type === 'location'),
+      prop: filteredAssets.filter((asset) => asset.type === 'prop'),
     };
-  }, [assets]);
+  }, [filteredAssets]);
 
   const variantFallbackUrlById = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -1207,6 +1234,42 @@ export default function ProjectAssetsPanel() {
               <IconLayoutGrid size={14} />
             </button>
           </div>
+
+          {/* Collapse / Expand All */}
+          <button
+            type="button"
+            onClick={() => {
+              setForceOpen((prev) => {
+                // Toggle: null/true → false (collapse), false → true (expand)
+                if (prev === false) return true;
+                return false;
+              });
+              // Reset to individual control after a tick
+              setTimeout(() => setForceOpen(null), 50);
+            }}
+            className="h-7 px-2 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
+            title="Collapse / Expand all sections"
+          >
+            {forceOpen === false ? (
+              <IconPlus size={14} />
+            ) : (
+              <IconMinus size={14} />
+            )}
+          </button>
+
+          {/* Episode filter indicator */}
+          {focusedEpisodeId && (
+            <button
+              type="button"
+              onClick={clearFocus}
+              className="h-7 px-2 text-xs rounded border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary transition-colors flex items-center gap-1"
+              title="Clear episode filter"
+            >
+              <IconFilterOff size={14} />
+              <span className="text-[10px]">Filtered</span>
+            </button>
+          )}
+
           {viewMode === 'grid' && (
             <Slider
               value={[cardMinWidth]}
@@ -1265,6 +1328,7 @@ export default function ProjectAssetsPanel() {
                 ? { done: batchState.done, total: batchState.total }
                 : null
             }
+            forceOpen={forceOpen}
           />
         ))}
 
