@@ -187,7 +187,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     }
 
     const { data: variant, error: variantError } = await dbClient
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .select('id, slug')
       .eq('id', variantId)
       .eq('asset_id', assetId)

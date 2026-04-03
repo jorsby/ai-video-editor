@@ -135,9 +135,9 @@ async function loadSeriesAssetAndVariantMaps(
   seriesId: string
 ) {
   const { data: assetsData, error: assetsError } = await dbClient
-    .from('series_assets')
+    .from('project_assets')
     .select(
-      'id, name, slug, type, series_asset_variants(id, asset_id, slug, name, is_main)'
+      'id, name, slug, type, project_asset_variants(id, asset_id, slug, name, is_main)'
     )
     .eq('series_id', seriesId)
     .order('sort_order', { ascending: true });
@@ -147,7 +147,7 @@ async function loadSeriesAssetAndVariantMaps(
   }
 
   const assets = (assetsData ?? []) as Array<
-    AssetRecord & { series_asset_variants: VariantRecord[] | null }
+    AssetRecord & { project_asset_variants: VariantRecord[] | null }
   >;
 
   const assetById = new Map<string, AssetRecord>();
@@ -164,7 +164,7 @@ async function loadSeriesAssetAndVariantMaps(
       type: asset.type,
     });
 
-    for (const variant of asset.series_asset_variants ?? []) {
+    for (const variant of asset.project_asset_variants ?? []) {
       variantBySlug.set(variant.slug, {
         ...variant,
         asset: {
@@ -196,7 +196,7 @@ function uniqueAssetIdsFromMap(
 
 function mapFromLegacyAssetIds(
   assetIds: string[],
-  assets: Array<AssetRecord & { series_asset_variants: VariantRecord[] | null }>
+  assets: Array<AssetRecord & { project_asset_variants: VariantRecord[] | null }>
 ): AssetVariantMap | null {
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
 
@@ -210,7 +210,7 @@ function mapFromLegacyAssetIds(
     const asset = byId.get(assetId);
     if (!asset) return null;
 
-    const variants = asset.series_asset_variants ?? [];
+    const variants = asset.project_asset_variants ?? [];
     if (variants.length === 0) return null;
 
     const selected =

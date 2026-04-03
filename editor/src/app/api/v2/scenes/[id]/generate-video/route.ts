@@ -154,10 +154,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const slugToImageUrl = new Map<string, string>();
 
       if (allSlugs.length > 0) {
+        // Scope to this project's assets to avoid cross-project slug collisions
         const { data: variants } = await supabase
           .from('project_asset_variants')
-          .select('slug, image_url')
-          .in('slug', allSlugs);
+          .select('slug, image_url, asset:project_assets!inner(project_id)')
+          .in('slug', allSlugs)
+          .eq('project_assets.project_id', series.project_id);
 
         for (const v of variants ?? []) {
           if (v.image_url) {

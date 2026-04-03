@@ -49,7 +49,7 @@ async function assetHasEpisodeUsage(
   assetId: string
 ): Promise<boolean> {
   const { data: variants, error: variantsError } = await dbClient
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .select('slug')
     .eq('asset_id', assetId);
 
