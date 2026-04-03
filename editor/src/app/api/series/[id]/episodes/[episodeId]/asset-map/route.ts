@@ -134,12 +134,24 @@ async function loadSeriesAssetAndVariantMaps(
   dbClient: any,
   seriesId: string
 ) {
+  // Resolve series → project_id for project-scoped asset lookup
+  const { data: seriesRow } = await dbClient
+    .from('series')
+    .select('project_id')
+    .eq('id', seriesId)
+    .maybeSingle();
+
+  const projectId = seriesRow?.project_id as string | undefined;
+  if (!projectId) {
+    throw new Error(`Could not resolve project_id for series ${seriesId}`);
+  }
+
   const { data: assetsData, error: assetsError } = await dbClient
     .from('project_assets')
     .select(
       'id, name, slug, type, project_asset_variants(id, asset_id, slug, name, is_main)'
     )
-    .eq('series_id', seriesId)
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true });
 
   if (assetsError) {
