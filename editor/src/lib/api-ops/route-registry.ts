@@ -849,6 +849,75 @@ const assetRoutes: ApiRouteDefinition[] = [
     response: null,
   },
   {
+    id: 'v2-project-variants-bulk',
+    label: 'Bulk create variants',
+    method: 'POST',
+    pathTemplate: '/api/v2/projects/{id}/variants/bulk',
+    category: 'variant',
+    auth: 'session-or-api-key',
+    description:
+      'Create multiple variants across multiple assets in one call. Each variant needs asset_id, name, prompt, and where_to_use.',
+    pathParams: { id: 'project-uuid' },
+    body: {
+      _note: 'Send a bare array at top level',
+      example: [
+        {
+          asset_id: 'asset-uuid',
+          name: 'Hero Variant',
+          prompt: 'Full body hero pose, dramatic lighting, power aura',
+          where_to_use: 'Hero scenes and thumbnails',
+          reasoning: 'Main promotional look',
+        },
+      ],
+    },
+    response: {
+      created: 3,
+      variants: [
+        {
+          id: 'variant-uuid',
+          asset_id: 'asset-uuid',
+          name: 'Hero Variant',
+          slug: 'hero-variant',
+          prompt: '...',
+          is_main: false,
+        },
+      ],
+    },
+  },
+  {
+    id: 'v2-project-generate-images-batch',
+    label: 'Batch generate images',
+    method: 'POST',
+    pathTemplate: '/api/v2/projects/{id}/generate-images/batch',
+    category: 'variant',
+    auth: 'session-or-api-key',
+    description:
+      'Queue image generation for multiple variants at once. Skips variants already generating. Uses project series settings for model/aspect ratio.',
+    pathParams: { id: 'project-uuid' },
+    body: {
+      variant_ids: ['variant-uuid-1', 'variant-uuid-2'],
+      prompt_overrides: {
+        'variant-uuid-1': 'Optional custom prompt for this specific variant',
+      },
+    },
+    response: {
+      queued: 2,
+      skipped: 0,
+      failed: 0,
+      total: 2,
+      aspect_ratio: '9:16',
+      provider: 'kieai',
+      results: [
+        {
+          variant_id: 'variant-uuid-1',
+          task_id: 'task-123',
+          model: 'nano-banana-2',
+          status: 'queued',
+        },
+      ],
+    },
+  },
+  {
     id: 'v2-prop-update',
     label: 'Update prop',
     method: 'PATCH',
