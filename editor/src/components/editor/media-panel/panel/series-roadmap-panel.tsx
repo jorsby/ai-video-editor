@@ -519,8 +519,11 @@ function EpisodeCard({
   );
 }
 
+type SeriesOption = { id: string; name: string };
+
 export default function SeriesRoadmapPanel() {
   const projectId = useProjectId();
+  const [allSeries, setAllSeries] = useState<SeriesOption[]>([]);
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [series, setSeries] = useState<CanonicalSeries | null>(null);
   const [episodes, setEpisodes] = useState<EpisodeCardData[]>([]);
@@ -535,11 +538,37 @@ export default function SeriesRoadmapPanel() {
   const assetIdsRef = useRef<Set<string>>(new Set());
   const refreshTimerRef = useRef<number | null>(null);
 
+  // Load all series for this project (for the dropdown)
+  useEffect(() => {
+    if (!projectId) {
+      setAllSeries([]);
+      return;
+    }
+
+    const supabase = createClient('studio');
+    supabase
+      .from('series')
+      .select('id, name')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        const list: SeriesOption[] = (data ?? []).map((s) => ({
+          id: s.id,
+          name: (s.name as string) || 'Untitled',
+        }));
+        setAllSeries(list);
+
+        // Auto-select first series if nothing selected yet
+        if (!seriesId && list.length > 0) {
+          setSeriesId(list[0].id);
+        }
+      });
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadRoadmap = useCallback(async () => {
     if (!projectId) {
       setLoading(false);
       setError(null);
-      setSeriesId(null);
       setSeries(null);
       setEpisodes([]);
       setVariantBySlug(new Map());
@@ -548,55 +577,23 @@ export default function SeriesRoadmapPanel() {
       return;
     }
 
+    if (!seriesId) {
+      setSeries(null);
+      setEpisodes([]);
+      setVariantBySlug(new Map());
+      episodeIdsRef.current = new Set();
+      assetIdsRef.current = new Set();
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     const supabase = createClient('studio');
+    const resolvedSeriesId = seriesId;
 
     try {
-      let resolvedSeriesId: string | null = null;
-
-      try {
-        const projectRes = await fetch(`/api/projects/${projectId}`);
-        if (projectRes.ok) {
-          const projectData = await projectRes.json();
-          const settings = isRecord(projectData?.project?.settings)
-            ? projectData.project.settings
-            : null;
-
-          if (
-            typeof settings?.series_id === 'string' &&
-            settings.series_id.trim()
-          ) {
-            resolvedSeriesId = settings.series_id.trim();
-          }
-        }
-      } catch {
-        // no-op, fallback below
-      }
-
-      if (!resolvedSeriesId) {
-        const { data: seriesFromProject } = await supabase
-          .from('series')
-          .select('id')
-          .eq('project_id', projectId)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-
-        resolvedSeriesId = seriesFromProject?.id ?? null;
-      }
-
-      if (!resolvedSeriesId) {
-        setSeriesId(null);
-        setSeries(null);
-        setEpisodes([]);
-        setVariantBySlug(new Map());
-        episodeIdsRef.current = new Set();
-        assetIdsRef.current = new Set();
-        setLoading(false);
-        return;
-      }
 
       const { data: seriesRow, error: seriesError } = await supabase
         .from('series')
@@ -755,7 +752,7 @@ export default function SeriesRoadmapPanel() {
       );
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, seriesId]);
 
   const scheduleReload = useCallback(() => {
     if (refreshTimerRef.current !== null) {
@@ -941,9 +938,23 @@ export default function SeriesRoadmapPanel() {
     <ScrollArea className="h-full">
       <div className="p-3 space-y-3">
         <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">{series.name}</p>
-            <span className="text-[9px] text-muted-foreground">
+          <div className="flex items-center justify-between gap-2">
+            {allSeries.length > 1 ? (
+              <select
+                value={seriesId ?? ''}
+                onChange={(e) => setSeriesId(e.target.value || null)}
+                className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
+              >
+                {allSeries.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm font-medium">{series.name}</p>
+            )}
+            <span className="text-[9px] text-muted-foreground whitespace-nowrap">
               {doneEpisodes}/{episodes.length} episodes
             </span>
           </div>
