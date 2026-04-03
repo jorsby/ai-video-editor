@@ -62,7 +62,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (isNarrative && !scene.audio_url) {
       return NextResponse.json(
         {
-          error: 'Narrative scene requires voice-over first. Generate TTS before video.',
+          error:
+            'Narrative scene requires voice-over first. Generate TTS before video.',
           code: 'TTS_REQUIRED',
         },
         { status: 400 }
@@ -83,12 +84,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id, video_model, aspect_ratio')
+      .select('id, project_id, video_model, aspect_ratio')
       .eq('id', episode.series_id)
       .maybeSingle();
 
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    }
+
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id, user_id')
+      .eq('id', series.project_id)
+      .maybeSingle();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
     if (!series.video_model) {
@@ -101,7 +112,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    if (series.user_id !== user.id) {
+    if (project.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -113,7 +124,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Narrative scenes: derive from audio_duration (≤6→6, ≤10→10, >10→10)
     // Non-narrative: body override > video_duration > default 6
     let duration: number;
-    if (isNarrative && typeof scene.audio_duration === 'number' && scene.audio_duration > 0) {
+    if (
+      isNarrative &&
+      typeof scene.audio_duration === 'number' &&
+      scene.audio_duration > 0
+    ) {
       duration = scene.audio_duration <= 6 ? 6 : 10;
     } else {
       const rawDuration = body.duration ?? scene.video_duration ?? 6;
@@ -140,7 +155,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       if (allSlugs.length > 0) {
         const { data: variants } = await supabase
-          .from('series_asset_variants')
+          .from('project_asset_variants')
           .select('slug, image_url')
           .in('slug', allSlugs);
 

@@ -15,7 +15,6 @@ import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
 
-
 import { useTimelineZoom } from '@/hooks/use-timeline-zoom';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -331,9 +330,7 @@ export function Timeline() {
 
   const handleReset = useCallback(async () => {
     if (
-      !window.confirm(
-        'Reset timeline? All tracks and clips will be removed.'
-      )
+      !window.confirm('Reset timeline? All tracks and clips will be removed.')
     )
       return;
     try {

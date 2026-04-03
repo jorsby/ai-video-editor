@@ -15,10 +15,10 @@ import {
 import { useProjectId } from '@/contexts/project-context';
 import { createClient } from '@/lib/supabase/client';
 import {
-  type SeriesAsset,
-  type SeriesAssetVariant,
-  useSeriesAssets,
-} from '@/hooks/use-series-assets';
+  type ProjectAsset,
+  type ProjectAssetVariant,
+  useProjectAssets,
+} from '@/hooks/use-project-assets';
 import {
   IconChevronDown,
   IconChevronRight,
@@ -34,7 +34,7 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
-import { SeriesMusicSection } from './series-music-section';
+import { ProjectMusicSection } from './project-music-section';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -141,7 +141,7 @@ function VariantCard({
   onGenerate,
   generatingDisabled,
 }: {
-  variant: SeriesAssetVariant;
+  variant: ProjectAssetVariant;
   imageUrl: string | null;
   imageGenStatus: VariantGenerationDisplayStatus;
   selected: boolean;
@@ -316,7 +316,7 @@ function AssetCard({
   isBatchGenerating,
   thumbSize = 40,
 }: {
-  asset: SeriesAsset;
+  asset: ProjectAsset;
   viewMode: ViewMode;
   selectedVariantIds: Set<string>;
   onToggleVariantSelection: (variantId: string) => void;
@@ -646,7 +646,7 @@ function AssetSection({
   batchProgress,
 }: {
   type: AssetType;
-  assets: SeriesAsset[];
+  assets: ProjectAsset[];
   viewMode: ViewMode;
   cardMinWidth: number;
   gridPrompt: string;
@@ -867,13 +867,12 @@ function AssetSection({
   );
 }
 
-export default function SeriesAssetsPanel() {
+export default function ProjectAssetsPanel() {
   const projectId = useProjectId();
   const {
     isLoading,
     error,
     assets,
-    seriesId,
     gridPrompts,
     isSavingPrompt,
     isGeneratingGrid,
@@ -881,7 +880,7 @@ export default function SeriesAssetsPanel() {
     setGridPrompt,
     saveGridPrompt,
     generateGrid,
-  } = useSeriesAssets(projectId);
+  } = useProjectAssets(projectId);
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [cardMinWidth, setCardMinWidth] = useState(120);
@@ -946,7 +945,7 @@ export default function SeriesAssetsPanel() {
   }, [assets, variantDisplayById]);
 
   const refreshVariantDisplay = useCallback(async () => {
-    if (!seriesId) {
+    if (!projectId) {
       setVariantDisplayById(new Map());
       return;
     }
@@ -959,7 +958,7 @@ export default function SeriesAssetsPanel() {
 
     const supabase = createClient('studio');
     const { data, error: loadError } = await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .select('id, asset_id, image_url, image_gen_status')
       .in('asset_id', assetIds);
 
@@ -991,27 +990,27 @@ export default function SeriesAssetsPanel() {
     }
 
     setVariantDisplayById(next);
-  }, [assets, seriesId]);
+  }, [assets, projectId]);
 
   useEffect(() => {
     void refreshVariantDisplay();
   }, [refreshVariantDisplay]);
 
   useEffect(() => {
-    if (!seriesId) return;
+    if (!projectId) return;
 
     const trackedAssetIds = new Set(assets.map((asset) => asset.id));
     if (trackedAssetIds.size < 1) return;
 
     const supabase = createClient('studio');
     const channel = supabase
-      .channel(`series-assets-variants-status-${seriesId}`)
+      .channel(`project-assets-variants-status-${projectId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'studio',
-          table: 'series_asset_variants',
+          table: 'project_asset_variants',
         },
         (payload) => {
           const assetId =
@@ -1030,7 +1029,7 @@ export default function SeriesAssetsPanel() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [assets, refreshVariantDisplay, seriesId]);
+  }, [assets, projectId, refreshVariantDisplay]);
 
   useEffect(() => {
     const allVariantIds = new Set(
@@ -1167,14 +1166,11 @@ export default function SeriesAssetsPanel() {
     );
   }
 
-  if (!seriesId) {
+  if (!projectId) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-4 text-center">
         <p className="text-xs text-muted-foreground">
-          This project is not linked to a series yet.
-        </p>
-        <p className="text-[10px] text-muted-foreground/70 mt-1">
-          Link a series to load shared characters, locations, and props.
+          Select a project to load characters, locations, and props.
         </p>
       </div>
     );
@@ -1273,7 +1269,7 @@ export default function SeriesAssetsPanel() {
         ))}
 
         {/* Music Section */}
-        <SeriesMusicSection seriesId={seriesId} />
+        <ProjectMusicSection projectId={projectId} />
       </div>
     </ScrollArea>
   );

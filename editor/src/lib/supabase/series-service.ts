@@ -396,6 +396,23 @@ async function ensureSeriesProject(
   return data.id;
 }
 
+async function resolveProjectIdForSeries(
+  supabase: SupabaseClient,
+  seriesId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('series')
+    .select('project_id')
+    .eq('id', seriesId)
+    .single();
+
+  if (error || !data?.project_id) {
+    throw new Error(`Failed to resolve project for series: ${error?.message}`);
+  }
+
+  return data.project_id as string;
+}
+
 function collectVariantSlugs(map: EpisodeAssetVariantMap): string[] {
   return [...new Set([...map.characters, ...map.locations, ...map.props])];
 }
@@ -408,11 +425,12 @@ async function buildEpisodeLegacyAssetRows(
 ): Promise<EpisodeAssetMap[]> {
   const slugs = collectVariantSlugs(map);
   if (slugs.length === 0) return [];
+  const projectId = await resolveProjectIdForSeries(supabase, seriesId);
 
   const { data: assetsData, error } = await supabase
-    .from('series_assets')
-    .select('id, type, series_asset_variants(slug)')
-    .eq('series_id', seriesId);
+    .from('project_assets')
+    .select('id, type, series_asset_variants:project_asset_variants(slug)')
+    .eq('project_id', projectId);
 
   if (error) {
     throw new Error(`Failed to resolve episode asset map: ${error.message}`);
@@ -497,7 +515,9 @@ export async function getSeriesWithAssets(
 ): Promise<SeriesWithAssets | null> {
   const { data, error } = await supabase
     .from('series')
-    .select('*, series_assets(*, series_asset_variants(*))')
+    .select(
+      '*, series_assets:project_assets(*, series_asset_variants:project_asset_variants(*))'
+    )
     .eq('id', seriesId)
     .eq('user_id', userId)
     .single();
@@ -639,17 +659,19 @@ export async function listSeriesAssets(
   supabase: SupabaseClient,
   seriesId: string
 ): Promise<SeriesAssetWithVariants[]> {
+  const projectId = await resolveProjectIdForSeries(supabase, seriesId);
   const { data, error } = await supabase
-    .from('series_assets')
-    .select('*, series_asset_variants(*)')
-    .eq('series_id', seriesId)
+    .from('project_assets')
+    .select('*, series_asset_variants:project_asset_variants(*)')
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true });
 
   if (error) throw new Error(`Failed to list series assets: ${error.message}`);
 
-  return ((data ?? []) as Record<string, unknown>[]).map((asset) =>
-    toAssetWithCompatibility(supabase, asset)
-  );
+  return ((data ?? []) as Record<string, unknown>[]).map((asset) => {
+    const legacyAsset = toAssetWithCompatibility(supabase, asset);
+    return { ...legacyAsset, series_id: seriesId };
+  });
 }
 
 export async function createSeriesAsset(
@@ -665,11 +687,12 @@ export async function createSeriesAsset(
 ): Promise<SeriesAsset> {
   const finalSlug =
     asNullableText(input.slug) ?? slugify(input.name) ?? `asset-${Date.now()}`;
+  const projectId = await resolveProjectIdForSeries(supabase, seriesId);
 
   const { data, error } = await supabase
-    .from('series_assets')
+    .from('project_assets')
     .insert({
-      series_id: seriesId,
+      project_id: projectId,
       type: input.type,
       name: input.name,
       slug: finalSlug,
@@ -687,6 +710,7 @@ export async function createSeriesAsset(
 
   return {
     ...(data as SeriesAsset),
+    series_id: seriesId,
     tags: [],
     character_id: null,
   };
@@ -710,7 +734,7 @@ export async function updateSeriesAsset(
   }
 
   const { data, error } = await supabase
-    .from('series_assets')
+    .from('project_assets')
     .update(updates)
     .eq('id', assetId)
     .select()
@@ -730,7 +754,7 @@ export async function deleteSeriesAsset(
   assetId: string
 ): Promise<void> {
   const { error } = await supabase
-    .from('series_assets')
+    .from('project_assets')
     .delete()
     .eq('id', assetId);
 
@@ -744,7 +768,7 @@ export async function listAssetVariants(
   assetId: string
 ): Promise<SeriesAssetVariantWithImages[]> {
   const { data, error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .select('*')
     .eq('asset_id', assetId)
     .order('created_at', { ascending: true });
@@ -780,7 +804,7 @@ export async function createAssetVariant(
 
   if (input.is_main) {
     const { error: resetError } = await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ is_main: false })
       .eq('asset_id', assetId)
       .eq('is_main', true);
@@ -793,7 +817,7 @@ export async function createAssetVariant(
   }
 
   const { data, error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .insert({
       asset_id: assetId,
       name: resolvedName,
@@ -861,7 +885,7 @@ export async function updateAssetVariant(
 
   if (input.is_main === true) {
     const { data: variantData, error: variantError } = await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .select('asset_id')
       .eq('id', variantId)
       .single();
@@ -871,7 +895,7 @@ export async function updateAssetVariant(
     }
 
     const { error: resetError } = await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ is_main: false })
       .eq('asset_id', variantData.asset_id)
       .eq('is_main', true)
@@ -889,7 +913,7 @@ export async function updateAssetVariant(
   }
 
   const { data, error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .update(updates)
     .eq('id', variantId)
     .select()
@@ -909,7 +933,7 @@ export async function deleteAssetVariant(
   variantId: string
 ): Promise<void> {
   const { error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .delete()
     .eq('id', variantId);
 
@@ -938,7 +962,7 @@ export async function addVariantImage(
   }
 ): Promise<SeriesAssetVariantImage> {
   const { data, error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .update({ image_url: input.url })
     .eq('id', input.variant_id)
     .select('id, created_at, updated_at')
@@ -974,7 +998,7 @@ export async function deleteVariantImage(
   variantId: string
 ): Promise<void> {
   const { error } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .update({ image_url: null })
     .eq('id', variantId);
 

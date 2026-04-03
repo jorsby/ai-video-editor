@@ -76,12 +76,24 @@ async function getOwnedEpisode(
 
   const { data: series, error: seriesError } = await db
     .from('series')
-    .select('id')
+    .select('id, project_id')
     .eq('id', episode.series_id)
-    .eq('user_id', userId)
     .maybeSingle();
 
   if (seriesError || !series) {
+    return {
+      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+    };
+  }
+
+  const { data: project, error: projectError } = await db
+    .from('projects')
+    .select('id')
+    .eq('id', series.project_id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (projectError || !project) {
     return {
       error: NextResponse.json({ error: 'Unauthorized' }, { status: 403 }),
     };

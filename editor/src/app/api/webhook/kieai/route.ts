@@ -783,7 +783,7 @@ async function handleSeriesAssetImage(params: {
 
   if (isFailureState(state)) {
     await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ image_gen_status: 'failed', image_task_id: null })
       .eq('id', variantId);
 
@@ -799,7 +799,7 @@ async function handleSeriesAssetImage(params: {
 
   if (!imageUrl) {
     await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ image_gen_status: 'failed', image_task_id: null })
       .eq('id', variantId);
 
@@ -813,7 +813,7 @@ async function handleSeriesAssetImage(params: {
 
   // Use kie.ai URL directly — no download/upload to Storage
   await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .update({
       image_url: imageUrl,
       image_gen_status: 'done',
@@ -821,7 +821,7 @@ async function handleSeriesAssetImage(params: {
     })
     .eq('id', variantId);
 
-  log.info('Series asset image URL saved from kie webhook', {
+  log.info('Project asset image URL saved from kie webhook', {
     variant_id: variantId,
     task_id: taskId,
     image_url: imageUrl,
@@ -859,7 +859,7 @@ async function handleGenerateMusic(params: {
   const primaryTrack = tracks[0];
   if (!primaryTrack) {
     await supabase
-      .from('series_music')
+      .from('project_music')
       .update({
         status: 'failed',
         generation_metadata: payload,
@@ -883,7 +883,7 @@ async function handleGenerateMusic(params: {
 
   if (!primaryAudioUrl) {
     await supabase
-      .from('series_music')
+      .from('project_music')
       .update({
         status: 'failed',
         generation_metadata: payload,
@@ -901,7 +901,7 @@ async function handleGenerateMusic(params: {
   }
 
   const { data: updatedMusic, error: updateError } = await supabase
-    .from('series_music')
+    .from('project_music')
     .update({
       audio_url: primaryAudioUrl,
       cover_image_url: primaryImageUrl,
@@ -913,11 +913,13 @@ async function handleGenerateMusic(params: {
     .eq('id', musicId)
     .eq('task_id', taskId)
     .eq('status', 'generating')
-    .select('id, series_id, name, music_type, prompt, style, title, sort_order')
+    .select(
+      'id, project_id, name, music_type, prompt, style, title, sort_order'
+    )
     .maybeSingle();
 
   if (updateError) {
-    log.error('Failed to update series_music from GenerateMusic webhook', {
+    log.error('Failed to update project_music from GenerateMusic webhook', {
       music_id: musicId,
       task_id: taskId,
       error: updateError,
@@ -955,9 +957,9 @@ async function handleGenerateMusic(params: {
         null;
 
       const { data: maxSortRow } = await supabase
-        .from('series_music')
+        .from('project_music')
         .select('sort_order')
-        .eq('series_id', updatedMusic.series_id)
+        .eq('project_id', updatedMusic.project_id)
         .order('sort_order', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -970,9 +972,9 @@ async function handleGenerateMusic(params: {
             : 0;
 
       const { data: altRow, error: altInsertError } = await supabase
-        .from('series_music')
+        .from('project_music')
         .insert({
-          series_id: updatedMusic.series_id,
+          project_id: updatedMusic.project_id,
           name: `${updatedMusic.name} (Alt)`,
           music_type: updatedMusic.music_type,
           prompt: updatedMusic.prompt,
@@ -991,7 +993,7 @@ async function handleGenerateMusic(params: {
         .maybeSingle();
 
       if (altInsertError) {
-        log.error('Failed to insert alternate series_music row', {
+        log.error('Failed to insert alternate project_music row', {
           music_id: musicId,
           task_id: taskId,
           error: altInsertError,

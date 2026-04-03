@@ -140,8 +140,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     }
     if (body.reasoning !== undefined)
       updates.reasoning = asOptionalString(body.reasoning);
-    if (body.is_main !== undefined)
-      updates.is_main = Boolean(body.is_main);
+    if (body.is_main !== undefined) updates.is_main = Boolean(body.is_main);
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(

@@ -165,9 +165,7 @@ export default function SeriesSettingsPanel() {
     void load();
   }, [load]);
 
-  const merged = settings
-    ? { ...settings, ...draft }
-    : null;
+  const merged = settings ? { ...settings, ...draft } : null;
 
   const hasChanges = Object.keys(draft).length > 0;
 
@@ -299,9 +297,7 @@ export default function SeriesSettingsPanel() {
           <SettingRow label="Language">
             <Input
               value={merged.language ?? ''}
-              onChange={(e) =>
-                updateDraft('language', e.target.value || null)
-              }
+              onChange={(e) => updateDraft('language', e.target.value || null)}
               placeholder="e.g. tr, en, ar"
               className="h-8 text-xs"
             />

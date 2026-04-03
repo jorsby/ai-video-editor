@@ -18,10 +18,18 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 // TODO: Re-implement voiceover clip helpers after storyboard cleanup
 // biome-ignore lint/suspicious/noExplicitAny: stub
-function getVoiceoverForClip(_clip: any): Promise<null> { return Promise.resolve(null); }
+function getVoiceoverForClip(_clip: any): Promise<null> {
+  return Promise.resolve(null);
+}
 // biome-ignore lint/suspicious/noExplicitAny: stub
-function regenerateVoiceover(..._args: any[]): { promise: Promise<{ success: boolean; error?: string }>; abort: () => void } {
-  return { promise: Promise.resolve({ success: false, error: 'Not implemented' }), abort: () => {} };
+function regenerateVoiceover(..._args: any[]): {
+  promise: Promise<{ success: boolean; error?: string }>;
+  abort: () => void;
+} {
+  return {
+    promise: Promise.resolve({ success: false, error: 'Not implemented' }),
+    abort: () => {},
+  };
 }
 interface Voiceover {
   id: string;

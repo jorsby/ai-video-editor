@@ -17,7 +17,6 @@ import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
 import type { RenderedVideo } from '@/types/rendered-video';
 
-
 // Transform external URLs to proxy through our API to avoid CORS errors during export
 function proxyClipUrl(src: string): string {
   if (
@@ -248,10 +247,7 @@ export function ExportModal({
     }
   };
 
-  const handleCloudUpload = async (
-    blob: Blob,
-    settings: any
-  ) => {
+  const handleCloudUpload = async (blob: Blob, settings: any) => {
     try {
       setIsUploading(true);
       uploadAbortRef.current = new AbortController();
@@ -282,9 +278,7 @@ export function ExportModal({
 
       // Fetch all renders for this project to show in completion screen
       try {
-        const res = await fetch(
-          `/api/rendered-videos?project_id=${projectId}`
-        );
+        const res = await fetch(`/api/rendered-videos?project_id=${projectId}`);
         if (res.ok) {
           const { rendered_videos } = await res.json();
           setAllRenders(rendered_videos || []);
@@ -415,7 +409,8 @@ export function ExportModal({
               Render to Cloud
             </DialogTitle>
             <p className="mb-8 text-sm text-zinc-400">
-              Your video will be rendered and uploaded to the cloud automatically.
+              Your video will be rendered and uploaded to the cloud
+              automatically.
             </p>
 
             {maxDuration > INSTAGRAM_REELS_MAX_MICROS && (
@@ -448,8 +443,6 @@ export function ExportModal({
                 Start Render
               </Button>
             </div>
-
-
           </div>
         </DialogContent>
       </Dialog>
@@ -507,7 +500,6 @@ export function ExportModal({
                 <span className="text-zinc-500">Sample Rate</span>
                 <span className="font-medium">48 KHz</span>
               </div>
-
             </div>
           </div>
 

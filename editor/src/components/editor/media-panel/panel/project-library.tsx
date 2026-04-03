@@ -32,7 +32,7 @@ interface Asset {
   type: 'character' | 'location' | 'prop';
   name: string;
   description: string | null;
-  series_asset_variants: Variant[];
+  project_asset_variants: Variant[];
 }
 
 interface SeriesInfo {
@@ -40,7 +40,7 @@ interface SeriesInfo {
   name: string;
   genre: string | null;
   tone: string | null;
-  series_assets: Asset[];
+  project_assets: Asset[];
 }
 
 const ASSET_TYPE_CONFIG = {
@@ -51,10 +51,10 @@ const ASSET_TYPE_CONFIG = {
 
 function AssetItem({ asset }: { asset: Asset }) {
   const [expanded, setExpanded] = useState(false);
-  const mainVariant = asset.series_asset_variants.find((v) => v.is_main);
+  const mainVariant = asset.project_asset_variants.find((v) => v.is_main);
   const heroImage =
     mainVariant?.series_asset_variant_images?.[0] ??
-    asset.series_asset_variants.flatMap(
+    asset.project_asset_variants.flatMap(
       (v) => v.series_asset_variant_images ?? []
     )?.[0];
 
@@ -83,8 +83,8 @@ function AssetItem({ asset }: { asset: Asset }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium truncate">{asset.name}</p>
           <p className="text-[10px] text-muted-foreground truncate">
-            {asset.series_asset_variants.length} variant
-            {asset.series_asset_variants.length !== 1 ? 's' : ''}
+            {asset.project_asset_variants.length} variant
+            {asset.project_asset_variants.length !== 1 ? 's' : ''}
           </p>
         </div>
         {expanded ? (
@@ -101,7 +101,7 @@ function AssetItem({ asset }: { asset: Asset }) {
               {asset.description}
             </p>
           )}
-          {asset.series_asset_variants.map((v) => (
+          {asset.project_asset_variants.map((v) => (
             <div
               key={v.id}
               className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
@@ -248,7 +248,7 @@ export default function PanelProjectLibrary() {
   const assetsByType = useMemo(() => {
     if (!seriesInfo) return null;
     const grouped: Record<string, Asset[]> = {};
-    for (const asset of seriesInfo.series_assets ?? []) {
+    for (const asset of seriesInfo.project_assets ?? []) {
       if (!grouped[asset.type]) grouped[asset.type] = [];
       grouped[asset.type].push(asset);
     }

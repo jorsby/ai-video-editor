@@ -169,7 +169,10 @@ const SCENE_STATUS_CONFIG: Record<
 };
 
 function deriveSceneStatus(scene: EpisodeScene): SceneStatus {
-  if (scene.tts_status === 'generating' || scene.video_status === 'generating') {
+  if (
+    scene.tts_status === 'generating' ||
+    scene.video_status === 'generating'
+  ) {
     return 'generating';
   }
   if (scene.tts_status === 'failed' || scene.video_status === 'failed') {
@@ -190,7 +193,8 @@ function deriveSceneStatus(scene: EpisodeScene): SceneStatus {
 function deriveEpisodeStatus(episode: EpisodeCardData): EpisodeStatus {
   if (episode.scenes.length < 1) return 'draft';
   const sceneStatuses = episode.scenes.map(deriveSceneStatus);
-  if (sceneStatuses.some((status) => status === 'generating')) return 'generating';
+  if (sceneStatuses.some((status) => status === 'generating'))
+    return 'generating';
   if (sceneStatuses.every((status) => status === 'done')) return 'done';
   if (sceneStatuses.some((status) => status === 'failed')) return 'failed';
   if (
@@ -215,7 +219,8 @@ function SceneRow({
   variantBySlug: Map<string, VariantMeta>;
 }) {
   const sceneStatus = deriveSceneStatus(scene);
-  const sceneStatusConfig = SCENE_STATUS_CONFIG[sceneStatus] ?? SCENE_STATUS_CONFIG.draft;
+  const sceneStatusConfig =
+    SCENE_STATUS_CONFIG[sceneStatus] ?? SCENE_STATUS_CONFIG.draft;
   const promptPreview = scene.prompt?.trim() || 'No prompt yet';
   const audioPreview = scene.audio_text?.trim() || null;
 
@@ -349,7 +354,8 @@ function EpisodeCard({
   variantBySlug: Map<string, VariantMeta>;
 }) {
   const episodeStatus = deriveEpisodeStatus(episode);
-  const statusConfig = EPISODE_STATUS_CONFIG[episodeStatus] ?? EPISODE_STATUS_CONFIG.draft;
+  const statusConfig =
+    EPISODE_STATUS_CONFIG[episodeStatus] ?? EPISODE_STATUS_CONFIG.draft;
   const sceneCount = episode.scenes.length;
   const doneScenes = episode.scenes.filter(
     (scene) => deriveSceneStatus(scene) === 'done'
@@ -605,11 +611,11 @@ export default function SeriesRoadmapPanel() {
       }
 
       const { data: assetRows, error: assetError } = await supabase
-        .from('series_assets')
+        .from('project_assets')
         .select(
-          'id, name, type, series_asset_variants(id, slug, name, image_url)'
+          'id, name, type, project_asset_variants(id, slug, name, image_url)'
         )
-        .eq('series_id', resolvedSeriesId)
+        .eq('project_id', projectId)
         .order('sort_order', { ascending: true });
 
       if (assetError) {
@@ -629,7 +635,7 @@ export default function SeriesRoadmapPanel() {
               ? '📍'
               : '📦';
 
-        for (const variant of asset.series_asset_variants ?? []) {
+        for (const variant of asset.project_asset_variants ?? []) {
           if (typeof variant.slug !== 'string' || !variant.slug.trim()) {
             continue;
           }
@@ -788,8 +794,8 @@ export default function SeriesRoadmapPanel() {
         {
           event: '*',
           schema: 'studio',
-          table: 'series_assets',
-          filter: `series_id=eq.${seriesId}`,
+          table: 'project_assets',
+          filter: `project_id=eq.${projectId}`,
         },
         () => {
           scheduleReload();
@@ -800,7 +806,7 @@ export default function SeriesRoadmapPanel() {
         {
           event: '*',
           schema: 'studio',
-          table: 'series_asset_variants',
+          table: 'project_asset_variants',
         },
         (payload) => {
           const assetId =
@@ -850,7 +856,7 @@ export default function SeriesRoadmapPanel() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [scheduleReload, seriesId]);
+  }, [projectId, scheduleReload, seriesId]);
 
   useEffect(() => {
     return () => {

@@ -960,10 +960,10 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: insertedAssets, error: assetsError } = await supabase
-    .from('series_assets')
+    .from('project_assets')
     .insert(
       SAMPLE_ASSETS.map((asset) => ({
-        series_id: seriesRow.id,
+        project_id: projectRow.id,
         type: asset.type,
         name: asset.name,
         slug: asset.slug,
@@ -1008,7 +1008,7 @@ export async function POST(request: NextRequest) {
   });
 
   const { data: insertedVariants, error: variantsError } = await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .insert(variantRows)
     .select('id');
 

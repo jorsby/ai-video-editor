@@ -20,12 +20,7 @@ export interface SeriesProductionMeta {
 
 // ── Scene ────────────────────────────────────────────────────────────────────
 
-export type SceneStatus =
-  | 'draft'
-  | 'ready'
-  | 'in_progress'
-  | 'done'
-  | 'failed';
+export type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 
 export interface Scene {
   id: string;

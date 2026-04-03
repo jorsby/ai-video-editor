@@ -5,11 +5,11 @@ import { createServiceClient } from '@/lib/supabase/admin';
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MUSIC_SELECT =
-  'id, series_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, suno_track_id, generation_metadata, sort_order, created_at, updated_at';
+  'id, project_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, suno_track_id, generation_metadata, sort_order, created_at, updated_at';
 
 type OwnedMusic = {
   id: string;
-  series_id: string;
+  project_id: string;
 } & Record<string, unknown>;
 
 type OwnedMusicLookup =
@@ -64,7 +64,7 @@ async function getOwnedMusic(
   userId: string
 ): Promise<OwnedMusicLookup> {
   const { data: music, error: musicError } = await db
-    .from('series_music')
+    .from('project_music')
     .select(MUSIC_SELECT)
     .eq('id', musicId)
     .maybeSingle();
@@ -78,19 +78,19 @@ async function getOwnedMusic(
     };
   }
 
-  const { data: series, error: seriesError } = await db
-    .from('series')
+  const { data: project, error: projectError } = await db
+    .from('projects')
     .select('id, user_id')
-    .eq('id', music.series_id)
+    .eq('id', music.project_id)
     .maybeSingle();
 
-  if (seriesError || !series) {
+  if (projectError || !project) {
     return {
-      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+      error: NextResponse.json({ error: 'Project not found' }, { status: 404 }),
     };
   }
 
-  if (series.user_id !== userId) {
+  if (project.user_id !== userId) {
     return {
       error: NextResponse.json({ error: 'Unauthorized' }, { status: 403 }),
     };
@@ -186,7 +186,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const { data: updated, error: updateError } = await db
-      .from('series_music')
+      .from('project_music')
       .update(updates)
       .eq('id', id)
       .select(MUSIC_SELECT)
@@ -226,7 +226,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const owned = await getOwnedMusic(db, id, user.id);
     if (owned.error) return owned.error;
 
-    const { error } = await db.from('series_music').delete().eq('id', id);
+    const { error } = await db.from('project_music').delete().eq('id', id);
 
     if (error) {
       console.error('[v2/music/:id][DELETE] Failed to delete track:', error);

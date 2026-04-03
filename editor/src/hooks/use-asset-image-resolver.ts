@@ -8,15 +8,15 @@ export interface AssetImageMap {
 }
 
 interface AssetImageRow {
-  variant_id: string;
-  url: string | null;
-  storage_path: string | null;
+  id: string;
+  image_url: string | null;
 }
 
 export interface AssetImageTarget {
   url?: string | null;
   final_url?: string | null;
   series_asset_variant_id?: string | null;
+  project_asset_variant_id?: string | null;
 }
 
 export function resolveAssetImageUrl(
@@ -25,7 +25,8 @@ export function resolveAssetImageUrl(
 ): string | null {
   if (!asset) return null;
 
-  const variantId = asset.series_asset_variant_id;
+  const variantId =
+    asset.project_asset_variant_id ?? asset.series_asset_variant_id;
   if (variantId && assetImageMap[variantId]) {
     return assetImageMap[variantId];
   }
@@ -35,7 +36,7 @@ export function resolveAssetImageUrl(
 
 /**
  * Given a set of variant IDs from scene objects/backgrounds,
- * loads the latest image URL for each from series_asset_variant_images.
+ * loads the latest image URL for each from project_asset_variants.
  * Returns a map: variantId -> imageUrl
  */
 export function useAssetImageResolver(variantIds: string[]): AssetImageMap {
@@ -59,10 +60,9 @@ export function useAssetImageResolver(variantIds: string[]): AssetImageMap {
 
     async function resolve() {
       const { data } = await supabase
-        .from('series_asset_variant_images')
-        .select('variant_id, url, storage_path')
-        .in('variant_id', uniqueVariantIds)
-        .order('created_at', { ascending: false });
+        .from('project_asset_variants')
+        .select('id, image_url')
+        .in('id', uniqueVariantIds);
 
       if (!data) {
         setImageMap({});
@@ -72,19 +72,18 @@ export function useAssetImageResolver(variantIds: string[]): AssetImageMap {
       const map: AssetImageMap = {};
 
       for (const row of data as AssetImageRow[]) {
-        if (map[row.variant_id]) continue;
-
+        if (map[row.id]) continue;
         const resolvedUrl =
-          row.url && /^https?:\/\//i.test(row.url)
-            ? row.url
-            : row.storage_path
+          row.image_url && /^https?:\/\//i.test(row.image_url)
+            ? row.image_url
+            : row.image_url
               ? supabase.storage
                   .from(SERIES_ASSETS_BUCKET)
-                  .getPublicUrl(row.storage_path).data.publicUrl
-              : row.url;
+                  .getPublicUrl(row.image_url).data.publicUrl
+              : null;
 
         if (resolvedUrl) {
-          map[row.variant_id] = resolvedUrl;
+          map[row.id] = resolvedUrl;
         }
       }
 

@@ -466,18 +466,18 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-characters-list',
     label: 'List characters',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/characters',
+    pathTemplate: '/api/v2/projects/{id}/characters',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Lists all character assets for a series with their variants. Each asset has a slug, description, and one or more variants.',
-    pathParams: { id: 'series-uuid' },
+      'Lists all character assets for a project with their variants. Each asset has a slug, description, and one or more variants.',
+    pathParams: { id: 'project-uuid' },
     body: null,
     response: {
       items: [
         {
           id: 'asset-uuid',
-          series_id: 'series-uuid',
+          project_id: 'project-uuid',
           type: 'character',
           name: 'Ali',
           slug: 'ali',
@@ -505,12 +505,12 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-characters-create',
     label: 'Create characters (batch)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/characters',
+    pathTemplate: '/api/v2/projects/{id}/characters',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
       'Creates one or more character assets. Send a bare JSON array (not wrapped in an object). Each character auto-gets a default variant. Slug is auto-generated from name.',
-    pathParams: { id: 'series-uuid' },
+    pathParams: { id: 'project-uuid' },
     body: {
       _note: 'Send a bare array at top level: [{...}, {...}]',
       example: [
@@ -586,17 +586,17 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-locations-list',
     label: 'List locations',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/locations',
+    pathTemplate: '/api/v2/projects/{id}/locations',
     category: 'asset',
     auth: 'session-or-api-key',
-    description: 'Lists all location assets for a series with their variants.',
-    pathParams: { id: 'series-uuid' },
+    description: 'Lists all location assets for a project with their variants.',
+    pathParams: { id: 'project-uuid' },
     body: null,
     response: {
       items: [
         {
           id: 'asset-uuid',
-          series_id: 'series-uuid',
+          project_id: 'project-uuid',
           type: 'location',
           name: 'Medina Courtyard',
           slug: 'medina-courtyard',
@@ -620,12 +620,12 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-locations-create',
     label: 'Create locations (batch)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/locations',
+    pathTemplate: '/api/v2/projects/{id}/locations',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
       'Creates one or more location assets. Send a bare JSON array. Each location auto-gets a default variant.',
-    pathParams: { id: 'series-uuid' },
+    pathParams: { id: 'project-uuid' },
     body: {
       _note: 'Send a bare array at top level: [{...}, {...}]',
       example: [
@@ -698,17 +698,17 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-props-list',
     label: 'List props',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/props',
+    pathTemplate: '/api/v2/projects/{id}/props',
     category: 'asset',
     auth: 'session-or-api-key',
-    description: 'Lists all prop assets for a series with their variants.',
-    pathParams: { id: 'series-uuid' },
+    description: 'Lists all prop assets for a project with their variants.',
+    pathParams: { id: 'project-uuid' },
     body: null,
     response: {
       items: [
         {
           id: 'asset-uuid',
-          series_id: 'series-uuid',
+          project_id: 'project-uuid',
           type: 'prop',
           name: 'Seal Ring',
           slug: 'seal-ring',
@@ -733,12 +733,12 @@ const assetRoutes: ApiRouteDefinition[] = [
     id: 'v2-props-create',
     label: 'Create props (batch)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/props',
+    pathTemplate: '/api/v2/projects/{id}/props',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
       'Creates one or more prop assets. Send a bare JSON array. Each prop auto-gets a default variant.',
-    pathParams: { id: 'series-uuid' },
+    pathParams: { id: 'project-uuid' },
     body: {
       _note: 'Send a bare array at top level: [{...}, {...}]',
       example: [
@@ -769,6 +769,84 @@ const assetRoutes: ApiRouteDefinition[] = [
         },
       ],
     },
+  },
+  {
+    id: 'v2-series-characters-list-legacy',
+    label: 'List characters (legacy shim)',
+    method: 'GET',
+    pathTemplate: '/api/v2/series/{id}/characters',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and returns project-scoped characters.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
+  },
+  {
+    id: 'v2-series-characters-create-legacy',
+    label: 'Create characters (legacy shim)',
+    method: 'POST',
+    pathTemplate: '/api/v2/series/{id}/characters',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and creates project-scoped characters.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
+  },
+  {
+    id: 'v2-series-locations-list-legacy',
+    label: 'List locations (legacy shim)',
+    method: 'GET',
+    pathTemplate: '/api/v2/series/{id}/locations',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and returns project-scoped locations.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
+  },
+  {
+    id: 'v2-series-locations-create-legacy',
+    label: 'Create locations (legacy shim)',
+    method: 'POST',
+    pathTemplate: '/api/v2/series/{id}/locations',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and creates project-scoped locations.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
+  },
+  {
+    id: 'v2-series-props-list-legacy',
+    label: 'List props (legacy shim)',
+    method: 'GET',
+    pathTemplate: '/api/v2/series/{id}/props',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and returns project-scoped props.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
+  },
+  {
+    id: 'v2-series-props-create-legacy',
+    label: 'Create props (legacy shim)',
+    method: 'POST',
+    pathTemplate: '/api/v2/series/{id}/props',
+    category: 'asset',
+    auth: 'session-or-api-key',
+    description:
+      'Legacy shim route. Resolves series → project and creates project-scoped props.',
+    pathParams: { id: 'series-uuid' },
+    body: null,
+    response: null,
   },
   {
     id: 'v2-prop-update',
@@ -1144,7 +1222,10 @@ const generationRoutes: ApiRouteDefinition[] = [
     body: {
       duration: 6,
       prompt_override: 'Optional compiled prompt (bypasses auto-compile)',
-      image_urls_override: ['https://...variant1.jpg', 'https://...variant2.jpg'],
+      image_urls_override: [
+        'https://...variant1.jpg',
+        'https://...variant2.jpg',
+      ],
     },
     response: {
       task_id: 'kie-task-id',
@@ -1164,7 +1245,7 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'variant',
     auth: 'session-or-api-key',
     description:
-      'Edits a variant\'s existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook uploads to storage, inserts into variant_images, and updates variant.image_url.',
+      "Edits a variant's existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook uploads to storage, inserts into variant_images, and updates variant.image_url.",
     pathParams: { id: 'variant-uuid' },
     body: {
       prompt: 'Make the character wear a red robe instead of blue',

@@ -220,7 +220,7 @@ function VolumeMixer() {
         }
       }
     },
-    [studio],
+    [studio]
   );
 
   const handleVideoVolume = (values: number[]) => {

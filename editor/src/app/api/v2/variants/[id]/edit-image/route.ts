@@ -33,10 +33,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const supabase = createServiceClient('studio');
 
-    // ── Fetch variant + asset + series ──────────────────────────────────
+    // ── Fetch variant + asset + project ─────────────────────────────────
 
     const { data: variant, error: variantError } = await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .select('id, asset_id, slug, image_url, prompt')
       .eq('id', variantId)
       .maybeSingle();
@@ -56,8 +56,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const { data: asset } = await supabase
-      .from('series_assets')
-      .select('id, series_id')
+      .from('project_assets')
+      .select('id, project_id')
       .eq('id', variant.asset_id)
       .maybeSingle();
 
@@ -65,18 +65,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     }
 
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id, user_id')
+      .eq('id', asset.project_id)
+      .maybeSingle();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    if (project.user_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { data: series } = await supabase
       .from('series')
-      .select('id, user_id, image_provider')
-      .eq('id', asset.series_id)
+      .select('id, image_provider')
+      .eq('project_id', asset.project_id)
+      .order('created_at', { ascending: true })
+      .limit(1)
       .maybeSingle();
 
     if (!series) {
       return NextResponse.json({ error: 'Series not found' }, { status: 404 });
-    }
-
-    if (series.user_id !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // ── Parse body ──────────────────────────────────────────────────────
@@ -141,7 +153,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // ── Mark variant as generating ─────────────────────────────────────
 
     await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ image_gen_status: 'generating', image_task_id: taskId })
       .eq('id', variantId);
 

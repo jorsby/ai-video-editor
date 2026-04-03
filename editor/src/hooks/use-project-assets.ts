@@ -27,10 +27,10 @@ interface AssetRow {
   type: string;
   description: string | null;
   sort_order: number | null;
-  series_asset_variants: VariantRow[] | null;
+  project_asset_variants: VariantRow[] | null;
 }
 
-export interface SeriesAssetVariant {
+export interface ProjectAssetVariant {
   id: string;
   label: string;
   slug: string;
@@ -43,7 +43,7 @@ export interface SeriesAssetVariant {
   reasoning: string | null;
 }
 
-export interface SeriesAsset {
+export interface ProjectAsset {
   id: string;
   name: string;
   slug: string | null;
@@ -51,16 +51,16 @@ export interface SeriesAsset {
   description: string | null;
   sortOrder: number | null;
   thumbnailUrl: string | null;
-  variants: SeriesAssetVariant[];
+  variants: ProjectAssetVariant[];
 }
 
-export interface SeriesGridPrompts {
+export interface ProjectGridPrompts {
   character: string;
   location: string;
   prop: string;
 }
 
-const DEFAULT_GRID_PROMPTS: SeriesGridPrompts = {
+const DEFAULT_GRID_PROMPTS: ProjectGridPrompts = {
   character:
     'Photorealistic cinematic style with natural skin texture. Each cell shows one character on a neutral white background, front-facing, full body visible from head to shoes. Each character must show their complete outfit clearly visible.',
   location:
@@ -103,12 +103,12 @@ export interface AssetGenerationStatus {
   stale: number;
 }
 
-interface UseSeriesAssetsResult {
+interface UseProjectAssetsResult {
   isLoading: boolean;
   error: string | null;
   seriesId: string | null;
-  assets: SeriesAsset[];
-  gridPrompts: SeriesGridPrompts;
+  assets: ProjectAsset[];
+  gridPrompts: ProjectGridPrompts;
   isSavingPrompt: Record<AssetType, boolean>;
   isGeneratingGrid: Record<AssetType, boolean>;
   generationStatus: Record<AssetType, AssetGenerationStatus>;
@@ -131,7 +131,7 @@ function toPromptValue(value: unknown, fallback: string): string {
   return value;
 }
 
-function resolveGridPrompts(metadata: unknown): SeriesGridPrompts {
+function resolveGridPrompts(metadata: unknown): ProjectGridPrompts {
   if (!isRecord(metadata) || !isRecord(metadata.grid_prompts)) {
     return DEFAULT_GRID_PROMPTS;
   }
@@ -187,18 +187,18 @@ function pickThumbnailUrl(
   return null;
 }
 
-export function useSeriesAssets(
+export function useProjectAssets(
   projectId: string | null
-): UseSeriesAssetsResult {
+): UseProjectAssetsResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [seriesId, setSeriesId] = useState<string | null>(null);
-  const [assets, setAssets] = useState<SeriesAsset[]>([]);
+  const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [seriesMetadata, setSeriesMetadata] = useState<Record<string, unknown>>(
     {}
   );
   const [gridPrompts, setGridPrompts] =
-    useState<SeriesGridPrompts>(DEFAULT_GRID_PROMPTS);
+    useState<ProjectGridPrompts>(DEFAULT_GRID_PROMPTS);
   const [isSavingPrompt, setIsSavingPrompt] = useState(INITIAL_ACTION_STATE);
   const [isGeneratingGrid, setIsGeneratingGrid] =
     useState(INITIAL_ACTION_STATE);
@@ -250,77 +250,30 @@ export function useSeriesAssets(
       const supabase = createClient('studio');
 
       try {
-        // Step 1: Find series ID via project settings or series.project_id
-        let foundSeriesId: string | null = null;
-
-        // Try project settings first (has series_id from create-project)
-        let projRes = await fetch(`/api/projects/${projectId}`);
-
-        // Auth/session can race on first request in local dev.
-        // Retry once for transient 401/5xx before falling back.
-        if (projRes.status === 401 || projRes.status >= 500) {
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          projRes = await fetch(`/api/projects/${projectId}`);
-        }
-
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          const settings = projData?.project?.settings as Record<
-            string,
-            unknown
-          > | null;
-          if (settings?.series_id && typeof settings.series_id === 'string') {
-            foundSeriesId = settings.series_id;
-          }
-        }
-
-        // Fallback: query series.project_id
-        if (!foundSeriesId) {
-          const { data: series, error: seriesError } = await supabase
-            .from('series')
-            .select('id')
-            .eq('project_id', projectId)
-            .limit(1)
-            .maybeSingle();
-
-          if (!seriesError && series?.id) {
-            foundSeriesId = series.id;
-          }
-        }
-
-        if (!foundSeriesId) {
-          if (!cancelled) {
-            assetIdsRef.current = new Set();
-            setSeriesId(null);
-            setAssets([]);
-            setSeriesMetadata({});
-            setGridPrompts(DEFAULT_GRID_PROMPTS);
-            setGenerationStatus(INITIAL_GENERATION_STATUS);
-            setIsLoading(false);
-          }
-          return;
-        }
-
         const { data: seriesData, error: seriesLoadError } = await supabase
           .from('series')
-          .select('creative_brief')
-          .eq('id', foundSeriesId)
+          .select('id, creative_brief')
+          .eq('project_id', projectId)
+          .order('created_at', { ascending: true })
+          .limit(1)
           .maybeSingle();
 
         if (seriesLoadError) {
           throw new Error(seriesLoadError.message);
         }
 
+        const linkedSeriesId =
+          typeof seriesData?.id === 'string' ? seriesData.id : null;
         const metadata = isRecord(seriesData?.creative_brief)
           ? seriesData.creative_brief
           : {};
 
         const { data: assetsData, error: assetsError } = await supabase
-          .from('series_assets')
+          .from('project_assets')
           .select(
-            'id, name, slug, type, description, sort_order, series_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_gen_status)'
+            'id, name, slug, type, description, sort_order, project_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_gen_status)'
           )
-          .eq('series_id', foundSeriesId)
+          .eq('project_id', projectId)
           .order('type', { ascending: true })
           .order('sort_order', { ascending: true });
 
@@ -330,12 +283,12 @@ export function useSeriesAssets(
 
         const assetsRows = (assetsData ?? []) as AssetRow[];
 
-        const parsedAssets: SeriesAsset[] = assetsRows.flatMap((asset) => {
+        const parsedAssets: ProjectAsset[] = assetsRows.flatMap((asset) => {
           if (!isAssetType(asset.type)) {
             return [];
           }
 
-          const variants = (asset.series_asset_variants ?? []).map(
+          const variants = (asset.project_asset_variants ?? []).map(
             (variant) => ({
               id: variant.id,
               label:
@@ -362,7 +315,7 @@ export function useSeriesAssets(
               sortOrder: asset.sort_order,
               thumbnailUrl: pickThumbnailUrl(
                 supabase,
-                asset.series_asset_variants ?? []
+                asset.project_asset_variants ?? []
               ),
               variants,
             },
@@ -391,7 +344,7 @@ export function useSeriesAssets(
 
         if (!cancelled) {
           assetIdsRef.current = new Set(parsedAssets.map((asset) => asset.id));
-          setSeriesId(foundSeriesId);
+          setSeriesId(linkedSeriesId);
           setAssets(parsedAssets);
           setSeriesMetadata(metadata);
           setGridPrompts(resolveGridPrompts(metadata));
@@ -402,7 +355,7 @@ export function useSeriesAssets(
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Failed to load series assets'
+            err instanceof Error ? err.message : 'Failed to load project assets'
           );
           assetIdsRef.current = new Set();
           setSeriesId(null);
@@ -484,8 +437,8 @@ export function useSeriesAssets(
 
   const generateGrid = useCallback(
     async (type: AssetType): Promise<ActionResult> => {
-      if (!seriesId) {
-        return { ok: false, error: 'Series is not linked to this project' };
+      if (!projectId) {
+        return { ok: false, error: 'Project is required' };
       }
 
       const sectionAssets = assets.filter((asset) => asset.type === type);
@@ -559,22 +512,22 @@ export function useSeriesAssets(
         setIsGeneratingGrid((prev) => ({ ...prev, [type]: false }));
       }
     },
-    [assets, refresh, seriesId]
+    [assets, projectId, refresh]
   );
 
   useEffect(() => {
-    if (!seriesId) return;
+    if (!projectId) return;
 
     const supabase = createClient('studio');
     const channel = supabase
-      .channel(`series-assets-live-${seriesId}`)
+      .channel(`project-assets-live-${projectId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'studio',
           table: 'series',
-          filter: `id=eq.${seriesId}`,
+          filter: `project_id=eq.${projectId}`,
         },
         () => {
           refresh();
@@ -585,8 +538,8 @@ export function useSeriesAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'series_assets',
-          filter: `series_id=eq.${seriesId}`,
+          table: 'project_assets',
+          filter: `project_id=eq.${projectId}`,
         },
         () => {
           refresh();
@@ -597,7 +550,7 @@ export function useSeriesAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'series_asset_variants',
+          table: 'project_asset_variants',
         },
         (payload) => {
           const assetId =
@@ -616,7 +569,7 @@ export function useSeriesAssets(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refresh, seriesId]);
+  }, [projectId, refresh]);
 
   const totalPending =
     generationStatus.character.pending +

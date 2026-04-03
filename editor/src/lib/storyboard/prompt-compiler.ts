@@ -97,7 +97,10 @@ export function compileForGrok(input: GrokCompileInput): GrokCompileOutput {
   const sortedSlugs = [...orderedSlugs].sort((a, b) => b.length - a.length);
   for (const slug of sortedSlugs) {
     const idx = orderedSlugs.indexOf(slug);
-    const regex = new RegExp(`@${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[.,;:!?])`, 'g');
+    const regex = new RegExp(
+      `@${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[.,;:!?])`,
+      'g'
+    );
     compiled = compiled.replace(regex, `@image${idx + 1}`);
   }
 

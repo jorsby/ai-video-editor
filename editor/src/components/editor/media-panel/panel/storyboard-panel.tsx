@@ -125,8 +125,10 @@ function deriveEpisodeStatus(episode: EpisodeData): string {
 
 /** Derive a display status from generation states + URL presence */
 function deriveSceneStatus(scene: SceneData): string {
-  if (scene.tts_status === 'generating' || scene.video_status === 'generating') return 'generating';
-  if (scene.tts_status === 'failed' || scene.video_status === 'failed') return 'failed';
+  if (scene.tts_status === 'generating' || scene.video_status === 'generating')
+    return 'generating';
+  if (scene.tts_status === 'failed' || scene.video_status === 'failed')
+    return 'failed';
   if (scene.audio_url && scene.video_url) return 'done';
   if (scene.audio_url || scene.video_url) return 'partial';
   if (scene.prompt) return 'ready';
@@ -335,7 +337,13 @@ function MiniAudioPlayer({ url }: { url: string }) {
 
 // ── Video Thumbnail ────────────────────────────────────────────────────────────
 
-function VideoThumbnail({ url, duration }: { url: string; duration?: number | null }) {
+function VideoThumbnail({
+  url,
+  duration,
+}: {
+  url: string;
+  duration?: number | null;
+}) {
   const [showPlayer, setShowPlayer] = useState(false);
   const thumbRef = useRef<HTMLVideoElement | null>(null);
   const [thumbReady, setThumbReady] = useState(false);
@@ -343,15 +351,18 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
 
   if (showPlayer) {
     return (
-      <div className={`relative rounded-lg overflow-hidden border border-border/30 bg-black ${isVertical ? 'flex justify-center' : ''}`}>
+      <div
+        className={`relative rounded-lg overflow-hidden border border-border/30 bg-black ${isVertical ? 'flex justify-center' : ''}`}
+      >
         {/* biome-ignore lint/a11y/useMediaCaption: internal tool video */}
         <video
           src={url}
           controls
           autoPlay
-          className={isVertical
-            ? 'h-[400px] max-w-full object-contain rounded-lg'
-            : 'w-full max-h-[400px] object-contain rounded-lg'
+          className={
+            isVertical
+              ? 'h-[400px] max-w-full object-contain rounded-lg'
+              : 'w-full max-h-[400px] object-contain rounded-lg'
           }
           onEnded={() => setShowPlayer(false)}
         />
@@ -408,19 +419,28 @@ function VideoThumbnail({ url, duration }: { url: string; duration?: number | nu
 
       {/* Play overlay */}
       <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition-colors">
-        <div className={`rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/30 group-hover:scale-110 transition-all shadow-lg ${isVertical ? 'size-8' : 'size-10'}`}>
-          <IconPlayerPlay className={`text-white ml-0.5 ${isVertical ? 'size-4' : 'size-5'}`} />
+        <div
+          className={`rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/30 group-hover:scale-110 transition-all shadow-lg ${isVertical ? 'size-8' : 'size-10'}`}
+        >
+          <IconPlayerPlay
+            className={`text-white ml-0.5 ${isVertical ? 'size-4' : 'size-5'}`}
+          />
         </div>
       </div>
 
       {/* Bottom info bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 flex items-center justify-between">
-        <Badge variant="outline" className="text-[8px] bg-black/40 border-white/20 text-white/90 backdrop-blur-sm">
+        <Badge
+          variant="outline"
+          className="text-[8px] bg-black/40 border-white/20 text-white/90 backdrop-blur-sm"
+        >
           <IconVideo className="size-2 mr-0.5" />
           {isVertical ? '9:16' : '16:9'}
         </Badge>
         {duration != null && duration > 0 && (
-          <span className="text-[9px] font-mono text-white/80">{formatDuration(duration)}</span>
+          <span className="text-[9px] font-mono text-white/80">
+            {formatDuration(duration)}
+          </span>
         )}
       </div>
     </button>
@@ -443,8 +463,10 @@ function HighlightedPrompt({
   imageMap: VariantImageMap;
 }) {
   const colorMap = new Map<string, string>();
-  if (locationSlug) colorMap.set(locationSlug, 'text-emerald-400 bg-emerald-500/15');
-  for (const s of characterSlugs) colorMap.set(s, 'text-blue-400 bg-blue-500/15');
+  if (locationSlug)
+    colorMap.set(locationSlug, 'text-emerald-400 bg-emerald-500/15');
+  for (const s of characterSlugs)
+    colorMap.set(s, 'text-blue-400 bg-blue-500/15');
   for (const s of propSlugs) colorMap.set(s, 'text-amber-400 bg-amber-500/15');
 
   const pattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
@@ -460,14 +482,19 @@ function HighlightedPrompt({
     const color = colorMap.get(slug);
     if (color) {
       parts.push(
-        <span key={match.index} className={`${color} rounded px-0.5 font-medium inline-flex items-center gap-0.5`}>
-          <VariantAvatar slug={slug} imageMap={imageMap} />
-          @{slugToLabel(slug)}
+        <span
+          key={match.index}
+          className={`${color} rounded px-0.5 font-medium inline-flex items-center gap-0.5`}
+        >
+          <VariantAvatar slug={slug} imageMap={imageMap} />@{slugToLabel(slug)}
         </span>
       );
     } else {
       parts.push(
-        <span key={match.index} className="text-purple-400 bg-purple-500/15 rounded px-0.5 font-medium">
+        <span
+          key={match.index}
+          className="text-purple-400 bg-purple-500/15 rounded px-0.5 font-medium"
+        >
           @{slug}
         </span>
       );
@@ -494,10 +521,14 @@ async function callGenerateApi(
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) return { ok: false, error: data.error ?? `HTTP ${res.status}` };
+    if (!res.ok)
+      return { ok: false, error: data.error ?? `HTTP ${res.status}` };
     return { ok: true, task_id: data.task_id };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Network error' };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Network error',
+    };
   }
 }
 
@@ -547,7 +578,10 @@ function GenerateButton({
     return (
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
         className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border/30 hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
         title={`Regenerate ${label}`}
       >
@@ -562,7 +596,10 @@ function GenerateButton({
     return (
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
         className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors cursor-pointer"
         title={`Retry ${label}`}
       >
@@ -576,7 +613,10 @@ function GenerateButton({
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
       title={`Generate ${label}`}
     >
@@ -601,7 +641,10 @@ function GenerationStatus({
 }) {
   if (genStatus === 'generating') {
     return (
-      <span className="inline-flex items-center gap-0.5 text-yellow-400 animate-pulse bg-yellow-500/10 px-1.5 py-0.5 rounded border border-yellow-500/20" title={`${label}: Generating...`}>
+      <span
+        className="inline-flex items-center gap-0.5 text-yellow-400 animate-pulse bg-yellow-500/10 px-1.5 py-0.5 rounded border border-yellow-500/20"
+        title={`${label}: Generating...`}
+      >
         {icon}
         <IconLoader2 className="size-2.5 inline animate-spin" />
         <span className="text-[8px] font-medium">Generating</span>
@@ -646,13 +689,21 @@ function SceneCard({
 
   // Reset local overrides when DB status arrives via Realtime
   useEffect(() => {
-    if (scene.tts_status === 'generating' || scene.tts_status === 'done' || scene.tts_status === 'failed') {
+    if (
+      scene.tts_status === 'generating' ||
+      scene.tts_status === 'done' ||
+      scene.tts_status === 'failed'
+    ) {
       setLocalTtsStatus(null);
     }
   }, [scene.tts_status]);
 
   useEffect(() => {
-    if (scene.video_status === 'generating' || scene.video_status === 'done' || scene.video_status === 'failed') {
+    if (
+      scene.video_status === 'generating' ||
+      scene.video_status === 'done' ||
+      scene.video_status === 'failed'
+    ) {
       setLocalVideoStatus(null);
     }
   }, [scene.video_status]);
@@ -672,11 +723,14 @@ function SceneCard({
   // Collect all slugs for this scene
   const allSlugs: string[] = [];
   if (scene.location_variant_slug) allSlugs.push(scene.location_variant_slug);
-  if (scene.character_variant_slugs) allSlugs.push(...scene.character_variant_slugs);
+  if (scene.character_variant_slugs)
+    allSlugs.push(...scene.character_variant_slugs);
   if (scene.prop_variant_slugs) allSlugs.push(...scene.prop_variant_slugs);
 
   return (
-    <div className={`rounded-md overflow-hidden transition-colors ${isSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-card/50'}`}>
+    <div
+      className={`rounded-md overflow-hidden transition-colors ${isSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-card/50'}`}
+    >
       {/* Scene header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30">
         <input
@@ -717,11 +771,22 @@ function SceneCard({
             )}
           </div>
 
-          <Badge variant="outline" className={`text-[9px] ${statusColor(deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus }))}`}>
-            {deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus })}
+          <Badge
+            variant="outline"
+            className={`text-[9px] ${statusColor(deriveSceneStatus({ ...scene, tts_status: effectiveTtsStatus, video_status: effectiveVideoStatus }))}`}
+          >
+            {deriveSceneStatus({
+              ...scene,
+              tts_status: effectiveTtsStatus,
+              video_status: effectiveVideoStatus,
+            })}
           </Badge>
           {(scene.audio_duration || scene.video_duration) && (
-            <span className="text-[10px] text-muted-foreground">{formatDuration(scene.audio_duration ?? scene.video_duration ?? 0)}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatDuration(
+                scene.audio_duration ?? scene.video_duration ?? 0
+              )}
+            </span>
           )}
         </button>
       </div>
@@ -739,7 +804,12 @@ function SceneCard({
         {(hasAudio || hasVideo) && (
           <div className="flex flex-col gap-1.5">
             {hasAudio && <MiniAudioPlayer url={scene.audio_url!} />}
-            {hasVideo && <VideoThumbnail url={scene.video_url!} duration={scene.video_duration} />}
+            {hasVideo && (
+              <VideoThumbnail
+                url={scene.video_url!}
+                duration={scene.video_duration}
+              />
+            )}
           </div>
         )}
 
@@ -747,7 +817,10 @@ function SceneCard({
         <div className="flex flex-wrap gap-1">
           {hasLocation && (
             <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <VariantAvatar slug={scene.location_variant_slug!} imageMap={imageMap} />
+              <VariantAvatar
+                slug={scene.location_variant_slug!}
+                imageMap={imageMap}
+              />
               <IconMapPin className="size-2.5" />
               {slugToLabel(scene.location_variant_slug!)}
             </span>
@@ -776,7 +849,10 @@ function SceneCard({
 
         {/* Status indicators */}
         <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-          <span className={hasPrompt ? 'text-green-400' : 'opacity-30'} title="Visual prompt">
+          <span
+            className={hasPrompt ? 'text-green-400' : 'opacity-30'}
+            title="Visual prompt"
+          >
             <IconPhoto className="size-3 inline mr-0.5" />
             Prompt
           </span>
@@ -801,12 +877,16 @@ function SceneCard({
               onClick={() => {
                 setLocalTtsStatus('generating');
                 void (async () => {
-                  const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+                  const result = await callGenerateApi(
+                    `/api/v2/scenes/${scene.id}/generate-tts`
+                  );
                   if (result.ok) {
                     toast.success(`TTS generation started for S${index + 1}`);
                   } else {
                     setLocalTtsStatus(null);
-                    toast.error(result.error ?? 'Failed to start TTS generation');
+                    toast.error(
+                      result.error ?? 'Failed to start TTS generation'
+                    );
                   }
                 })();
               }}
@@ -823,12 +903,16 @@ function SceneCard({
               onClick={() => {
                 setLocalVideoStatus('generating');
                 void (async () => {
-                  const result = await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+                  const result = await callGenerateApi(
+                    `/api/v2/scenes/${scene.id}/generate-video`
+                  );
                   if (result.ok) {
                     toast.success(`Video generation started for S${index + 1}`);
                   } else {
                     setLocalVideoStatus(null);
-                    toast.error(result.error ?? 'Failed to start Video generation');
+                    toast.error(
+                      result.error ?? 'Failed to start Video generation'
+                    );
                   }
                 })();
               }}
@@ -963,7 +1047,12 @@ function AssetGallery({
       </div>
       <div className="grid grid-cols-3 gap-1.5">
         {slugs.map((slug) => (
-          <GalleryCard key={slug} slug={slug} imageMap={imageMap} fallbackIcon={Icon} />
+          <GalleryCard
+            key={slug}
+            slug={slug}
+            imageMap={imageMap}
+            fallbackIcon={Icon}
+          />
         ))}
       </div>
     </div>
@@ -1002,7 +1091,10 @@ function SendToTimelineModal({
     );
   }, [scenes]);
 
-  const updateSetting = (sceneId: string, patch: Partial<SceneTimelineSettings>) => {
+  const updateSetting = (
+    sceneId: string,
+    patch: Partial<SceneTimelineSettings>
+  ) => {
     setSettings((prev) =>
       prev.map((s) => (s.sceneId === sceneId ? { ...s, ...patch } : s))
     );
@@ -1063,10 +1155,14 @@ function SendToTimelineModal({
 
       const videoCount = results.filter((r) => r.videoClip).length;
       const audioCount = results.filter((r) => r.audioClip).length;
-      toast.success(`Added ${videoCount} video + ${audioCount} audio clips to timeline`);
+      toast.success(
+        `Added ${videoCount} video + ${audioCount} audio clips to timeline`
+      );
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to add clips');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to add clips'
+      );
     } finally {
       setIsSending(false);
     }
@@ -1085,14 +1181,19 @@ function SendToTimelineModal({
 
         {/* Bulk controls */}
         <div className="space-y-2 pb-2 border-b border-border/30">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">All Scenes</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+            All Scenes
+          </p>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={settings.every((s) => s.matchVideoToAudio)}
               onChange={(e) =>
                 setSettings((prev) =>
-                  prev.map((s) => ({ ...s, matchVideoToAudio: e.target.checked }))
+                  prev.map((s) => ({
+                    ...s,
+                    matchVideoToAudio: e.target.checked,
+                  }))
                 )
               }
               className="size-3.5 rounded border-border/60 accent-primary"
@@ -1175,11 +1276,12 @@ function SendToTimelineModal({
                       />
                       <span className="text-[10px] text-muted-foreground">
                         Match video to audio
-                        {s.matchVideoToAudio && timing.videoPlaybackRate !== 1 && (
-                          <span className="ml-1 font-mono text-primary">
-                            ({timing.videoPlaybackRate.toFixed(2)}x)
-                          </span>
-                        )}
+                        {s.matchVideoToAudio &&
+                          timing.videoPlaybackRate !== 1 && (
+                            <span className="ml-1 font-mono text-primary">
+                              ({timing.videoPlaybackRate.toFixed(2)}x)
+                            </span>
+                          )}
                       </span>
                     </label>
                   )}
@@ -1199,7 +1301,10 @@ function SendToTimelineModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-border/40">
           <div className="text-[11px] text-muted-foreground">
-            Total: <span className="font-mono font-medium text-foreground">{totalDuration.toFixed(1)}s</span>
+            Total:{' '}
+            <span className="font-mono font-medium text-foreground">
+              {totalDuration.toFixed(1)}s
+            </span>
           </div>
           <div className="flex gap-2">
             <Button
@@ -1215,7 +1320,9 @@ function SendToTimelineModal({
               size="sm"
               className="h-8 text-xs gap-1"
               onClick={handleSend}
-              disabled={isSending || scenes.every((s) => !s.video_url && !s.audio_url)}
+              disabled={
+                isSending || scenes.every((s) => !s.video_url && !s.audio_url)
+              }
             >
               {isSending ? (
                 <IconLoader2 className="size-3 animate-spin" />
@@ -1247,43 +1354,59 @@ function EpisodeAccordion({
   const [isOpen, setIsOpen] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
-  const [ttsBatchProgress, setTtsBatchProgress] = useState<{ done: number; total: number } | null>(null);
-  const [videoBatchProgress, setVideoBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [ttsBatchProgress, setTtsBatchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [videoBatchProgress, setVideoBatchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [timelineModalOpen, setTimelineModalOpen] = useState(false);
   const sceneCount = episode.scenes.length;
-  const doneCount = episode.scenes.filter((s) => !!s.audio_url && !!s.video_url).length;
+  const doneCount = episode.scenes.filter(
+    (s) => !!s.audio_url && !!s.video_url
+  ).length;
   const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
   const hasAnyAudio = episode.scenes.some((s) => !!s.audio_url);
-  const totalDuration = episode.scenes.reduce((sum, s) => sum + (s.audio_duration ?? s.video_duration ?? 0), 0);
+  const totalDuration = episode.scenes.reduce(
+    (sum, s) => sum + (s.audio_duration ?? s.video_duration ?? 0),
+    0
+  );
 
   // Collect unique slugs per role across all scenes
-  const locationSlugs = [...new Set(
-    episode.scenes.map((s) => s.location_variant_slug).filter(Boolean) as string[]
-  )];
-  const characterSlugs = [...new Set(
-    episode.scenes.flatMap((s) => s.character_variant_slugs ?? [])
-  )];
-  const propSlugs = [...new Set(
-    episode.scenes.flatMap((s) => s.prop_variant_slugs ?? [])
-  )];
-  const totalAssets = locationSlugs.length + characterSlugs.length + propSlugs.length;
+  const locationSlugs = [
+    ...new Set(
+      episode.scenes
+        .map((s) => s.location_variant_slug)
+        .filter(Boolean) as string[]
+    ),
+  ];
+  const characterSlugs = [
+    ...new Set(episode.scenes.flatMap((s) => s.character_variant_slugs ?? [])),
+  ];
+  const propSlugs = [
+    ...new Set(episode.scenes.flatMap((s) => s.prop_variant_slugs ?? [])),
+  ];
+  const totalAssets =
+    locationSlugs.length + characterSlugs.length + propSlugs.length;
   const allSelected =
-    sceneCount > 0 && episode.scenes.every((scene) => selectedScenes.has(scene.id));
+    sceneCount > 0 &&
+    episode.scenes.every((scene) => selectedScenes.has(scene.id));
   const selectedSceneList = episode.scenes.filter((scene) =>
     selectedScenes.has(scene.id)
   );
   const selectedTtsCount = selectedSceneList.filter(
     (scene) => !!scene.audio_text && !scene.audio_url
   ).length;
-  const selectedVideoCount = selectedSceneList.filter(
-    (scene) => {
-      if (!scene.prompt || scene.video_url) return false;
-      // Don't count narrative scenes that need TTS first
-      if (scene.audio_text && !scene.audio_url) return false;
-      return true;
-    }
-  ).length;
-  const isBatchRunning = ttsBatchProgress !== null || videoBatchProgress !== null;
+  const selectedVideoCount = selectedSceneList.filter((scene) => {
+    if (!scene.prompt || scene.video_url) return false;
+    // Don't count narrative scenes that need TTS first
+    if (scene.audio_text && !scene.audio_url) return false;
+    return true;
+  }).length;
+  const isBatchRunning =
+    ttsBatchProgress !== null || videoBatchProgress !== null;
 
   useEffect(() => {
     setSelectedScenes((prev) => {
@@ -1321,7 +1444,8 @@ function EpisodeAccordion({
 
   const runBatchTts = async () => {
     const targets = episode.scenes.filter(
-      (scene) => selectedScenes.has(scene.id) && !!scene.audio_text && !scene.audio_url
+      (scene) =>
+        selectedScenes.has(scene.id) && !!scene.audio_text && !scene.audio_url
     );
     if (targets.length < 1) return;
 
@@ -1337,15 +1461,14 @@ function EpisodeAccordion({
   };
 
   const runBatchVideo = async () => {
-    const targets = episode.scenes.filter(
-      (scene) => {
-        if (!selectedScenes.has(scene.id) || !scene.prompt || scene.video_url) return false;
-        // Skip narrative scenes that still need TTS
-        const isNarrative = !!scene.audio_text;
-        if (isNarrative && !scene.audio_url) return false;
-        return true;
-      }
-    );
+    const targets = episode.scenes.filter((scene) => {
+      if (!selectedScenes.has(scene.id) || !scene.prompt || scene.video_url)
+        return false;
+      // Skip narrative scenes that still need TTS
+      const isNarrative = !!scene.audio_text;
+      if (isNarrative && !scene.audio_url) return false;
+      return true;
+    });
     if (targets.length < 1) return;
 
     setVideoBatchProgress({ done: 0, total: targets.length });
@@ -1361,182 +1484,199 @@ function EpisodeAccordion({
 
   return (
     <>
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="flex items-center gap-1">
-        <input
-          type="checkbox"
-          checked={isEpisodeSelected}
-          onChange={onToggleEpisodeSelected}
-          className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
-          title={`Select EP${episode.order} for timeline`}
-        />
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="flex-1 flex items-center gap-2 px-2 py-2.5 hover:bg-muted/30 transition-colors rounded-md text-left"
-        >
-          {isOpen ? (
-            <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-          )}
-
-          <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">
-            EP{episode.order}
-          </span>
-
-          <span className="text-xs font-medium truncate flex-1">
-            {episode.title?.replace(/^EP\d+\s*[-—]\s*/, '') || `Episode ${episode.order}`}
-          </span>
-
-          {/* Scene progress */}
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {doneCount}/{sceneCount}
-          </span>
-
-          <Badge variant="outline" className={`text-[9px] shrink-0 ${statusColor(deriveEpisodeStatus(episode))}`}>
-            {deriveEpisodeStatus(episode)}
-          </Badge>
-        </button>
-      </CollapsibleTrigger>
-      </div>
-
-      <CollapsibleContent>
-        <div className="pl-4 pr-1 pb-3 space-y-2">
-          {/* Episode summary bar */}
-          <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
-            <span>{sceneCount} scenes</span>
-            {totalDuration > 0 && <span>{formatDuration(totalDuration)}</span>}
-            <span className={hasAnyAudio ? 'text-green-400' : 'opacity-30'}>
-              <IconVolume className="size-3 inline" /> Audio
-            </span>
-            <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
-              <IconVideo className="size-3 inline" /> Video
-            </span>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <div className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={isEpisodeSelected}
+            onChange={onToggleEpisodeSelected}
+            className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
+            title={`Select EP${episode.order} for timeline`}
+          />
+          <CollapsibleTrigger asChild>
             <button
               type="button"
-              onClick={toggleSelectAll}
-              disabled={sceneCount < 1 || isBatchRunning}
-              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border/30 hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center gap-2 px-2 py-2.5 hover:bg-muted/30 transition-colors rounded-md text-left"
             >
-              {allSelected ? 'Deselect All' : 'Select All'}
+              {isOpen ? (
+                <IconChevronUp className="size-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <IconChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+              )}
+
+              <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">
+                EP{episode.order}
+              </span>
+
+              <span className="text-xs font-medium truncate flex-1">
+                {episode.title?.replace(/^EP\d+\s*[-—]\s*/, '') ||
+                  `Episode ${episode.order}`}
+              </span>
+
+              {/* Scene progress */}
+              <span className="text-[10px] text-muted-foreground shrink-0">
+                {doneCount}/{sceneCount}
+              </span>
+
+              <Badge
+                variant="outline"
+                className={`text-[9px] shrink-0 ${statusColor(deriveEpisodeStatus(episode))}`}
+              >
+                {deriveEpisodeStatus(episode)}
+              </Badge>
             </button>
-            <div className="flex flex-col">
+          </CollapsibleTrigger>
+        </div>
+
+        <CollapsibleContent>
+          <div className="pl-4 pr-1 pb-3 space-y-2">
+            {/* Episode summary bar */}
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
+              <span>{sceneCount} scenes</span>
+              {totalDuration > 0 && (
+                <span>{formatDuration(totalDuration)}</span>
+              )}
+              <span className={hasAnyAudio ? 'text-green-400' : 'opacity-30'}>
+                <IconVolume className="size-3 inline" /> Audio
+              </span>
+              <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
+                <IconVideo className="size-3 inline" /> Video
+              </span>
               <button
                 type="button"
-                onClick={() => {
-                  void runBatchTts();
-                }}
-                disabled={selectedTtsCount === 0 || isBatchRunning}
-                className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={toggleSelectAll}
+                disabled={sceneCount < 1 || isBatchRunning}
+                className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border/30 hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <IconSparkles className="size-2.5" />
-                Generate TTS ({selectedTtsCount})
+                {allSelected ? 'Deselect All' : 'Select All'}
               </button>
-              {ttsBatchProgress && (
-                <span className="text-[9px] text-yellow-400 mt-0.5">
-                  Generating {ttsBatchProgress.done}/{ttsBatchProgress.total}...
-                </span>
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBatchTts();
+                  }}
+                  disabled={selectedTtsCount === 0 || isBatchRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconSparkles className="size-2.5" />
+                  Generate TTS ({selectedTtsCount})
+                </button>
+                {ttsBatchProgress && (
+                  <span className="text-[9px] text-yellow-400 mt-0.5">
+                    Generating {ttsBatchProgress.done}/{ttsBatchProgress.total}
+                    ...
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBatchVideo();
+                  }}
+                  disabled={selectedVideoCount === 0 || isBatchRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconSparkles className="size-2.5" />
+                  Generate Video ({selectedVideoCount})
+                </button>
+                {videoBatchProgress && (
+                  <span className="text-[9px] text-yellow-400 mt-0.5">
+                    Generating {videoBatchProgress.done}/
+                    {videoBatchProgress.total}...
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setTimelineModalOpen(true)}
+                disabled={
+                  selectedScenes.size === 0 ||
+                  !episode.scenes.some(
+                    (s) =>
+                      selectedScenes.has(s.id) && (s.video_url || s.audio_url)
+                  ) ||
+                  isBatchRunning
+                }
+                className="inline-flex items-center gap-1 h-6 px-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Send selected scenes to timeline"
+              >
+                <IconSend className="size-3" />
+                To Timeline
+              </button>
+              {totalAssets > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAssets(!showAssets)}
+                  className={`ml-auto flex items-center gap-0.5 hover:text-foreground transition-colors ${showAssets ? 'text-foreground' : ''}`}
+                  title="Toggle asset gallery"
+                >
+                  <IconEye className="size-3" />
+                  <span>{totalAssets} assets</span>
+                </button>
               )}
             </div>
-            <div className="flex flex-col">
-              <button
-                type="button"
-                onClick={() => {
-                  void runBatchVideo();
-                }}
-                disabled={selectedVideoCount === 0 || isBatchRunning}
-                className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <IconSparkles className="size-2.5" />
-                Generate Video ({selectedVideoCount})
-              </button>
-              {videoBatchProgress && (
-                <span className="text-[9px] text-yellow-400 mt-0.5">
-                  Generating {videoBatchProgress.done}/{videoBatchProgress.total}...
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setTimelineModalOpen(true)}
-              disabled={
-                selectedScenes.size === 0 ||
-                !episode.scenes.some(
-                  (s) =>
-                    selectedScenes.has(s.id) &&
-                    (s.video_url || s.audio_url)
-                ) ||
-                isBatchRunning
-              }
-              className="inline-flex items-center gap-1 h-6 px-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Send selected scenes to timeline"
-            >
-              <IconSend className="size-3" />
-              To Timeline
-            </button>
-            {totalAssets > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowAssets(!showAssets)}
-                className={`ml-auto flex items-center gap-0.5 hover:text-foreground transition-colors ${showAssets ? 'text-foreground' : ''}`}
-                title="Toggle asset gallery"
-              >
-                <IconEye className="size-3" />
-                <span>{totalAssets} assets</span>
-              </button>
+
+            {/* Synopsis */}
+            {episode.synopsis && (
+              <p className="text-[10px] text-muted-foreground/70 px-2 line-clamp-2">
+                {episode.synopsis}
+              </p>
+            )}
+
+            {/* Asset Gallery (toggle) */}
+            {showAssets && (
+              <div className="px-2 py-2 bg-muted/10 rounded-md border border-border/20 space-y-3">
+                <AssetGallery
+                  slugs={locationSlugs}
+                  role="location"
+                  imageMap={imageMap}
+                />
+                <AssetGallery
+                  slugs={characterSlugs}
+                  role="character"
+                  imageMap={imageMap}
+                />
+                <AssetGallery
+                  slugs={propSlugs}
+                  role="prop"
+                  imageMap={imageMap}
+                />
+              </div>
+            )}
+
+            {/* Scenes */}
+            {episode.scenes.length > 0 ? (
+              <div className="space-y-1.5">
+                {episode.scenes.map((scene, i) => (
+                  <SceneCard
+                    key={scene.id}
+                    scene={scene}
+                    index={i}
+                    imageMap={imageMap}
+                    isSelected={selectedScenes.has(scene.id)}
+                    onToggleSelected={() => toggleSceneSelection(scene.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-muted-foreground/50 px-2 py-4 text-center">
+                No scenes yet
+              </p>
             )}
           </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-          {/* Synopsis */}
-          {episode.synopsis && (
-            <p className="text-[10px] text-muted-foreground/70 px-2 line-clamp-2">
-              {episode.synopsis}
-            </p>
-          )}
-
-          {/* Asset Gallery (toggle) */}
-          {showAssets && (
-            <div className="px-2 py-2 bg-muted/10 rounded-md border border-border/20 space-y-3">
-              <AssetGallery slugs={locationSlugs} role="location" imageMap={imageMap} />
-              <AssetGallery slugs={characterSlugs} role="character" imageMap={imageMap} />
-              <AssetGallery slugs={propSlugs} role="prop" imageMap={imageMap} />
-            </div>
-          )}
-
-          {/* Scenes */}
-          {episode.scenes.length > 0 ? (
-            <div className="space-y-1.5">
-              {episode.scenes.map((scene, i) => (
-                <SceneCard
-                  key={scene.id}
-                  scene={scene}
-                  index={i}
-                  imageMap={imageMap}
-                  isSelected={selectedScenes.has(scene.id)}
-                  onToggleSelected={() => toggleSceneSelection(scene.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-[10px] text-muted-foreground/50 px-2 py-4 text-center">
-              No scenes yet
-            </p>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-
-    {/* Send to Timeline modal */}
-    <SendToTimelineModal
-      scenes={episode.scenes.filter(
-        (s) =>
-          selectedScenes.has(s.id) &&
-          (s.video_url || s.audio_url)
-      )}
-      open={timelineModalOpen}
-      onOpenChange={setTimelineModalOpen}
-    />
+      {/* Send to Timeline modal */}
+      <SendToTimelineModal
+        scenes={episode.scenes.filter(
+          (s) => selectedScenes.has(s.id) && (s.video_url || s.audio_url)
+        )}
+        open={timelineModalOpen}
+        onOpenChange={setTimelineModalOpen}
+      />
     </>
   );
 }
@@ -1551,7 +1691,9 @@ export default function StoryboardPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(new Set());
+  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(
+    new Set()
+  );
   const [isSendingEpisodes, setIsSendingEpisodes] = useState(false);
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
@@ -1616,7 +1758,9 @@ export default function StoryboardPanel() {
             .order('"order"', { ascending: true });
 
           if (scError) throw new Error(scError.message);
-          allScenes = (sceneRows ?? []) as unknown as (SceneData & { episode_id: string })[];
+          allScenes = (sceneRows ?? []) as unknown as (SceneData & {
+            episode_id: string;
+          })[];
         }
 
         // Collect all unique variant slugs across scenes
@@ -1631,7 +1775,7 @@ export default function StoryboardPanel() {
         const newImageMap = new Map<string, VariantInfo>();
         if (slugSet.size > 0) {
           const { data: variantRows } = await supabase
-            .from('series_asset_variants')
+            .from('project_asset_variants')
             .select('id, slug, image_url, image_gen_status')
             .in('slug', [...slugSet]);
 
@@ -1690,7 +1834,9 @@ export default function StoryboardPanel() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'studio', table: 'scenes' },
-        () => { if (!cancelled) load(); }
+        () => {
+          if (!cancelled) load();
+        }
       )
       .subscribe();
 
@@ -1698,8 +1844,10 @@ export default function StoryboardPanel() {
       .channel('storyboard-variants')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'studio', table: 'series_asset_variants' },
-        () => { if (!cancelled) load(); }
+        { event: 'UPDATE', schema: 'studio', table: 'project_asset_variants' },
+        () => {
+          if (!cancelled) load();
+        }
       )
       .subscribe();
 
@@ -1743,14 +1891,22 @@ export default function StoryboardPanel() {
   // Stats
   const totalScenes = episodes.reduce((s, e) => s + e.scenes.length, 0);
   const doneScenes = episodes.reduce(
-    (s, e) => s + e.scenes.filter((sc) => !!sc.audio_url && !!sc.video_url).length,
+    (s, e) =>
+      s + e.scenes.filter((sc) => !!sc.audio_url && !!sc.video_url).length,
     0
   );
   const totalDuration = episodes.reduce(
-    (s, e) => s + e.scenes.reduce((ss, sc) => ss + (sc.audio_duration ?? sc.video_duration ?? 0), 0),
+    (s, e) =>
+      s +
+      e.scenes.reduce(
+        (ss, sc) => ss + (sc.audio_duration ?? sc.video_duration ?? 0),
+        0
+      ),
     0
   );
-  const totalVariantImages = [...imageMap.values()].filter((v) => !!v.image_url).length;
+  const totalVariantImages = [...imageMap.values()].filter(
+    (v) => !!v.image_url
+  ).length;
 
   return (
     <ScrollArea className="h-full">
@@ -1758,7 +1914,9 @@ export default function StoryboardPanel() {
         {/* Header */}
         <div className="flex items-center justify-between mb-2">
           <div>
-            <h3 className="text-sm font-semibold">{seriesName || 'Storyboard'}</h3>
+            <h3 className="text-sm font-semibold">
+              {seriesName || 'Storyboard'}
+            </h3>
             <p className="text-[10px] text-muted-foreground">
               {episodes.length} episodes · {totalScenes} scenes
               {totalDuration > 0 && ` · ${formatDuration(totalDuration)}`}
@@ -1776,7 +1934,9 @@ export default function StoryboardPanel() {
             <button
               type="button"
               onClick={() => {
-                const allSelected = episodes.every((ep) => selectedEpisodeIds.has(ep.id));
+                const allSelected = episodes.every((ep) =>
+                  selectedEpisodeIds.has(ep.id)
+                );
                 if (allSelected) {
                   setSelectedEpisodeIds(new Set());
                 } else {
@@ -1787,7 +1947,10 @@ export default function StoryboardPanel() {
             >
               <input
                 type="checkbox"
-                checked={episodes.length > 0 && episodes.every((ep) => selectedEpisodeIds.has(ep.id))}
+                checked={
+                  episodes.length > 0 &&
+                  episodes.every((ep) => selectedEpisodeIds.has(ep.id))
+                }
                 readOnly
                 className="size-3 rounded border-border accent-primary cursor-pointer"
               />
@@ -1805,7 +1968,9 @@ export default function StoryboardPanel() {
                   setIsSendingEpisodes(true);
                   try {
                     // Gather all scenes from selected episodes in order
-                    const selectedEps = episodes.filter((ep) => selectedEpisodeIds.has(ep.id));
+                    const selectedEps = episodes.filter((ep) =>
+                      selectedEpisodeIds.has(ep.id)
+                    );
                     const allScenes: SceneForTimeline[] = [];
                     for (const ep of selectedEps) {
                       for (const scene of ep.scenes) {
@@ -1815,16 +1980,20 @@ export default function StoryboardPanel() {
                       }
                     }
                     if (allScenes.length === 0) {
-                      toast.error('No scenes with audio/video in selected episodes');
+                      toast.error(
+                        'No scenes with audio/video in selected episodes'
+                      );
                       setIsSendingEpisodes(false);
                       return;
                     }
 
                     // Build clips with matchVideoToAudio for all narrative scenes
-                    const settings: SceneTimelineSettings[] = allScenes.map((s) => ({
-                      sceneId: s.id,
-                      matchVideoToAudio: !!s.audio_text,
-                    }));
+                    const settings: SceneTimelineSettings[] = allScenes.map(
+                      (s) => ({
+                        sceneId: s.id,
+                        matchVideoToAudio: !!s.audio_text,
+                      })
+                    );
                     const results = await buildSceneClips({
                       scenes: allScenes,
                       settings,
@@ -1839,30 +2008,48 @@ export default function StoryboardPanel() {
                     let audioTrackId: string | undefined;
 
                     if (hasAnyVideo) {
-                      const track = studio.addTrack({ type: 'Video', name: 'Episode Video' });
+                      const track = studio.addTrack({
+                        type: 'Video',
+                        name: 'Episode Video',
+                      });
                       videoTrackId = track.id;
                     }
                     if (hasAnyAudio) {
-                      const track = studio.addTrack({ type: 'Audio', name: 'Episode Audio' });
+                      const track = studio.addTrack({
+                        type: 'Audio',
+                        name: 'Episode Audio',
+                      });
                       audioTrackId = track.id;
                     }
 
                     for (const result of results) {
                       if (result.videoClip && videoTrackId) {
-                        await studio.addClip(result.videoClip, { trackId: videoTrackId });
+                        await studio.addClip(result.videoClip, {
+                          trackId: videoTrackId,
+                        });
                       }
                       if (result.audioClip && audioTrackId) {
-                        await studio.addClip(result.audioClip, { trackId: audioTrackId });
+                        await studio.addClip(result.audioClip, {
+                          trackId: audioTrackId,
+                        });
                       }
                     }
 
-                    const videoCount = results.filter((r) => r.videoClip).length;
-                    const audioCount = results.filter((r) => r.audioClip).length;
+                    const videoCount = results.filter(
+                      (r) => r.videoClip
+                    ).length;
+                    const audioCount = results.filter(
+                      (r) => r.audioClip
+                    ).length;
                     toast.success(
                       `Added ${videoCount} video + ${audioCount} audio clips from ${selectedEps.length} episode${selectedEps.length > 1 ? 's' : ''}`
                     );
                   } catch (error) {
-                    toast.error(error instanceof Error ? error.message : 'Failed to send to timeline');
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : 'Failed to send to timeline'
+                    );
                   } finally {
                     setIsSendingEpisodes(false);
                   }
@@ -1875,7 +2062,8 @@ export default function StoryboardPanel() {
                 ) : (
                   <IconSend className="size-3" />
                 )}
-                {selectedEpisodeIds.size} EP{selectedEpisodeIds.size > 1 ? 's' : ''} → Timeline
+                {selectedEpisodeIds.size} EP
+                {selectedEpisodeIds.size > 1 ? 's' : ''} → Timeline
               </button>
             )}
           </div>

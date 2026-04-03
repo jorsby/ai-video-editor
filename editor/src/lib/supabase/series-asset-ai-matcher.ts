@@ -1,7 +1,7 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import type { SeriesAssetCandidate } from './series-asset-resolver';
+import type { ProjectAssetCandidate } from './project-asset-resolver';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -21,7 +21,7 @@ export type AssetMatchItem = {
 
 export type AssetMatchDecision = {
   matched: boolean;
-  candidate?: SeriesAssetCandidate;
+  candidate?: ProjectAssetCandidate;
   confidence: number;
   reason: string;
   strategy: 'ai' | 'none';
@@ -158,7 +158,7 @@ function buildSceneUsageText(item: AssetMatchItem) {
 export async function matchAssetsWithAI(params: {
   itemType: 'object' | 'background';
   items: AssetMatchItem[];
-  candidates: SeriesAssetCandidate[];
+  candidates: ProjectAssetCandidate[];
   minConfidence?: number;
 }): Promise<Map<number, AssetMatchDecision>> {
   const { itemType, items, candidates, minConfidence = 0.72 } = params;

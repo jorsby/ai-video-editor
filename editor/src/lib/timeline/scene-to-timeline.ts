@@ -167,7 +167,9 @@ export async function buildSceneClips(params: {
     // ── Apply timing to video clip ──────────────────────────────────
 
     if (videoClip) {
-      const videoDurUs = Math.round(timing.videoDuration * MICROSECONDS_PER_SECOND);
+      const videoDurUs = Math.round(
+        timing.videoDuration * MICROSECONDS_PER_SECOND
+      );
       videoClip.display = {
         from: currentOffset,
         to: currentOffset + videoDurUs,
@@ -186,7 +188,9 @@ export async function buildSceneClips(params: {
     // ── Apply timing to audio clip ──────────────────────────────────
 
     if (audioClip) {
-      const audioDurUs = Math.round(timing.audioDuration * MICROSECONDS_PER_SECOND);
+      const audioDurUs = Math.round(
+        timing.audioDuration * MICROSECONDS_PER_SECOND
+      );
       audioClip.display = {
         from: currentOffset,
         to: currentOffset + audioDurUs,
@@ -200,8 +204,12 @@ export async function buildSceneClips(params: {
 
     // ── Record result ───────────────────────────────────────────────
 
-    const videoDurUs = Math.round(timing.videoDuration * MICROSECONDS_PER_SECOND);
-    const audioDurUs = Math.round(timing.audioDuration * MICROSECONDS_PER_SECOND);
+    const videoDurUs = Math.round(
+      timing.videoDuration * MICROSECONDS_PER_SECOND
+    );
+    const audioDurUs = Math.round(
+      timing.audioDuration * MICROSECONDS_PER_SECOND
+    );
 
     results.push({
       sceneId: scene.id,
@@ -214,7 +222,9 @@ export async function buildSceneClips(params: {
     });
 
     // Advance offset by the scene's total duration
-    const sceneDurUs = Math.round(timing.sceneDuration * MICROSECONDS_PER_SECOND);
+    const sceneDurUs = Math.round(
+      timing.sceneDuration * MICROSECONDS_PER_SECOND
+    );
     currentOffset += sceneDurUs;
   }
 

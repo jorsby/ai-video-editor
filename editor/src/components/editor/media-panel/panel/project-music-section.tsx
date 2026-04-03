@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 
 interface MusicTrack {
   id: string;
-  series_id: string;
+  project_id: string;
   name: string;
   music_type: 'lyrical' | 'instrumental';
   prompt: string | null;
@@ -117,9 +117,7 @@ function MusicTrackCard({
               Generating...
             </span>
           )}
-          {isFailed && (
-            <span className="text-[9px] text-red-400">Failed</span>
-          )}
+          {isFailed && <span className="text-[9px] text-red-400">Failed</span>}
         </div>
         {track.style && (
           <p className="text-[9px] text-muted-foreground/60 truncate">
@@ -167,10 +165,10 @@ function MusicTrackCard({
   );
 }
 
-export function SeriesMusicSection({
-  seriesId,
+export function ProjectMusicSection({
+  projectId,
 }: {
-  seriesId: string | null;
+  projectId: string | null;
 }) {
   const { studio } = useStudioStore();
   const [isOpen, setIsOpen] = useState(true);
@@ -178,13 +176,13 @@ export function SeriesMusicSection({
   const [loading, setLoading] = useState(false);
 
   const fetchTracks = useCallback(async () => {
-    if (!seriesId) {
+    if (!projectId) {
       setTracks([]);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/v2/series/${seriesId}/music`);
+      const res = await fetch(`/api/v2/projects/${projectId}/music`);
       if (res.ok) {
         const data = await res.json();
         setTracks(data);
@@ -194,37 +192,37 @@ export function SeriesMusicSection({
     } finally {
       setLoading(false);
     }
-  }, [seriesId]);
+  }, [projectId]);
 
   useEffect(() => {
     void fetchTracks();
   }, [fetchTracks]);
 
-  // Realtime subscription for series_music changes
+  // Realtime subscription for project_music changes
   useEffect(() => {
-    if (!seriesId) return;
+    if (!projectId) return;
 
     const supabase = createClient('studio');
     const channel = supabase
-      .channel(`series-music-${seriesId}`)
+      .channel(`project-music-${projectId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'studio',
-          table: 'series_music',
-          filter: `series_id=eq.${seriesId}`,
+          table: 'project_music',
+          filter: `project_id=eq.${projectId}`,
         },
         () => {
           void fetchTracks();
-        },
+        }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [seriesId, fetchTracks]);
+  }, [projectId, fetchTracks]);
 
   const handleAddToTimeline = useCallback(
     async (track: MusicTrack) => {
@@ -242,16 +240,14 @@ export function SeriesMusicSection({
         toast.error('Failed to add music to timeline');
       }
     },
-    [studio],
+    [studio]
   );
 
   const [addingAll, setAddingAll] = useState(false);
 
   const handleAddAllToTimeline = useCallback(async () => {
     if (!studio) return;
-    const doneTracks = tracks.filter(
-      (t) => t.status === 'done' && t.audio_url,
-    );
+    const doneTracks = tracks.filter((t) => t.status === 'done' && t.audio_url);
     if (doneTracks.length === 0) {
       toast.error('No completed music tracks to add');
       return;
@@ -283,7 +279,7 @@ export function SeriesMusicSection({
       }
 
       toast.success(
-        `Added ${doneTracks.length} music track${doneTracks.length > 1 ? 's' : ''} sequentially to timeline`,
+        `Added ${doneTracks.length} music track${doneTracks.length > 1 ? 's' : ''} sequentially to timeline`
       );
     } catch (error) {
       Log.error('Failed to add all music to timeline:', error);
@@ -293,30 +289,27 @@ export function SeriesMusicSection({
     }
   }, [studio, tracks]);
 
-  const handleDelete = useCallback(
-    async (trackId: string) => {
-      try {
-        const res = await fetch(`/api/v2/music/${trackId}`, {
-          method: 'DELETE',
-        });
-        if (res.ok) {
-          setTracks((prev) => prev.filter((t) => t.id !== trackId));
-          toast.success('Music track deleted');
-        } else {
-          toast.error('Failed to delete track');
-        }
-      } catch {
+  const handleDelete = useCallback(async (trackId: string) => {
+    try {
+      const res = await fetch(`/api/v2/music/${trackId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setTracks((prev) => prev.filter((t) => t.id !== trackId));
+        toast.success('Music track deleted');
+      } else {
         toast.error('Failed to delete track');
       }
-    },
-    [],
-  );
+    } catch {
+      toast.error('Failed to delete track');
+    }
+  }, []);
 
-  if (!seriesId) return null;
+  if (!projectId) return null;
 
   const doneCount = tracks.filter((t) => t.status === 'done').length;
   const generatingCount = tracks.filter(
-    (t) => t.status === 'generating',
+    (t) => t.status === 'generating'
   ).length;
 
   return (

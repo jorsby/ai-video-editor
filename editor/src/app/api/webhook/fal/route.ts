@@ -101,7 +101,7 @@ async function handleSeriesAssetImage(params: {
     });
 
     await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ image_gen_status: 'failed', image_task_id: null })
       .eq('id', variantId);
 
@@ -123,7 +123,7 @@ async function handleSeriesAssetImage(params: {
     });
 
     await supabase
-      .from('series_asset_variants')
+      .from('project_asset_variants')
       .update({ image_gen_status: 'failed', image_task_id: null })
       .eq('id', variantId);
 
@@ -137,7 +137,7 @@ async function handleSeriesAssetImage(params: {
 
   // Success — save image URL
   await supabase
-    .from('series_asset_variants')
+    .from('project_asset_variants')
     .update({
       image_url: imageUrl,
       image_gen_status: 'done',
@@ -145,7 +145,7 @@ async function handleSeriesAssetImage(params: {
     })
     .eq('id', variantId);
 
-  log.info('FAL series asset image saved', {
+  log.info('FAL project asset image saved', {
     variant_id: variantId,
     request_id: requestId,
     image_url: imageUrl,

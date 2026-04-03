@@ -47,7 +47,7 @@ interface SchemaSeries {
 
 interface SchemaSeriesAsset {
   id: string;
-  series_id: string;
+  project_id: string;
   type: AssetType;
   name: string;
   slug: string;
@@ -489,7 +489,7 @@ function createMockInspectorData(userId: string) {
   const assets: SchemaSeriesAsset[] = [
     {
       id: 'mock-asset-ava-kim',
-      series_id: series.id,
+      project_id: series.project_id,
       type: 'character',
       name: 'Ava Kim',
       slug: 'ava-kim',
@@ -501,7 +501,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-asset-pier-17',
-      series_id: series.id,
+      project_id: series.project_id,
       type: 'location',
       name: 'Pier 17 Container Yard',
       slug: 'pier-17-container-yard',
@@ -513,7 +513,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-asset-cipher-watch',
-      series_id: series.id,
+      project_id: series.project_id,
       type: 'prop',
       name: 'Cipher Watch',
       slug: 'cipher-watch',
@@ -924,8 +924,11 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       null;
 
     const selectedSeriesId = selectedSeries?.id;
-    assets = selectedSeriesId
-      ? mockData.assets.filter((asset) => asset.series_id === selectedSeriesId)
+    const selectedSeriesProjectId = selectedSeries?.project_id;
+    assets = selectedSeriesProjectId
+      ? mockData.assets.filter(
+          (asset) => asset.project_id === selectedSeriesProjectId
+        )
       : [];
 
     const selectedAssetIds = new Set(assets.map((asset) => asset.id));
@@ -994,17 +997,17 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
     const { data: assetsData, error: assetsError } = selectedSeries
       ? await supabase
-          .from('series_assets')
+          .from('project_assets')
           .select(
-            'id, series_id, type, name, slug, description, sort_order, created_at, updated_at'
+            'id, project_id, type, name, slug, description, sort_order, created_at, updated_at'
           )
-          .eq('series_id', selectedSeries.id)
+          .eq('project_id', selectedSeries.project_id)
           .order('type', { ascending: true })
           .order('sort_order', { ascending: true })
       : { data: [], error: null };
 
     if (assetsError) {
-      queryErrors.push({ source: 'series_assets', error: assetsError });
+      queryErrors.push({ source: 'project_assets', error: assetsError });
     }
 
     assets = (assetsData ?? []) as SchemaSeriesAsset[];
@@ -1012,7 +1015,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
     const { data: variantsData, error: variantsError } = assetIds.length
       ? await supabase
-          .from('series_asset_variants')
+          .from('project_asset_variants')
           .select(
             'id, asset_id, slug, name, prompt, image_url, is_main, where_to_use, reasoning, created_at, updated_at'
           )
@@ -1022,7 +1025,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
     if (variantsError) {
       queryErrors.push({
-        source: 'series_asset_variants',
+        source: 'project_asset_variants',
         error: variantsError,
       });
     }
@@ -1838,7 +1841,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                           >
                             <div className="grid gap-4 lg:grid-cols-2">
                               <FieldTable
-                                title={`studio.series_assets • ${asset.name} (content)`}
+                                title={`studio.project_assets • ${asset.name} (content)`}
                                 fields={[
                                   { label: 'type', value: asset.type },
                                   { label: 'name', value: asset.name },
@@ -1850,12 +1853,12 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                 ]}
                               />
                               <FieldTable
-                                title={`studio.series_assets • ${asset.name} (system)`}
+                                title={`studio.project_assets • ${asset.name} (system)`}
                                 fields={[
                                   { label: 'id', value: asset.id },
                                   {
-                                    label: 'series_id',
-                                    value: asset.series_id,
+                                    label: 'project_id',
+                                    value: asset.project_id,
                                   },
                                   {
                                     label: 'sort_order',
@@ -1894,7 +1897,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                     >
                                       <div className="grid gap-4 lg:grid-cols-2">
                                         <FieldTable
-                                          title={`studio.series_asset_variants • ${variant.name} (content)`}
+                                          title={`studio.project_asset_variants • ${variant.name} (content)`}
                                           fields={[
                                             {
                                               label: 'slug',
@@ -1919,7 +1922,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                           ]}
                                         />
                                         <FieldTable
-                                          title={`studio.series_asset_variants • ${variant.name} (system)`}
+                                          title={`studio.project_asset_variants • ${variant.name} (system)`}
                                           fields={[
                                             { label: 'id', value: variant.id },
                                             {
@@ -2035,7 +2038,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                             <code>characters</code>, <code>locations</code>,{' '}
                             <code>props</code> (all arrays of
                             <code className="mx-1 rounded bg-muted/30 px-1 py-0.5">
-                              series_asset_variants.slug
+                              project_asset_variants.slug
                             </code>
                             refs).
                           </p>
@@ -2129,7 +2132,9 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                           },
                                           {
                                             label: 'duration_seconds',
-                                            value: scene.audio_duration ?? scene.video_duration,
+                                            value:
+                                              scene.audio_duration ??
+                                              scene.video_duration,
                                           },
                                           {
                                             label: 'duration_resolution',

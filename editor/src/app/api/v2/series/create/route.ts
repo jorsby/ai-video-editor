@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { slugify } from '@/lib/utils/slugify';
 
 type AssetInput = {
   name: string;
@@ -42,13 +43,20 @@ export async function POST(req: NextRequest) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const genre = typeof body?.genre === 'string' ? body.genre.trim() : null;
     const tone = typeof body?.tone === 'string' ? body.tone.trim() : null;
-    const language = typeof body?.language === 'string' ? body.language.trim() : null;
-    const voiceId = typeof body?.voice_id === 'string' ? body.voice_id.trim() : null;
-    const ttsSpeed = typeof body?.tts_speed === 'number' ? body.tts_speed : null;
-    const videoModel = typeof body?.video_model === 'string' ? body.video_model.trim() : null;
-    const imageModel = typeof body?.image_model === 'string' ? body.image_model.trim() : null;
-    const aspectRatio = typeof body?.aspect_ratio === 'string' ? body.aspect_ratio.trim() : null;
-    const visualStyle = typeof body?.visual_style === 'string' ? body.visual_style.trim() : null;
+    const language =
+      typeof body?.language === 'string' ? body.language.trim() : null;
+    const voiceId =
+      typeof body?.voice_id === 'string' ? body.voice_id.trim() : null;
+    const ttsSpeed =
+      typeof body?.tts_speed === 'number' ? body.tts_speed : null;
+    const videoModel =
+      typeof body?.video_model === 'string' ? body.video_model.trim() : null;
+    const imageModel =
+      typeof body?.image_model === 'string' ? body.image_model.trim() : null;
+    const aspectRatio =
+      typeof body?.aspect_ratio === 'string' ? body.aspect_ratio.trim() : null;
+    const visualStyle =
+      typeof body?.visual_style === 'string' ? body.visual_style.trim() : null;
     const requestedProjectId =
       typeof body?.project_id === 'string' ? body.project_id.trim() : '';
 
@@ -207,22 +215,29 @@ export async function POST(req: NextRequest) {
       locations: [],
       props: [],
     };
+    const createdAssetsForVariants: Array<{
+      id: string;
+      slug: string | null;
+      name: string;
+      description: string | null;
+    }> = [];
 
     for (const { key, type, items, offset } of assetTypes) {
       if (items.length === 0) continue;
 
       const { data: rows, error: insertError } = await dbClient
-        .from('series_assets')
+        .from('project_assets')
         .insert(
           items.map((asset, index) => ({
-            series_id: seriesId,
+            project_id: projectId,
             type,
             name: asset.name,
+            slug: slugify(asset.name),
             description: asset.description ?? null,
             sort_order: offset + index,
           }))
         )
-        .select('id');
+        .select('id, slug, name, description');
 
       if (insertError) {
         console.error(
@@ -238,6 +253,48 @@ export async function POST(req: NextRequest) {
       assetIds[key] = (rows ?? [])
         .map((row: { id?: string }) => row.id)
         .filter((id: string | undefined): id is string => !!id);
+
+      for (const row of rows ?? []) {
+        createdAssetsForVariants.push({
+          id: row.id as string,
+          slug: typeof row.slug === 'string' ? row.slug : null,
+          name: (row.name as string) ?? 'Asset',
+          description:
+            typeof row.description === 'string' ? row.description : null,
+        });
+      }
+    }
+
+    if (createdAssetsForVariants.length > 0) {
+      const variantRows = createdAssetsForVariants.map((asset) => {
+        const assetSlug = asset.slug ?? slugify(asset.name);
+        return {
+          asset_id: asset.id,
+          name: 'Main',
+          slug: `${assetSlug}-main`,
+          prompt: asset.description ?? `${asset.name} reference`,
+          image_url: null,
+          is_main: true,
+          where_to_use: asset.description ?? 'Main reference variant',
+          reasoning: '',
+          image_gen_status: 'idle',
+        };
+      });
+
+      const { error: variantError } = await dbClient
+        .from('project_asset_variants')
+        .insert(variantRows);
+
+      if (variantError) {
+        console.error(
+          '[v2/series/create] Failed to create default variants:',
+          variantError
+        );
+        return NextResponse.json(
+          { error: 'Failed to create default asset variants' },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json(
