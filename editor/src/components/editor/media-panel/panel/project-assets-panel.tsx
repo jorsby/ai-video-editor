@@ -40,6 +40,7 @@ import {
 import { toast } from 'sonner';
 import { ProjectMusicSection } from './project-music-section';
 import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
+import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -901,8 +902,9 @@ export default function ProjectAssetsPanel() {
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(
     new Set()
   );
-  // Collapse all / Expand all: null = individual control, true/false = forced
-  const [forceOpen, setForceOpen] = useState<boolean | null>(null);
+  // Persistent collapse all / expand all
+  const { toggleAll, getForceOpen } = usePanelCollapseStore();
+  const forceOpen = getForceOpen('assets');
   // Episode filter
   const { focusedEpisodeId, focusedVariantSlugs, clearFocus } =
     useEpisodeFocusStore();
@@ -1238,17 +1240,9 @@ export default function ProjectAssetsPanel() {
           {/* Collapse / Expand All */}
           <button
             type="button"
-            onClick={() => {
-              setForceOpen((prev) => {
-                // Toggle: null/true → false (collapse), false → true (expand)
-                if (prev === false) return true;
-                return false;
-              });
-              // Reset to individual control after a tick
-              setTimeout(() => setForceOpen(null), 50);
-            }}
+            onClick={() => toggleAll('assets')}
             className="h-7 px-2 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-            title="Collapse / Expand all sections"
+            title={forceOpen === false ? 'Expand all sections' : 'Collapse all sections'}
           >
             {forceOpen === false ? (
               <IconPlus size={14} />

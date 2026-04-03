@@ -44,6 +44,7 @@ import {
   IconSelectAll,
 } from '@tabler/icons-react';
 import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
+import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1347,13 +1348,21 @@ function EpisodeAccordion({
   imageMap,
   isEpisodeSelected,
   onToggleEpisodeSelected,
+  forceOpen,
 }: {
   episode: EpisodeData;
   imageMap: VariantImageMap;
   isEpisodeSelected: boolean;
   onToggleEpisodeSelected: () => void;
+  forceOpen?: boolean | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (forceOpen !== null && forceOpen !== undefined) {
+      setIsOpen(forceOpen);
+    }
+  }, [forceOpen]);
   const [showAssets, setShowAssets] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
   const [ttsBatchProgress, setTtsBatchProgress] = useState<{
@@ -1736,6 +1745,8 @@ export default function StoryboardPanel() {
   const [isSendingEpisodes, setIsSendingEpisodes] = useState(false);
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
+  const { toggleAll, getForceOpen } = usePanelCollapseStore();
+  const storyboardForceOpen = getForceOpen('storyboard');
 
   useEffect(() => {
     let cancelled = false;
@@ -1962,9 +1973,23 @@ export default function StoryboardPanel() {
               {totalVariantImages > 0 && ` · ${totalVariantImages} images`}
             </p>
           </div>
-          <Badge variant="outline" className="text-[9px]">
-            {doneScenes}/{totalScenes} done
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => toggleAll('storyboard')}
+              className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
+              title={storyboardForceOpen === false ? 'Expand all episodes' : 'Collapse all episodes'}
+            >
+              {storyboardForceOpen === false ? (
+                <IconChevronDown className="size-3.5" />
+              ) : (
+                <IconChevronUp className="size-3.5" />
+              )}
+            </button>
+            <Badge variant="outline" className="text-[9px]">
+              {doneScenes}/{totalScenes} done
+            </Badge>
+          </div>
         </div>
 
         {/* Episode selection controls */}
@@ -2126,6 +2151,7 @@ export default function StoryboardPanel() {
                 return next;
               });
             }}
+            forceOpen={storyboardForceOpen}
           />
         ))}
       </div>

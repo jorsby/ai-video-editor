@@ -23,9 +23,11 @@ import {
   IconMapPin,
   IconPackage,
   IconUsers,
+  IconChevronUp,
   IconMicrophone,
   IconVideo,
 } from '@tabler/icons-react';
+import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 
 type SceneStatus =
   | 'draft'
@@ -530,7 +532,20 @@ export default function SeriesRoadmapPanel() {
   const [variantBySlug, setVariantBySlug] = useState<Map<string, VariantMeta>>(
     new Map()
   );
-  const [expandedEp, setExpandedEp] = useState<number | null>(null);
+  const [expandedEps, setExpandedEps] = useState<Set<number>>(new Set());
+  const { toggleAll, getForceOpen } = usePanelCollapseStore();
+  const roadmapForceOpen = getForceOpen('roadmap');
+
+  // Respond to collapse/expand all
+  useEffect(() => {
+    if (roadmapForceOpen === false) {
+      setExpandedEps(new Set());
+    } else if (roadmapForceOpen === null && episodes.length > 0) {
+      // When reset from collapsed, expand first
+      // (only if currently empty, i.e. was collapsed)
+    }
+  }, [roadmapForceOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -742,7 +757,11 @@ export default function SeriesRoadmapPanel() {
       });
       setVariantBySlug(nextVariantBySlug);
       setEpisodes(nextEpisodes);
-      setExpandedEp((prev) => prev ?? nextEpisodes[0]?.order ?? null);
+      setExpandedEps((prev) => {
+        if (prev.size > 0) return prev;
+        const first = nextEpisodes[0]?.order;
+        return first != null ? new Set([first]) : new Set();
+      });
       setLoading(false);
     } catch (loadError) {
       setError(
@@ -954,9 +973,29 @@ export default function SeriesRoadmapPanel() {
             ) : (
               <p className="text-sm font-medium">{series.name}</p>
             )}
-            <span className="text-[9px] text-muted-foreground whitespace-nowrap">
-              {doneEpisodes}/{episodes.length} episodes
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (expandedEps.size > 0) {
+                    setExpandedEps(new Set());
+                  } else {
+                    setExpandedEps(new Set(episodes.map((e) => e.order)));
+                  }
+                }}
+                className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
+                title={expandedEps.size > 0 ? 'Collapse all episodes' : 'Expand all episodes'}
+              >
+                {expandedEps.size > 0 ? (
+                  <IconChevronUp className="size-3.5" />
+                ) : (
+                  <IconChevronDown className="size-3.5" />
+                )}
+              </button>
+              <span className="text-[9px] text-muted-foreground whitespace-nowrap">
+                {doneEpisodes}/{episodes.length} episodes
+              </span>
+            </div>
           </div>
 
           <div className="h-1 bg-muted/30 rounded-full overflow-hidden">
@@ -1047,11 +1086,17 @@ export default function SeriesRoadmapPanel() {
             <EpisodeCard
               key={episode.id}
               episode={episode}
-              isExpanded={expandedEp === episode.order}
+              isExpanded={expandedEps.has(episode.order)}
               onToggle={() =>
-                setExpandedEp(
-                  expandedEp === episode.order ? null : episode.order
-                )
+                setExpandedEps((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(episode.order)) {
+                    next.delete(episode.order);
+                  } else {
+                    next.add(episode.order);
+                  }
+                  return next;
+                })
               }
               variantBySlug={variantBySlug}
             />
