@@ -12,7 +12,6 @@ import {
   IconMessageCircle,
   IconDeviceTv,
   IconPackage,
-  IconMovie,
   IconLayoutList,
   IconSettings,
 } from '@tabler/icons-react';
@@ -30,7 +29,6 @@ export type Tab =
   | 'transitions'
   | 'assistant'
   | 'assets'
-  | 'roadmap'
   | 'storyboard'
   | 'renders'
   | 'settings';
@@ -41,10 +39,6 @@ export const tabs: {
   assets: {
     icon: IconPackage,
     label: 'Assets',
-  },
-  roadmap: {
-    icon: IconMovie,
-    label: 'Roadmap',
   },
   storyboard: {
     icon: IconLayoutList,
@@ -112,7 +106,7 @@ interface MediaPanelStore {
 }
 
 export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
-  activeTab: 'roadmap',
+  activeTab: 'storyboard',
   setActiveTab: (tab) => set({ activeTab: tab, showProperties: false }),
   highlightMediaId: null,
   requestRevealMedia: (mediaId) =>

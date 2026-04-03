@@ -13,7 +13,6 @@ import PanelCaptions from './panel/captions';
 import PanelMusic from './panel/music';
 import PanelSFX from './panel/sfx';
 import ProjectAssetsPanel from './panel/project-assets-panel';
-import SeriesRoadmapPanel from './panel/series-roadmap-panel';
 import StoryboardPanel from './panel/storyboard-panel';
 import SeriesSettingsPanel from './panel/series-settings-panel';
 import PanelRenders from './panel/renders';
@@ -38,7 +37,6 @@ const viewMap: Record<Tab, React.ReactNode> = {
   effects: <PanelEffect />,
   assistant: <Assistant />,
   assets: <ProjectAssetsPanel />,
-  roadmap: <SeriesRoadmapPanel />,
   storyboard: <StoryboardPanel />,
   settings: <SeriesSettingsPanel />,
   renders: <PanelRenders />,

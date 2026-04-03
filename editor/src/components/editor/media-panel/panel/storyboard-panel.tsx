@@ -45,8 +45,11 @@ import {
 } from '@tabler/icons-react';
 import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
+import { useSeriesSelectorStore } from '@/stores/series-selector-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+type SeriesOption = { id: string; name: string };
 
 interface SceneData {
   id: string;
@@ -1668,9 +1671,59 @@ function EpisodeAccordion({
 
             {/* Synopsis */}
             {episode.synopsis && (
-              <p className="text-[10px] text-muted-foreground/70 px-2 line-clamp-2">
+              <p className="text-[10px] text-muted-foreground/70 px-2 line-clamp-2 italic">
                 {episode.synopsis}
               </p>
+            )}
+
+            {/* Audio Content (collapsible) */}
+            {episode.audio_content && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded bg-muted/15 border border-border/20 text-left hover:bg-muted/25 transition-colors"
+                  >
+                    <IconVolume className="size-3 text-muted-foreground shrink-0" />
+                    <span className="text-[9px] font-medium text-muted-foreground flex-1">
+                      Audio Content
+                    </span>
+                    <IconChevronDown className="size-3 text-muted-foreground" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-2 py-1.5 mt-1 rounded bg-muted/10 border border-border/15">
+                    <p className="text-[10px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                      {episode.audio_content}
+                    </p>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Visual Outline (collapsible) */}
+            {episode.visual_outline && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded bg-muted/15 border border-border/20 text-left hover:bg-muted/25 transition-colors"
+                  >
+                    <IconPhoto className="size-3 text-muted-foreground shrink-0" />
+                    <span className="text-[9px] font-medium text-muted-foreground flex-1">
+                      Visual Outline
+                    </span>
+                    <IconChevronDown className="size-3 text-muted-foreground" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-2 py-1.5 mt-1 rounded bg-muted/10 border border-border/15">
+                    <p className="text-[10px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                      {episode.visual_outline}
+                    </p>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             )}
 
             {/* Asset Gallery (toggle) */}
@@ -1733,8 +1786,10 @@ function EpisodeAccordion({
 
 export default function StoryboardPanel() {
   const projectId = useProjectId();
+  const [allSeries, setAllSeries] = useState<SeriesOption[]>([]);
+  const { getSeriesId, setSeriesId: persistSeriesId } = useSeriesSelectorStore();
+  const [seriesId, setSeriesIdLocal] = useState<string | null>(null);
   const [episodes, setEpisodes] = useState<EpisodeData[]>([]);
-  const [seriesName, setSeriesName] = useState<string | null>(null);
   const [imageMap, setImageMap] = useState<VariantImageMap>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1748,11 +1803,50 @@ export default function StoryboardPanel() {
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
   const storyboardForceOpen = getForceOpen('storyboard');
 
+  // Helper to set series both locally and in persistent store
+  const setSeriesId = useCallback(
+    (id: string | null) => {
+      setSeriesIdLocal(id);
+      if (id && projectId) persistSeriesId(projectId, id);
+    },
+    [projectId, persistSeriesId]
+  );
+
+  // Load all series for this project (for the dropdown)
+  useEffect(() => {
+    if (!projectId) {
+      setAllSeries([]);
+      return;
+    }
+
+    const supabase = createClient('studio');
+    supabase
+      .from('series')
+      .select('id, name')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        const list: SeriesOption[] = (data ?? []).map((s) => ({
+          id: s.id,
+          name: (s.name as string) || 'Untitled',
+        }));
+        setAllSeries(list);
+
+        // Restore persisted selection or auto-select first
+        const persisted = getSeriesId(projectId);
+        if (persisted && list.some((s) => s.id === persisted)) {
+          setSeriesIdLocal(persisted);
+        } else if (list.length > 0) {
+          setSeriesId(list[0].id);
+        }
+      });
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (!projectId) {
+      if (!projectId || !seriesId) {
         setIsLoading(false);
         return;
       }
@@ -1766,31 +1860,13 @@ export default function StoryboardPanel() {
       const supabase = createClient('studio');
 
       try {
-        // Find series for this project
-        const { data: seriesRow } = await supabase
-          .from('series')
-          .select('id, name')
-          .eq('project_id', projectId)
-          .limit(1)
-          .maybeSingle();
-
-        if (!seriesRow) {
-          if (!cancelled) {
-            setEpisodes([]);
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        if (!cancelled) setSeriesName(seriesRow.name);
-
-        // Fetch episodes
+        // Fetch episodes for the selected series
         const { data: epRows, error: epError } = await supabase
           .from('episodes')
           .select(
             'id, "order", title, synopsis, status, audio_content, visual_outline, asset_variant_map'
           )
-          .eq('series_id', seriesRow.id)
+          .eq('series_id', seriesId)
           .order('"order"', { ascending: true });
 
         if (epError) throw new Error(epError.message);
@@ -1906,7 +1982,7 @@ export default function StoryboardPanel() {
       supabaseRT.removeChannel(sceneSub);
       supabaseRT.removeChannel(variantSub);
     };
-  }, [projectId]);
+  }, [projectId, seriesId]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1926,14 +2002,48 @@ export default function StoryboardPanel() {
     );
   }
 
-  if (episodes.length === 0) {
+  if (!seriesId || allSeries.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-4 text-center gap-2">
         <IconMovie className="size-8 text-muted-foreground/30" />
-        <p className="text-xs text-muted-foreground">No episodes yet.</p>
+        <p className="text-xs text-muted-foreground">No series linked yet.</p>
         <p className="text-[10px] text-muted-foreground/50">
-          Create episodes via API to see the storyboard.
+          Link a series to this project to see episodes.
         </p>
+      </div>
+    );
+  }
+
+  if (episodes.length === 0 && !isLoading) {
+    return (
+      <div className="h-full flex flex-col">
+        {/* Series selector even when no episodes */}
+        <div className="p-3 border-b border-border/20">
+          {allSeries.length > 1 ? (
+            <select
+              value={seriesId ?? ''}
+              onChange={(e) => setSeriesId(e.target.value || null)}
+              className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
+            >
+              {allSeries.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm font-medium">
+              {allSeries.find((s) => s.id === seriesId)?.name || 'Storyboard'}
+            </p>
+          )}
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-4 text-center gap-2">
+          <IconMovie className="size-8 text-muted-foreground/30" />
+          <p className="text-xs text-muted-foreground">No episodes yet.</p>
+          <p className="text-[10px] text-muted-foreground/50">
+            Create episodes via API to see the storyboard.
+          </p>
+        </div>
       </div>
     );
   }
@@ -1957,16 +2067,31 @@ export default function StoryboardPanel() {
   const totalVariantImages = [...imageMap.values()].filter(
     (v) => !!v.image_url
   ).length;
+  const seriesName = allSeries.find((s) => s.id === seriesId)?.name;
 
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-1">
-        {/* Header */}
+        {/* Header with series selector */}
         <div className="flex items-center justify-between mb-2">
           <div>
-            <h3 className="text-sm font-semibold">
-              {seriesName || 'Storyboard'}
-            </h3>
+            {allSeries.length > 1 ? (
+              <select
+                value={seriesId ?? ''}
+                onChange={(e) => setSeriesId(e.target.value || null)}
+                className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
+              >
+                {allSeries.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <h3 className="text-sm font-semibold">
+                {seriesName || 'Storyboard'}
+              </h3>
+            )}
             <p className="text-[10px] text-muted-foreground">
               {episodes.length} episodes · {totalScenes} scenes
               {totalDuration > 0 && ` · ${formatDuration(totalDuration)}`}
@@ -1990,6 +2115,16 @@ export default function StoryboardPanel() {
               {doneScenes}/{totalScenes} done
             </Badge>
           </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-1 bg-muted/30 rounded-full overflow-hidden mb-1">
+          <div
+            className="h-full bg-emerald-500/60 rounded-full transition-all"
+            style={{
+              width: `${totalScenes > 0 ? (doneScenes / totalScenes) * 100 : 0}%`,
+            }}
+          />
         </div>
 
         {/* Episode selection controls */}

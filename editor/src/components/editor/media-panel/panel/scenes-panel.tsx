@@ -44,7 +44,7 @@ export default function ScenesPanel() {
   ).length;
 
   const handleOpenEpisode = (_episodeId: string | null) => {
-    setActiveTab('roadmap');
+    setActiveTab('storyboard');
   };
 
   if (isLoading) {
