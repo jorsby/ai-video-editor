@@ -24,7 +24,7 @@ interface Variant {
   description: string | null;
   is_main: boolean;
   is_finalized: boolean;
-  series_asset_variant_images: VariantImage[];
+  project_asset_variant_images: VariantImage[];
 }
 
 interface Asset {
@@ -53,9 +53,9 @@ function AssetItem({ asset }: { asset: Asset }) {
   const [expanded, setExpanded] = useState(false);
   const mainVariant = asset.project_asset_variants.find((v) => v.is_main);
   const heroImage =
-    mainVariant?.series_asset_variant_images?.[0] ??
+    mainVariant?.project_asset_variant_images?.[0] ??
     asset.project_asset_variants.flatMap(
-      (v) => v.series_asset_variant_images ?? []
+      (v) => v.project_asset_variant_images ?? []
     )?.[0];
 
   return (
@@ -106,10 +106,10 @@ function AssetItem({ asset }: { asset: Asset }) {
               key={v.id}
               className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20 border border-border/30"
             >
-              {v.series_asset_variant_images?.[0]?.url ? (
+              {v.project_asset_variant_images?.[0]?.url ? (
                 // biome-ignore lint/a11y/useAltText: variant thumb
                 <img
-                  src={v.series_asset_variant_images[0].url}
+                  src={v.project_asset_variant_images[0].url}
                   className="w-6 h-6 rounded object-cover border border-border/30 shrink-0"
                 />
               ) : (

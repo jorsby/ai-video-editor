@@ -225,9 +225,11 @@ export async function POST(req: NextRequest) {
     for (const { key, type, items, offset } of assetTypes) {
       if (items.length === 0) continue;
 
+      // Upsert so that creating a second series in the same project
+      // reuses existing assets instead of failing on duplicate slugs.
       const { data: rows, error: insertError } = await dbClient
         .from('project_assets')
-        .insert(
+        .upsert(
           items.map((asset, index) => ({
             project_id: projectId,
             type,
@@ -235,7 +237,8 @@ export async function POST(req: NextRequest) {
             slug: slugify(asset.name),
             description: asset.description ?? null,
             sort_order: offset + index,
-          }))
+          })),
+          { onConflict: 'project_id,slug', ignoreDuplicates: false }
         )
         .select('id, slug, name, description');
 

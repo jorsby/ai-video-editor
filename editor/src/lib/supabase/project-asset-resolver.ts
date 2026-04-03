@@ -90,20 +90,13 @@ function pickBestVariantImage(
   supabase: SupabaseClient,
   variants: Array<{
     id: string;
-    is_finalized?: boolean | null;
     is_main: boolean;
     image_url: string | null;
   }>
 ): { url: string; variantId: string } | null {
   if (!variants || variants.length === 0) return null;
 
-  for (const variant of variants) {
-    if (variant.is_finalized) {
-      const url = resolveImageUrl(supabase, variant.image_url);
-      if (url) return { url, variantId: variant.id };
-    }
-  }
-
+  // is_main first, then any with image
   for (const variant of variants) {
     if (variant.is_main) {
       const url = resolveImageUrl(supabase, variant.image_url);
@@ -126,7 +119,7 @@ export async function resolveProjectAssetCandidatesForProject(
   const { data: assets, error: assetsError } = await supabase
     .from('project_assets')
     .select(
-      'id, name, type, description, project_asset_variants (id, is_main, is_finalized, image_url)'
+      'id, name, type, description, project_asset_variants (id, is_main, image_url)'
     )
     .eq('project_id', projectId);
 
@@ -187,7 +180,7 @@ export async function resolveProjectAssetsForProject(
   const { data: assets, error: assetsError } = await supabase
     .from('project_assets')
     .select(
-      'id, name, type, project_asset_variants (id, is_main, is_finalized, image_url)'
+      'id, name, type, project_asset_variants (id, is_main, image_url)'
     )
     .eq('project_id', projectId);
 
