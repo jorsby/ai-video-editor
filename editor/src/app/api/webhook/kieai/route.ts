@@ -904,6 +904,154 @@ async function handleSeriesAssetImage(params: {
   });
 }
 
+async function handleGenerateCharacterVariantImage(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  variantId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, variantId, log } = params;
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateCharacterVariantImage',
+    });
+  }
+
+  if (isFailureState(state)) {
+    await supabase
+      .from('project_character_variants')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', variantId)
+      .eq('image_task_id', taskId);
+
+    return okResponse({
+      success: true,
+      step: 'GenerateCharacterVariantImage',
+      failed: true,
+    });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const imageUrl = extractImageUrl(result);
+
+  if (!imageUrl) {
+    await supabase
+      .from('project_character_variants')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', variantId)
+      .eq('image_task_id', taskId);
+
+    return okResponse({
+      success: true,
+      step: 'GenerateCharacterVariantImage',
+      failed: true,
+      reason: 'missing_image_url',
+    });
+  }
+
+  await supabase
+    .from('project_character_variants')
+    .update({
+      image_url: imageUrl,
+      image_gen_status: 'done',
+      image_task_id: null,
+    })
+    .eq('id', variantId)
+    .eq('image_task_id', taskId);
+
+  log.info('Character variant image URL saved from kie webhook', {
+    variant_id: variantId,
+    task_id: taskId,
+    image_url: imageUrl,
+  });
+
+  return okResponse({
+    success: true,
+    step: 'GenerateCharacterVariantImage',
+    variant_id: variantId,
+    image_url: imageUrl,
+  });
+}
+
+async function handleGenerateBackgroundImage(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  backgroundId: string;
+  log: Logger;
+}): Promise<Response> {
+  const { supabase, payload, taskId, backgroundId, log } = params;
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({
+      success: true,
+      pending: true,
+      step: 'GenerateBackgroundImage',
+    });
+  }
+
+  if (isFailureState(state)) {
+    await supabase
+      .from('project_backgrounds')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', backgroundId)
+      .eq('image_task_id', taskId);
+
+    return okResponse({
+      success: true,
+      step: 'GenerateBackgroundImage',
+      failed: true,
+    });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const imageUrl = extractImageUrl(result);
+
+  if (!imageUrl) {
+    await supabase
+      .from('project_backgrounds')
+      .update({ image_gen_status: 'failed', image_task_id: null })
+      .eq('id', backgroundId)
+      .eq('image_task_id', taskId);
+
+    return okResponse({
+      success: true,
+      step: 'GenerateBackgroundImage',
+      failed: true,
+      reason: 'missing_image_url',
+    });
+  }
+
+  await supabase
+    .from('project_backgrounds')
+    .update({
+      image_url: imageUrl,
+      image_gen_status: 'done',
+      image_task_id: null,
+    })
+    .eq('id', backgroundId)
+    .eq('image_task_id', taskId);
+
+  log.info('Background image URL saved from kie webhook', {
+    background_id: backgroundId,
+    task_id: taskId,
+    image_url: imageUrl,
+  });
+
+  return okResponse({
+    success: true,
+    step: 'GenerateBackgroundImage',
+    background_id: backgroundId,
+    image_url: imageUrl,
+  });
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: webhook completion and alt-track handling
 async function handleGenerateMusic(params: {
   supabase: any;
@@ -1301,6 +1449,44 @@ export async function POST(req: NextRequest) {
         payload,
         taskId: verification.taskId,
         characterId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateCharacterVariantImage') {
+      const variantId = req.nextUrl.searchParams.get('variant_id');
+      if (!variantId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_variant_id',
+        });
+      }
+
+      return await handleGenerateCharacterVariantImage({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        variantId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateBackgroundImage') {
+      const backgroundId = req.nextUrl.searchParams.get('background_id');
+      if (!backgroundId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_background_id',
+        });
+      }
+
+      return await handleGenerateBackgroundImage({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        backgroundId,
         log,
       });
     }
