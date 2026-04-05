@@ -241,7 +241,7 @@ type SceneSeed = {
   content_mode: 'narrative' | 'cinematic' | 'hybrid';
   visual_direction: string;
   prompt: string;
-  background_slug: string;
+  location_variant_slug: string;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
   audio_text: string;
@@ -372,7 +372,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Start with a wide foggy establish, push in to Ava scanning container IDs while distant sirens echo.',
         prompt:
           'Cinematic thriller cold open, neon harbor at night, Ava Kim in field reporter look walking between wet shipping containers, subtle handheld camera drift, moody teal-orange grade, realistic rain reflections.',
-        background_slug: 'pier-17-container-yard-blue-hour-establishing',
+        location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
         character_variant_slugs: ['ava-kim-field-reporter'],
         prop_variant_slugs: ['cipher-watch-closed-wristwatch'],
         audio_text:
@@ -392,7 +392,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Contrast orderly archive rows with Marcus hurriedly pulling restricted binders, then glancing at security cameras.',
         prompt:
           'Narrative drama scene inside city records vault, Marcus Vale archive worker look, medium and close coverage, cool fluorescent lighting, evidence folder opened under desk lamp, cinematic realism.',
-        background_slug: 'city-records-vault-lit-catalog-aisle',
+        location_variant_slug: 'city-records-vault-lit-catalog-aisle',
         character_variant_slugs: ['marcus-vale-archive-worker'],
         prop_variant_slugs: ['casefile-echo-9-dossier-sealed-folder-exterior'],
         audio_text:
@@ -412,7 +412,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Intercut Ava voiceover with close-up inserts of the cipher watch mechanism and annotated timeline boards.',
         prompt:
           'Hybrid investigative montage, close-up macro watch mechanism reveal, dossier evidence spread, slow cinematic push-ins mixed with narrative overlays, realistic film grain.',
-        background_slug: 'city-records-vault-emergency-power-mode',
+        location_variant_slug: 'city-records-vault-emergency-power-mode',
         character_variant_slugs: [
           'ava-kim-studio-intro',
           'marcus-vale-archive-worker',
@@ -438,7 +438,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Hard cut back to pier with searchlights sweeping through fog while Ava and Marcus split directions to avoid patrols.',
         prompt:
           'High-tension cinematic chase beat at Pier 17 under rotating searchlights, Ava and Marcus sprint through fog, long-lens compression, dramatic contrast, wet ground reflections.',
-        background_slug: 'pier-17-container-yard-night-searchlight-pass',
+        location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
         character_variant_slugs: [
           'ava-kim-field-reporter',
           'marcus-vale-anonymous-source',
@@ -497,7 +497,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Direct-to-camera framing from Ava, then quick inserts of marked-up case materials.',
         prompt:
           'Investigative newsroom narration with Ava Kim studio intro look, desk evidence inserts, clean documentary framing.',
-        background_slug: 'city-records-vault-lit-catalog-aisle',
+        location_variant_slug: 'city-records-vault-lit-catalog-aisle',
         character_variant_slugs: ['ava-kim-studio-intro'],
         prop_variant_slugs: ['casefile-echo-9-dossier-spread-evidence-layout'],
         audio_text:
@@ -517,7 +517,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Marcus checks badge access, hears movement, then grabs the maintenance ledger anyway.',
         prompt:
           'Suspense scene in archive aisle, Marcus Vale archive worker look, practical overhead lighting, tense glances toward security camera.',
-        background_slug: 'city-records-vault-lit-catalog-aisle',
+        location_variant_slug: 'city-records-vault-lit-catalog-aisle',
         character_variant_slugs: ['marcus-vale-archive-worker'],
         prop_variant_slugs: ['casefile-echo-9-dossier-sealed-folder-exterior'],
         audio_text:
@@ -537,7 +537,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Top-down evidence layout mixed with Ava VO and redacted names sharpening into focus.',
         prompt:
           'Hybrid evidence analysis montage with dossier spread, watch detail inserts, cinematic top-down table composition.',
-        background_slug: 'city-records-vault-emergency-power-mode',
+        location_variant_slug: 'city-records-vault-emergency-power-mode',
         character_variant_slugs: ['ava-kim-studio-intro'],
         prop_variant_slugs: [
           'casefile-echo-9-dossier-spread-evidence-layout',
@@ -560,7 +560,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Cut from files to wet asphalt, blue-hour fog, and the sense that someone arrived before Ava.',
         prompt:
           'Moody harbor return scene at Pier 17 blue hour, Ava field reporter look, quiet dread, slick reflections, cinematic realism.',
-        background_slug: 'pier-17-container-yard-blue-hour-establishing',
+        location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
         character_variant_slugs: ['ava-kim-field-reporter'],
         prop_variant_slugs: ['cipher-watch-closed-wristwatch'],
         audio_text:
@@ -607,7 +607,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Searchlights sweep before anyone crosses the fence line.',
         prompt:
           'Night harbor surveillance scene with rotating searchlights and dense fog, empty industrial dock, thriller tone.',
-        background_slug: 'pier-17-container-yard-night-searchlight-pass',
+        location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
         character_variant_slugs: ['ava-kim-field-reporter'],
         prop_variant_slugs: ['cipher-watch-closed-wristwatch'],
         audio_text:
@@ -627,7 +627,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Tight low-angle movement through fencing, handheld urgency, minimal spoken lines.',
         prompt:
           'Dock infiltration scene with Ava and Marcus moving through fence gap, wet ground, handheld cinematic thriller framing.',
-        background_slug: 'pier-17-container-yard-night-searchlight-pass',
+        location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
         character_variant_slugs: [
           'ava-kim-field-reporter',
           'marcus-vale-anonymous-source',
@@ -649,7 +649,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Close-up evidence inserts with compressed time while Ava narrates the meaning of the routes.',
         prompt:
           'Evidence capture montage at harbor workstation, dossier inserts, route sheets, practical sodium lighting, hybrid documentary style.',
-        background_slug: 'pier-17-container-yard-blue-hour-establishing',
+        location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
         character_variant_slugs: ['ava-kim-field-reporter'],
         prop_variant_slugs: ['casefile-echo-9-dossier-spread-evidence-layout'],
         audio_text:
@@ -669,7 +669,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Cross-cut Ava and Marcus fleeing in opposite directions through light and fog.',
         prompt:
           'Split pursuit scene at industrial dock, long-lens panic, searchlights through fog, noir chase mood.',
-        background_slug: 'pier-17-container-yard-night-searchlight-pass',
+        location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
         character_variant_slugs: [
           'ava-kim-field-reporter',
           'marcus-vale-anonymous-source',
@@ -722,7 +722,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Calmer interior energy, damp clothing, dossier and watch placed under one lamp.',
         prompt:
           'Post-chase reset scene, Ava and Marcus regroup in dim safehouse, practical lamp lighting, grounded investigative tone.',
-        background_slug: 'city-records-vault-lit-catalog-aisle',
+        location_variant_slug: 'city-records-vault-lit-catalog-aisle',
         character_variant_slugs: [
           'ava-kim-studio-intro',
           'marcus-vale-anonymous-source',
@@ -748,7 +748,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Overlay weather bulletin typography with timeline and watch inserts.',
         prompt:
           'Weather-code decoding montage with overlays, watch details, dossier spread, investigative thriller visual language.',
-        background_slug: 'city-records-vault-emergency-power-mode',
+        location_variant_slug: 'city-records-vault-emergency-power-mode',
         character_variant_slugs: ['ava-kim-studio-intro'],
         prop_variant_slugs: [
           'cipher-watch-open-microfilm-mechanism',
@@ -771,7 +771,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Slow confidence build as the redacted name is matched to archive and dock records.',
         prompt:
           'Investigative reveal scene, Ava presenting matched records, restrained noir tone, evidence-led storytelling.',
-        background_slug: 'city-records-vault-lit-catalog-aisle',
+        location_variant_slug: 'city-records-vault-lit-catalog-aisle',
         character_variant_slugs: [
           'ava-kim-studio-intro',
           'marcus-vale-archive-worker',
@@ -794,7 +794,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
           'Close on a new route marker while harbor noise fades into distant train sound.',
         prompt:
           'Short closing teaser with dossier insert and atmospheric route transition, cinematic investigative cliffhanger.',
-        background_slug: 'pier-17-container-yard-blue-hour-establishing',
+        location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
         character_variant_slugs: ['ava-kim-field-reporter'],
         prop_variant_slugs: ['casefile-echo-9-dossier-sealed-folder-exterior'],
         audio_text:
@@ -1065,7 +1065,7 @@ export async function POST(request: NextRequest) {
       content_mode: scene.content_mode,
       visual_direction: scene.visual_direction,
       prompt: scene.prompt,
-      background_slug: scene.background_slug,
+      location_variant_slug: scene.location_variant_slug,
       character_variant_slugs: scene.character_variant_slugs,
       prop_variant_slugs: scene.prop_variant_slugs,
       audio_text: scene.audio_text,

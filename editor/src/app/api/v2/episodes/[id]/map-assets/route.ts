@@ -118,7 +118,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scenes, error: scenesError } = await db
       .from('scenes')
       .select(
-        'background_slug, character_variant_slugs, prop_variant_slugs'
+        'location_variant_slug, character_variant_slugs, prop_variant_slugs'
       )
       .eq('episode_id', owned.episode.id)
       .order('order', { ascending: true });
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const props = new Set<string>();
 
     for (const scene of scenes ?? []) {
-      const location = normalizeSlug(scene.background_slug);
+      const location = normalizeSlug(scene.location_variant_slug);
       if (location) locations.add(location);
 
       for (const characterSlug of normalizeSlugArray(

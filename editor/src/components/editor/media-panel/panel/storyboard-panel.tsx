@@ -62,7 +62,7 @@ interface SceneData {
   video_url: string | null;
   video_duration: number | null;
   status: string | null;
-  background_slug: string | null;
+  location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
   tts_status: string;
@@ -735,12 +735,12 @@ function SceneCard({
   const isNarrative = !!scene.audio_text;
   const needsTtsFirst = isNarrative && !hasAudio;
   const charCount = scene.character_variant_slugs?.length ?? 0;
-  const hasLocation = !!scene.background_slug;
+  const hasLocation = !!scene.location_variant_slug;
   const propCount = scene.prop_variant_slugs?.length ?? 0;
 
   // Collect all slugs for this scene
   const allSlugs: string[] = [];
-  if (scene.background_slug) allSlugs.push(scene.background_slug);
+  if (scene.location_variant_slug) allSlugs.push(scene.location_variant_slug);
   if (scene.character_variant_slugs)
     allSlugs.push(...scene.character_variant_slugs);
   if (scene.prop_variant_slugs) allSlugs.push(...scene.prop_variant_slugs);
@@ -836,11 +836,11 @@ function SceneCard({
           {hasLocation && (
             <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               <VariantAvatar
-                slug={scene.background_slug!}
+                slug={scene.location_variant_slug!}
                 imageMap={imageMap}
               />
               <IconMapPin className="size-2.5" />
-              {slugToLabel(scene.background_slug!)}
+              {slugToLabel(scene.location_variant_slug!)}
             </span>
           )}
           {scene.character_variant_slugs?.map((slug) => (
@@ -951,7 +951,7 @@ function SceneCard({
           <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
             <HighlightedPrompt
               prompt={scene.prompt!}
-              locationSlug={scene.background_slug}
+              locationSlug={scene.location_variant_slug}
               characterSlugs={scene.character_variant_slugs ?? []}
               propSlugs={scene.prop_variant_slugs ?? []}
               imageMap={imageMap}
@@ -1404,7 +1404,7 @@ function EpisodeAccordion({
   const locationSlugs = [
     ...new Set(
       episode.scenes
-        .map((s) => s.background_slug)
+        .map((s) => s.location_variant_slug)
         .filter(Boolean) as string[]
     ),
   ];
@@ -1890,7 +1890,7 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, background_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
             .in('episode_id', epIds)
             .order('"order"', { ascending: true });
@@ -1904,7 +1904,7 @@ export default function StoryboardPanel() {
         // Collect all unique variant slugs across scenes
         const slugSet = new Set<string>();
         for (const s of allScenes as (SceneData & { episode_id: string })[]) {
-          if (s.background_slug) slugSet.add(s.background_slug);
+          if (s.location_variant_slug) slugSet.add(s.location_variant_slug);
           for (const c of s.character_variant_slugs ?? []) slugSet.add(c);
           for (const p of s.prop_variant_slugs ?? []) slugSet.add(p);
         }

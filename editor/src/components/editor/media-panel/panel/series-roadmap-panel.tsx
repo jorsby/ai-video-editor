@@ -68,7 +68,7 @@ interface EpisodeScene {
   video_url: string | null;
   tts_status: string | null;
   video_status: string | null;
-  background_slug: string | null;
+  location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
 }
@@ -226,8 +226,8 @@ function SceneRow({
   const promptPreview = scene.prompt?.trim() || 'No prompt yet';
   const audioPreview = scene.audio_text?.trim() || null;
 
-  const location = scene.background_slug
-    ? [scene.background_slug]
+  const location = scene.location_variant_slug
+    ? [scene.location_variant_slug]
     : [];
   const characters = scene.character_variant_slugs;
   const props = scene.prop_variant_slugs;
@@ -688,7 +688,7 @@ export default function SeriesRoadmapPanel() {
         const { data: sceneRows, error: sceneError } = await supabase
           .from('scenes')
           .select(
-            'id, episode_id, order, title, prompt, audio_text, audio_url, video_url, tts_status, video_status, background_slug, character_variant_slugs, prop_variant_slugs'
+            'id, episode_id, order, title, prompt, audio_text, audio_url, video_url, tts_status, video_status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
           )
           .in('episode_id', episodeIds)
           .order('order', { ascending: true });
@@ -712,7 +712,7 @@ export default function SeriesRoadmapPanel() {
             video_url: scene.video_url ?? null,
             tts_status: scene.tts_status ?? null,
             video_status: scene.video_status ?? null,
-            background_slug: scene.background_slug ?? null,
+            location_variant_slug: scene.location_variant_slug ?? null,
             character_variant_slugs: normalizeSlugArray(
               scene.character_variant_slugs
             ),

@@ -37,7 +37,7 @@ export interface Scene {
   compile_status?: CompiledPromptStatus | null;
   resolved_asset_refs?: CompiledAssetRef[] | null;
   reference_images?: CompiledReferenceImage[] | null;
-  background_slug: string | null;
+  location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
   audio_text: string | null;

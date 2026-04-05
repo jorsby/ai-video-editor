@@ -25,7 +25,7 @@ export interface GrokCompileInput {
   /** Raw prompt with @variant-slug references (e.g. "@mekke-sokaklari-main dark streets") */
   prompt: string;
   /** Location variant slug for this scene */
-  backgroundSlug: string | null;
+  locationVariantSlug: string | null;
   /** Character variant slugs in scene order */
   characterVariantSlugs: string[];
   /** Prop variant slugs in scene order */
@@ -59,8 +59,8 @@ export function compileForGrok(input: GrokCompileInput): GrokCompileOutput {
 
   // Build ordered slug list: background → characters → props
   const orderedSlugs: string[] = [];
-  if (input.backgroundSlug) {
-    orderedSlugs.push(input.backgroundSlug);
+  if (input.locationVariantSlug) {
+    orderedSlugs.push(input.locationVariantSlug);
   }
   for (const slug of input.characterVariantSlugs) {
     if (slug && !orderedSlugs.includes(slug)) orderedSlugs.push(slug);

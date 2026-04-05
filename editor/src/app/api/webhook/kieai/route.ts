@@ -688,75 +688,6 @@ async function handleGenerateSceneVideo(params: {
   });
 }
 
-async function handleGenerateFaceGrid(params: {
-  supabase: any;
-  payload: KieWebhookPayload;
-  taskId: string;
-  characterId: string;
-  log: Logger;
-}): Promise<Response> {
-  const { supabase, payload, taskId, characterId, log } = params;
-
-  const state = payload.data?.state ?? null;
-  if (isInProgressState(state)) {
-    return okResponse({
-      success: true,
-      pending: true,
-      step: 'GenerateFaceGrid',
-    });
-  }
-
-  if (isFailureState(state)) {
-    await supabase
-      .from('project_characters')
-      .update({ face_grid_status: 'failed', face_grid_task_id: null })
-      .eq('id', characterId)
-      .eq('face_grid_task_id', taskId);
-
-    return okResponse({
-      success: true,
-      step: 'GenerateFaceGrid',
-      failed: true,
-    });
-  }
-
-  const result = parseResultJson(payload.data?.resultJson);
-  const imageUrl = extractImageUrl(result);
-
-  if (!imageUrl) {
-    await supabase
-      .from('project_characters')
-      .update({ face_grid_status: 'failed', face_grid_task_id: null })
-      .eq('id', characterId)
-      .eq('face_grid_task_id', taskId);
-
-    return okResponse({
-      success: true,
-      step: 'GenerateFaceGrid',
-      failed: true,
-    });
-  }
-
-  await supabase
-    .from('project_characters')
-    .update({
-      face_grid_url: imageUrl,
-      face_grid_status: 'done',
-      face_grid_task_id: null,
-    })
-    .eq('id', characterId)
-    .eq('face_grid_task_id', taskId);
-
-  log.info('Face grid generated', { characterId, imageUrl });
-
-  return okResponse({
-    success: true,
-    step: 'GenerateFaceGrid',
-    character_id: characterId,
-    image_url: imageUrl,
-  });
-}
-
 async function handleGenerateImage(params: {
   supabase: any;
   payload: KieWebhookPayload;
@@ -1282,25 +1213,6 @@ export async function POST(req: NextRequest) {
         payload,
         taskId: verification.taskId,
         variantId,
-        log,
-      });
-    }
-
-    if (step === 'GenerateFaceGrid') {
-      const characterId = req.nextUrl.searchParams.get('character_id');
-      if (!characterId) {
-        return okResponse({
-          success: true,
-          ignored: true,
-          reason: 'missing_character_id',
-        });
-      }
-
-      return await handleGenerateFaceGrid({
-        supabase,
-        payload,
-        taskId: verification.taskId,
-        characterId,
         log,
       });
     }
