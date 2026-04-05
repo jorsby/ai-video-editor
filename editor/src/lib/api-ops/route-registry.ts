@@ -1084,7 +1084,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
           visual_direction: 'Wide establishing shot, golden hour...',
           prompt:
             'A lone figure approaches a massive wooden gate set in ancient sandstone walls...',
-          location_variant_slug: 'medina-courtyard-main',
+          background_slug: 'medina-courtyard-main',
           character_variant_slugs: ['ali-main'],
           prop_variant_slugs: ['seal-ring-main'],
           audio_text:
@@ -1118,7 +1118,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
           content_mode: 'narrative',
           visual_direction: 'Wide establishing shot, golden hour...',
           prompt: 'A lone figure approaches a massive wooden gate...',
-          location_variant_slug: 'medina-courtyard-main',
+          background_slug: 'medina-courtyard-main',
           character_variant_slugs: ['ali-main'],
           prop_variant_slugs: ['seal-ring-main'],
           audio_text: 'As the sun dipped below the horizon, Ali approached...',
@@ -1128,7 +1128,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
           content_mode: 'cinematic',
           visual_direction: 'Close-up sequence, dramatic lighting...',
           prompt: 'The village elder steps forward, blocking the path...',
-          location_variant_slug: 'medina-courtyard-main',
+          background_slug: 'medina-courtyard-main',
           character_variant_slugs: ['ali-main', 'fatima-main'],
           prop_variant_slugs: [],
           audio_text:
@@ -1167,7 +1167,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
       content_mode: 'narrative',
       visual_direction: 'Wide establishing shot...',
       prompt: 'A lone figure approaches...',
-      location_variant_slug: 'medina-courtyard-main',
+      background_slug: 'medina-courtyard-main',
       character_variant_slugs: ['ali-main'],
       prop_variant_slugs: ['seal-ring-main'],
       audio_text: 'As the sun dipped below the horizon...',
@@ -1189,13 +1189,13 @@ const sceneRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Updates one or more scene fields. Supports: title, order, content_mode (narrative|cinematic|hybrid), visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status (draft|ready|in_progress|done|failed).',
+      'Updates one or more scene fields. Supports: title, order, content_mode (narrative|cinematic|hybrid), visual_direction, prompt, background_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status (draft|ready|in_progress|done|failed).',
     pathParams: { id: 'scene-uuid' },
     body: {
       title: 'Updated Scene Title',
       prompt: 'Updated generation prompt...',
       visual_direction: 'Updated visual direction...',
-      location_variant_slug: 'desert-road-main',
+      background_slug: 'desert-road-main',
       character_variant_slugs: ['ali-night', 'fatima-main'],
       prop_variant_slugs: ['seal-ring-main'],
       audio_text: 'Updated narration text...',

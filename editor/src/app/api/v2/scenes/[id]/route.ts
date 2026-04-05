@@ -17,7 +17,13 @@ type SceneRecord = {
   content_mode: ContentMode | null;
   visual_direction: string | null;
   prompt: string | null;
-  location_variant_slug: string | null;
+  background_slug: string | null;
+  first_frame_url: string | null;
+  first_frame_prompt: string | null;
+  first_frame_status: string;
+  last_frame_url: string | null;
+  last_frame_prompt: string | null;
+  last_frame_status: string;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
   audio_text: string | null;
@@ -29,7 +35,7 @@ type SceneRecord = {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
+  'id, episode_id, order, title, content_mode, visual_direction, prompt, background_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, first_frame_url, first_frame_prompt, first_frame_status, last_frame_url, last_frame_prompt, last_frame_status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -236,14 +242,34 @@ function parseScenePatch(body: Record<string, unknown>): {
   if (prompt.error) return { updates, error: prompt.error };
   if (prompt.value !== undefined) updates.prompt = prompt.value;
 
-  const locationVariantSlug = toNullableString(
-    body.location_variant_slug,
-    'location_variant_slug'
+  const backgroundSlug = toNullableString(
+    body.background_slug,
+    'background_slug'
   );
-  if (locationVariantSlug.error)
-    return { updates, error: locationVariantSlug.error };
-  if (locationVariantSlug.value !== undefined) {
-    updates.location_variant_slug = locationVariantSlug.value;
+  if (backgroundSlug.error)
+    return { updates, error: backgroundSlug.error };
+  if (backgroundSlug.value !== undefined) {
+    updates.background_slug = backgroundSlug.value;
+  }
+
+  const firstFramePrompt = toNullableString(
+    body.first_frame_prompt,
+    'first_frame_prompt'
+  );
+  if (firstFramePrompt.error)
+    return { updates, error: firstFramePrompt.error };
+  if (firstFramePrompt.value !== undefined) {
+    updates.first_frame_prompt = firstFramePrompt.value;
+  }
+
+  const lastFramePrompt = toNullableString(
+    body.last_frame_prompt,
+    'last_frame_prompt'
+  );
+  if (lastFramePrompt.error)
+    return { updates, error: lastFramePrompt.error };
+  if (lastFramePrompt.value !== undefined) {
+    updates.last_frame_prompt = lastFramePrompt.value;
   }
 
   const characterVariantSlugs = toSlugArray(

@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, background_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       // ── Resolve variant slugs → image URLs from DB ────────────────────
 
       const allSlugs = [
-        scene.location_variant_slug,
+        scene.background_slug,
         ...(scene.character_variant_slugs ?? []),
         ...(scene.prop_variant_slugs ?? []),
       ].filter(Boolean) as string[];
@@ -208,7 +208,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       const compiled = compileForGrok({
         prompt: scene.prompt,
-        locationVariantSlug: scene.location_variant_slug,
+        backgroundSlug: scene.background_slug,
         characterVariantSlugs: scene.character_variant_slugs ?? [],
         propVariantSlugs: scene.prop_variant_slugs ?? [],
         slugToImageUrl,

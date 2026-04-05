@@ -96,7 +96,7 @@ interface SchemaScene {
   content_mode: ContentMode | null;
   visual_direction: string | null;
   prompt: string | null;
-  location_variant_slug: string | null;
+  background_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
   audio_text: string | null;
@@ -720,7 +720,7 @@ function createMockInspectorData(userId: string) {
         'Begin with wide harbor establish and push in to Ava scanning container IDs through fog.',
       prompt:
         'Neon harbor cold open, Ava in field look, subtle handheld drift, moody teal-orange grade, rainy reflections.',
-      location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
+      background_slug: 'pier-17-container-yard-blue-hour-establishing',
       character_variant_slugs: ['ava-kim-field-reporter'],
       prop_variant_slugs: ['cipher-watch-closed-wristwatch'],
       audio_text:
@@ -745,7 +745,7 @@ function createMockInspectorData(userId: string) {
         'Cut to controlled archive inserts and close-up watch handling under practical desk light.',
       prompt:
         'Narrative investigation beat, archive vault inserts, precise hand movements, realistic institutional ambience.',
-      location_variant_slug: 'pier-17-container-yard-blue-hour-establishing',
+      background_slug: 'pier-17-container-yard-blue-hour-establishing',
       character_variant_slugs: ['ava-kim-studio-intro'],
       prop_variant_slugs: ['cipher-watch-closed-wristwatch'],
       audio_text:
@@ -770,7 +770,7 @@ function createMockInspectorData(userId: string) {
         'Intercut voiceover narration with macro inserts of bezel mechanics and timeline overlays.',
       prompt:
         'Hybrid montage of watch mechanism and shipment board overlays, slow push-ins, documentary-noir look.',
-      location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
+      background_slug: 'pier-17-container-yard-night-searchlight-pass',
       character_variant_slugs: ['ava-kim-studio-intro'],
       prop_variant_slugs: ['cipher-watch-open-microfilm-mechanism'],
       audio_text:
@@ -795,7 +795,7 @@ function createMockInspectorData(userId: string) {
         'Hard cut back to dock as searchlights sweep fog and force abrupt movement off-route.',
       prompt:
         'High-tension pursuit beat under rotating searchlights, long-lens compression, wet ground reflections.',
-      location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
+      background_slug: 'pier-17-container-yard-night-searchlight-pass',
       character_variant_slugs: ['ava-kim-field-reporter'],
       prop_variant_slugs: ['cipher-watch-open-microfilm-mechanism'],
       audio_text:
@@ -820,7 +820,7 @@ function createMockInspectorData(userId: string) {
         'Brief timeline recap over surveillance stills with one moving camera pass.',
       prompt:
         'Recap montage with evidence board overlays, restrained camera motion, investigative tone.',
-      location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
+      background_slug: 'pier-17-container-yard-night-searchlight-pass',
       character_variant_slugs: ['ava-kim-studio-intro'],
       prop_variant_slugs: ['cipher-watch-open-microfilm-mechanism'],
       audio_text:
@@ -843,7 +843,7 @@ function createMockInspectorData(userId: string) {
         'Low-angle dawn sweep as two unmarked vans exchange parcels under low light.',
       prompt:
         'Cinematic dawn hand-off, long-lens compression, subtle rain haze, high tension.',
-      location_variant_slug: 'pier-17-container-yard-night-searchlight-pass',
+      background_slug: 'pier-17-container-yard-night-searchlight-pass',
       character_variant_slugs: ['ava-kim-field-reporter'],
       prop_variant_slugs: ['cipher-watch-open-microfilm-mechanism'],
       audio_text:
@@ -1053,7 +1053,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       ? await supabase
           .from('scenes')
           .select(
-            'id, episode_id, order, title, audio_duration, video_duration, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
+            'id, episode_id, order, title, audio_duration, video_duration, content_mode, visual_direction, prompt, background_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
           )
           .in('episode_id', episodeIds)
           .order('episode_id', { ascending: true })
@@ -1577,13 +1577,13 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                       {scene.prompt ?? 'No prompt'}
                                     </p>
                                     <div className="mt-1 flex flex-wrap gap-1">
-                                      {scene.location_variant_slug ? (
+                                      {scene.background_slug ? (
                                         <Badge variant="outline">
                                           L:{' '}
                                           {variantBySlug.get(
-                                            scene.location_variant_slug
+                                            scene.background_slug
                                           )?.name ??
-                                            scene.location_variant_slug}
+                                            scene.background_slug}
                                         </Badge>
                                       ) : null}
                                       {scene.character_variant_slugs.map(
@@ -2163,8 +2163,8 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                         title={`studio.scenes • order ${scene.order} (asset refs)`}
                                         fields={[
                                           {
-                                            label: 'location_variant_slug',
-                                            value: scene.location_variant_slug,
+                                            label: 'background_slug',
+                                            value: scene.background_slug,
                                           },
                                           {
                                             label: 'character_variant_slugs',

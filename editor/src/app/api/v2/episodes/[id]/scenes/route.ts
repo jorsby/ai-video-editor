@@ -13,7 +13,7 @@ type SceneInsert = Record<string, unknown> & {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
+  'id, episode_id, order, title, content_mode, visual_direction, prompt, background_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -223,14 +223,14 @@ function parseSceneCreateInput(
   if (prompt.value !== undefined) scene.prompt = prompt.value;
 
   const locationVariantSlug = toNullableString(
-    input.location_variant_slug,
-    'location_variant_slug'
+    input.background_slug,
+    'background_slug'
   );
   if (locationVariantSlug.error) {
     return { error: `scenes[${index}].${locationVariantSlug.error}` };
   }
   if (locationVariantSlug.value !== undefined) {
-    scene.location_variant_slug = locationVariantSlug.value;
+    scene.background_slug = locationVariantSlug.value;
   }
 
   const characterVariantSlugs = toSlugArray(
