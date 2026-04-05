@@ -129,13 +129,25 @@ function deriveEpisodeStatus(episode: EpisodeData): string {
   return 'draft';
 }
 
-/** Derive a display status from generation states + URL presence */
+/** Derive a display status from generation states + URL presence.
+ *  URL presence takes priority over stale failed status — if the asset
+ *  was successfully re-generated the URL proves it succeeded. */
 function deriveSceneStatus(scene: SceneData): string {
   if (scene.tts_status === 'generating' || scene.video_status === 'generating')
     return 'generating';
-  if (scene.tts_status === 'failed' || scene.video_status === 'failed')
-    return 'failed';
-  if (scene.audio_url && scene.video_url) return 'done';
+
+  // Check URL-based completion first — a present URL means the asset
+  // succeeded even if a previous attempt left a stale 'failed' status.
+  const ttsOk = !scene.audio_text?.trim() || !!scene.audio_url;
+  const videoOk = !!scene.video_url;
+
+  if (ttsOk && videoOk) return 'done';
+
+  // Only show failed if the status says failed AND the URL is still missing
+  const ttsFailed = scene.tts_status === 'failed' && !scene.audio_url;
+  const videoFailed = scene.video_status === 'failed' && !scene.video_url;
+  if (ttsFailed || videoFailed) return 'failed';
+
   if (scene.audio_url || scene.video_url) return 'partial';
   if (scene.prompt) return 'ready';
   return 'draft';
