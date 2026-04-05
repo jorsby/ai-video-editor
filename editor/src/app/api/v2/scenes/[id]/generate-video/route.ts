@@ -8,19 +8,39 @@ import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 type RouteContext = { params: Promise<{ id: string }> };
 
 const DEFAULT_VIDEO_MODEL = 'grok-imagine/image-to-video';
-const VALID_DURATIONS = new Set([6, 10]);
+
+const MIN_DURATION = 6;
+const MAX_DURATION = 30;
+
+/** Normalize string/number input and clamp to 6–30 range. */
+function normalizeDuration(
+  raw: unknown,
+  fallback: number = MIN_DURATION
+): number {
+  const n =
+    typeof raw === 'string'
+      ? Number.parseInt(raw, 10)
+      : typeof raw === 'number'
+        ? raw
+        : Number.NaN;
+  if (Number.isNaN(n) || n < MIN_DURATION)
+    return fallback < MIN_DURATION
+      ? MIN_DURATION
+      : Math.min(fallback, MAX_DURATION);
+  return Math.min(Math.max(Math.round(n), MIN_DURATION), MAX_DURATION);
+}
 
 /**
  * POST /api/v2/scenes/{id}/generate-video
  *
  * Generates video for a scene using Grok Imagine ref-to-video via kie.ai.
- * Always 480p, 9:16 aspect ratio, 6 or 10 seconds.
+ * Always 480p, 9:16 aspect ratio, 6–30 seconds.
  *
  * The endpoint compiles @variant-slug → @imageN refs and builds image_urls[]
  * from variant images in DB.
  *
  * Body (optional):
- *   duration?: 6 | 10            — Video duration in seconds (default 6)
+ *   duration?: 6–30              — Video duration in seconds (default 6, clamped)
  *   prompt_override?: string      — Custom prompt (bypasses compileForGrok)
  *   image_urls_override?: string[] — Custom image URLs (bypasses DB lookup)
  */
@@ -120,19 +140,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
 
-    // Duration logic:
-    // Narrative scenes: derive from audio_duration (≤6→6, ≤10→10, >10→10)
-    // Non-narrative: body override > video_duration > default 6
+    // Duration logic (manual-first policy):
+    // 1. body.duration provided → use it (normalize + clamp 6–30)
+    // 2. Narrative scene with audio_duration → ceil to nearest int, clamp 6–30
+    // 3. scene.video_duration from DB → normalize + clamp
+    // 4. Fallback: 6
     let duration: number;
-    if (
+    if (body.duration != null) {
+      duration = normalizeDuration(body.duration);
+    } else if (
       isNarrative &&
       typeof scene.audio_duration === 'number' &&
       scene.audio_duration > 0
     ) {
-      duration = scene.audio_duration <= 6 ? 6 : 10;
+      duration = normalizeDuration(Math.ceil(scene.audio_duration));
     } else {
-      const rawDuration = body.duration ?? scene.video_duration ?? 6;
-      duration = VALID_DURATIONS.has(rawDuration) ? rawDuration : 6;
+      duration = normalizeDuration(scene.video_duration ?? MIN_DURATION);
     }
 
     let compiledPrompt: string;

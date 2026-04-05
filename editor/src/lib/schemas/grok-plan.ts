@@ -33,12 +33,12 @@ export const grokPlanSchema = z.object({
   voiceover_list: z.record(z.string(), z.array(z.string())),
 
   // Per-scene duration (seconds) — used for single-prompt scenes
-  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+  scene_durations: z.array(z.number().int().min(3).max(30)).optional(),
 
   // Per-shot durations for multi-prompt scenes — array of arrays
   // null for single-prompt scenes, [duration1, duration2, ...] for multi-shot
   scene_shot_durations: z
-    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(30))]))
     .optional(),
 
   // Workflow metadata
@@ -68,9 +68,9 @@ export const grokContentSchema = z.object({
 
   voiceover_list: z.array(z.string()),
 
-  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
+  scene_durations: z.array(z.number().int().min(3).max(30)).optional(),
   scene_shot_durations: z
-    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(30))]))
     .optional(),
 });
 
@@ -117,7 +117,7 @@ RULES:
 - ONE ACTION PER SINGLE-PROMPT SCENE: Each single prompt should describe ONE clear action or moment. Don't chain "enters room, sets bag, touches wall, camera pans to mirror" — pick the money shot.
 
 5. Multi-Shot vs Single-Prompt Decision
-Grok Imagine supports multi-shot video generation: multiple prompts in one API call, each with its own duration (3-15s per shot), producing a single video with cuts between shots.
+Grok Imagine supports multi-shot video generation: multiple prompts in one API call, each with its own duration (3-30s per shot), producing a single video with cuts between shots.
 
 USE MULTI-SHOT (array of 2-3 prompts) when:
 - The scene has a camera angle change (wide → close-up, establishing → detail)
@@ -135,7 +135,7 @@ SHOT DURATION GUIDELINES:
 - Medium action shots: 4-6 seconds (standard narrative pacing)
 - Close-ups and reactions: 3-5 seconds (quick emotional beats)
 - Reveals/payoff shots: 5-7 seconds (hold for impact)
-- Total multi-shot scene: 6-15 seconds (sum of all shot durations)
+- Total multi-shot scene: 6-30 seconds (sum of all shot durations)
 
 Each shot uses the same @image references as the parent scene.
 Shots should form a coherent visual sequence with varied framing.

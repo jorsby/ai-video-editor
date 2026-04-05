@@ -1286,10 +1286,10 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6 or 10 sec. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
+      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6–30 sec (clamped). Accepts string or number for duration. Manual-first: body.duration > audio_duration > scene.video_duration > default 6. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
     pathParams: { id: 'scene-uuid' },
     body: {
-      duration: 6,
+      duration: 12,
       prompt_override: 'Optional compiled prompt (bypasses auto-compile)',
       image_urls_override: [
         'https://...variant1.jpg',
@@ -1300,7 +1300,7 @@ const generationRoutes: ApiRouteDefinition[] = [
       task_id: 'kie-task-id',
       model: 'grok-imagine/image-to-video',
       scene_id: 'scene-uuid',
-      duration: 6,
+      duration: 12,
       aspect_ratio: '9:16',
       resolution: '480p',
       image_count: 2,
