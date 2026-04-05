@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, background_slug, character_variant_slugs, prop_variant_slugs, first_frame_url, last_frame_url, status'
+        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, background_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -72,21 +72,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!scene.prompt?.trim()) {
       return NextResponse.json(
         { error: 'Scene has no visual prompt.' },
-        { status: 400 }
-      );
-    }
-
-    const missingFrames: string[] = [];
-    if (!scene.first_frame_url) missingFrames.push('first_frame_url');
-    if (!scene.last_frame_url) missingFrames.push('last_frame_url');
-    if (missingFrames.length > 0) {
-      return NextResponse.json(
-        {
-          error:
-            'Scene requires both first_frame_url and last_frame_url before video generation.',
-          code: 'FRAMES_REQUIRED',
-          missing_fields: missingFrames,
-        },
         { status: 400 }
       );
     }
@@ -258,8 +243,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       input: {
         prompt: compiledPrompt,
         image_urls: imageUrls,
-        first_frame: scene.first_frame_url,
-        last_frame: scene.last_frame_url,
         duration,
         aspect_ratio: aspectRatio,
         resolution: '480p',

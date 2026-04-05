@@ -580,71 +580,6 @@ const assetRoutes: ApiRouteDefinition[] = [
     body: null,
     response: { deleted: true, id: 'asset-uuid' },
   },
-  {
-    id: 'v2-character-generate-face',
-    label: 'Generate character face grid',
-    method: 'POST',
-    pathTemplate: '/api/v2/characters/{id}/generate-face',
-    category: 'asset',
-    auth: 'session-or-api-key',
-    description:
-      'Re-runs face grid generation for a character using nano-banana-2. Accepts optional reference_image_urls; otherwise searches face images by character name.',
-    pathParams: { id: 'character-uuid' },
-    body: {
-      reference_image_urls: ['https://example.com/ref-1.jpg'],
-    },
-    response: {
-      task_id: 'kie-task-id',
-      model: 'nano-banana-2',
-      character_id: 'character-uuid',
-    },
-  },
-  {
-    id: 'v2-character-review',
-    label: 'Set character review state',
-    method: 'PATCH',
-    pathTemplate: '/api/v2/characters/{id}/review',
-    category: 'asset',
-    auth: 'session-or-api-key',
-    description: 'Sets character is_reviewed to true or false.',
-    pathParams: { id: 'character-uuid' },
-    body: {
-      is_reviewed: true,
-    },
-    response: {
-      id: 'character-uuid',
-      is_reviewed: true,
-      updated_at: '2026-03-31T00:00:00Z',
-    },
-  },
-  {
-    id: 'v2-character-variants-create',
-    label: 'Create character variant(s)',
-    method: 'POST',
-    pathTemplate: '/api/v2/characters/{id}/variants',
-    category: 'variant',
-    auth: 'session-or-api-key',
-    description:
-      'Creates one or more rows in project_character_variants for a character. Slug defaults to slugify(name or prompt).',
-    pathParams: { id: 'character-uuid' },
-    body: {
-      name: 'Night Look',
-      slug: 'night-look',
-      prompt: 'Cinematic night portrait with rim light',
-      is_main: false,
-    },
-    response: {
-      rows: [
-        {
-          id: 'character-variant-uuid',
-          character_id: 'character-uuid',
-          name: 'Night Look',
-          slug: 'night-look',
-          is_main: false,
-        },
-      ],
-    },
-  },
 
   // Locations
   {
@@ -1017,24 +952,6 @@ const assetRoutes: ApiRouteDefinition[] = [
     body: null,
     response: { deleted: true, id: 'asset-uuid' },
   },
-  {
-    id: 'v2-background-review',
-    label: 'Set background review state',
-    method: 'PATCH',
-    pathTemplate: '/api/v2/backgrounds/{id}/review',
-    category: 'asset',
-    auth: 'session-or-api-key',
-    description: 'Sets background is_reviewed to true or false.',
-    pathParams: { id: 'background-uuid' },
-    body: {
-      is_reviewed: true,
-    },
-    response: {
-      id: 'background-uuid',
-      is_reviewed: true,
-      updated_at: '2026-03-31T00:00:00Z',
-    },
-  },
 ];
 
 // ─── Variants ────────────────────────────────────────────────────────────────
@@ -1139,24 +1056,6 @@ const variantRoutes: ApiRouteDefinition[] = [
     pathParams: { id: 'variant-uuid' },
     body: null,
     response: { deleted: true, id: 'variant-uuid' },
-  },
-  {
-    id: 'v2-character-variant-review',
-    label: 'Set character variant review state',
-    method: 'PATCH',
-    pathTemplate: '/api/v2/character-variants/{id}/review',
-    category: 'variant',
-    auth: 'session-or-api-key',
-    description: 'Sets character variant is_reviewed to true or false.',
-    pathParams: { id: 'character-variant-uuid' },
-    body: {
-      is_reviewed: true,
-    },
-    response: {
-      id: 'character-variant-uuid',
-      is_reviewed: true,
-      updated_at: '2026-03-31T00:00:00Z',
-    },
   },
 ];
 
@@ -1380,82 +1279,6 @@ const generationRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-character-variant-generate-image',
-    label: 'Generate image for character variant',
-    method: 'POST',
-    pathTemplate: '/api/v2/character-variants/{id}/generate-image',
-    category: 'variant',
-    auth: 'session-or-api-key',
-    description:
-      "Generates an image for a character variant using the parent character's face_grid_url as reference input. Uses nano-banana-2 and updates project_character_variants via webhook.",
-    pathParams: { id: 'character-variant-uuid' },
-    body: {
-      prompt_override: 'Optional prompt override',
-    },
-    response: {
-      task_id: 'kie-task-id',
-      model: 'nano-banana-2',
-      variant_id: 'character-variant-uuid',
-    },
-  },
-  {
-    id: 'v2-background-generate-image',
-    label: 'Generate image for background',
-    method: 'POST',
-    pathTemplate: '/api/v2/backgrounds/{id}/generate-image',
-    category: 'asset',
-    auth: 'session-or-api-key',
-    description:
-      'Generates a background image from stored prompt or prompt_override using nano-banana-2. Async webhook updates project_backgrounds.image_url and status.',
-    pathParams: { id: 'background-uuid' },
-    body: {
-      prompt_override: 'Optional prompt override',
-    },
-    response: {
-      task_id: 'kie-task-id',
-      model: 'nano-banana-2',
-      background_id: 'background-uuid',
-    },
-  },
-  {
-    id: 'v2-scene-generate-first-frame',
-    label: 'Generate first frame for scene',
-    method: 'POST',
-    pathTemplate: '/api/v2/scenes/{id}/generate-first-frame',
-    category: 'scene',
-    auth: 'session-or-api-key',
-    description:
-      'Generates scene first frame using Nano Banana 2 image edit via kie.ai. Parses scene.first_frame_prompt contract (BASE/REFS/EDIT), resolves BASE from project_backgrounds.image_url and REFS from character face_grid_url or prop variant image_url. Async — webhook updates scene.first_frame_url/status.',
-    pathParams: { id: 'scene-uuid' },
-    body: null,
-    response: {
-      task_id: 'kie-task-id',
-      model: 'nano-banana-2',
-      scene_id: 'scene-uuid',
-      step: 'GenerateFirstFrame',
-      ref_count: 2,
-    },
-  },
-  {
-    id: 'v2-scene-generate-last-frame',
-    label: 'Generate last frame for scene',
-    method: 'POST',
-    pathTemplate: '/api/v2/scenes/{id}/generate-last-frame',
-    category: 'scene',
-    auth: 'session-or-api-key',
-    description:
-      'Generates scene last frame using Nano Banana 2 image edit via kie.ai. Parses scene.last_frame_prompt contract (BASE/REFS/EDIT). BASE can be @background-slug (project_backgrounds.image_url) or use_first_frame (scene.first_frame_url). Async — webhook updates scene.last_frame_url/status.',
-    pathParams: { id: 'scene-uuid' },
-    body: null,
-    response: {
-      task_id: 'kie-task-id',
-      model: 'nano-banana-2',
-      scene_id: 'scene-uuid',
-      step: 'GenerateLastFrame',
-      ref_count: 2,
-    },
-  },
-  {
     id: 'v2-scene-generate-video',
     label: 'Generate video for scene',
     method: 'POST',
@@ -1463,7 +1286,7 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Requires scene.first_frame_url and scene.last_frame_url. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6–30 sec (clamped). Accepts string or number for duration. Manual-first: body.duration > audio_duration > scene.video_duration > default 6. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
+      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6–30 sec (clamped). Accepts string or number for duration. Manual-first: body.duration > audio_duration > scene.video_duration > default 6. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
     pathParams: { id: 'scene-uuid' },
     body: {
       duration: 12,
