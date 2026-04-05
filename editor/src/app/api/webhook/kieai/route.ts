@@ -688,6 +688,147 @@ async function handleGenerateSceneVideo(params: {
   });
 }
 
+type SceneFrameStep = 'GenerateFirstFrame' | 'GenerateLastFrame';
+type SceneFrameStatusColumn = 'first_frame_status' | 'last_frame_status';
+type SceneFrameTaskColumn = 'first_frame_task_id' | 'last_frame_task_id';
+type SceneFrameUrlColumn = 'first_frame_url' | 'last_frame_url';
+
+async function handleGenerateSceneFrame(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+  step: SceneFrameStep;
+  statusColumn: SceneFrameStatusColumn;
+  taskColumn: SceneFrameTaskColumn;
+  urlColumn: SceneFrameUrlColumn;
+}): Promise<Response> {
+  const {
+    supabase,
+    payload,
+    taskId,
+    sceneId,
+    log,
+    step,
+    statusColumn,
+    taskColumn,
+    urlColumn,
+  } = params;
+
+  const guard = await guardRequest({
+    supabase,
+    table: 'scenes',
+    idColumn: 'id',
+    id: sceneId,
+    statusColumn,
+    requestIdColumn: taskColumn,
+    allowedStatuses: ['generating'],
+    taskId,
+    step,
+    log,
+  });
+
+  if (!guard.ok) return guard.response;
+
+  const state = payload.data?.state ?? null;
+  if (isInProgressState(state)) {
+    return okResponse({ success: true, pending: true, step });
+  }
+
+  if (isFailureState(state)) {
+    const failureUpdate: Record<string, unknown> = {
+      [statusColumn]: 'failed',
+      [taskColumn]: null,
+    };
+
+    await supabase
+      .from('scenes')
+      .update(failureUpdate)
+      .eq('id', sceneId)
+      .eq(taskColumn, taskId)
+      .eq(statusColumn, 'generating');
+
+    return okResponse({ success: true, step, failed: true });
+  }
+
+  const result = parseResultJson(payload.data?.resultJson);
+  const imageUrl = extractImageUrl(result);
+
+  if (!imageUrl) {
+    const missingImageUpdate: Record<string, unknown> = {
+      [statusColumn]: 'failed',
+      [taskColumn]: null,
+    };
+
+    await supabase
+      .from('scenes')
+      .update(missingImageUpdate)
+      .eq('id', sceneId)
+      .eq(taskColumn, taskId)
+      .eq(statusColumn, 'generating');
+
+    return okResponse({
+      success: true,
+      step,
+      failed: true,
+      reason: 'missing_image_url',
+    });
+  }
+
+  const successUpdate: Record<string, unknown> = {
+    [urlColumn]: imageUrl,
+    [statusColumn]: 'done',
+    [taskColumn]: null,
+  };
+
+  await supabase
+    .from('scenes')
+    .update(successUpdate)
+    .eq('id', sceneId)
+    .eq(taskColumn, taskId)
+    .eq(statusColumn, 'generating');
+
+  return okResponse({
+    success: true,
+    step,
+    scene_id: sceneId,
+    image_url: imageUrl,
+  });
+}
+
+async function handleGenerateFirstFrame(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+}): Promise<Response> {
+  return handleGenerateSceneFrame({
+    ...params,
+    step: 'GenerateFirstFrame',
+    statusColumn: 'first_frame_status',
+    taskColumn: 'first_frame_task_id',
+    urlColumn: 'first_frame_url',
+  });
+}
+
+async function handleGenerateLastFrame(params: {
+  supabase: any;
+  payload: KieWebhookPayload;
+  taskId: string;
+  sceneId: string;
+  log: Logger;
+}): Promise<Response> {
+  return handleGenerateSceneFrame({
+    ...params,
+    step: 'GenerateLastFrame',
+    statusColumn: 'last_frame_status',
+    taskColumn: 'last_frame_task_id',
+    urlColumn: 'last_frame_url',
+  });
+}
+
 async function handleGenerateFaceGrid(params: {
   supabase: any;
   payload: KieWebhookPayload;
@@ -1346,6 +1487,44 @@ export async function POST(req: NextRequest) {
       }
 
       return await handleGenerateSceneTts({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        sceneId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateFirstFrame') {
+      const sceneId = req.nextUrl.searchParams.get('scene_id');
+      if (!sceneId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_scene_id',
+        });
+      }
+
+      return await handleGenerateFirstFrame({
+        supabase,
+        payload,
+        taskId: verification.taskId,
+        sceneId,
+        log,
+      });
+    }
+
+    if (step === 'GenerateLastFrame') {
+      const sceneId = req.nextUrl.searchParams.get('scene_id');
+      if (!sceneId) {
+        return okResponse({
+          success: true,
+          ignored: true,
+          reason: 'missing_scene_id',
+        });
+      }
+
+      return await handleGenerateLastFrame({
         supabase,
         payload,
         taskId: verification.taskId,

@@ -1418,6 +1418,44 @@ const generationRoutes: ApiRouteDefinition[] = [
     },
   },
   {
+    id: 'v2-scene-generate-first-frame',
+    label: 'Generate first frame for scene',
+    method: 'POST',
+    pathTemplate: '/api/v2/scenes/{id}/generate-first-frame',
+    category: 'scene',
+    auth: 'session-or-api-key',
+    description:
+      'Generates scene first frame using Nano Banana 2 image edit via kie.ai. Parses scene.first_frame_prompt contract (BASE/REFS/EDIT), resolves BASE from project_backgrounds.image_url and REFS from character face_grid_url or prop variant image_url. Async — webhook updates scene.first_frame_url/status.',
+    pathParams: { id: 'scene-uuid' },
+    body: null,
+    response: {
+      task_id: 'kie-task-id',
+      model: 'nano-banana-2',
+      scene_id: 'scene-uuid',
+      step: 'GenerateFirstFrame',
+      ref_count: 2,
+    },
+  },
+  {
+    id: 'v2-scene-generate-last-frame',
+    label: 'Generate last frame for scene',
+    method: 'POST',
+    pathTemplate: '/api/v2/scenes/{id}/generate-last-frame',
+    category: 'scene',
+    auth: 'session-or-api-key',
+    description:
+      'Generates scene last frame using Nano Banana 2 image edit via kie.ai. Parses scene.last_frame_prompt contract (BASE/REFS/EDIT). BASE can be @background-slug (project_backgrounds.image_url) or use_first_frame (scene.first_frame_url). Async — webhook updates scene.last_frame_url/status.',
+    pathParams: { id: 'scene-uuid' },
+    body: null,
+    response: {
+      task_id: 'kie-task-id',
+      model: 'nano-banana-2',
+      scene_id: 'scene-uuid',
+      step: 'GenerateLastFrame',
+      ref_count: 2,
+    },
+  },
+  {
     id: 'v2-scene-generate-video',
     label: 'Generate video for scene',
     method: 'POST',
@@ -1425,7 +1463,7 @@ const generationRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6–30 sec (clamped). Accepts string or number for duration. Manual-first: body.duration > audio_duration > scene.video_duration > default 6. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
+      'Generates video for a scene using Grok Imagine ref-to-video via kie.ai. Requires scene.first_frame_url and scene.last_frame_url. Compiles @variant-slug → @imageN refs and resolves image URLs from DB. Always 480p, 9:16, 6–30 sec (clamped). Accepts string or number for duration. Manual-first: body.duration > audio_duration > scene.video_duration > default 6. All referenced variant images must exist. Async — webhook updates scene.video_url on completion.',
     pathParams: { id: 'scene-uuid' },
     body: {
       duration: 12,
