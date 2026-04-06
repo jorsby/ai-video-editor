@@ -42,12 +42,12 @@ import {
   IconRefresh,
   IconSend,
   IconSelectAll,
-  IconCopy,
-  IconCheck,
 } from '@tabler/icons-react';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { useVideoSelectorStore } from '@/stores/video-selector-store';
+import { CopyButton } from '../shared/copy-button';
+import { ExpandableText } from '../shared/expandable-text';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -94,102 +94,6 @@ interface VariantInfo {
   image_gen_status: string;
 }
 type VariantImageMap = Map<string, VariantInfo>;
-
-// ── Copy Button ────────────────────────────────────────────────────────────────
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error('Failed to copy');
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-      title="Copy to clipboard"
-    >
-      {copied ? (
-        <IconCheck className="size-2.5 text-green-400" />
-      ) : (
-        <IconCopy className="size-2.5" />
-      )}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
-}
-
-// ── Expandable Text ────────────────────────────────────────────────────────────
-
-function ExpandableText({
-  text,
-  label,
-  italic = false,
-  clampLines = 2,
-}: {
-  text: string;
-  label: string;
-  italic?: boolean;
-  clampLines?: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const textRef = useRef<HTMLParagraphElement>(null);
-  const [isClamped, setIsClamped] = useState(false);
-
-  useEffect(() => {
-    const el = textRef.current;
-    if (el) {
-      setIsClamped(el.scrollHeight > el.clientHeight + 1);
-    }
-  }, [text]);
-
-  return (
-    <div className="group/expandable relative">
-      <p
-        ref={textRef}
-        onClick={() => isClamped && setExpanded(!expanded)}
-        className={`text-[11px] text-muted-foreground leading-relaxed ${
-          italic ? 'italic' : ''
-        } ${
-          expanded ? '' : `line-clamp-${clampLines}`
-        } ${isClamped ? 'cursor-pointer' : ''}`}
-        style={
-          !expanded
-            ? {
-                display: '-webkit-box',
-                WebkitLineClamp: clampLines,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-              }
-            : undefined
-        }
-      >
-        {italic ? <>&ldquo;{text}&rdquo;</> : text}
-      </p>
-      <div className="flex items-center gap-1 mt-0.5">
-        {isClamped && (
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            className="text-[9px] text-primary/70 hover:text-primary transition-colors"
-          >
-            {expanded ? 'Show less' : 'Show more...'}
-          </button>
-        )}
-        <CopyButton text={text} />
-      </div>
-    </div>
-  );
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

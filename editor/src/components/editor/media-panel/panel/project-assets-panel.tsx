@@ -41,6 +41,8 @@ import { toast } from 'sonner';
 import { ProjectMusicSection } from './project-music-section';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
+import { ExpandableText } from '../shared/expandable-text';
+import { CopyButton } from '../shared/copy-button';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -269,23 +271,29 @@ function VariantCard({
           <div className="px-2.5 py-1.5 space-y-1 border-t border-border/20">
             {variant.prompt && (
               <DetailRow label="Prompt">
-                <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-3">
-                  {variant.prompt}
-                </p>
+                <ExpandableText
+                  text={variant.prompt}
+                  label="Prompt"
+                  clampLines={3}
+                />
               </DetailRow>
             )}
             {variant.whereToUse && (
               <DetailRow label="Where">
-                <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  {variant.whereToUse}
-                </p>
+                <ExpandableText
+                  text={variant.whereToUse}
+                  label="Where"
+                  clampLines={2}
+                />
               </DetailRow>
             )}
             {variant.reasoning && (
               <DetailRow label="Notes">
-                <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">
-                  {variant.reasoning}
-                </p>
+                <ExpandableText
+                  text={variant.reasoning}
+                  label="Notes"
+                  clampLines={2}
+                />
               </DetailRow>
             )}
           </div>
