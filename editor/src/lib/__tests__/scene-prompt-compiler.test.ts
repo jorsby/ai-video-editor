@@ -19,7 +19,7 @@ const basePromptJson: PromptJSON = {
   desired_scene_intent: {
     narrative_beat: 'Elena crosses the first checkpoint and senses danger.',
     visual_goal:
-      'Ground the episode in controlled suspense inside a narrow corridor.',
+      'Ground the chapter in controlled suspense inside a narrow corridor.',
     emotional_tone: 'Tense and restrained',
     camera_intent: 'Slow push-in from medium-wide to close framing',
   },

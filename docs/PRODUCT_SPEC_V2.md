@@ -13,8 +13,8 @@ An AI agent creates videos through conversation. The editor is a preview + appro
 | **Story delivery** | TTS voiceover narrates over video | Kling O3 native audio (dialogue + ambient) |
 | **Audio source** | ElevenLabs v2.5 via fal.ai | Kling O3 built-in |
 | **Scene prompt style** | Visual action + body language only. No speaking. | Dialogue cues, emotional delivery, ambient sounds |
-| **Use case** | Storytelling, explainers, series narration | Drama, dialogue-heavy scenes, trailers |
-| **Voice config** | voice_id per language in series metadata | N/A |
+| **Use case** | Storytelling, explainers, video narration | Drama, dialogue-heavy scenes, trailers |
+| **Voice config** | voice_id per language in video metadata | N/A |
 
 ---
 
@@ -33,19 +33,19 @@ An AI agent creates videos through conversation. The editor is a preview + appro
 
 ### Two Layers
 
-**Layer 1 — Series Assets (created once, reused forever)**
+**Layer 1 — Video Assets (created once, reused forever)**
 - Characters, locations, props
 - Each has a default reference image (generated via grid)
-- Variants for lasting changes (injury, wardrobe change across episodes)
+- Variants for lasting changes (injury, wardrobe change across chapters)
 - Short-term changes (wet, different expression) → handled by scene prompt
 
-**Layer 2 — Episode Scenes (per storyboard)**
+**Layer 2 — Chapter Scenes (per storyboard)**
 - References Layer 1 assets by ID
 - Scene prompt, voiceover text, duration
 - No object/background definitions inline
 
 ```
-Series Assets (Layer 1)              Episode Storyboard (Layer 2)
+Video Assets (Layer 1)              Chapter Storyboard (Layer 2)
 ┌─────────────────────────┐          ┌──────────────────────────────┐
 │ Elena [ref image ✓]     │          │ Scene 1: Elena + Lobby       │
 │ Receptionist [ref ✓]    │──refs──▶ │ Scene 2: Elena + Receptionist│
@@ -55,8 +55,8 @@ Series Assets (Layer 1)              Episode Storyboard (Layer 2)
 └─────────────────────────┘
 ```
 
-### No Per-Episode Grids
-Series asset images go directly to Kling O3 as references. Grid images are ONLY for initial asset creation at the series level.
+### No Per-Chapter Grids
+Video asset images go directly to Kling O3 as references. Grid images are ONLY for initial asset creation at the video level.
 
 ### No First-Frame Generation
 Killed. Kling O3 composes from references + prompt directly. Saves $0.08/scene.
@@ -73,7 +73,7 @@ Killed. Kling O3 composes from references + prompt directly. Saves $0.08/scene.
 | Model | nano-banana-2 |
 | Cell format | Equal-size cells, 1px black grid lines |
 | Prompt format | `"A NxN Grid. Grid_1x1: [desc]. Grid_1x2: [desc]..."` |
-| Style | Injected from series metadata |
+| Style | Injected from video metadata |
 | No-text suffix | Always appended (prevents text artifacts) |
 
 ### Grid Prompt Template — Characters
@@ -104,14 +104,14 @@ background. Centered composition, studio lighting, high detail.
 
 ---
 
-## Series Metadata Schema
+## Video Metadata Schema
 
 ```typescript
-interface SeriesMetadata {
+interface VideoMetadata {
   // Production mode
   mode: "narrative" | "cinematic";
   
-  // Episode planning  
+  // Chapter planning  
   target_episode_count: number;
   target_episode_duration_seconds: number; // e.g. 60, 120, 180
   pacing: "slow" | "medium" | "fast";
@@ -141,9 +141,9 @@ The `style` object gets serialized into a style suffix appended to ALL prompts (
 
 ```typescript
 interface ScenePlan {
-  previous_episode_summary?: string;  // context from prior episode for continuity
+  previous_episode_summary?: string;  // context from prior chapter for continuity
   scenes: Array<{
-    // Asset references (IDs from series assets)
+    // Asset references (IDs from video assets)
     characters: string[];           // asset IDs
     character_variants?: (string | null)[];  // variant IDs, null = default
     location: string;               // asset ID
@@ -170,7 +170,7 @@ interface ScenePlan {
 
 | Action | Cost | Approver |
 |--------|------|----------|
-| Grid image generation (series assets) | ~$0.08/grid | Agent (auto) |
+| Grid image generation (video assets) | ~$0.08/grid | Agent (auto) |
 | Grid split into individual assets | Free | Agent (auto) |
 | TTS voiceover generation | ~$0.02/scene | Agent (auto) |
 | **Video generation (Kling O3)** | **$0.56-$1.12/clip** | **User (manual)** |
@@ -185,7 +185,7 @@ Video generation uses dry-run pattern: agent shows cost estimate → user confir
 | Change Type | Duration | Action |
 |-------------|----------|--------|
 | Expression, wet, brief costume | 1 scene | Handle via prompt |
-| Injury, bandage, wardrobe change | Multiple scenes/episodes | Create variant |
+| Injury, bandage, wardrobe change | Multiple scenes/chapters | Create variant |
 | Time of day, weather | 1-2 scenes | Handle via prompt |
 | Location renovation, destruction | Permanent | Create variant |
 
@@ -206,9 +206,9 @@ Variants are tagged and reusable. Once created, they persist until the character
 ## Pipeline Flow
 
 ```
-1. CONVERSATION: User + Agent discuss episode
+1. CONVERSATION: User + Agent discuss chapter
           ↓
-2. SERIES ASSETS: Agent creates characters/locations/props (if new)
+2. VIDEOS ASSETS: Agent creates characters/locations/props (if new)
           ↓  
 3. GRID GENERATION: Agent generates reference images (2x2 or 3x3, 4K, 1:1)
           ↓
@@ -224,13 +224,13 @@ Variants are tagged and reusable. Once created, they persist until the character
           ↓
 9. VIDEO GENERATION: Kling O3 ref-to-video per scene
           ↓
-10. COMPOSITE: Stitch scenes + audio into episode
+10. COMPOSITE: Stitch scenes + audio into chapter
           ↓
 11. PUBLISH: Post to social accounts
 ```
 
-Steps 2-4 happen ONCE per series (or when new assets are needed).
-Steps 5-11 happen per episode.
+Steps 2-4 happen ONCE per video (or when new assets are needed).
+Steps 5-11 happen per chapter.
 
 ---
 
@@ -238,14 +238,14 @@ Steps 5-11 happen per episode.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/v2/series/create` | Create series + project + assets |
-| POST | `/api/v2/series/{id}/generate-assets` | Generate reference images for assets |
+| POST | `/api/v2/videos/create` | Create video + project + assets |
+| POST | `/api/v2/videos/{id}/generate-assets` | Generate reference images for assets |
 | POST | `/api/v2/storyboard/create` | Create storyboard with scene plan |
 | POST | `/api/v2/storyboard/{id}/approve` | Trigger grid gen + asset injection |
 | GET | `/api/v2/project/{id}/status` | Full pipeline status per scene |
 | POST | `/api/v2/storyboard/{id}/generate-video` | Cost estimate + confirm to queue |
 | POST | `/api/v2/storyboard/{id}/generate-tts` | Generate voiceover per scene |
-| POST | `/api/v2/storyboard/{id}/composite` | Stitch scenes into episode |
+| POST | `/api/v2/storyboard/{id}/composite` | Stitch scenes into chapter |
 
 ---
 
@@ -256,14 +256,14 @@ Base prompts (in repo, versioned)     →  immutable foundation
      +
 Agent memory (per user, runtime)      →  style preferences, learned patterns
      +  
-Series metadata style                 →  injected into every prompt
+Video metadata style                 →  injected into every prompt
      =
 Final prompt sent to API
 ```
 
 Base prompts evolve as the agent learns what produces better video globally.
 Agent memory is per-user and captures individual preferences.
-Series style is per-project and ensures visual consistency.
+Video style is per-project and ensures visual consistency.
 
 ---
 
@@ -321,10 +321,10 @@ Video generated → AGENT + USER REVIEW → if bad, regenerate specific scene
 
 ## Asset Descriptions (for Agent Context)
 
-Every series asset MUST have a rich description so the agent knows when and how to use it:
+Every video asset MUST have a rich description so the agent knows when and how to use it:
 
 ```typescript
-interface SeriesAsset {
+interface VideoAsset {
   id: string;
   type: "character" | "location" | "prop";
   name: string;
@@ -381,4 +381,4 @@ This is critical because some assets can't be AI-generated (real person's face, 
 - Storyboard versioning / undo
 - Asset management UI for manual users
 - In-editor chat interface for user onboarding
-- Episode continuity tracking (what happened in previous episodes)
+- Chapter continuity tracking (what happened in previous chapters)

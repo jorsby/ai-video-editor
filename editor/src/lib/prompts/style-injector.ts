@@ -71,32 +71,32 @@ export function serializeStyleToPromptSuffix(
   return parts.join(' ');
 }
 
-export async function getSeriesStyleForProject(
+export async function getVideoStyleForProject(
   supabase: SupabaseClient,
   projectId: string
 ): Promise<string | null> {
-  const { data: series, error } = await supabase
-    .from('series')
+  const { data: video, error } = await supabase
+    .from('videos')
     .select('metadata, visual_style')
     .eq('project_id', projectId)
     .maybeSingle();
 
   if (error) {
     console.warn(
-      '[style-injector] Failed to load series metadata for project:',
+      '[style-injector] Failed to load video metadata for project:',
       error.message
     );
     return null;
   }
 
-  if (!series) return null;
+  if (!video) return null;
 
   // Try metadata.style first, then fall back to visual_style column
   const styleSource =
-    isRecord(series.metadata) && isRecord(series.metadata.style)
-      ? series.metadata.style
-      : isRecord(series.visual_style)
-        ? series.visual_style
+    isRecord(video.metadata) && isRecord(video.metadata.style)
+      ? video.metadata.style
+      : isRecord(video.visual_style)
+        ? video.visual_style
         : null;
 
   if (!styleSource) return null;

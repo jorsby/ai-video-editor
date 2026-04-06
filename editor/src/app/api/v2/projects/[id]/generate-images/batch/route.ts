@@ -86,27 +86,27 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         ? body.prompt_overrides
         : {};
 
-    // Load series settings (image model, aspect ratio, provider)
-    const { data: series } = await db
-      .from('series')
+    // Load video settings (image model, aspect ratio, provider)
+    const { data: video } = await db
+      .from('videos')
       .select('id, genre, tone, image_model, image_provider, aspect_ratio')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    if (!series) {
+    if (!video) {
       return NextResponse.json(
-        { error: 'No series found for this project' },
+        { error: 'No video found for this project' },
         { status: 404 }
       );
     }
 
-    if (!series.image_model) {
+    if (!video.image_model) {
       return NextResponse.json(
         {
           error:
-            'Series has no image_model configured. Set it in series settings first.',
+            'Video has no image_model configured. Set it in video settings first.',
         },
         { status: 400 }
       );
@@ -141,10 +141,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    const provider = resolveImageProvider(series.image_provider);
+    const provider = resolveImageProvider(video.image_provider);
     const webhookPath =
       provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
-    const aspectRatio = series.aspect_ratio ?? '9:16';
+    const aspectRatio = video.aspect_ratio ?? '9:16';
 
     type BatchResult = {
       variant_id: string;
@@ -199,8 +199,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           parts.push(
             'Wide establishing shot, cinematic composition, atmospheric lighting, no people'
           );
-          if (series.genre) parts.push(`${series.genre} genre`);
-          if (series.tone) parts.push(`${series.tone} tone`);
+          if (video.genre) parts.push(`${video.genre} genre`);
+          if (video.tone) parts.push(`${video.tone} tone`);
         } else {
           parts.push(
             'Clean product shot, centered, neutral background, studio lighting'
@@ -220,7 +220,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       // Queue image generation
       try {
         const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
-        webhookUrl.searchParams.set('step', 'SeriesAssetImage');
+        webhookUrl.searchParams.set('step', 'VideoAssetImage');
         webhookUrl.searchParams.set('variant_id', variantId);
 
         const taskResult = await queueImageTask({

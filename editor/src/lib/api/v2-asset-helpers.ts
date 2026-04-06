@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { slugify as toSlug } from '@/lib/utils/slugify';
 
 export type AssetType = 'character' | 'location' | 'prop';
-export type AssetRouteScope = 'project' | 'series';
+export type AssetRouteScope = 'project' | 'video';
 
 const ASSET_SELECT =
   'id, project_id, type, name, slug, description, sort_order, created_at, updated_at';
@@ -62,28 +62,28 @@ async function resolveOwnedProjectId(
     return { projectId: project.id as string };
   }
 
-  const { data: series, error: seriesError } = await db
-    .from('series')
+  const { data: video, error: videoError } = await db
+    .from('videos')
     .select('id, project_id')
     .eq('id', id)
     .maybeSingle();
 
-  if (seriesError || !series) {
+  if (videoError || !video) {
     return {
-      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+      error: NextResponse.json({ error: 'Video not found' }, { status: 404 }),
     };
   }
 
-  if (typeof series.project_id !== 'string' || !series.project_id.trim()) {
+  if (typeof video.project_id !== 'string' || !video.project_id.trim()) {
     return {
-      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+      error: NextResponse.json({ error: 'Video not found' }, { status: 404 }),
     };
   }
 
   const { data: project, error: projectError } = await db
     .from('projects')
     .select('id, user_id')
-    .eq('id', series.project_id)
+    .eq('id', video.project_id)
     .maybeSingle();
 
   if (projectError || !project) {

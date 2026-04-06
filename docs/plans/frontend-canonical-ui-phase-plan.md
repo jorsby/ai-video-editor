@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-30
 **Status:** DRAFT — pending Serhat review
-**Goal:** Move the real product UI onto the approved canonical dataset so Serhat can enter the normal UI and see the real sample project/series/assets/episodes/scenes without using dev-only inspector screens.
+**Goal:** Move the real product UI onto the approved canonical dataset so Serhat can enter the normal UI and see the real sample project/video/assets/chapters/scenes without using dev-only inspector screens.
 
 ---
 
@@ -22,16 +22,16 @@ Order:
 
 ```txt
 Project
-└─ Series[]
-   ├─ SeriesAssets[]
-   │  └─ SeriesAssetVariants[]
-   └─ Episodes[]
+└─ Video[]
+   ├─ VideoAssets[]
+   │  └─ VideoAssetVariants[]
+   └─ Chapters[]
       └─ Scenes[]
 ```
 
 Canonical field decisions already approved:
-- `series.creative_brief`
-- `episodes.asset_variant_map`
+- `video.creative_brief`
+- `chapters.asset_variant_map`
 - `series_asset_variants.slug` is the canonical variant token
 - scene fields:
   - `location_variant_slug`
@@ -50,20 +50,20 @@ When Serhat opens the normal UI, the sample project must appear in the real proj
 Needs:
 - dashboard project list must read the current `projects` table correctly
 - remove assumptions about removed fields like `archived_at` if they no longer exist in canonical schema
-- opening a project should lead into the canonical series/episode/scene flow, not a storyboard-era path
+- opening a project should lead into the canonical video/chapter/scene flow, not a storyboard-era path
 
-### B) Series view
-Series screen should show:
-- project/series identity
+### B) Video view
+Video screen should show:
+- project/video identity
 - `creative_brief`
 - assets grouped by type
 - variants under each asset
-- episode list
-- episode statuses
+- chapter list
+- chapter statuses
 
-### C) Episode / scene view
-Episode/editor surface should show:
-- episode header + metadata
+### C) Chapter / scene view
+Chapter/editor surface should show:
+- chapter header + metadata
 - `asset_variant_map`
 - scenes list/cards
 - scene variant-slug refs
@@ -74,12 +74,12 @@ If Serhat changes something, UI should update without manual refresh.
 
 Preferred implementation:
 - Supabase Realtime subscriptions
-- subscribe at the project/series level for:
+- subscribe at the project/video level for:
   - `projects`
-  - `series`
+  - `video`
   - `series_assets`
   - `series_asset_variants`
-  - `episodes`
+  - `chapters`
   - `scenes`
 - merge realtime updates into local client state/store
 - fallback: route refresh only if a specific surface is too server-heavy to patch live in this phase
@@ -96,19 +96,19 @@ Use existing shells/components where possible.
 - dashboard project shell
   - `editor/src/components/dashboard/project-card.tsx`
   - `editor/src/components/dashboard/project-list.tsx`
-- series shell
-  - `editor/src/components/series/series-content.tsx`
+- video shell
+  - `editor/src/components/video/video-content.tsx`
 - assets shell
-  - `editor/src/components/editor/media-panel/panel/series-assets-panel.tsx`
+  - `editor/src/components/editor/media-panel/panel/video-assets-panel.tsx`
 - roadmap shell
-  - `editor/src/components/editor/media-panel/panel/series-roadmap-panel.tsx`
+  - `editor/src/components/editor/media-panel/panel/video-roadmap-panel.tsx`
 - scene cards
   - `editor/src/components/editor/media-panel/panel/scene-card.tsx`
 
 ### Replace / remove assumptions
 - stop treating storyboard as the main product container
-- treat episode as the primary container
-- tabs/cards must read canonical episode+scene data, not storyboard-era intermediate objects
+- treat chapter as the primary container
+- tabs/cards must read canonical chapter+scene data, not storyboard-era intermediate objects
 
 ---
 
@@ -131,33 +131,33 @@ Make the real sample project visible in the normal dashboard.
 
 ---
 
-## Phase 2 — Series screen on canonical data
+## Phase 2 — Video screen on canonical data
 
 ### Goal
-Make the normal series/product screen read canonical `series + assets + variants + episodes`.
+Make the normal video/product screen read canonical `video + assets + variants + chapters`.
 
 ### Tasks
-- bind series screen to canonical tables/fields
+- bind video screen to canonical tables/fields
 - show `creative_brief`
 - show assets grouped by `character / location / prop`
 - show variants under each asset
-- show episode list and statuses
+- show chapter list and statuses
 - remove storyboard-first loading assumptions where they block the screen
 
 ### Done when
-- Serhat can enter the series screen from normal UI
+- Serhat can enter the video screen from normal UI
 - sees real DB sample data there
 - no dev-inspector required
 
 ---
 
-## Phase 3 — Episode / scene UI migration
+## Phase 3 — Chapter / scene UI migration
 
 ### Goal
-Adapt the current editor/storyboard-style UI so it matches the canonical episode+scene model.
+Adapt the current editor/storyboard-style UI so it matches the canonical chapter+scene model.
 
 ### Tasks
-- episode becomes the primary parent object
+- chapter becomes the primary parent object
 - adapt scene cards to read:
   - `location_variant_slug`
   - `character_variant_slugs`
@@ -171,7 +171,7 @@ Adapt the current editor/storyboard-style UI so it matches the canonical episode
 - keep visualization rich: slugs, prompts, status badges, variant chips, JSON where useful
 
 ### Done when
-- the normal editor UI shows episode + scene data correctly
+- the normal editor UI shows chapter + scene data correctly
 - existing cards feel reused, not rebuilt from scratch
 - storyboard-era mismatch is no longer visible in the main path
 
@@ -183,9 +183,9 @@ Adapt the current editor/storyboard-style UI so it matches the canonical episode
 UI updates without refresh.
 
 ### Tasks
-- add Supabase Realtime subscriptions for the active project/series/episode scope
+- add Supabase Realtime subscriptions for the active project/video/chapter scope
 - update state/store on insert/update/delete events
-- ensure scene status / prompt / media URL / episode status changes appear live
+- ensure scene status / prompt / media URL / chapter status changes appear live
 - ensure asset + variant edits appear live too
 
 ### Done when
@@ -240,8 +240,8 @@ This gives:
 ## Immediate next execution order
 
 1. **Phase 1** — dashboard project visibility
-2. **Phase 2** — series screen canonical data
-3. **Phase 3** — episode/scene UI migration
+2. **Phase 2** — video screen canonical data
+3. **Phase 3** — chapter/scene UI migration
 4. **Phase 4** — realtime subscriptions
 5. **Phase 5** — Serhat review in real UI
 6. **Phase 6** — endpoint review/cleanup

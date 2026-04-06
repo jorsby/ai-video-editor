@@ -1,7 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any;
 
-const SERIES_ASSETS_BUCKET = 'series-assets';
+const SERIES_ASSETS_BUCKET = 'video-assets';
 
 export interface ProjectAssetEntry {
   url: string;

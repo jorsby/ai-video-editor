@@ -161,7 +161,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/v2/projects/{id}
-// Hard-deletes a project and everything under it (cascade: series → assets → variants → episodes → scenes).
+// Hard-deletes a project and everything under it (cascade: video → assets → variants → chapters → scenes).
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;

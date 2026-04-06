@@ -4,8 +4,8 @@
 **Scope:** UI-only audit for reuse during schema-reset inspector pass (no implementation)
 
 ## TL;DR
-Use existing **dashboard project cards**, **series cards/detail shell**, **series assets panel/cards**, and **roadmap episode/scene shells** as the base.  
-For review mode, strip mutation actions and wire them to new hierarchy data (`Project -> Series -> SeriesAssets -> Episodes -> Scenes`).  
+Use existing **dashboard project cards**, **video cards/detail shell**, **video assets panel/cards**, and **roadmap chapter/scene shells** as the base.  
+For review mode, strip mutation actions and wire them to new hierarchy data (`Project -> Video -> VideoAssets -> Chapters -> Scenes`).  
 Extract/reuse existing JSON viewers for `asset_map` + `plan_json` and per-entity raw payloads.
 
 ---
@@ -16,11 +16,11 @@ Extract/reuse existing JSON viewers for `asset_map` + `plan_json` and per-entity
 |---|---|---|---|---|
 | **Project card** | Dashboard project card + list container | `editor/src/components/dashboard/project-card.tsx`  
 `editor/src/components/dashboard/project-list.tsx` | Reuse card/list layout and interaction shell for project selection | Card currently only surfaces `name`, `created_at`, tags. Add missing project inspector fields (`id`, `user_id`, `description`, `updated_at`) in read-only metadata block. |
-| **Series card** | Series list card | `editor/src/components/series/series-content.tsx` (`SeriesCard`) | Reuse card visual hierarchy (name + badges + preview text) | Current route is effectively disabled (`/app/series` notFound). Move/rehost this card into inspector page; include all backend fields (content mode, models, tts, plan status, etc.). |
-| **Assets list** | Editor assets panel sections/cards | `editor/src/components/editor/media-panel/panel/series-assets-panel.tsx` | Reuse grouping by type (character/location/prop), collapsible sections, thumbnail-first scanning | Remove generation controls for inspector (`Generate Images`, style prompt editing, status badges tied to jobs) and convert to read-only data visibility blocks. |
-| **Asset variants** | Variant card from series detail | `editor/src/components/series/series-detail-page.tsx` (`VariantCard`, `AssetCard`) | Reuse expandable variant card pattern for per-variant details | Current variant UI is action-heavy (upload/edit/regenerate/finalize/delete) and old-model (`series_asset_variant_images`). Replace actions with read-only fields for new schema (`name`, `prompt`, `image_url`, `is_default`, `where_to_use`, `reasoning`, timestamps). |
-| **Episodes list** | Roadmap episode card | `editor/src/components/editor/media-panel/panel/series-roadmap-panel.tsx` (`EpisodeCard`) | Reuse expandable episode row + nested sections (audio, visual, assets, scenes) for inspector readability | Replace storyboard-driven status/progress derivation and old joins (`storyboards`, `episode_assets`) with direct `episodes` fields (`order`, `asset_map`, `plan_json`, `status`) and direct scene list. |
-| **Scenes list** | (1) Roadmap `SceneRow` for compact list, (2) Scene card for deep details | `editor/src/components/editor/media-panel/panel/series-roadmap-panel.tsx` (`SceneRow`)  
+| **Video card** | Video list card | `editor/src/components/video/video-content.tsx` (`VideoCard`) | Reuse card visual hierarchy (name + badges + preview text) | Current route is effectively disabled (`/app/video` notFound). Move/rehost this card into inspector page; include all backend fields (content mode, models, tts, plan status, etc.). |
+| **Assets list** | Editor assets panel sections/cards | `editor/src/components/editor/media-panel/panel/video-assets-panel.tsx` | Reuse grouping by type (character/location/prop), collapsible sections, thumbnail-first scanning | Remove generation controls for inspector (`Generate Images`, style prompt editing, status badges tied to jobs) and convert to read-only data visibility blocks. |
+| **Asset variants** | Variant card from video detail | `editor/src/components/video/video-detail-page.tsx` (`VariantCard`, `AssetCard`) | Reuse expandable variant card pattern for per-variant details | Current variant UI is action-heavy (upload/edit/regenerate/finalize/delete) and old-model (`series_asset_variant_images`). Replace actions with read-only fields for new schema (`name`, `prompt`, `image_url`, `is_default`, `where_to_use`, `reasoning`, timestamps). |
+| **Chapters list** | Roadmap chapter card | `editor/src/components/editor/media-panel/panel/video-roadmap-panel.tsx` (`ChapterCard`) | Reuse expandable chapter row + nested sections (audio, visual, assets, scenes) for inspector readability | Replace storyboard-driven status/progress derivation and old joins (`storyboards`, `episode_assets`) with direct `chapters` fields (`order`, `asset_map`, `plan_json`, `status`) and direct scene list. |
+| **Scenes list** | (1) Roadmap `SceneRow` for compact list, (2) Scene card for deep details | `editor/src/components/editor/media-panel/panel/video-roadmap-panel.tsx` (`SceneRow`)  
 `editor/src/components/editor/media-panel/panel/scene-card.tsx` | Reuse compact row for fast scan + selective reuse of card anatomy for expanded inspector | `scene-card.tsx` is deeply coupled to removed tables/fields (`objects`, `backgrounds`, `voiceovers`, `multi_prompt`, generation controls). Keep layout primitives only; do **not** reuse workflow mutation logic for inspector. |
 | **Raw JSON inspectors** | (1) Structured JSON tree + (2) raw preformatted JSON blocks | `editor/src/components/dev/api-ops-dashboard.tsx` (`StructuredBodyPreview`, `StructuredBodyNode`)  
 `editor/src/components/editor/media-panel/panel/scene-card.tsx` (`PromptContractDebugPanel` raw JSON section)  
@@ -42,15 +42,15 @@ Extract/reuse existing JSON viewers for `asset_map` + `plan_json` and per-entity
 ### Project
 - Missing display for: `id`, `user_id`, `description`, `updated_at`.
 
-### Series
+### Video
 - Missing display for new fields from plan doc:  
   `content_mode`, `language`, `aspect_ratio`, `video_model`, `image_model`, `voice_id`, `tts_speed`, `visual_style`, `plan_draft`, `onboarding_messages`, `plan_status`, timestamps.
 
-### SeriesAssets / Variants
+### VideoAssets / Variants
 - Current UI is centered on old image-table workflow.  
 - Must explicitly show all variant fields from new schema (`prompt`, `image_url`, `where_to_use`, `reasoning`, timestamps).
 
-### Episodes
+### Chapters
 - Current UI still references old mapping patterns (`episode_assets`, storyboard-driven status).  
 - Must show `asset_map` and `plan_json` both structured and raw.
 
@@ -63,11 +63,11 @@ Extract/reuse existing JSON viewers for `asset_map` + `plan_json` and per-entity
 ## Minimum UI work to reach reviewable inspector state
 
 1. **Create a dedicated inspector entry page** (recommend dev route first):
-   - New page/component shell for `Project -> Series -> Assets -> Episodes -> Scenes` traversal.
+   - New page/component shell for `Project -> Video -> Assets -> Chapters -> Scenes` traversal.
 2. **Reuse existing card containers but convert to read-only inspector mode**:
    - Remove buttons that mutate data (create, delete, regenerate, finalize, upload).
 3. **Swap data sources to new schema shape**:
-   - Replace storyboard/object/background/voiceover joins in roadmap/scene loaders with direct episode/scene queries.
+   - Replace storyboard/object/background/voiceover joins in roadmap/scene loaders with direct chapter/scene queries.
 4. **Add universal JSON panels**:
    - Structured + raw for `asset_map`, `plan_json`, `plan_draft`, `onboarding_messages`.
 5. **Add “all fields visible” metadata rows**:
@@ -79,8 +79,8 @@ Extract/reuse existing JSON viewers for `asset_map` + `plan_json` and per-entity
 
 - Storyboard-era status logic in roadmap panel (`storyboards` dependency).
 - Scene-card controls tied to removed legacy generation model.
-- Series asset generation controls (`series_generation_jobs` indicators) in inspector mode.
-- Any route/page assumptions that require `/series` pages currently returning `notFound()`.
+- Video asset generation controls (`series_generation_jobs` indicators) in inspector mode.
+- Any route/page assumptions that require `/video` pages currently returning `notFound()`.
 
 ---
 

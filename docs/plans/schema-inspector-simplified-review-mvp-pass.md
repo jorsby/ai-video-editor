@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-30  
 **Route reviewed:** `/dev/schema-inspector?mode=mock`  
-**Locked hierarchy:** `Project -> Series -> SeriesAssets -> SeriesAssetVariants -> Episodes -> Scenes`
+**Locked hierarchy:** `Project -> Video -> VideoAssets -> VideoAssetVariants -> Chapters -> Scenes`
 
 ---
 
@@ -13,8 +13,8 @@ This revision applies Serhat’s latest product-model feedback directly to the r
 ### Core direction now reflected
 1. **Core planning model is cleaner:** `plan_draft` renamed to `creative_brief`; `onboarding_messages` removed from core schema direction.
 2. **Variant identity is explicit and simplified:** assets keep `slug`; variants keep `slug`; no separate duplicate key field.
-3. **Episode + scene refs are slug-based:** episode map and scene refs now use canonical `series_asset_variants.slug` values.
-4. **Status naming normalized:** `generating` -> `in_progress` (episode + scene).
+3. **Chapter + scene refs are slug-based:** chapter map and scene refs now use canonical `series_asset_variants.slug` values.
+4. **Status naming normalized:** `generating` -> `in_progress` (chapter + scene).
 5. **Duration semantics clarified:** duration resolves from actual audio length when `audio_url` exists; otherwise fallback is estimated/manual runtime.
 
 ### Why canonical variant slug is preferred for LLM matching
@@ -27,7 +27,7 @@ This revision applies Serhat’s latest product-model feedback directly to the r
 
 ## Keep / Rename / Remove / Move / Missing (updated)
 
-## Series
+## Video
 
 ### Keep
 - Story/model fields (`name`, `genre`, `tone`, `bible`, `content_mode`, `visual_style`, etc.)
@@ -64,7 +64,7 @@ This revision applies Serhat’s latest product-model feedback directly to the r
 
 ---
 
-## Episodes
+## Chapters
 
 ### Rename
 - `asset_map` -> `asset_variant_map`
@@ -96,11 +96,11 @@ This revision applies Serhat’s latest product-model feedback directly to the r
 
 ## Inspector presentation updates in this revision
 
-- Series JSON section now focuses on `creative_brief` only (no onboarding JSON in core view)
+- Video JSON section now focuses on `creative_brief` only (no onboarding JSON in core view)
 - Assets/variants section now emphasizes identity split:
   - asset content includes `slug`
   - variant content includes `slug` (canonical ref)
-- Episode JSON shape hints now validate canonical variant-slug arrays
+- Chapter JSON shape hints now validate canonical variant-slug arrays
 - Scene asset refs display renamed variant-slug fields
 - Scene content section includes duration resolution wording for review clarity
 - Status counters reflect `in_progress`

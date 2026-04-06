@@ -18,10 +18,10 @@ We are not preserving legacy compatibility in this pass. Old tables/fields can b
 
 ```txt
 Project
-└─ Series[]
-   ├─ SeriesAssets[]
-   │  └─ SeriesAssetVariants[]
-   └─ Episodes[]
+└─ Video[]
+   ├─ VideoAssets[]
+   │  └─ VideoAssetVariants[]
+   └─ Chapters[]
       └─ Scenes[]
 ```
 
@@ -36,8 +36,8 @@ Project
 - `series_asset_variant_images` will be removed from the core product model.
 - Current generation model is kept simple: **reference-to-video only**.
 - We are not adding `source_type`, video-to-video, audio-to-video, or avatar-specific modeling in this pass.
-- All reusable assets belong to the **series**.
-- Episode-level asset selection lives in `episodes.asset_map` JSON.
+- All reusable assets belong to the **video**.
+- Chapter-level asset selection lives in `chapters.asset_map` JSON.
 - Scene-level asset usage references assets by slug.
 - The UI must show **all fields**, not a curated subset.
 - The sample dataset must have **all fields populated** wherever the schema allows meaningful values.
@@ -52,7 +52,7 @@ Project
 type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
 type AssetType = 'character' | 'location' | 'prop';
 type PlanStatus = 'draft' | 'finalized';
-type EpisodeStatus = 'draft' | 'ready' | 'generating' | 'done';
+type ChapterStatus = 'draft' | 'ready' | 'generating' | 'done';
 type SceneStatus = 'draft' | 'ready' | 'generating' | 'done' | 'failed';
 ```
 
@@ -69,10 +69,10 @@ interface Project {
 }
 ```
 
-### Series
+### Video
 
 ```ts
-interface Series {
+interface Video {
   id: string;
   project_id: string;
   user_id: string;
@@ -103,12 +103,12 @@ interface Series {
 }
 ```
 
-### SeriesAsset
+### VideoAsset
 
 ```ts
-interface SeriesAsset {
+interface VideoAsset {
   id: string;
-  series_id: string;
+  video_id: string;
 
   type: AssetType;
   name: string;
@@ -120,10 +120,10 @@ interface SeriesAsset {
 }
 ```
 
-### SeriesAssetVariant
+### VideoAssetVariant
 
 ```ts
-interface SeriesAssetVariant {
+interface VideoAssetVariant {
   id: string;
   asset_id: string;
 
@@ -141,22 +141,22 @@ interface SeriesAssetVariant {
 }
 ```
 
-### EpisodeAssetMap
+### ChapterAssetMap
 
 ```ts
-interface EpisodeAssetMap {
+interface ChapterAssetMap {
   characters: string[];
   locations: string[];
   props: string[];
 }
 ```
 
-### Episode
+### Chapter
 
 ```ts
-interface Episode {
+interface Chapter {
   id: string;
-  series_id: string;
+  video_id: string;
 
   order: number;
   title: string | null;
@@ -165,10 +165,10 @@ interface Episode {
   audio_content: string | null;
   visual_outline: string | null;
 
-  asset_map: EpisodeAssetMap;
+  asset_map: ChapterAssetMap;
   plan_json: Record<string, unknown> | null;
 
-  status: EpisodeStatus;
+  status: ChapterStatus;
 
   created_at: string;
   updated_at: string;
@@ -180,7 +180,7 @@ interface Episode {
 ```ts
 interface Scene {
   id: string;
-  episode_id: string;
+  chapter_id: string;
 
   order: number;
   title: string | null;
@@ -261,10 +261,10 @@ Deliverables:
 
 Must be visible in UI:
 - project: all fields
-- series: all fields
-- series assets: all fields
+- video: all fields
+- video assets: all fields
 - asset variants: all fields
-- episodes: all fields
+- chapters: all fields
 - scenes: all fields
 - raw JSON for nested objects like `asset_map` and `plan_json`
 
@@ -276,10 +276,10 @@ Success criteria:
 
 Deliverables:
 - 1 project
-- 1 series
-- multiple series assets
+- 1 video
+- multiple video assets
 - multiple asset variants
-- 1 episode
+- 1 chapter
 - multiple scenes
 - every field populated with meaningful sample values where possible
 
@@ -390,14 +390,14 @@ Scope:
 
 Context it needs:
 - approved schema
-- current editor pages/components that render project/series/assets/episodes/scenes
+- current editor pages/components that render project/video/assets/chapters/scenes
 
 Output:
 - reviewable UI wired to the new model
 
 #### Phase 4 — Sample data agent
 Scope:
-- create one fully populated sample project/series/assets/variants/episode/scenes dataset
+- create one fully populated sample project/video/assets/variants/chapter/scenes dataset
 - ensure every meaningful field has a value
 
 Context it needs:

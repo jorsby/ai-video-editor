@@ -359,11 +359,11 @@ if (audio?.url) {
 | 2 | `editor/src/lib/config.ts` | Add kie config block |
 | 3 | `editor/src/app/api/fal/image/route.ts` | Replace `fal.subscribe('nano-banana-2')` → kie submit |
 | 4 | `editor/src/app/api/fal/video/route.ts` | Replace `fal.subscribe('kling-video')` → kie submit |
-| 5 | `editor/src/app/api/series/[id]/generate-grid/route.ts` | Replace fal queue submit → kie createTask |
-| 6 | `editor/src/app/api/series/[id]/generate-images/route.ts` | Replace fal queue submit → kie createTask |
-| 7 | `editor/src/app/api/series/[id]/poll-images/route.ts` | Replace fal status/result polling → kie recordInfo |
-| 8 | `editor/src/app/api/series/[id]/assets/.../regenerate/route.ts` | Replace fal queue submit → kie createTask |
-| 9 | `editor/src/app/api/series/[id]/assets/.../edit-image/route.ts` | Replace fal queue submit → kie createTask |
+| 5 | `editor/src/app/api/videos/[id]/generate-grid/route.ts` | Replace fal queue submit → kie createTask |
+| 6 | `editor/src/app/api/videos/[id]/generate-images/route.ts` | Replace fal queue submit → kie createTask |
+| 7 | `editor/src/app/api/videos/[id]/poll-images/route.ts` | Replace fal status/result polling → kie recordInfo |
+| 8 | `editor/src/app/api/videos/[id]/assets/.../regenerate/route.ts` | Replace fal queue submit → kie createTask |
+| 9 | `editor/src/app/api/videos/[id]/assets/.../edit-image/route.ts` | Replace fal queue submit → kie createTask |
 | 10 | `editor/src/app/api/workflow/poll-fal/route.ts` | Replace ALL fal polling → kie polling (rename to `poll-jobs`) |
 | 11 | `editor/src/app/api/workflow/ref-first-frame/route.ts` | Replace fal queue submit → kie createTask |
 | 12 | `editor/src/app/api/workflow/edit-image/route.ts` | Replace fal queue submit → kie createTask |
@@ -394,7 +394,7 @@ if (audio?.url) {
 5. Update `ref-first-frame/route.ts` — image edit  
 6. Update `edit-image/route.ts` — image edit/outpaint
 7. Update `regenerate/route.ts` — asset regeneration
-8. Update `generate-images/route.ts` — series images
+8. Update `generate-images/route.ts` — video images
 9. Update `fal/image/route.ts` + `fal/video/route.ts` — quick gen
 
 ### Phase 3: Job Polling (change where jobs are CHECKED)

@@ -495,7 +495,7 @@ describe('webhook/kieai route', () => {
     });
   });
 
-  it('SeriesAssetImage success downloads image, uploads to storage, inserts variant image record', async () => {
+  it('VideoAssetImage success downloads image, uploads to storage, inserts variant image record', async () => {
     const supabaseMock = createSupabaseMock();
     supabaseMock.setResolver((query) => {
       if (
@@ -542,7 +542,7 @@ describe('webhook/kieai route', () => {
     );
 
     const req = makeRequest(
-      'https://app.example.com/api/webhook/kieai?step=SeriesAssetImage&variant_id=variant-1',
+      'https://app.example.com/api/webhook/kieai?step=VideoAssetImage&variant_id=variant-1',
       {
         data: {
           task_id: 'task-123',
@@ -561,7 +561,7 @@ describe('webhook/kieai route', () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       variant_id: 'variant-1',
     });
     expect(String(body.url)).toContain(
@@ -597,7 +597,7 @@ describe('webhook/kieai route', () => {
     });
   });
 
-  it('SeriesAssetImage duplicate returns duplicate=true and does not insert', async () => {
+  it('VideoAssetImage duplicate returns duplicate=true and does not insert', async () => {
     const supabaseMock = createSupabaseMock();
     supabaseMock.setResolver((query) => {
       if (
@@ -616,7 +616,7 @@ describe('webhook/kieai route', () => {
     HOISTED.createServiceClientMock.mockReturnValue(supabaseMock.supabase);
 
     const req = makeRequest(
-      'https://app.example.com/api/webhook/kieai?step=SeriesAssetImage&variant_id=variant-1',
+      'https://app.example.com/api/webhook/kieai?step=VideoAssetImage&variant_id=variant-1',
       {
         data: {
           task_id: 'task-123',
@@ -634,7 +634,7 @@ describe('webhook/kieai route', () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       variant_id: 'variant-1',
       duplicate: true,
     });

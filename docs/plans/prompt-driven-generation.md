@@ -17,18 +17,18 @@ You talk to me, I build the video. The editor is a dashboard where you review, t
 ## The Funnel
 
 ```
-1. Conversation         You and I discuss the series concept
+1. Conversation         You and I discuss the video concept
         │
-2. Series Setup         I confirm mandatory fields, create series
+2. Video Setup         I confirm mandatory fields, create video
         │
-3. Bible                I write the series bible (tone, style, world)
+3. Bible                I write the video bible (tone, style, world)
         │
-4. Episodes (outline)   I outline all episodes (title, synopsis, beats)
+4. Chapters (outline)   I outline all chapters (title, synopsis, beats)
         │
 5. Characters/Objects/  I define all assets with descriptions
    Locations            and generation prompts
         │
-6. Episode Prompts      I write per-scene: video prompts, voiceover
+6. Chapter Prompts      I write per-scene: video prompts, voiceover
                         scripts, asset references (by variant ID)
         │
 7. Review Pass          I do a logic/consistency review across
@@ -71,32 +71,32 @@ You (Discord) ──talk──▶ Me (Agent)
 
 ---
 
-## Phase 0: Series Metadata Schema + UI Cleanup
+## Phase 0: Video Metadata Schema + UI Cleanup
 
-### 0a. Series-level mandatory fields
+### 0a. Video-level mandatory fields
 
-These are confirmed in our conversation ONCE when starting a series. Every storyboard/episode inherits them.
+These are confirmed in our conversation ONCE when starting a video. Every storyboard/chapter inherits them.
 
 | Field | Type | Example | Stored in |
 |-------|------|---------|-----------|
-| `scene_mode` | `text NOT NULL` | `narrative` / `cinematic` | `series.metadata` |
-| `episode_count` | `int` | `10` | `series.metadata` |
-| `aspect_ratio` | `text NOT NULL` | `9:16` / `16:9` | `series.metadata` |
-| `language` | `text NOT NULL` | `tr` | `series.metadata` |
-| `voice_id` | `text` | `75SIZa3vvET95PHhf1yD` | `series.metadata` |
-| `video_model` | `text NOT NULL` | `klingo3` | `series.metadata` |
-| `image_model` | `text NOT NULL` | `fal-ai/nano-banana-2` | `series.metadata` |
+| `scene_mode` | `text NOT NULL` | `narrative` / `cinematic` | `video.metadata` |
+| `episode_count` | `int` | `10` | `video.metadata` |
+| `aspect_ratio` | `text NOT NULL` | `9:16` / `16:9` | `video.metadata` |
+| `language` | `text NOT NULL` | `tr` | `video.metadata` |
+| `voice_id` | `text` | `75SIZa3vvET95PHhf1yD` | `video.metadata` |
+| `video_model` | `text NOT NULL` | `klingo3` | `video.metadata` |
+| `image_model` | `text NOT NULL` | `fal-ai/nano-banana-2` | `video.metadata` |
 
-**Already exists in `series.metadata.style`:** `visual_style`, `setting`, `time_period`, `color_palette`, `lighting`, `mood`, `camera_style`, `custom_notes`.
+**Already exists in `video.metadata.style`:** `visual_style`, `setting`, `time_period`, `color_palette`, `lighting`, `mood`, `camera_style`, `custom_notes`.
 
-**Migration:** Update `series.metadata` jsonb to include production fields alongside existing style fields.
+**Migration:** Update `video.metadata` jsonb to include production fields alongside existing style fields.
 
 ### 0b. UI Cleanup — Storyboard Create Form
 
 **Remove:**
 - ❌ Voiceover text input (I write this via API)
-- ❌ Scene Mode selector (inherited from series)
-- ❌ Aspect Ratio selector (inherited from series)
+- ❌ Scene Mode selector (inherited from video)
+- ❌ Aspect Ratio selector (inherited from video)
 - ❌ Model selection state (`formVideoModel`, always `klingo3`)
 - ❌ `formVoiceover`, `formAspectRatio`, `formModel`, `formVideoModel` state vars
 
@@ -109,20 +109,20 @@ These are confirmed in our conversation ONCE when starting a series. Every story
 - Scene cards: voiceover text becomes read-only display + click-to-edit (for review)
 - Create form → becomes a minimal "New Storyboard" action, not a prompt entry form
 
-### 0c. What I confirm before creating a series
+### 0c. What I confirm before creating a video
 
-When you say "let's create a new series", I ask:
+When you say "let's create a new video", I ask:
 
 ```
 Before I start, confirming:
 1. Scene mode: Narrative (TTS + voiceover) or Cinematic (music only)?
-2. How many episodes?
+2. How many chapters?
 3. Aspect ratio: 9:16 (vertical/shorts) or 16:9 (horizontal)?
 4. Language? (for voiceover + prompts)
 5. Any special rules? (e.g. "never show faces", "historical accuracy")
 ```
 
-Once confirmed → I create the series with all metadata set.
+Once confirmed → I create the video with all metadata set.
 
 ---
 
@@ -190,7 +190,7 @@ Once confirmed → I create the series with all metadata set.
   "output_format": "png",
   "aspect_ratio": "1:1",
   "use_case": "Night guard patrolling Meccan alley, silhouette",
-  "episode_id": "6697659f-...",
+  "chapter_id": "6697659f-...",
   "episode_title": "Suikast Planı",
   "scene_order": 3,
   "generated_at": "2026-03-20T05:00:00Z",
@@ -205,7 +205,7 @@ Once confirmed → I create the series with all metadata set.
   "output_format": "png",
   "aspect_ratio": "16:9",
   "use_case": "Narrow Meccan alley for chase/patrol scenes",
-  "episode_id": "6697659f-...",
+  "chapter_id": "6697659f-...",
   "episode_title": "Suikast Planı",
   "scene_order": 1,
   "generated_at": "2026-03-20T05:00:00Z",
@@ -221,7 +221,7 @@ Once confirmed → I create the series with all metadata set.
   "duration_seconds": 5,
   "shot_type": "single",
   "use_case": "Night guard patrol establishing shot",
-  "episode_id": "6697659f-...",
+  "chapter_id": "6697659f-...",
   "episode_title": "Suikast Planı",
   "generated_at": "2026-03-20T05:00:00Z",
   "generated_by": "agent"
@@ -236,7 +236,7 @@ Once confirmed → I create the series with all metadata set.
   "speed": 1.0,
   "language": "tr",
   "use_case": "Narrator describing guard's movements",
-  "episode_id": "6697659f-...",
+  "chapter_id": "6697659f-...",
   "episode_title": "Suikast Planı",
   "scene_order": 1,
   "generated_at": "2026-03-20T05:00:00Z",
@@ -280,10 +280,10 @@ I learn: version N prompt="bright marketplace" → feedback="too bright" → ver
 | Route | Purpose |
 |-------|---------|
 | `PUT /api/v2/storyboard/[id]/prompts` | Bulk save scene prompts + voiceover text + meta |
-| `PUT /api/v2/series/[id]/asset-prompts` | Bulk save asset generation prompts |
+| `PUT /api/v2/videos/[id]/asset-prompts` | Bulk save asset generation prompts |
 | `POST /api/v2/feedback` | Save feedback to entity + return updated state |
 | `GET /api/v2/generation-logs/[entityType]/[entityId]` | Get generation history |
-| `PATCH /api/series/[id]` | Update series metadata (production fields) |
+| `PATCH /api/videos/[id]` | Update video metadata (production fields) |
 
 ### Response shape (all generate routes)
 ```json
@@ -310,16 +310,16 @@ I learn: version N prompt="bright marketplace" → feedback="too bright" → ver
 
 ## Phase 4: Agent Workflow
 
-### Episode generation
+### Chapter generation
 | Step | What I do |
 |------|-----------|
-| 1 | Query series assets by `series_id` |
-| 2 | Read episode outline |
+| 1 | Query video assets by `video_id` |
+| 2 | Read chapter outline |
 | 3 | Build scene plan with direct asset refs (variant IDs, not names) |
 | 4 | Write all prompts (video, voiceover, assets) |
 | 5 | Save via API endpoints |
 | 6 | Auto-review: consistency check |
-| 7 | Notify: "Episode X ready — 7 scenes, 2 new assets" |
+| 7 | Notify: "Chapter X ready — 7 scenes, 2 new assets" |
 
 ### Feedback handling
 | Step | What I do |
@@ -332,7 +332,7 @@ I learn: version N prompt="bright marketplace" → feedback="too bright" → ver
 
 ---
 
-## Phase 5: Skill File + Series Rules
+## Phase 5: Skill File + Video Rules
 
 ### Global (`~/.openclaw/skills/video-editor/SKILL.md`)
 - API endpoint reference (how to call each route)
@@ -340,10 +340,10 @@ I learn: version N prompt="bright marketplace" → feedback="too bright" → ver
 - Learned preferences from generation history
 - Common failures and fixes
 
-### Per-series (e.g. `memory/series-hicret.md`)
+### Per-video (e.g. `memory/video-hicret.md`)
 - Characters, relationships, visual style
 - Story rules (no face depiction, historical accuracy)
-- Location canon, episode arcs
+- Location canon, chapter arcs
 
 ---
 
@@ -351,12 +351,12 @@ I learn: version N prompt="bright marketplace" → feedback="too bright" → ver
 
 | Phase | What | Effort | Depends on |
 |-------|------|--------|-----------|
-| **0** | Series metadata schema + UI cleanup | 2 hours | Nothing |
+| **0** | Video metadata schema + UI cleanup | 2 hours | Nothing |
 | **1** | DB migration (columns + generation_logs) | 45 min | Nothing |
 | **2** | API route updates + new endpoints | 3-4 hours | Phase 0 + 1 |
 | **3** | Frontend prompt-aware UI | 2-3 hours | Phase 0 + 1 |
 | **4** | Agent workflow (me writing prompts) | 1-2 hours | Phase 2 |
-| **5** | Skill file + series rules | 1 hour | Anytime |
+| **5** | Skill file + video rules | 1 hour | Anytime |
 
 **Phase 0 and 1 can run in parallel.**
 **Phase 2 and 3 can run in parallel after 0+1.**

@@ -8,10 +8,10 @@
 
 ```txt
 Project
-└─ Series[]
-   ├─ SeriesAssets[]
-   │  └─ SeriesAssetVariants[]
-   └─ Episodes[]
+└─ Video[]
+   ├─ VideoAssets[]
+   │  └─ VideoAssetVariants[]
+   └─ Chapters[]
       └─ Scenes[]
 ```
 
@@ -48,7 +48,7 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 
 > `archived_at` is removed from the product model.
 
-## `studio.series`
+## `studio.video`
 
 | column | type | notes |
 |---|---|---|
@@ -79,16 +79,16 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 | column | type | notes |
 |---|---|---|
 | id | uuid pk | default `gen_random_uuid()` |
-| series_id | uuid not null fk -> studio.series(id) on delete cascade | |
+| video_id | uuid not null fk -> studio.video(id) on delete cascade | |
 | type | studio.asset_type not null | character/location/prop |
 | name | text not null | |
-| slug | text not null | unique within series |
+| slug | text not null | unique within video |
 | description | text null | |
 | sort_order | integer not null | default `0` |
 | created_at | timestamptz not null | default `now()` |
 | updated_at | timestamptz not null | default `now()` |
 
-**Constraint:** `unique(series_id, slug)`
+**Constraint:** `unique(video_id, slug)`
 
 ## `studio.series_asset_variants`
 
@@ -109,13 +109,13 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 **Constraint:** `unique(asset_id, slug)`  
 **Canonical variant token:** `series_asset_variants.slug` (no duplicate key field).
 
-## `studio.episodes` (new canonical episode table)
+## `studio.chapters` (new canonical chapter table)
 
 | column | type | notes |
 |---|---|---|
 | id | uuid pk | default `gen_random_uuid()` |
-| series_id | uuid not null fk -> studio.series(id) on delete cascade | |
-| order | integer not null | `> 0`, unique in series |
+| video_id | uuid not null fk -> studio.video(id) on delete cascade | |
+| order | integer not null | `> 0`, unique in video |
 | title | text null | |
 | synopsis | text null | |
 | audio_content | text null | |
@@ -126,15 +126,15 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 | created_at | timestamptz not null | default `now()` |
 | updated_at | timestamptz not null | default `now()` |
 
-**Constraint:** `unique(series_id, order)`
+**Constraint:** `unique(video_id, order)`
 
 ## `studio.scenes`
 
 | column | type | notes |
 |---|---|---|
 | id | uuid pk | default `gen_random_uuid()` |
-| episode_id | uuid not null fk -> studio.episodes(id) on delete cascade | |
-| order | integer not null | `> 0`, unique in episode |
+| chapter_id | uuid not null fk -> studio.chapters(id) on delete cascade | |
+| order | integer not null | `> 0`, unique in chapter |
 | title | text null | |
 | duration | integer null | resolved playback seconds (see duration resolution rule below) |
 | content_mode | studio.content_mode null | optional per-scene override |
@@ -150,7 +150,7 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 | created_at | timestamptz not null | default `now()` |
 | updated_at | timestamptz not null | default `now()` |
 
-**Constraint:** `unique(episode_id, order)`
+**Constraint:** `unique(chapter_id, order)`
 
 **Duration resolution rule (explicit):**
 1. If `audio_url` exists, `duration` resolves from actual rendered audio length.
@@ -160,15 +160,15 @@ type scene_status = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 
 ## 4) Relations
 
-- `projects 1 -> n series`
-- `series 1 -> n series_assets`
+- `projects 1 -> n video`
+- `video 1 -> n series_assets`
 - `series_assets 1 -> n series_asset_variants`
-- `series 1 -> n episodes`
-- `episodes 1 -> n scenes`
+- `video 1 -> n chapters`
+- `chapters 1 -> n scenes`
 
 Reference usage rules:
-- `episodes.asset_variant_map` stores allowed variant slugs by type.
-- `scenes.location_variant_slug / character_variant_slugs / prop_variant_slugs` must point to concrete variant slugs from the same parent series.
+- `chapters.asset_variant_map` stores allowed variant slugs by type.
+- `scenes.location_variant_slug / character_variant_slugs / prop_variant_slugs` must point to concrete variant slugs from the same parent video.
 - Canonical format is the variant slug itself (recommended convention: `<asset_slug>-<variant_slug>`).
 
 ---
@@ -191,8 +191,8 @@ Reference usage rules:
 ## Drop fields from surviving tables
 
 - `studio.projects.archived_at`
-- `studio.series.metadata`
-- `studio.series.onboarding_messages` (moved out of core schema)
+- `studio.video.metadata`
+- `studio.video.onboarding_messages` (moved out of core schema)
 - `studio.series_assets.tags`
 - `studio.series_assets.character_id`
 - `studio.series_episodes.project_id` (table replaced)
@@ -228,16 +228,16 @@ Reference usage rules:
 
 | old | new |
 |---|---|
-| `series_episodes` | `episodes` |
-| `series_episodes.episode_number` | `episodes.order` |
-| `episode_assets` rows | `episodes.asset_variant_map` JSON (variant slug arrays) |
+| `series_episodes` | `chapters` |
+| `series_episodes.episode_number` | `chapters.order` |
+| `episode_assets` rows | `chapters.asset_variant_map` JSON (variant slug arrays) |
 | `series_assets` | stays as `series_assets` (simplified root asset record) |
 | `series_asset_variants` | stays as `series_asset_variants` (kept, with canonical `slug`) |
 | `series_asset_variant_images` | removed; fold canonical image choice into `series_asset_variants.image_url` |
-| `storyboards.plan_status` | `series.plan_status` |
-| `series.plan_draft` | `series.creative_brief` |
-| `storyboards.plan` | `series.creative_brief` / `episodes.plan_json` |
-| `scenes.storyboard_id` | `scenes.episode_id` |
+| `storyboards.plan_status` | `video.plan_status` |
+| `video.plan_draft` | `video.creative_brief` |
+| `storyboards.plan` | `video.creative_brief` / `chapters.plan_json` |
+| `scenes.storyboard_id` | `scenes.chapter_id` |
 | `scenes.background_name` | `scenes.location_variant_slug` |
 | `scenes.object_names` | `scenes.character_variant_slugs` + `scenes.prop_variant_slugs` |
 | `voiceovers.text` | `scenes.audio_text` |
@@ -255,11 +255,11 @@ None. This spec is fully locked for Phase 2 implementation.
 ## 8) Short migration checklist
 
 1. Create new enums: `content_mode`, `asset_type`, `plan_status`, `episode_status`, `scene_status`.
-2. Create `studio.episodes` and replace scene FK to `episodes(id)`.
-3. Add/normalize final columns on `projects`, `series`, `series_assets`, `scenes`.
+2. Create `studio.chapters` and replace scene FK to `chapters(id)`.
+3. Add/normalize final columns on `projects`, `video`, `series_assets`, `scenes`.
 4. Normalize `series_assets`; keep `series_asset_variants.slug` as canonical LLM-facing identity and remove duplicate key field.
-5. Build `episodes.asset_variant_map` using variant slugs (not bare asset slugs).
+5. Build `chapters.asset_variant_map` using variant slugs (not bare asset slugs).
 6. Backfill `scenes.audio_text/audio_url`; migrate scene refs to variant slugs (`location_variant_slug`, `character_variant_slugs`, `prop_variant_slugs`); map status values to `in_progress` naming.
 7. Remove storyboard-era and multi-shot/sfx/prompt-contract fields from `scenes`.
-8. Drop removed tables (storyboard-era + episode asset link tables + variant image tables).
+8. Drop removed tables (storyboard-era + chapter asset link tables + variant image tables).
 9. Recreate indexes/RLS/policies strictly for the final 6-table model.

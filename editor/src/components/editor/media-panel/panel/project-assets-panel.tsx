@@ -39,14 +39,14 @@ import {
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 import { ProjectMusicSection } from './project-music-section';
-import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
+import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
 type VariantGenerationDisplayStatus = 'idle' | 'generating' | 'done' | 'failed';
 
-const SERIES_ASSETS_BUCKET = 'series-assets';
+const SERIES_ASSETS_BUCKET = 'video-assets';
 
 const SECTION_CONFIG: Record<
   AssetType,
@@ -905,9 +905,9 @@ export default function ProjectAssetsPanel() {
   // Persistent collapse all / expand all
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
   const forceOpen = getForceOpen('assets');
-  // Episode filter
-  const { focusedEpisodeId, focusedVariantSlugs, clearFocus } =
-    useEpisodeFocusStore();
+  // Chapter filter
+  const { focusedChapterId, focusedVariantSlugs, clearFocus } =
+    useChapterFocusStore();
   const [variantDisplayById, setVariantDisplayById] = useState<
     Map<
       string,
@@ -923,13 +923,13 @@ export default function ProjectAssetsPanel() {
     total: number;
   } | null>(null);
 
-  // Filter assets by episode focus (if active)
+  // Filter assets by chapter focus (if active)
   const filteredAssets = useMemo(() => {
-    if (!focusedEpisodeId || focusedVariantSlugs.size === 0) return assets;
+    if (!focusedChapterId || focusedVariantSlugs.size === 0) return assets;
     return assets.filter((asset) =>
       asset.variants.some((v) => focusedVariantSlugs.has(v.slug))
     );
-  }, [assets, focusedEpisodeId, focusedVariantSlugs]);
+  }, [assets, focusedChapterId, focusedVariantSlugs]);
 
   const groupedAssets = useMemo(() => {
     return {
@@ -1251,13 +1251,13 @@ export default function ProjectAssetsPanel() {
             )}
           </button>
 
-          {/* Episode filter indicator */}
-          {focusedEpisodeId && (
+          {/* Chapter filter indicator */}
+          {focusedChapterId && (
             <button
               type="button"
               onClick={clearFocus}
               className="h-7 px-2 text-xs rounded border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary transition-colors flex items-center gap-1"
-              title="Clear episode filter"
+              title="Clear chapter filter"
             >
               <IconFilterOff size={14} />
               <span className="text-[10px]">Filtered</span>

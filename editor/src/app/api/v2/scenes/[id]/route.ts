@@ -9,7 +9,7 @@ type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
 
 type SceneRecord = {
   id: string;
-  episode_id: string;
+  chapter_id: string;
   order: number;
   title: string | null;
   audio_duration: number | null;
@@ -29,7 +29,7 @@ type SceneRecord = {
 };
 
 const SCENE_SELECT =
-  'id, episode_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
+  'id, chapter_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -141,26 +141,26 @@ async function getOwnedScene(
     };
   }
 
-  const { data: episode, error: episodeError } = await db
-    .from('episodes')
-    .select('id, series_id')
-    .eq('id', scene.episode_id)
+  const { data: chapter, error: chapterError } = await db
+    .from('chapters')
+    .select('id, video_id')
+    .eq('id', scene.chapter_id)
     .maybeSingle();
 
-  if (episodeError || !episode) {
+  if (chapterError || !chapter) {
     return {
       error: NextResponse.json({ error: 'Scene not found' }, { status: 404 }),
     };
   }
 
-  const { data: series, error: seriesError } = await db
-    .from('series')
+  const { data: video, error: videoError } = await db
+    .from('videos')
     .select('id')
-    .eq('id', episode.series_id)
+    .eq('id', chapter.video_id)
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (seriesError || !series) {
+  if (videoError || !video) {
     return {
       error: NextResponse.json({ error: 'Unauthorized' }, { status: 403 }),
     };
@@ -349,7 +349,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (updateError) {
       if ((updateError as { code?: string }).code === '23505') {
         return NextResponse.json(
-          { error: 'Scene order already exists for this episode' },
+          { error: 'Scene order already exists for this chapter' },
           { status: 409 }
         );
       }

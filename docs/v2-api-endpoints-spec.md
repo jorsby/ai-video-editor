@@ -1,7 +1,7 @@
 # V2 API Endpoints Spec — LLM-Driven Funnel
 
 ## Overview
-Build CRUD endpoints for the production funnel: Project → Series → Episodes → Assets → Variants → Scenes → Asset Map.
+Build CRUD endpoints for the production funnel: Project → Video → Chapters → Assets → Variants → Scenes → Asset Map.
 
 All endpoints live in `editor/src/app/api/v2/`.
 
@@ -22,7 +22,7 @@ All tables in `studio` schema. Use `createServiceClient('studio')`.
 - description TEXT
 - created_at, updated_at TIMESTAMPTZ
 
-### series
+### video
 - id UUID PK
 - project_id UUID FK→projects
 - user_id UUID
@@ -38,10 +38,10 @@ All tables in `studio` schema. Use `createServiceClient('studio')`.
 
 ### series_assets
 - id UUID PK
-- series_id UUID FK→series
+- video_id UUID FK→video
 - type ENUM ('character','location','prop')
 - name TEXT NOT NULL
-- slug TEXT NOT NULL (UNIQUE with series_id)
+- slug TEXT NOT NULL (UNIQUE with video_id)
 - description TEXT
 - sort_order INTEGER DEFAULT 0
 - created_at, updated_at
@@ -57,10 +57,10 @@ All tables in `studio` schema. Use `createServiceClient('studio')`.
 - where_to_use TEXT, reasoning TEXT
 - created_at, updated_at
 
-### episodes
+### chapters
 - id UUID PK
-- series_id UUID FK→series
-- "order" INTEGER NOT NULL (>0, UNIQUE with series_id)
+- video_id UUID FK→video
+- "order" INTEGER NOT NULL (>0, UNIQUE with video_id)
 - title TEXT, synopsis TEXT
 - audio_content TEXT, visual_outline TEXT
 - asset_variant_map JSONB DEFAULT '{"characters":[],"locations":[],"props":[]}'
@@ -70,11 +70,11 @@ All tables in `studio` schema. Use `createServiceClient('studio')`.
 
 ### scenes
 - id UUID PK
-- episode_id UUID FK→episodes
-- "order" INTEGER NOT NULL (>0, UNIQUE with episode_id)
+- chapter_id UUID FK→chapters
+- "order" INTEGER NOT NULL (>0, UNIQUE with chapter_id)
 - title TEXT
 - duration INTEGER (nullable, >0 if set)
-- content_mode ENUM same as series
+- content_mode ENUM same as video
 - visual_direction TEXT, prompt TEXT
 - location_variant_slug TEXT
 - character_variant_slugs TEXT[] DEFAULT '{}'
@@ -100,45 +100,45 @@ File: `api/v2/projects/[id]/route.ts`
 - GET: Get project by ID
 - PATCH: Update project {name?, description?}
 
-### 2. Series
-File: `api/v2/series/[id]/route.ts`
-- GET: Get series with all fields
-- PATCH: Update series (any field)
+### 2. Video
+File: `api/v2/video/[id]/route.ts`
+- GET: Get video with all fields
+- PATCH: Update video (any field)
 
-(POST create already exists at `api/v2/series/create/route.ts` — skip)
+(POST create already exists at `api/v2/video/create/route.ts` — skip)
 
-### 3. Episodes
-File: `api/v2/series/[seriesId]/episodes/route.ts`
-- POST: Create episodes (JSON array) — auto-order starting at 1000, increment 1000
-- GET: List all episodes for series (ordered)
+### 3. Chapters
+File: `api/v2/video/[videoId]/chapters/route.ts`
+- POST: Create chapters (JSON array) — auto-order starting at 1000, increment 1000
+- GET: List all chapters for video (ordered)
 
-File: `api/v2/episodes/[id]/route.ts`
-- GET: Get single episode
-- PATCH: Update episode (full JSON replace for provided fields)
-- DELETE: Delete episode
+File: `api/v2/chapters/[id]/route.ts`
+- GET: Get single chapter
+- PATCH: Update chapter (full JSON replace for provided fields)
+- DELETE: Delete chapter
 
 ### 4. Characters (type='character')
-File: `api/v2/series/[seriesId]/characters/route.ts`
+File: `api/v2/video/[videoId]/characters/route.ts`
 - POST: Create characters (JSON array) — auto-creates default variant per character
-- GET: List all characters for series
+- GET: List all characters for video
 
 File: `api/v2/characters/[id]/route.ts`
 - PATCH: Update character
 - DELETE: Delete character (cascades variants)
 
 ### 5. Locations (type='location')
-File: `api/v2/series/[seriesId]/locations/route.ts`
+File: `api/v2/video/[videoId]/locations/route.ts`
 - POST: Create locations (JSON array) — auto-creates default variant
-- GET: List all locations for series
+- GET: List all locations for video
 
 File: `api/v2/locations/[id]/route.ts`
 - PATCH: Update location
 - DELETE: Delete location
 
 ### 6. Props (type='prop')
-File: `api/v2/series/[seriesId]/props/route.ts`
+File: `api/v2/video/[videoId]/props/route.ts`
 - POST: Create props (JSON array) — auto-creates default variant
-- GET: List all props for series
+- GET: List all props for video
 
 File: `api/v2/props/[id]/route.ts`
 - PATCH: Update prop
@@ -154,9 +154,9 @@ File: `api/v2/variants/[id]/route.ts`
 - DELETE: Delete variant
 
 ### 8. Scenes
-File: `api/v2/episodes/[episodeId]/scenes/route.ts`
+File: `api/v2/chapters/[chapterId]/scenes/route.ts`
 - POST: Create scenes (JSON array) — auto-order 1000/2000/3000...
-- GET: List all scenes for episode (ordered)
+- GET: List all scenes for chapter (ordered)
 
 File: `api/v2/scenes/[id]/route.ts`
 - GET: Get single scene
@@ -164,11 +164,11 @@ File: `api/v2/scenes/[id]/route.ts`
 - DELETE: Delete scene
 
 ### 9. Asset Map
-File: `api/v2/episodes/[episodeId]/map-assets/route.ts`
-- POST: Auto-map assets from scene slugs to episode.asset_variant_map
-  Logic: read all scenes for episode, collect unique location_variant_slug + character_variant_slugs + prop_variant_slugs, write to episode.asset_variant_map
+File: `api/v2/chapters/[chapterId]/map-assets/route.ts`
+- POST: Auto-map assets from scene slugs to chapter.asset_variant_map
+  Logic: read all scenes for chapter, collect unique location_variant_slug + character_variant_slugs + prop_variant_slugs, write to chapter.asset_variant_map
 
-File: `api/v2/episodes/[episodeId]/asset-map/route.ts`
+File: `api/v2/chapters/[chapterId]/asset-map/route.ts`
 - GET: Return current asset_variant_map
 
 ## Asset POST Pattern (important)

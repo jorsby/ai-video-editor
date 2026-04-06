@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, episode_id, prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, chapter_id, prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -90,43 +90,43 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // ── Fetch episode + series ──────────────────────────────────────────
+    // ── Fetch chapter + video ──────────────────────────────────────────
 
-    const { data: episode } = await supabase
-      .from('episodes')
-      .select('id, series_id')
-      .eq('id', scene.episode_id)
+    const { data: chapter } = await supabase
+      .from('chapters')
+      .select('id, video_id')
+      .eq('id', scene.chapter_id)
       .maybeSingle();
 
-    if (!episode) {
-      return NextResponse.json({ error: 'Episode not found' }, { status: 404 });
+    if (!chapter) {
+      return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
     }
 
-    const { data: series } = await supabase
-      .from('series')
+    const { data: video } = await supabase
+      .from('videos')
       .select('id, project_id, video_model, aspect_ratio')
-      .eq('id', episode.series_id)
+      .eq('id', chapter.video_id)
       .maybeSingle();
 
-    if (!series) {
-      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    if (!video) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
     const { data: project } = await supabase
       .from('projects')
       .select('id, user_id')
-      .eq('id', series.project_id)
+      .eq('id', video.project_id)
       .maybeSingle();
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    if (!series.video_model) {
+    if (!video.video_model) {
       return NextResponse.json(
         {
           error:
-            'Series has no video_model configured. Set it in series settings first.',
+            'Video has no video_model configured. Set it in video settings first.',
         },
         { status: 400 }
       );
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           .from('project_asset_variants')
           .select('slug, image_url, asset:project_assets!inner(project_id)')
           .in('slug', allSlugs)
-          .eq('project_assets.project_id', series.project_id);
+          .eq('project_assets.project_id', video.project_id);
 
         for (const v of variants ?? []) {
           if (v.image_url) {
@@ -234,8 +234,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // ── Submit to kie.ai ────────────────────────────────────────────────
 
-    const videoModel = series.video_model;
-    const aspectRatio = series.aspect_ratio ?? '9:16';
+    const videoModel = video.video_model;
+    const aspectRatio = video.aspect_ratio ?? '9:16';
 
     const result = await createTask({
       model: videoModel,

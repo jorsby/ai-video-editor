@@ -46,7 +46,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         where_to_use:
           'Opening monologues, recap moments, and direct-to-camera narration.',
         reasoning:
-          'Neutral wardrobe and controlled lighting keep visual continuity across episode intros.',
+          'Neutral wardrobe and controlled lighting keep visual continuity across chapter intros.',
       },
       {
         name: 'Field Reporter',
@@ -112,9 +112,9 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-blue-hour.jpg',
         is_main: true,
         where_to_use:
-          'Episode cold opens and scene transitions into field investigation.',
+          'Chapter cold opens and scene transitions into field investigation.',
         reasoning:
-          'Reliable establishing frame that orients viewers quickly in recurring episodes.',
+          'Reliable establishing frame that orients viewers quickly in recurring chapters.',
       },
       {
         name: 'Night Searchlight Pass',
@@ -192,7 +192,7 @@ const SAMPLE_ASSETS: AssetSeed[] = [
           'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-open.jpg',
         is_main: false,
         where_to_use:
-          'Reveal moments, clue decoding scenes, and episode turning points.',
+          'Reveal moments, clue decoding scenes, and chapter turning points.',
         reasoning:
           'Makes the hidden mechanism explicit for story clarity during reveals.',
       },
@@ -250,7 +250,7 @@ type SceneSeed = {
   status: 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 };
 
-type EpisodeSeed = {
+type ChapterSeed = {
   order: number;
   title: string;
   synopsis: string;
@@ -293,10 +293,10 @@ const SHARED_VARIANT_MAP = {
   ],
 };
 
-const SAMPLE_EPISODES: EpisodeSeed[] = [
+const SAMPLE_EPISODES: ChapterSeed[] = [
   {
     order: 1,
-    title: 'Episode 1 — Echo at Pier 17',
+    title: 'Chapter 1 — Echo at Pier 17',
     synopsis:
       'Ava and Marcus connect a hidden watch mechanism to unauthorized harbor shipments and expose the first thread of Casefile Echo.',
     audio_content:
@@ -344,7 +344,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
         },
         {
           order: 4,
-          objective: 'Exit under pressure and set up episode continuation.',
+          objective: 'Exit under pressure and set up chapter continuation.',
           primary_assets: {
             characters: [
               'ava-kim-field-reporter',
@@ -456,11 +456,11 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
   },
   {
     order: 2,
-    title: 'Episode 2 — The Archive Leak',
+    title: 'Chapter 2 — The Archive Leak',
     synopsis:
       'A leaked maintenance log ties Marcus’s archive access to a second harbor operator, forcing Ava to widen the case.',
     audio_content:
-      'More explanatory narration, quieter tension, and one deliberate mid-episode reveal line from Marcus.',
+      'More explanatory narration, quieter tension, and one deliberate mid-chapter reveal line from Marcus.',
     visual_outline:
       'Scenes move from newsroom setup to archive conflict to evidence spread to an outbound lead.',
     asset_variant_map: SHARED_VARIANT_MAP,
@@ -575,7 +575,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
   },
   {
     order: 3,
-    title: 'Episode 3 — Searchlight Run',
+    title: 'Chapter 3 — Searchlight Run',
     synopsis:
       'The team tries to copy shipment records from the dock perimeter before security locks the area down.',
     audio_content:
@@ -687,7 +687,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
   },
   {
     order: 4,
-    title: 'Episode 4 — Rain Signal',
+    title: 'Chapter 4 — Rain Signal',
     synopsis:
       'A coded weather alert reveals who is coordinating the shipments and pushes the season arc into the next investigation.',
     audio_content:
@@ -708,7 +708,7 @@ const SAMPLE_EPISODES: EpisodeSeed[] = [
         },
         { order: 2, objective: 'Decode the weather pattern signal.' },
         { order: 3, objective: 'Name the coordinator behind the transfers.' },
-        { order: 4, objective: 'Point toward the next episode/arc.' },
+        { order: 4, objective: 'Point toward the next chapter/arc.' },
       ],
     },
     status: 'draft',
@@ -823,7 +823,7 @@ export async function GET() {
     description:
       'Rebuilds a full dev-only sample dataset for the schema reset inspector using your authenticated user id.',
     sampleProjectName: SAMPLE_PROJECT_NAME,
-    sampleSeriesName: SAMPLE_SERIES_NAME,
+    sampleVideoName: SAMPLE_SERIES_NAME,
     usage: {
       fetch: "fetch('/api/dev/schema-inspector/seed', { method: 'POST' })",
       curl: "curl -X POST http://localhost:3000/api/dev/schema-inspector/seed -H 'Cookie: <your session cookies>'",
@@ -884,8 +884,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data: seriesRow, error: seriesError } = await supabase
-    .from('series')
+  const { data: videoRow, error: videoError } = await supabase
+    .from('videos')
     .insert({
       project_id: projectRow.id,
       user_id: user.id,
@@ -909,7 +909,7 @@ export async function POST(request: NextRequest) {
         logline:
           'A leaked timing device links nighttime harbor shipments to a buried city records operation.',
         objective:
-          'Deliver one short-form investigative episode that introduces Ava, Marcus, the Echo-9 dossier, and the cipher watch mechanism.',
+          'Deliver one short-form investigative chapter that introduces Ava, Marcus, the Echo-9 dossier, and the cipher watch mechanism.',
         target_runtime_seconds: 68,
         recurring_motifs: [
           'rain on metal',
@@ -936,7 +936,7 @@ export async function POST(request: NextRequest) {
           },
           {
             order: 4,
-            beat: 'Security sweep interrupts and sets up next episode stakes.',
+            beat: 'Security sweep interrupts and sets up next chapter stakes.',
           },
         ],
         risk_flags: {
@@ -949,11 +949,11 @@ export async function POST(request: NextRequest) {
     .select('id, name')
     .single();
 
-  if (seriesError || !seriesRow) {
+  if (videoError || !videoRow) {
     return NextResponse.json(
       {
-        error: 'Failed to create sample series.',
-        details: seriesError?.message ?? 'Missing inserted series row.',
+        error: 'Failed to create sample video.',
+        details: videoError?.message ?? 'Missing inserted video row.',
       },
       { status: 500 }
     );
@@ -1022,43 +1022,43 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data: insertedEpisodeRows, error: episodesError } = await supabase
-    .from('episodes')
+  const { data: insertedChapterRows, error: chaptersError } = await supabase
+    .from('chapters')
     .insert(
-      SAMPLE_EPISODES.map((episode) => ({
-        series_id: seriesRow.id,
-        order: episode.order,
-        title: episode.title,
-        synopsis: episode.synopsis,
-        audio_content: episode.audio_content,
-        visual_outline: episode.visual_outline,
-        asset_variant_map: episode.asset_variant_map,
-        plan_json: episode.plan_json,
-        status: episode.status,
+      SAMPLE_EPISODES.map((chapter) => ({
+        video_id: videoRow.id,
+        order: chapter.order,
+        title: chapter.title,
+        synopsis: chapter.synopsis,
+        audio_content: chapter.audio_content,
+        visual_outline: chapter.visual_outline,
+        asset_variant_map: chapter.asset_variant_map,
+        plan_json: chapter.plan_json,
+        status: chapter.status,
       }))
     )
     .select('id, title, order');
 
-  if (episodesError || !insertedEpisodeRows) {
+  if (chaptersError || !insertedChapterRows) {
     return NextResponse.json(
       {
-        error: 'Failed to create sample episodes.',
-        details: episodesError?.message ?? 'Missing inserted episode rows.',
+        error: 'Failed to create sample chapters.',
+        details: chaptersError?.message ?? 'Missing inserted chapter rows.',
       },
       { status: 500 }
     );
   }
 
-  const episodeIdByOrder = new Map(
-    insertedEpisodeRows.map((episode) => [episode.order, episode.id] as const)
+  const chapterIdByOrder = new Map(
+    insertedChapterRows.map((chapter) => [chapter.order, chapter.id] as const)
   );
 
-  const sceneRows = SAMPLE_EPISODES.flatMap((episode) => {
-    const episodeId = episodeIdByOrder.get(episode.order);
-    if (!episodeId) return [];
+  const sceneRows = SAMPLE_EPISODES.flatMap((chapter) => {
+    const chapterId = chapterIdByOrder.get(chapter.order);
+    if (!chapterId) return [];
 
-    return episode.scenes.map((scene) => ({
-      episode_id: episodeId,
+    return chapter.scenes.map((scene) => ({
+      chapter_id: chapterId,
       order: scene.order,
       title: scene.title,
       video_duration: scene.duration ?? null,
@@ -1090,26 +1090,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const primaryEpisode = insertedEpisodeRows.find(
-    (episode) => episode.order === 1
+  const primaryChapter = insertedChapterRows.find(
+    (chapter) => chapter.order === 1
   );
 
   return NextResponse.json({
     ok: true,
     summary: {
       projectName: SAMPLE_PROJECT_NAME,
-      seriesName: SAMPLE_SERIES_NAME,
+      videoName: SAMPLE_SERIES_NAME,
       assets: insertedAssets.length,
       variants: insertedVariants.length,
-      episodes: insertedEpisodeRows.length,
+      chapters: insertedChapterRows.length,
       scenes: insertedScenes.length,
     },
     ids: {
       projectId: projectRow.id,
-      seriesId: seriesRow.id,
-      episodeId: primaryEpisode?.id ?? insertedEpisodeRows[0]?.id ?? null,
-      episodeIds: insertedEpisodeRows.map((episode) => episode.id),
+      videoId: videoRow.id,
+      chapterId: primaryChapter?.id ?? insertedChapterRows[0]?.id ?? null,
+      chapterIds: insertedChapterRows.map((chapter) => chapter.id),
     },
-    hint: `Open /dev/schema-inspector?projectId=${projectRow.id}&seriesId=${seriesRow.id}`,
+    hint: `Open /dev/schema-inspector?projectId=${projectRow.id}&videoId=${videoRow.id}`,
   });
 }

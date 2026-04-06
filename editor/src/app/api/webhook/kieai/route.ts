@@ -231,28 +231,28 @@ function toRecord(value: unknown): Record<string, unknown> {
 
 type RuntimeTaskKey = 'tts_tasks' | 'video_tasks';
 
-async function consumeEpisodeRuntimeTask(params: {
+async function consumeChapterRuntimeTask(params: {
   supabase: any;
-  episodeId: string;
+  chapterId: string;
   sceneId: string;
   taskId: string;
   taskKey: RuntimeTaskKey;
 }): Promise<
   { ok: true } | { ok: false; reason: 'episode_missing' | 'task_mismatch' }
 > {
-  const { supabase, episodeId, sceneId, taskId, taskKey } = params;
+  const { supabase, chapterId, sceneId, taskId, taskKey } = params;
 
-  const { data: episode } = await supabase
-    .from('episodes')
+  const { data: chapter } = await supabase
+    .from('chapters')
     .select('id, plan_json')
-    .eq('id', episodeId)
+    .eq('id', chapterId)
     .maybeSingle();
 
-  if (!episode) {
+  if (!chapter) {
     return { ok: false, reason: 'episode_missing' };
   }
 
-  const planJson = toRecord(episode.plan_json);
+  const planJson = toRecord(chapter.plan_json);
   const runtime = toRecord(planJson.generation_runtime);
   const tasks = toRecord(runtime[taskKey]);
   const task = toRecord(tasks[sceneId]);
@@ -271,9 +271,9 @@ async function consumeEpisodeRuntimeTask(params: {
     planJson.generation_runtime = runtime;
 
     await supabase
-      .from('episodes')
+      .from('chapters')
       .update({ plan_json: planJson })
-      .eq('id', episodeId);
+      .eq('id', chapterId);
   }
 
   return { ok: true };
@@ -493,7 +493,7 @@ async function handleGenerateSceneTts(params: {
 
   const { data: scene } = await supabase
     .from('scenes')
-    .select('id, episode_id, video_url')
+    .select('id, chapter_id, video_url')
     .eq('id', sceneId)
     .maybeSingle();
 
@@ -516,9 +516,9 @@ async function handleGenerateSceneTts(params: {
     });
   }
 
-  const taskGuard = await consumeEpisodeRuntimeTask({
+  const taskGuard = await consumeChapterRuntimeTask({
     supabase,
-    episodeId: scene.episode_id,
+    chapterId: scene.chapter_id,
     sceneId,
     taskId,
     taskKey: 'tts_tasks',
@@ -596,7 +596,7 @@ async function handleGenerateSceneVideo(params: {
 
   const { data: scene } = await supabase
     .from('scenes')
-    .select('id, episode_id, audio_url')
+    .select('id, chapter_id, audio_url')
     .eq('id', sceneId)
     .maybeSingle();
 
@@ -619,9 +619,9 @@ async function handleGenerateSceneVideo(params: {
     });
   }
 
-  const taskGuard = await consumeEpisodeRuntimeTask({
+  const taskGuard = await consumeChapterRuntimeTask({
     supabase,
-    episodeId: scene.episode_id,
+    chapterId: scene.chapter_id,
     sceneId,
     taskId,
     taskKey: 'video_tasks',
@@ -763,7 +763,7 @@ async function handleGenerateImage(params: {
   });
 }
 
-async function handleSeriesAssetImage(params: {
+async function handleVideoAssetImage(params: {
   supabase: any;
   payload: KieWebhookPayload;
   taskId: string;
@@ -777,7 +777,7 @@ async function handleSeriesAssetImage(params: {
     return okResponse({
       success: true,
       pending: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
     });
   }
 
@@ -789,7 +789,7 @@ async function handleSeriesAssetImage(params: {
 
     return okResponse({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       failed: true,
     });
   }
@@ -805,7 +805,7 @@ async function handleSeriesAssetImage(params: {
 
     return okResponse({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       failed: true,
       reason: 'missing_image_url',
     });
@@ -829,7 +829,7 @@ async function handleSeriesAssetImage(params: {
 
   return okResponse({
     success: true,
-    step: 'SeriesAssetImage',
+    step: 'VideoAssetImage',
     variant_id: variantId,
     url: imageUrl,
   });
@@ -1198,7 +1198,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (step === 'SeriesAssetImage') {
+    if (step === 'VideoAssetImage') {
       const variantId = req.nextUrl.searchParams.get('variant_id');
       if (!variantId) {
         return okResponse({
@@ -1208,7 +1208,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return await handleSeriesAssetImage({
+      return await handleVideoAssetImage({
         supabase,
         payload,
         taskId: verification.taskId,

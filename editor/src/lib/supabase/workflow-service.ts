@@ -6,9 +6,9 @@ import type {
   ValidatedRuntime,
 } from '@/lib/storyboard/scene-contracts';
 
-// ── Series production metadata ───────────────────────────────────────────────
+// ── Video production metadata ───────────────────────────────────────────────
 
-export interface SeriesProductionMeta {
+export interface VideoProductionMeta {
   scene_mode?: 'narrative' | 'cinematic';
   episode_count?: number;
   aspect_ratio?: string;
@@ -24,7 +24,7 @@ export type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 
 export interface Scene {
   id: string;
-  episode_id: string;
+  chapter_id: string;
   order: number;
   title: string | null;
   duration: number | null;

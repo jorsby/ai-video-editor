@@ -64,23 +64,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { data: series } = await supabase
-      .from('series')
+    const { data: video } = await supabase
+      .from('videos')
       .select('id, genre, tone, image_model, image_provider, aspect_ratio')
       .eq('project_id', asset.project_id)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    if (!series) {
-      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    if (!video) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
-    if (!series.image_model) {
+    if (!video.image_model) {
       return NextResponse.json(
         {
           error:
-            'Series has no image_model configured. Set it in series settings first.',
+            'Video has no image_model configured. Set it in video settings first.',
         },
         { status: 400 }
       );
@@ -104,8 +104,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
         parts.push(
           'Wide establishing shot, cinematic composition, atmospheric lighting, no people'
         );
-        if (series.genre) parts.push(`${series.genre} genre`);
-        if (series.tone) parts.push(`${series.tone} tone`);
+        if (video.genre) parts.push(`${video.genre} genre`);
+        if (video.tone) parts.push(`${video.tone} tone`);
       } else {
         parts.push(
           'Clean product shot, centered, neutral background, studio lighting'
@@ -135,14 +135,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // ── Resolve provider & webhook ────────────────────────────────────
 
-    const provider = resolveImageProvider(series.image_provider);
+    const provider = resolveImageProvider(video.image_provider);
     const webhookPath =
       provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
     const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
-    webhookUrl.searchParams.set('step', 'SeriesAssetImage');
+    webhookUrl.searchParams.set('step', 'VideoAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    const aspectRatio = series.aspect_ratio ?? '9:16';
+    const aspectRatio = video.aspect_ratio ?? '9:16';
 
     const queued = await queueImageTask({
       provider,

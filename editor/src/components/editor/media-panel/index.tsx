@@ -14,7 +14,7 @@ import PanelMusic from './panel/music';
 import PanelSFX from './panel/sfx';
 import ProjectAssetsPanel from './panel/project-assets-panel';
 import StoryboardPanel from './panel/storyboard-panel';
-import SeriesSettingsPanel from './panel/series-settings-panel';
+import VideoSettingsPanel from './panel/video-settings-panel';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
 import { Assistant } from '@/components/assistant';
@@ -38,7 +38,7 @@ const viewMap: Record<Tab, React.ReactNode> = {
   assistant: <Assistant />,
   assets: <ProjectAssetsPanel />,
   storyboard: <StoryboardPanel />,
-  settings: <SeriesSettingsPanel />,
+  settings: <VideoSettingsPanel />,
   renders: <PanelRenders />,
 };
 

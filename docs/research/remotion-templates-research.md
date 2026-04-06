@@ -15,7 +15,7 @@ Remotion is a React-based framework for creating videos programmatically. You wr
 - **`useCurrentFrame()`** = the current frame number (drives all animation)
 - **`interpolate()`** = map frame ranges to value ranges (opacity, position, scale)
 - **`<Sequence>`** = show components at specific time ranges
-- **`<Series>`** = chain sequences one after another
+- **`<Video>`** = chain sequences one after another
 - **`<Audio>`** / **`<Img>`** = media elements with frame-perfect sync
 - **`staticFile()`** = reference files in `public/` directory
 - **`calculateMetadata()`** = dynamically compute duration from props at render time

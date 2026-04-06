@@ -10,7 +10,7 @@ type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
 
 type AssetType = 'character' | 'location' | 'prop';
 
-type EpisodeStatus = 'draft' | 'ready' | 'in_progress' | 'done';
+type ChapterStatus = 'draft' | 'ready' | 'in_progress' | 'done';
 
 type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
 
@@ -23,7 +23,7 @@ interface SchemaProject {
   updated_at: string;
 }
 
-interface SchemaSeries {
+interface SchemaVideo {
   id: string;
   project_id: string;
   user_id: string;
@@ -45,7 +45,7 @@ interface SchemaSeries {
   updated_at: string;
 }
 
-interface SchemaSeriesAsset {
+interface SchemaVideoAsset {
   id: string;
   project_id: string;
   type: AssetType;
@@ -57,7 +57,7 @@ interface SchemaSeriesAsset {
   updated_at: string;
 }
 
-interface SchemaSeriesAssetVariant {
+interface SchemaVideoAssetVariant {
   id: string;
   asset_id: string;
   slug: string;
@@ -71,9 +71,9 @@ interface SchemaSeriesAssetVariant {
   updated_at: string;
 }
 
-interface SchemaEpisode {
+interface SchemaChapter {
   id: string;
-  series_id: string;
+  video_id: string;
   order: number;
   title: string | null;
   synopsis: string | null;
@@ -81,14 +81,14 @@ interface SchemaEpisode {
   visual_outline: string | null;
   asset_variant_map: Record<string, unknown>;
   plan_json: Record<string, unknown> | null;
-  status: EpisodeStatus;
+  status: ChapterStatus;
   created_at: string;
   updated_at: string;
 }
 
 interface SchemaScene {
   id: string;
-  episode_id: string;
+  chapter_id: string;
   order: number;
   title: string | null;
   audio_duration: number | null;
@@ -139,17 +139,17 @@ function parseModeParam(value: ParamValue): InspectorModeParam {
 function buildInspectorHref({
   mode,
   projectId,
-  seriesId,
+  videoId,
 }: {
   mode?: InspectorModeParam;
   projectId?: string;
-  seriesId?: string;
+  videoId?: string;
 }) {
   const params = new URLSearchParams();
 
   if (mode) params.set('mode', mode);
   if (projectId) params.set('projectId', projectId);
-  if (seriesId) params.set('seriesId', seriesId);
+  if (videoId) params.set('videoId', videoId);
 
   const query = params.toString();
   return query ? `/dev/schema-inspector?${query}` : '/dev/schema-inspector';
@@ -234,7 +234,7 @@ function getDurationResolutionLabel(scene: SchemaScene) {
   return 'missing audio_duration and video_duration';
 }
 
-function getStatusBadgeClass(status: EpisodeStatus | SceneStatus) {
+function getStatusBadgeClass(status: ChapterStatus | SceneStatus) {
   if (status === 'done') {
     return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
   }
@@ -412,8 +412,8 @@ function createMockInspectorData(userId: string) {
     updated_at: updatedAt,
   };
 
-  const series: SchemaSeries = {
-    id: 'mock-series-casefile-echo',
+  const video: SchemaVideo = {
+    id: 'mock-video-casefile-echo',
     project_id: project.id,
     user_id: userId,
     name: 'Neon Backroads: Casefile Echo',
@@ -456,20 +456,20 @@ function createMockInspectorData(userId: string) {
     user_id: userId,
     name: 'Schema Inspector Review: Signal Atlas',
     description:
-      'Secondary project to validate project/series navigation shell states.',
+      'Secondary project to validate project/video navigation shell states.',
     created_at: createdAt,
     updated_at: updatedAt,
   };
 
-  const secondarySeries: SchemaSeries = {
-    id: 'mock-series-signal-atlas',
+  const secondaryVideo: SchemaVideo = {
+    id: 'mock-video-signal-atlas',
     project_id: secondaryProject.id,
     user_id: userId,
     name: 'Signal Atlas: Dry Run',
     genre: 'Sci-fi procedural',
     tone: 'Measured, analytical',
     bible:
-      'A compact secondary mock series used to validate empty-state behavior in inspector shells.',
+      'A compact secondary mock video used to validate empty-state behavior in inspector shells.',
     content_mode: 'narrative',
     language: 'en-US',
     aspect_ratio: '16:9',
@@ -486,10 +486,10 @@ function createMockInspectorData(userId: string) {
     updated_at: updatedAt,
   };
 
-  const assets: SchemaSeriesAsset[] = [
+  const assets: SchemaVideoAsset[] = [
     {
       id: 'mock-asset-ava-kim',
-      project_id: series.project_id,
+      project_id: video.project_id,
       type: 'character',
       name: 'Ava Kim',
       slug: 'ava-kim',
@@ -501,7 +501,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-asset-pier-17',
-      project_id: series.project_id,
+      project_id: video.project_id,
       type: 'location',
       name: 'Pier 17 Container Yard',
       slug: 'pier-17-container-yard',
@@ -513,7 +513,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-asset-cipher-watch',
-      project_id: series.project_id,
+      project_id: video.project_id,
       type: 'prop',
       name: 'Cipher Watch',
       slug: 'cipher-watch',
@@ -524,7 +524,7 @@ function createMockInspectorData(userId: string) {
     },
   ];
 
-  const variants: SchemaSeriesAssetVariant[] = [
+  const variants: SchemaVideoAssetVariant[] = [
     {
       id: 'mock-variant-ava-studio',
       asset_id: 'mock-asset-ava-kim',
@@ -570,7 +570,7 @@ function createMockInspectorData(userId: string) {
       is_main: true,
       where_to_use: 'Cold opens and transition shots into field investigation.',
       reasoning:
-        'Reliable establishing frame that quickly orients viewers in recurring episodes.',
+        'Reliable establishing frame that quickly orients viewers in recurring chapters.',
       created_at: createdAt,
       updated_at: updatedAt,
     },
@@ -623,12 +623,12 @@ function createMockInspectorData(userId: string) {
     },
   ];
 
-  const episodes: SchemaEpisode[] = [
+  const chapters: SchemaChapter[] = [
     {
-      id: 'mock-episode-echo-1',
-      series_id: series.id,
+      id: 'mock-chapter-echo-1',
+      video_id: video.id,
       order: 1,
-      title: 'Episode 1 — Echo at Pier 17',
+      title: 'Chapter 1 — Echo at Pier 17',
       synopsis:
         'Ava links a hidden watch mechanism to unauthorized harbor shipments and sets up the larger case.',
       audio_content:
@@ -669,7 +669,7 @@ function createMockInspectorData(userId: string) {
           },
           {
             order: 4,
-            objective: 'Escalate threat and hand off to next episode.',
+            objective: 'Escalate threat and hand off to next chapter.',
           },
         ],
       },
@@ -678,14 +678,14 @@ function createMockInspectorData(userId: string) {
       updated_at: updatedAt,
     },
     {
-      id: 'mock-episode-echo-2',
-      series_id: series.id,
+      id: 'mock-chapter-echo-2',
+      video_id: video.id,
       order: 2,
-      title: 'Episode 2 — Relay at Dawn',
+      title: 'Chapter 2 — Relay at Dawn',
       synopsis:
-        'Follow-up episode where Ava verifies who receives the copied transfer logs.',
+        'Follow-up chapter where Ava verifies who receives the copied transfer logs.',
       audio_content:
-        'Narration-heavy with shorter dialogue inserts to keep continuity from episode 1.',
+        'Narration-heavy with shorter dialogue inserts to keep continuity from chapter 1.',
       visual_outline:
         'Scene 1 recap bridge, Scene 2 hand-off location, Scene 3 unresolved lookout beat.',
       asset_variant_map: {
@@ -710,7 +710,7 @@ function createMockInspectorData(userId: string) {
   const scenes: SchemaScene[] = [
     {
       id: 'mock-scene-1',
-      episode_id: 'mock-episode-echo-1',
+      chapter_id: 'mock-chapter-echo-1',
       order: 1,
       title: 'Cold Open at Pier 17',
       audio_duration: null,
@@ -735,7 +735,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-scene-2',
-      episode_id: 'mock-episode-echo-1',
+      chapter_id: 'mock-chapter-echo-1',
       order: 2,
       title: 'Evidence Locker Pull',
       audio_duration: null,
@@ -760,7 +760,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-scene-3',
-      episode_id: 'mock-episode-echo-1',
+      chapter_id: 'mock-chapter-echo-1',
       order: 3,
       title: 'Pattern Match',
       audio_duration: null,
@@ -785,7 +785,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-scene-4',
-      episode_id: 'mock-episode-echo-1',
+      chapter_id: 'mock-chapter-echo-1',
       order: 4,
       title: 'Searchlight Interruption',
       audio_duration: null,
@@ -810,7 +810,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-scene-5',
-      episode_id: 'mock-episode-echo-2',
+      chapter_id: 'mock-chapter-echo-2',
       order: 1,
       title: 'Recap Signal Sweep',
       audio_duration: null,
@@ -833,7 +833,7 @@ function createMockInspectorData(userId: string) {
     },
     {
       id: 'mock-scene-6',
-      episode_id: 'mock-episode-echo-2',
+      chapter_id: 'mock-chapter-echo-2',
       order: 2,
       title: 'Dawn Hand-off Checkpoint',
       audio_duration: null,
@@ -858,10 +858,10 @@ function createMockInspectorData(userId: string) {
 
   return {
     projects: [project, secondaryProject],
-    seriesList: [series, secondarySeries],
+    videoList: [video, secondaryVideo],
     assets,
     variants,
-    episodes,
+    chapters,
     scenes,
   };
 }
@@ -879,7 +879,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const requestedProjectId = getFirstParam(params.projectId);
-  const requestedSeriesId = getFirstParam(params.seriesId);
+  const requestedVideoId = getFirstParam(params.videoId);
   const rawModeParam = getFirstParam(params.mode);
   const requestedMode = parseModeParam(params.mode);
   const modeForLinks = requestedMode === 'auto' ? undefined : requestedMode;
@@ -889,14 +889,14 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
   let loadError: string | null = null;
 
   let projects: SchemaProject[] = [];
-  let seriesList: SchemaSeries[] = [];
-  let assets: SchemaSeriesAsset[] = [];
-  let variants: SchemaSeriesAssetVariant[] = [];
-  let episodes: SchemaEpisode[] = [];
+  let videoList: SchemaVideo[] = [];
+  let assets: SchemaVideoAsset[] = [];
+  let variants: SchemaVideoAssetVariant[] = [];
+  let chapters: SchemaChapter[] = [];
   let scenes: SchemaScene[] = [];
 
   let selectedProject: SchemaProject | null = null;
-  let selectedSeries: SchemaSeries | null = null;
+  let selectedVideo: SchemaVideo | null = null;
 
   const applyMockData = (reason: string) => {
     const mockData = createMockInspectorData(user.id);
@@ -912,41 +912,41 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       null;
 
     const selectedProjectId = selectedProject?.id;
-    seriesList = selectedProjectId
-      ? mockData.seriesList.filter(
-          (series) => series.project_id === selectedProjectId
+    videoList = selectedProjectId
+      ? mockData.videoList.filter(
+          (video) => video.project_id === selectedProjectId
         )
       : [];
 
-    selectedSeries =
-      seriesList.find((series) => series.id === requestedSeriesId) ??
-      seriesList[0] ??
+    selectedVideo =
+      videoList.find((video) => video.id === requestedVideoId) ??
+      videoList[0] ??
       null;
 
-    const selectedSeriesId = selectedSeries?.id;
-    const selectedSeriesProjectId = selectedSeries?.project_id;
-    assets = selectedSeriesProjectId
+    const selectedVideoId = selectedVideo?.id;
+    const selectedVideoProjectId = selectedVideo?.project_id;
+    assets = selectedVideoProjectId
       ? mockData.assets.filter(
-          (asset) => asset.project_id === selectedSeriesProjectId
+          (asset) => asset.project_id === selectedVideoProjectId
         )
       : [];
 
     const selectedAssetIds = new Set(assets.map((asset) => asset.id));
-    variants = selectedSeriesId
+    variants = selectedVideoId
       ? mockData.variants.filter((variant) =>
           selectedAssetIds.has(variant.asset_id)
         )
       : [];
 
-    episodes = selectedSeriesId
-      ? mockData.episodes.filter(
-          (episode) => episode.series_id === selectedSeriesId
+    chapters = selectedVideoId
+      ? mockData.chapters.filter(
+          (chapter) => chapter.video_id === selectedVideoId
         )
       : [];
 
-    const episodeIds = new Set(episodes.map((episode) => episode.id));
+    const chapterIds = new Set(chapters.map((chapter) => chapter.id));
     scenes = mockData.scenes.filter((scene) =>
-      episodeIds.has(scene.episode_id)
+      chapterIds.has(scene.chapter_id)
     );
   };
 
@@ -975,9 +975,9 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       projects[0] ??
       null;
 
-    const { data: seriesData, error: seriesError } = selectedProject
+    const { data: videoData, error: videoError } = selectedProject
       ? await supabase
-          .from('series')
+          .from('videos')
           .select(
             'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status, created_at, updated_at'
           )
@@ -985,23 +985,23 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
           .order('created_at', { ascending: true })
       : { data: [], error: null };
 
-    if (seriesError) {
-      queryErrors.push({ source: 'series', error: seriesError });
+    if (videoError) {
+      queryErrors.push({ source: 'video', error: videoError });
     }
 
-    seriesList = (seriesData ?? []) as SchemaSeries[];
-    selectedSeries =
-      seriesList.find((series) => series.id === requestedSeriesId) ??
-      seriesList[0] ??
+    videoList = (videoData ?? []) as SchemaVideo[];
+    selectedVideo =
+      videoList.find((video) => video.id === requestedVideoId) ??
+      videoList[0] ??
       null;
 
-    const { data: assetsData, error: assetsError } = selectedSeries
+    const { data: assetsData, error: assetsError } = selectedVideo
       ? await supabase
           .from('project_assets')
           .select(
             'id, project_id, type, name, slug, description, sort_order, created_at, updated_at'
           )
-          .eq('project_id', selectedSeries.project_id)
+          .eq('project_id', selectedVideo.project_id)
           .order('type', { ascending: true })
           .order('sort_order', { ascending: true })
       : { data: [], error: null };
@@ -1010,7 +1010,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       queryErrors.push({ source: 'project_assets', error: assetsError });
     }
 
-    assets = (assetsData ?? []) as SchemaSeriesAsset[];
+    assets = (assetsData ?? []) as SchemaVideoAsset[];
     const assetIds = assets.map((asset) => asset.id);
 
     const { data: variantsData, error: variantsError } = assetIds.length
@@ -1030,33 +1030,33 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       });
     }
 
-    variants = (variantsData ?? []) as SchemaSeriesAssetVariant[];
+    variants = (variantsData ?? []) as SchemaVideoAssetVariant[];
 
-    const { data: episodesData, error: episodesError } = selectedSeries
+    const { data: chaptersData, error: chaptersError } = selectedVideo
       ? await supabase
-          .from('episodes')
+          .from('chapters')
           .select(
-            'id, series_id, order, title, synopsis, audio_content, visual_outline, asset_variant_map, plan_json, status, created_at, updated_at'
+            'id, video_id, order, title, synopsis, audio_content, visual_outline, asset_variant_map, plan_json, status, created_at, updated_at'
           )
-          .eq('series_id', selectedSeries.id)
+          .eq('video_id', selectedVideo.id)
           .order('order', { ascending: true })
       : { data: [], error: null };
 
-    if (episodesError) {
-      queryErrors.push({ source: 'episodes', error: episodesError });
+    if (chaptersError) {
+      queryErrors.push({ source: 'chapters', error: chaptersError });
     }
 
-    episodes = (episodesData ?? []) as SchemaEpisode[];
-    const episodeIds = episodes.map((episode) => episode.id);
+    chapters = (chaptersData ?? []) as SchemaChapter[];
+    const chapterIds = chapters.map((chapter) => chapter.id);
 
-    const { data: scenesData, error: scenesError } = episodeIds.length
+    const { data: scenesData, error: scenesError } = chapterIds.length
       ? await supabase
           .from('scenes')
           .select(
-            'id, episode_id, order, title, audio_duration, video_duration, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
+            'id, chapter_id, order, title, audio_duration, video_duration, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, video_url, status, created_at, updated_at'
           )
-          .in('episode_id', episodeIds)
-          .order('episode_id', { ascending: true })
+          .in('chapter_id', chapterIds)
+          .order('chapter_id', { ascending: true })
           .order('order', { ascending: true })
       : { data: [], error: null };
 
@@ -1092,18 +1092,18 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
     }
   }
 
-  const variantsByAssetId = new Map<string, SchemaSeriesAssetVariant[]>();
+  const variantsByAssetId = new Map<string, SchemaVideoAssetVariant[]>();
   for (const variant of variants) {
     const list = variantsByAssetId.get(variant.asset_id) ?? [];
     list.push(variant);
     variantsByAssetId.set(variant.asset_id, list);
   }
 
-  const scenesByEpisodeId = new Map<string, SchemaScene[]>();
+  const scenesByChapterId = new Map<string, SchemaScene[]>();
   for (const scene of scenes) {
-    const list = scenesByEpisodeId.get(scene.episode_id) ?? [];
+    const list = scenesByChapterId.get(scene.chapter_id) ?? [];
     list.push(scene);
-    scenesByEpisodeId.set(scene.episode_id, list);
+    scenesByChapterId.set(scene.chapter_id, list);
   }
 
   const groupedAssets = {
@@ -1112,25 +1112,25 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
     prop: assets.filter((asset) => asset.type === 'prop'),
   };
 
-  const assetById = new Map<string, SchemaSeriesAsset>();
+  const assetById = new Map<string, SchemaVideoAsset>();
   for (const asset of assets) {
     assetById.set(asset.id, asset);
   }
 
-  const variantBySlug = new Map<string, SchemaSeriesAssetVariant>();
+  const variantBySlug = new Map<string, SchemaVideoAssetVariant>();
   for (const variant of variants) {
     variantBySlug.set(variant.slug, variant);
   }
 
   const modeProjectId = selectedProject?.id ?? requestedProjectId ?? undefined;
-  const modeSeriesId = selectedSeries?.id ?? requestedSeriesId ?? undefined;
+  const modeVideoId = selectedVideo?.id ?? requestedVideoId ?? undefined;
 
-  const episodeStatusCounts = countByStatus(
-    episodes.map((episode) => episode.status)
+  const chapterStatusCounts = countByStatus(
+    chapters.map((chapter) => chapter.status)
   );
   const sceneStatusCounts = countByStatus(scenes.map((scene) => scene.status));
 
-  const episodeStatusOrder: EpisodeStatus[] = [
+  const chapterStatusOrder: ChapterStatus[] = [
     'draft',
     'ready',
     'in_progress',
@@ -1149,8 +1149,8 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       <div>
         <h1 className="text-2xl font-bold">Schema Reset Inspector</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Read-only review surface for the locked hierarchy: Project → Series →
-          SeriesAssets → SeriesAssetVariants → Episodes → Scenes.
+          Read-only review surface for the locked hierarchy: Project → Video →
+          VideoAssets → VideoAssetVariants → Chapters → Scenes.
         </p>
       </div>
 
@@ -1177,7 +1177,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
             <div className="rounded border border-border/50 p-2">
               <p className="font-medium text-foreground">Review order</p>
               <p className="mt-1">
-                Product shell pass (dashboard/series/assets/roadmap) →
+                Product shell pass (dashboard/video/assets/roadmap) →
                 field-level schema inspector → JSON review checks.
               </p>
             </div>
@@ -1204,10 +1204,10 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               Project
             </a>
             <a
-              href="#series-review"
+              href="#video-review"
               className="rounded border border-border px-2 py-1 hover:bg-muted/40"
             >
-              Series
+              Video
             </a>
             <a
               href="#assets-review"
@@ -1216,10 +1216,10 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               Assets & variants
             </a>
             <a
-              href="#episodes-review"
+              href="#chapters-review"
               className="rounded border border-border px-2 py-1 hover:bg-muted/40"
             >
-              Episodes & scenes
+              Chapters & scenes
             </a>
           </div>
         </CardContent>
@@ -1269,7 +1269,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               href={buildInspectorHref({
                 mode: 'mock',
                 projectId: modeProjectId,
-                seriesId: modeSeriesId,
+                videoId: modeVideoId,
               })}
               className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted/40"
             >
@@ -1279,7 +1279,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               href={buildInspectorHref({
                 mode: 'real',
                 projectId: modeProjectId,
-                seriesId: modeSeriesId,
+                videoId: modeVideoId,
               })}
               className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted/40"
             >
@@ -1289,7 +1289,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               href={buildInspectorHref({
                 mode: 'auto',
                 projectId: modeProjectId,
-                seriesId: modeSeriesId,
+                videoId: modeVideoId,
               })}
               className="rounded border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted/40"
             >
@@ -1317,17 +1317,17 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">Projects: {projects.length}</Badge>
-            <Badge variant="outline">Series: {seriesList.length}</Badge>
+            <Badge variant="outline">Video: {videoList.length}</Badge>
             <Badge variant="outline">Assets: {assets.length}</Badge>
             <Badge variant="outline">Variants: {variants.length}</Badge>
-            <Badge variant="outline">Episodes: {episodes.length}</Badge>
+            <Badge variant="outline">Chapters: {chapters.length}</Badge>
             <Badge variant="outline">Scenes: {scenes.length}</Badge>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {episodeStatusOrder.map((status) => (
-              <Badge key={`episode-status-${status}`} variant="outline">
-                episodes.{status}: {episodeStatusCounts[status] ?? 0}
+            {chapterStatusOrder.map((status) => (
+              <Badge key={`chapter-status-${status}`} variant="outline">
+                chapters.{status}: {chapterStatusCounts[status] ?? 0}
               </Badge>
             ))}
           </div>
@@ -1353,7 +1353,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
             <CardContent className="space-y-4">
               <div className="rounded border border-border/50 bg-muted/10 p-3 text-xs text-muted-foreground">
                 This is the primary review surface before API endpoint review:
-                dashboard-style project/series cards plus asset + roadmap shells
+                dashboard-style project/video cards plus asset + roadmap shells
                 rendered from mock-first inspector data.
               </div>
 
@@ -1392,40 +1392,40 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Series shell
+                  Video shell
                 </p>
-                {seriesList.length === 0 ? (
+                {videoList.length === 0 ? (
                   <div className="rounded border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
-                    No series in this project.
+                    No video in this project.
                   </div>
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {seriesList.map((series) => (
+                    {videoList.map((video) => (
                       <Link
-                        key={`product-shell-series-${series.id}`}
+                        key={`product-shell-video-${video.id}`}
                         href={buildInspectorHref({
                           mode: modeForLinks,
                           projectId: modeProjectId,
-                          seriesId: series.id,
+                          videoId: video.id,
                         })}
                         className={`rounded-xl border p-4 transition-colors ${
-                          selectedSeries?.id === series.id
+                          selectedVideo?.id === video.id
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:bg-muted/40'
                         }`}
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold">{series.name}</p>
-                          <Badge variant="outline">{series.content_mode}</Badge>
-                          <Badge variant="outline">{series.plan_status}</Badge>
+                          <p className="text-sm font-semibold">{video.name}</p>
+                          <Badge variant="outline">{video.content_mode}</Badge>
+                          <Badge variant="outline">{video.plan_status}</Badge>
                         </div>
                         <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                          {series.bible ?? 'No bible'}
+                          {video.bible ?? 'No bible'}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                          <span>voice: {series.voice_id ?? '—'}</span>
-                          <span>video: {series.video_model ?? '—'}</span>
-                          <span>image: {series.image_model ?? '—'}</span>
+                          <span>voice: {video.voice_id ?? '—'}</span>
+                          <span>video: {video.video_model ?? '—'}</span>
+                          <span>image: {video.image_model ?? '—'}</span>
                         </div>
                       </Link>
                     ))}
@@ -1433,7 +1433,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                 )}
               </div>
 
-              {selectedSeries ? (
+              {selectedVideo ? (
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="space-y-2 rounded-lg border border-border/60 p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1510,52 +1510,52 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
 
                   <div className="space-y-2 rounded-lg border border-border/60 p-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Roadmap shell (episodes + scenes)
+                      Roadmap shell (chapters + scenes)
                     </p>
-                    {episodes.length === 0 ? (
+                    {chapters.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
-                        No episodes.
+                        No chapters.
                       </p>
                     ) : (
-                      episodes.map((episode) => {
-                        const episodeScenes =
-                          scenesByEpisodeId.get(episode.id) ?? [];
+                      chapters.map((chapter) => {
+                        const chapterScenes =
+                          scenesByChapterId.get(chapter.id) ?? [];
                         return (
                           <details
-                            key={`product-shell-episode-${episode.id}`}
+                            key={`product-shell-chapter-${chapter.id}`}
                             open
                             className="rounded border border-border/40 p-2"
                           >
                             <summary className="cursor-pointer text-xs font-medium">
-                              Episode {episode.order} •{' '}
-                              {episode.title ?? 'Untitled'}
+                              Chapter {chapter.order} •{' '}
+                              {chapter.title ?? 'Untitled'}
                             </summary>
                             <div className="mt-2 space-y-2">
                               <div className="flex flex-wrap gap-2">
                                 <Badge
                                   className={getStatusBadgeClass(
-                                    episode.status
+                                    chapter.status
                                   )}
                                 >
-                                  {episode.status}
+                                  {chapter.status}
                                 </Badge>
                                 <Badge variant="outline">
-                                  scenes: {episodeScenes.length}
+                                  scenes: {chapterScenes.length}
                                 </Badge>
                                 <Badge variant="outline">
                                   assets:{' '}
                                   {
-                                    Object.keys(episode.asset_variant_map)
+                                    Object.keys(chapter.asset_variant_map)
                                       .length
                                   }
                                 </Badge>
                               </div>
-                              {episodeScenes.length === 0 ? (
+                              {chapterScenes.length === 0 ? (
                                 <p className="text-[11px] text-muted-foreground">
-                                  No scenes for this episode.
+                                  No scenes for this chapter.
                                 </p>
                               ) : (
-                                episodeScenes.map((scene) => (
+                                chapterScenes.map((scene) => (
                                   <div
                                     key={`product-shell-scene-${scene.id}`}
                                     className="rounded border border-border/30 bg-muted/10 p-2"
@@ -1700,29 +1700,29 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       {selectedProject ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Series selector</CardTitle>
+            <CardTitle className="text-base">Video selector</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            {seriesList.length === 0 ? (
+            {videoList.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No series found under selected project.
+                No video found under selected project.
               </p>
             ) : (
-              seriesList.map((series) => (
+              videoList.map((video) => (
                 <Link
-                  key={series.id}
+                  key={video.id}
                   href={buildInspectorHref({
                     mode: modeForLinks,
                     projectId: modeProjectId,
-                    seriesId: series.id,
+                    videoId: video.id,
                   })}
                   className={`rounded border px-3 py-1.5 text-xs transition-colors ${
-                    selectedSeries?.id === series.id
+                    selectedVideo?.id === video.id
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border hover:bg-muted/40'
                   }`}
                 >
-                  {series.name}
+                  {video.name}
                 </Link>
               ))
             )}
@@ -1730,38 +1730,38 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
         </Card>
       ) : null}
 
-      {selectedSeries ? (
-        <section id="series-review">
+      {selectedVideo ? (
+        <section id="video-review">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Series review</CardTitle>
+              <CardTitle className="text-base">Video review</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-3">
                 <FieldTable
                   title="Identity + relation"
                   fields={[
-                    { label: 'id', value: selectedSeries.id },
-                    { label: 'project_id', value: selectedSeries.project_id },
-                    { label: 'user_id', value: selectedSeries.user_id },
+                    { label: 'id', value: selectedVideo.id },
+                    { label: 'project_id', value: selectedVideo.project_id },
+                    { label: 'user_id', value: selectedVideo.user_id },
                   ]}
                 />
                 <FieldTable
                   title="Story/content"
                   fields={[
-                    { label: 'name', value: selectedSeries.name },
-                    { label: 'genre', value: selectedSeries.genre },
-                    { label: 'tone', value: selectedSeries.tone },
-                    { label: 'bible', value: selectedSeries.bible },
+                    { label: 'name', value: selectedVideo.name },
+                    { label: 'genre', value: selectedVideo.genre },
+                    { label: 'tone', value: selectedVideo.tone },
+                    { label: 'bible', value: selectedVideo.bible },
                     {
                       label: 'content_mode',
-                      value: selectedSeries.content_mode,
+                      value: selectedVideo.content_mode,
                     },
                     {
                       label: 'visual_style',
-                      value: selectedSeries.visual_style,
+                      value: selectedVideo.visual_style,
                     },
-                    { label: 'language', value: selectedSeries.language },
+                    { label: 'language', value: selectedVideo.language },
                   ]}
                 />
                 <FieldTable
@@ -1769,15 +1769,15 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                   fields={[
                     {
                       label: 'aspect_ratio',
-                      value: selectedSeries.aspect_ratio,
+                      value: selectedVideo.aspect_ratio,
                     },
-                    { label: 'video_model', value: selectedSeries.video_model },
-                    { label: 'image_model', value: selectedSeries.image_model },
-                    { label: 'voice_id', value: selectedSeries.voice_id },
-                    { label: 'tts_speed', value: selectedSeries.tts_speed },
-                    { label: 'plan_status', value: selectedSeries.plan_status },
-                    { label: 'created_at', value: selectedSeries.created_at },
-                    { label: 'updated_at', value: selectedSeries.updated_at },
+                    { label: 'video_model', value: selectedVideo.video_model },
+                    { label: 'image_model', value: selectedVideo.image_model },
+                    { label: 'voice_id', value: selectedVideo.voice_id },
+                    { label: 'tts_speed', value: selectedVideo.tts_speed },
+                    { label: 'plan_status', value: selectedVideo.plan_status },
+                    { label: 'created_at', value: selectedVideo.created_at },
+                    { label: 'updated_at', value: selectedVideo.updated_at },
                   ]}
                 />
               </div>
@@ -1792,7 +1792,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
               <div className="grid gap-4 xl:grid-cols-2">
                 <JsonField
                   label="creative_brief"
-                  value={selectedSeries.creative_brief}
+                  value={selectedVideo.creative_brief}
                 />
               </div>
             </CardContent>
@@ -1800,7 +1800,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
         </section>
       ) : null}
 
-      {selectedSeries ? (
+      {selectedVideo ? (
         <section id="assets-review">
           <Card>
             <CardHeader>
@@ -1811,7 +1811,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
             <CardContent className="space-y-4">
               <p className="text-xs text-muted-foreground">
                 Assets keep their own slug. Variant slug itself is the canonical
-                LLM-facing token used by episodes/scenes.
+                LLM-facing token used by chapters/scenes.
               </p>
 
               {(['character', 'location', 'prop'] as const).map((type) => (
@@ -1965,68 +1965,68 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
         </section>
       ) : null}
 
-      {selectedSeries ? (
-        <section id="episodes-review">
+      {selectedVideo ? (
+        <section id="chapters-review">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Episodes + scenes review
+                Chapters + scenes review
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {episodes.length === 0 ? (
+              {chapters.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No episodes found for this series.
+                  No chapters found for this video.
                 </p>
               ) : (
-                episodes.map((episode) => {
-                  const episodeScenes = scenesByEpisodeId.get(episode.id) ?? [];
+                chapters.map((chapter) => {
+                  const chapterScenes = scenesByChapterId.get(chapter.id) ?? [];
                   const assetMapShape = getAssetVariantMapShapeReview(
-                    episode.asset_variant_map
+                    chapter.asset_variant_map
                   );
 
                   return (
                     <details
-                      key={episode.id}
+                      key={chapter.id}
                       open
                       className="rounded border border-border/50 p-3"
                     >
                       <summary className="cursor-pointer text-sm font-medium">
-                        Episode {episode.order} • {episode.title ?? 'Untitled'}{' '}
-                        • {episodeScenes.length} scene(s)
+                        Chapter {chapter.order} • {chapter.title ?? 'Untitled'}{' '}
+                        • {chapterScenes.length} scene(s)
                       </summary>
 
                       <div className="mt-3 space-y-4">
                         <div className="grid gap-4 lg:grid-cols-2">
                           <FieldTable
-                            title={`studio.episodes • order ${episode.order} (content)`}
+                            title={`studio.chapters • order ${chapter.order} (content)`}
                             fields={[
-                              { label: 'title', value: episode.title },
-                              { label: 'synopsis', value: episode.synopsis },
+                              { label: 'title', value: chapter.title },
+                              { label: 'synopsis', value: chapter.synopsis },
                               {
                                 label: 'audio_content',
-                                value: episode.audio_content,
+                                value: chapter.audio_content,
                               },
                               {
                                 label: 'visual_outline',
-                                value: episode.visual_outline,
+                                value: chapter.visual_outline,
                               },
                             ]}
                           />
                           <FieldTable
-                            title={`studio.episodes • order ${episode.order} (system)`}
+                            title={`studio.chapters • order ${chapter.order} (system)`}
                             fields={[
-                              { label: 'id', value: episode.id },
-                              { label: 'series_id', value: episode.series_id },
-                              { label: 'order', value: episode.order },
-                              { label: 'status', value: episode.status },
+                              { label: 'id', value: chapter.id },
+                              { label: 'video_id', value: chapter.video_id },
+                              { label: 'order', value: chapter.order },
+                              { label: 'status', value: chapter.status },
                               {
                                 label: 'created_at',
-                                value: episode.created_at,
+                                value: chapter.created_at,
                               },
                               {
                                 label: 'updated_at',
-                                value: episode.updated_at,
+                                value: chapter.updated_at,
                               },
                             ]}
                           />
@@ -2053,7 +2053,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                             </Badge>
                             {assetMapShape.missingKeys.map((key) => (
                               <Badge
-                                key={`${episode.id}-missing-${key}`}
+                                key={`${chapter.id}-missing-${key}`}
                                 variant="default"
                               >
                                 missing: {key}
@@ -2061,7 +2061,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                             ))}
                             {assetMapShape.wrongTypeKeys.map((key) => (
                               <Badge
-                                key={`${episode.id}-wrong-type-${key}`}
+                                key={`${chapter.id}-wrong-type-${key}`}
                                 variant="default"
                               >
                                 wrong type: {key}
@@ -2070,7 +2070,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                             {assetMapShape.invalidVariantSlugGroups.map(
                               (key) => (
                                 <Badge
-                                  key={`${episode.id}-invalid-key-${key}`}
+                                  key={`${chapter.id}-invalid-key-${key}`}
                                   variant="default"
                                 >
                                   invalid variant slug format: {key}
@@ -2083,11 +2083,11 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                         <div className="grid gap-4 xl:grid-cols-2">
                           <JsonField
                             label="asset_variant_map"
-                            value={episode.asset_variant_map}
+                            value={chapter.asset_variant_map}
                           />
                           <JsonField
                             label="plan_json"
-                            value={episode.plan_json}
+                            value={chapter.plan_json}
                           />
                         </div>
 
@@ -2096,7 +2096,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                           className="rounded border border-border/40 p-2"
                         >
                           <summary className="cursor-pointer text-xs font-medium">
-                            Scenes ({episodeScenes.length})
+                            Scenes ({chapterScenes.length})
                           </summary>
 
                           <div className="mt-2 space-y-2">
@@ -2106,12 +2106,12 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                               length. Otherwise it falls back to
                               estimated/manual runtime.
                             </p>
-                            {episodeScenes.length === 0 ? (
+                            {chapterScenes.length === 0 ? (
                               <p className="text-xs text-muted-foreground">
-                                No scenes for this episode.
+                                No scenes for this chapter.
                               </p>
                             ) : (
-                              episodeScenes.map((scene) => (
+                              chapterScenes.map((scene) => (
                                 <details
                                   key={scene.id}
                                   className="rounded border border-border/40 bg-muted/10 p-2"
@@ -2182,8 +2182,8 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                         fields={[
                                           { label: 'id', value: scene.id },
                                           {
-                                            label: 'episode_id',
-                                            value: scene.episode_id,
+                                            label: 'chapter_id',
+                                            value: scene.chapter_id,
                                           },
                                           {
                                             label: 'order',

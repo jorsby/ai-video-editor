@@ -78,23 +78,23 @@ async function getOwnedProject(
   return { project };
 }
 
-export async function resolveProjectIdFromSeries(
+export async function resolveProjectIdFromVideo(
   db: ReturnType<typeof createServiceClient>,
-  seriesId: string
+  videoId: string
 ): Promise<ProjectResolution> {
-  const { data: series, error } = await db
-    .from('series')
+  const { data: video, error } = await db
+    .from('videos')
     .select('project_id')
-    .eq('id', seriesId)
+    .eq('id', videoId)
     .maybeSingle();
 
-  if (error || !series || typeof series.project_id !== 'string') {
+  if (error || !video || typeof video.project_id !== 'string') {
     return {
-      error: NextResponse.json({ error: 'Series not found' }, { status: 404 }),
+      error: NextResponse.json({ error: 'Video not found' }, { status: 404 }),
     };
   }
 
-  return { projectId: series.project_id };
+  return { projectId: video.project_id };
 }
 
 export async function listProjectMusic(

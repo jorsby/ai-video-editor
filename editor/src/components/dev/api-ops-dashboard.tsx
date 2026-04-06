@@ -29,8 +29,8 @@ type TryResult = {
 
 const CATEGORY_GROUPS: Array<{ key: ApiRouteCategory; label: string }> = [
   { key: 'project', label: 'Project' },
-  { key: 'series', label: 'Series' },
-  { key: 'episode', label: 'Episode' },
+  { key: 'video', label: 'Video' },
+  { key: 'chapter', label: 'Chapter' },
   { key: 'asset', label: 'Asset' },
   { key: 'variant', label: 'Variant' },
   { key: 'scene', label: 'Scene' },

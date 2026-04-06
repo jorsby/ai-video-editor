@@ -2,8 +2,8 @@ export type ApiRouteMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type ApiRouteCategory =
   | 'project'
-  | 'series'
-  | 'episode'
+  | 'video'
+  | 'chapter'
   | 'asset'
   | 'variant'
   | 'scene'
@@ -45,7 +45,7 @@ const projectRoutes: ApiRouteDefinition[] = [
       projects: [
         {
           id: 'uuid',
-          name: 'My Series Project',
+          name: 'My Video Project',
           description: 'Optional description',
           created_at: '2026-03-31T00:00:00Z',
           updated_at: '2026-03-31T00:00:00Z',
@@ -61,14 +61,14 @@ const projectRoutes: ApiRouteDefinition[] = [
     category: 'project',
     auth: 'session-or-api-key',
     description:
-      'Creates a new project. A project is the top-level container that holds one or more series.',
+      'Creates a new project. A project is the top-level container that holds one or more video.',
     body: {
-      name: 'My Series Project',
+      name: 'My Video Project',
       description: 'Optional project description',
     },
     response: {
       id: 'uuid',
-      name: 'My Series Project',
+      name: 'My Video Project',
       description: 'Optional project description',
       created_at: '2026-03-31T00:00:00Z',
       updated_at: '2026-03-31T00:00:00Z',
@@ -86,7 +86,7 @@ const projectRoutes: ApiRouteDefinition[] = [
     body: null,
     response: {
       id: 'uuid',
-      name: 'My Series Project',
+      name: 'My Video Project',
       description: 'Optional project description',
       created_at: '2026-03-31T00:00:00Z',
       updated_at: '2026-03-31T00:00:00Z',
@@ -122,7 +122,7 @@ const projectRoutes: ApiRouteDefinition[] = [
     category: 'project',
     auth: 'session-or-api-key',
     description:
-      'Hard-deletes a project and everything under it: series → assets → variants → episodes → scenes. No soft delete.',
+      'Hard-deletes a project and everything under it: video → assets → variants → chapters → scenes. No soft delete.',
     pathParams: { id: 'project-uuid' },
     body: null,
     response: {
@@ -132,18 +132,18 @@ const projectRoutes: ApiRouteDefinition[] = [
   },
 ];
 
-// ─── Series ──────────────────────────────────────────────────────────────────
+// ─── Video ──────────────────────────────────────────────────────────────────
 
-const seriesRoutes: ApiRouteDefinition[] = [
+const videoRoutes: ApiRouteDefinition[] = [
   {
-    id: 'v2-series-create',
-    label: 'Create series',
+    id: 'v2-video-create',
+    label: 'Create video',
     method: 'POST',
-    pathTemplate: '/api/v2/series/create',
-    category: 'series',
+    pathTemplate: '/api/v2/videos/create',
+    category: 'video',
     auth: 'session-or-api-key',
     description:
-      'Creates a new series linked to a project. A series defines the creative identity: genre, tone, bible, models, and content mode.',
+      'Creates a new video linked to a project. A video defines the creative identity: genre, tone, bible, models, and content mode.',
     body: {
       project_id: 'project-uuid',
       name: 'Stories of Mercy',
@@ -160,7 +160,7 @@ const seriesRoutes: ApiRouteDefinition[] = [
       visual_style: 'Photorealistic cinematic, warm golden-hour tones',
     },
     response: {
-      id: 'series-uuid',
+      id: 'video-uuid',
       project_id: 'project-uuid',
       name: 'Stories of Mercy',
       genre: 'historical drama',
@@ -181,18 +181,18 @@ const seriesRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-series-get',
-    label: 'Get series',
+    id: 'v2-video-get',
+    label: 'Get video',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}',
-    category: 'series',
+    pathTemplate: '/api/v2/videos/{id}',
+    category: 'video',
     auth: 'session-or-api-key',
     description:
-      'Returns full series detail including all config fields (models, voice, style, creative brief).',
-    pathParams: { id: 'series-uuid' },
+      'Returns full video detail including all config fields (models, voice, style, creative brief).',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: {
-      id: 'series-uuid',
+      id: 'video-uuid',
       project_id: 'project-uuid',
       name: 'Stories of Mercy',
       genre: 'historical drama',
@@ -213,17 +213,17 @@ const seriesRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-series-update',
-    label: 'Update series',
+    id: 'v2-video-update',
+    label: 'Update video',
     method: 'PATCH',
-    pathTemplate: '/api/v2/series/{id}',
-    category: 'series',
+    pathTemplate: '/api/v2/videos/{id}',
+    category: 'video',
     auth: 'session-or-api-key',
     description:
-      'Updates any series field. Only pass fields you want to change. Supports: name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status.',
-    pathParams: { id: 'series-uuid' },
+      'Updates any video field. Only pass fields you want to change. Supports: name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status.',
+    pathParams: { id: 'video-uuid' },
     body: {
-      name: 'Updated Series Name',
+      name: 'Updated Video Name',
       genre: 'sci-fi',
       tone: 'Dark and atmospheric',
       bible: 'Updated world description...',
@@ -239,54 +239,54 @@ const seriesRoutes: ApiRouteDefinition[] = [
       plan_status: 'finalized',
     },
     response: {
-      id: 'series-uuid',
-      name: 'Updated Series Name',
+      id: 'video-uuid',
+      name: 'Updated Video Name',
       genre: 'sci-fi',
       content_mode: 'cinematic',
       updated_at: '2026-03-31T00:00:00Z',
     },
   },
   {
-    id: 'v2-series-delete',
-    label: 'Delete series',
+    id: 'v2-video-delete',
+    label: 'Delete video',
     method: 'DELETE',
-    pathTemplate: '/api/v2/series/{id}',
-    category: 'series',
+    pathTemplate: '/api/v2/videos/{id}',
+    category: 'video',
     auth: 'session-or-api-key',
     description:
-      'Hard-deletes a series and everything under it: assets → variants → episodes → scenes. Does NOT delete the parent project.',
-    pathParams: { id: 'series-uuid' },
+      'Hard-deletes a video and everything under it: assets → variants → chapters → scenes. Does NOT delete the parent project.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: {
       deleted: true,
-      id: 'series-uuid',
+      id: 'video-uuid',
     },
   },
 ];
 
-// ─── Episodes ────────────────────────────────────────────────────────────────
+// ─── Chapters ────────────────────────────────────────────────────────────────
 
-const episodeRoutes: ApiRouteDefinition[] = [
+const chapterRoutes: ApiRouteDefinition[] = [
   {
-    id: 'v2-episodes-list',
-    label: 'List episodes',
+    id: 'v2-chapters-list',
+    label: 'List chapters',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/episodes',
-    category: 'episode',
+    pathTemplate: '/api/v2/videos/{id}/chapters',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Lists all episodes for a series, ordered by the order column. Each episode includes title, synopsis, status, and asset map.',
-    pathParams: { id: 'series-uuid' },
+      'Lists all chapters for a video, ordered by the order column. Each chapter includes title, synopsis, status, and asset map.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: {
-      episodes: [
+      chapters: [
         {
-          id: 'episode-uuid',
-          series_id: 'series-uuid',
+          id: 'chapter-uuid',
+          video_id: 'video-uuid',
           order: 1000,
           title: 'The Arrival',
           synopsis: 'A stranger arrives at the village gate at dusk...',
-          audio_content: 'Full narration text for the episode...',
+          audio_content: 'Full narration text for the chapter...',
           visual_outline: 'Visual direction notes...',
           asset_variant_map: {
             characters: ['ali-main'],
@@ -302,18 +302,18 @@ const episodeRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-episodes-create-batch',
-    label: 'Create episodes (batch)',
+    id: 'v2-chapters-create-batch',
+    label: 'Create chapters (batch)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/episodes',
-    category: 'episode',
+    pathTemplate: '/api/v2/videos/{id}/chapters',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Creates one or more episodes in a single request. Order is auto-assigned at 1000 increments. Send an array of episode objects.',
-    pathParams: { id: 'series-uuid' },
+      'Creates one or more chapters in a single request. Order is auto-assigned at 1000 increments. Send an array of chapter objects.',
+    pathParams: { id: 'video-uuid' },
     body: {
       _note: 'Send an array at top level',
-      episodes: [
+      chapters: [
         {
           title: 'The Arrival',
           synopsis: 'A stranger arrives at the village gate at dusk...',
@@ -329,15 +329,15 @@ const episodeRoutes: ApiRouteDefinition[] = [
       ],
     },
     response: {
-      episodes: [
+      chapters: [
         {
-          id: 'episode-uuid-1',
+          id: 'chapter-uuid-1',
           order: 1000,
           title: 'The Arrival',
           status: 'draft',
         },
         {
-          id: 'episode-uuid-2',
+          id: 'chapter-uuid-2',
           order: 2000,
           title: 'The Confrontation',
           status: 'draft',
@@ -346,19 +346,19 @@ const episodeRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-episode-get',
-    label: 'Get episode',
+    id: 'v2-chapter-get',
+    label: 'Get chapter',
     method: 'GET',
-    pathTemplate: '/api/v2/episodes/{id}',
-    category: 'episode',
+    pathTemplate: '/api/v2/chapters/{id}',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Returns a single episode with all fields including asset_variant_map and plan_json.',
-    pathParams: { id: 'episode-uuid' },
+      'Returns a single chapter with all fields including asset_variant_map and plan_json.',
+    pathParams: { id: 'chapter-uuid' },
     body: null,
     response: {
-      id: 'episode-uuid',
-      series_id: 'series-uuid',
+      id: 'chapter-uuid',
+      video_id: 'video-uuid',
       order: 1000,
       title: 'The Arrival',
       synopsis: 'A stranger arrives at the village gate at dusk...',
@@ -376,17 +376,17 @@ const episodeRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-episode-update',
-    label: 'Update episode',
+    id: 'v2-chapter-update',
+    label: 'Update chapter',
     method: 'PATCH',
-    pathTemplate: '/api/v2/episodes/{id}',
-    category: 'episode',
+    pathTemplate: '/api/v2/chapters/{id}',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Updates one or more episode fields. Supports: title, synopsis, audio_content, visual_outline, order, status (draft|ready|in_progress|done), asset_variant_map, plan_json.',
-    pathParams: { id: 'episode-uuid' },
+      'Updates one or more chapter fields. Supports: title, synopsis, audio_content, visual_outline, order, status (draft|ready|in_progress|done), asset_variant_map, plan_json.',
+    pathParams: { id: 'chapter-uuid' },
     body: {
-      title: 'Updated Episode Title',
+      title: 'Updated Chapter Title',
       synopsis: 'Updated synopsis...',
       audio_content: 'Updated narration text...',
       visual_outline: 'Updated visual notes...',
@@ -399,35 +399,35 @@ const episodeRoutes: ApiRouteDefinition[] = [
       },
     },
     response: {
-      id: 'episode-uuid',
-      title: 'Updated Episode Title',
+      id: 'chapter-uuid',
+      title: 'Updated Chapter Title',
       status: 'ready',
       updated_at: '2026-03-31T00:00:00Z',
     },
   },
   {
-    id: 'v2-episode-delete',
-    label: 'Delete episode',
+    id: 'v2-chapter-delete',
+    label: 'Delete chapter',
     method: 'DELETE',
-    pathTemplate: '/api/v2/episodes/{id}',
-    category: 'episode',
+    pathTemplate: '/api/v2/chapters/{id}',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Hard-deletes an episode and all its scenes (cascade). Does NOT delete the parent series.',
-    pathParams: { id: 'episode-uuid' },
+      'Hard-deletes an chapter and all its scenes (cascade). Does NOT delete the parent video.',
+    pathParams: { id: 'chapter-uuid' },
     body: null,
-    response: { deleted: true, id: 'episode-uuid' },
+    response: { deleted: true, id: 'chapter-uuid' },
   },
   {
-    id: 'v2-episode-map-assets',
-    label: 'Auto-map episode assets',
+    id: 'v2-chapter-map-assets',
+    label: 'Auto-map chapter assets',
     method: 'POST',
-    pathTemplate: '/api/v2/episodes/{id}/map-assets',
-    category: 'episode',
+    pathTemplate: '/api/v2/chapters/{id}/map-assets',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Scans all scenes in the episode, collects unique variant slugs, and writes the aggregated asset_variant_map back to the episode. No LLM needed — pure slug resolution.',
-    pathParams: { id: 'episode-uuid' },
+      'Scans all scenes in the chapter, collects unique variant slugs, and writes the aggregated asset_variant_map back to the chapter. No LLM needed — pure slug resolution.',
+    pathParams: { id: 'chapter-uuid' },
     body: null,
     response: {
       asset_variant_map: {
@@ -438,15 +438,15 @@ const episodeRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-episode-asset-map-get',
-    label: 'Get episode asset map',
+    id: 'v2-chapter-asset-map-get',
+    label: 'Get chapter asset map',
     method: 'GET',
-    pathTemplate: '/api/v2/episodes/{id}/asset-map',
-    category: 'episode',
+    pathTemplate: '/api/v2/chapters/{id}/asset-map',
+    category: 'chapter',
     auth: 'session-or-api-key',
     description:
-      'Returns the current asset_variant_map JSONB for an episode. Shows which character/location/prop variant slugs are referenced.',
-    pathParams: { id: 'episode-uuid' },
+      'Returns the current asset_variant_map JSONB for an chapter. Shows which character/location/prop variant slugs are referenced.',
+    pathParams: { id: 'chapter-uuid' },
     body: null,
     response: {
       asset_variant_map: {
@@ -771,80 +771,80 @@ const assetRoutes: ApiRouteDefinition[] = [
     },
   },
   {
-    id: 'v2-series-characters-list-legacy',
+    id: 'v2-video-characters-list-legacy',
     label: 'List characters (legacy shim)',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/characters',
+    pathTemplate: '/api/v2/videos/{id}/characters',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and returns project-scoped characters.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and returns project-scoped characters.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
   {
-    id: 'v2-series-characters-create-legacy',
+    id: 'v2-video-characters-create-legacy',
     label: 'Create characters (legacy shim)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/characters',
+    pathTemplate: '/api/v2/videos/{id}/characters',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and creates project-scoped characters.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and creates project-scoped characters.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
   {
-    id: 'v2-series-locations-list-legacy',
+    id: 'v2-video-locations-list-legacy',
     label: 'List locations (legacy shim)',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/locations',
+    pathTemplate: '/api/v2/videos/{id}/locations',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and returns project-scoped locations.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and returns project-scoped locations.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
   {
-    id: 'v2-series-locations-create-legacy',
+    id: 'v2-video-locations-create-legacy',
     label: 'Create locations (legacy shim)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/locations',
+    pathTemplate: '/api/v2/videos/{id}/locations',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and creates project-scoped locations.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and creates project-scoped locations.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
   {
-    id: 'v2-series-props-list-legacy',
+    id: 'v2-video-props-list-legacy',
     label: 'List props (legacy shim)',
     method: 'GET',
-    pathTemplate: '/api/v2/series/{id}/props',
+    pathTemplate: '/api/v2/videos/{id}/props',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and returns project-scoped props.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and returns project-scoped props.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
   {
-    id: 'v2-series-props-create-legacy',
+    id: 'v2-video-props-create-legacy',
     label: 'Create props (legacy shim)',
     method: 'POST',
-    pathTemplate: '/api/v2/series/{id}/props',
+    pathTemplate: '/api/v2/videos/{id}/props',
     category: 'asset',
     auth: 'session-or-api-key',
     description:
-      'Legacy shim route. Resolves series → project and creates project-scoped props.',
-    pathParams: { id: 'series-uuid' },
+      'Legacy shim route. Resolves video → project and creates project-scoped props.',
+    pathParams: { id: 'video-uuid' },
     body: null,
     response: null,
   },
@@ -892,7 +892,7 @@ const assetRoutes: ApiRouteDefinition[] = [
     category: 'variant',
     auth: 'session-or-api-key',
     description:
-      'Queue image generation for multiple variants at once. Skips variants already generating. Uses project series settings for model/aspect ratio.',
+      'Queue image generation for multiple variants at once. Skips variants already generating. Uses project video settings for model/aspect ratio.',
     pathParams: { id: 'project-uuid' },
     body: {
       variant_ids: ['variant-uuid-1', 'variant-uuid-2'],
@@ -1064,20 +1064,20 @@ const variantRoutes: ApiRouteDefinition[] = [
 const sceneRoutes: ApiRouteDefinition[] = [
   {
     id: 'v2-scenes-list',
-    label: 'List scenes for episode',
+    label: 'List scenes for chapter',
     method: 'GET',
-    pathTemplate: '/api/v2/episodes/{id}/scenes',
+    pathTemplate: '/api/v2/chapters/{id}/scenes',
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Lists all scenes for an episode in order. Each scene includes prompt, audio, video URLs, variant slugs, and status.',
-    pathParams: { id: 'episode-uuid' },
+      'Lists all scenes for an chapter in order. Each scene includes prompt, audio, video URLs, variant slugs, and status.',
+    pathParams: { id: 'chapter-uuid' },
     body: null,
     response: {
       scenes: [
         {
           id: 'scene-uuid',
-          episode_id: 'episode-uuid',
+          chapter_id: 'chapter-uuid',
           order: 1000,
           title: 'The Gate',
           content_mode: 'narrative',
@@ -1105,12 +1105,12 @@ const sceneRoutes: ApiRouteDefinition[] = [
     id: 'v2-scenes-create-batch',
     label: 'Create scenes (batch)',
     method: 'POST',
-    pathTemplate: '/api/v2/episodes/{id}/scenes',
+    pathTemplate: '/api/v2/chapters/{id}/scenes',
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Creates one or more scenes for an episode. Order is auto-assigned at 1000 increments. Send a bare array or wrap in { scenes: [...] }.',
-    pathParams: { id: 'episode-uuid' },
+      'Creates one or more scenes for an chapter. Order is auto-assigned at 1000 increments. Send a bare array or wrap in { scenes: [...] }.',
+    pathParams: { id: 'chapter-uuid' },
     body: {
       scenes: [
         {
@@ -1161,7 +1161,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
     body: null,
     response: {
       id: 'scene-uuid',
-      episode_id: 'episode-uuid',
+      chapter_id: 'chapter-uuid',
       order: 1000,
       title: 'The Gate',
       content_mode: 'narrative',
@@ -1362,8 +1362,8 @@ const webhookRoutes: ApiRouteDefinition[] = [
 
 export const API_OPS_ROUTES: ApiRouteDefinition[] = [
   ...projectRoutes,
-  ...seriesRoutes,
-  ...episodeRoutes,
+  ...videoRoutes,
+  ...chapterRoutes,
   ...assetRoutes,
   ...variantRoutes,
   ...sceneRoutes,

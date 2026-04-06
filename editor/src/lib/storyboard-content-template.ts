@@ -9,7 +9,7 @@ export const STORYBOARD_CONTENT_TEMPLATE_OPTIONS = [
     value: 'dizi_hikaye',
     label: 'Dizi / Hikâye',
     description:
-      'Series-style narrative storytelling with plot progression, dramatic turns, and episode-like pacing.',
+      'Video-style narrative storytelling with plot progression, dramatic turns, and chapter-like pacing.',
   },
 ] as const;
 
@@ -32,7 +32,7 @@ export function getStoryboardTemplateInstruction(
 ): string {
   if (template === 'dizi_hikaye') {
     return `
-TEMPLATE STYLE: Dizi / Hikâye (Series Storytelling)
+TEMPLATE STYLE: Dizi / Hikâye (Video Storytelling)
 - Build scenes like a coherent episodic narrative: setup → tension → progression → payoff.
 - Keep characters emotionally consistent across scenes and show clear cause/effect between beats.
 - Prefer cinematic storytelling over didactic messaging.

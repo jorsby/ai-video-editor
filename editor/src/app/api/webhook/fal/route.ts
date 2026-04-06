@@ -48,7 +48,7 @@ function extractImageUrl(payload: FalWebhookPayload): string | null {
  *
  * Handles fal.ai queue webhook callbacks for image generation.
  * Query params determine routing:
- *   ?step=SeriesAssetImage&variant_id=<uuid>
+ *   ?step=VideoAssetImage&variant_id=<uuid>
  */
 export async function POST(req: NextRequest) {
   const log = createLogger('webhook/fal');
@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
       status: body.status,
     });
 
-    if (step === 'SeriesAssetImage' && variantId) {
-      return handleSeriesAssetImage({ body, variantId, requestId, log });
+    if (step === 'VideoAssetImage' && variantId) {
+      return handleVideoAssetImage({ body, variantId, requestId, log });
     }
 
     log.warn('Unknown FAL webhook step', { step, request_id: requestId });
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleSeriesAssetImage(params: {
+async function handleVideoAssetImage(params: {
   body: FalWebhookPayload;
   variantId: string;
   requestId: string;
@@ -107,7 +107,7 @@ async function handleSeriesAssetImage(params: {
 
     return okResponse({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       failed: true,
       reason: body.error ?? 'fal_error',
     });
@@ -129,7 +129,7 @@ async function handleSeriesAssetImage(params: {
 
     return okResponse({
       success: true,
-      step: 'SeriesAssetImage',
+      step: 'VideoAssetImage',
       failed: true,
       reason: 'missing_image_url',
     });
@@ -153,7 +153,7 @@ async function handleSeriesAssetImage(params: {
 
   return okResponse({
     success: true,
-    step: 'SeriesAssetImage',
+    step: 'VideoAssetImage',
     variant_id: variantId,
     url: imageUrl,
   });

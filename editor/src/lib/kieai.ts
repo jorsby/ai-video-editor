@@ -148,7 +148,7 @@ export async function createTask(
 export async function uploadFile(
   sourceUrl: string,
   fileName: string,
-  uploadPath = 'series-assets'
+  uploadPath = 'video-assets'
 ): Promise<KieUploadResult> {
   const normalizedSourceUrl = sourceUrl.trim();
   if (!normalizedSourceUrl) {

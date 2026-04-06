@@ -35,7 +35,7 @@ interface Asset {
   project_asset_variants: Variant[];
 }
 
-interface SeriesInfo {
+interface VideoInfo {
   id: string;
   name: string;
   genre: string | null;
@@ -142,19 +142,19 @@ function AssetItem({ asset }: { asset: Asset }) {
 
 export default function PanelProjectLibrary() {
   const projectId = useProjectId();
-  const [seriesInfo, setSeriesInfo] = useState<SeriesInfo | null>(null);
+  const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
 
-    const fetchSeriesForProject = async () => {
+    const fetchVideoForProject = async () => {
       setLoading(true);
       setError(null);
       try {
-        // Try multiple methods to find the linked series
-        let seriesId: string | undefined;
+        // Try multiple methods to find the linked video
+        let videoId: string | undefined;
 
         // Method 1: project settings via API
         try {
@@ -165,29 +165,29 @@ export default function PanelProjectLibrary() {
               string,
               unknown
             > | null;
-            seriesId = settings?.series_id as string | undefined;
+            videoId = settings?.video_id as string | undefined;
           }
         } catch {
           // Continue to fallback
         }
 
-        // Method 2: check all series for episodes linked to this project
-        if (!seriesId) {
+        // Method 2: check all video for chapters linked to this project
+        if (!videoId) {
           try {
-            const seriesRes = await fetch('/api/series');
-            if (seriesRes.ok) {
-              const seriesData = await seriesRes.json();
-              for (const s of seriesData.series ?? []) {
+            const videoRes = await fetch('/api/videos');
+            if (videoRes.ok) {
+              const videoData = await videoRes.json();
+              for (const s of videoData.video ?? []) {
                 try {
-                  const epRes = await fetch(`/api/series/${s.id}/episodes`);
+                  const epRes = await fetch(`/api/videos/${s.id}/chapters`);
                   if (epRes.ok) {
                     const epData = await epRes.json();
-                    const match = (epData.episodes ?? []).find(
+                    const match = (epData.chapters ?? []).find(
                       (ep: { project_id: string }) =>
                         ep.project_id === projectId
                     );
                     if (match) {
-                      seriesId = s.id;
+                      videoId = s.id;
                       break;
                     }
                   }
@@ -201,15 +201,15 @@ export default function PanelProjectLibrary() {
           }
         }
 
-        // Method 3: check project.settings from series metadata column
-        if (!seriesId) {
+        // Method 3: check project.settings from video metadata column
+        if (!videoId) {
           try {
-            const seriesRes = await fetch('/api/series');
-            if (seriesRes.ok) {
-              const seriesData = await seriesRes.json();
-              for (const s of seriesData.series ?? []) {
+            const videoRes = await fetch('/api/videos');
+            if (videoRes.ok) {
+              const videoData = await videoRes.json();
+              for (const s of videoData.video ?? []) {
                 if (s.project_id === projectId) {
-                  seriesId = s.id;
+                  videoId = s.id;
                   break;
                 }
               }
@@ -219,41 +219,41 @@ export default function PanelProjectLibrary() {
           }
         }
 
-        if (!seriesId) {
-          // Standalone project — no series
-          setSeriesInfo(null);
+        if (!videoId) {
+          // Standalone project — no video
+          setVideoInfo(null);
           setLoading(false);
           return;
         }
 
-        // Fetch series with assets
-        const seriesRes = await fetch(`/api/series/${seriesId}`);
-        if (!seriesRes.ok) {
-          setError('Series not found');
+        // Fetch video with assets
+        const videoRes = await fetch(`/api/videos/${videoId}`);
+        if (!videoRes.ok) {
+          setError('Video not found');
           setLoading(false);
           return;
         }
-        const seriesData = await seriesRes.json();
-        setSeriesInfo(seriesData.series);
+        const videoData = await videoRes.json();
+        setVideoInfo(videoData.video);
       } catch {
-        setError('Failed to load series');
+        setError('Failed to load video');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchSeriesForProject();
+    fetchVideoForProject();
   }, [projectId]);
 
   const assetsByType = useMemo(() => {
-    if (!seriesInfo) return null;
+    if (!videoInfo) return null;
     const grouped: Record<string, Asset[]> = {};
-    for (const asset of seriesInfo.project_assets ?? []) {
+    for (const asset of videoInfo.project_assets ?? []) {
       if (!grouped[asset.type]) grouped[asset.type] = [];
       grouped[asset.type].push(asset);
     }
     return grouped;
-  }, [seriesInfo]);
+  }, [videoInfo]);
 
   if (loading) {
     return (
@@ -265,14 +265,14 @@ export default function PanelProjectLibrary() {
     );
   }
 
-  if (!seriesInfo) {
+  if (!videoInfo) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center px-4">
         <p className="text-xs text-muted-foreground">
-          This project is not linked to a series.
+          This project is not linked to a video.
         </p>
         <p className="text-[10px] text-muted-foreground/60 mt-1">
-          Create or link a series to see characters, locations, and props here.
+          Create or link a video to see characters, locations, and props here.
         </p>
       </div>
     );
@@ -289,18 +289,18 @@ export default function PanelProjectLibrary() {
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-4">
-        {/* Series header */}
+        {/* Video header */}
         <div>
-          <p className="text-sm font-medium">{seriesInfo.name}</p>
+          <p className="text-sm font-medium">{videoInfo.name}</p>
           <div className="flex gap-1 mt-0.5">
-            {seriesInfo.genre && (
+            {videoInfo.genre && (
               <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5">
-                {seriesInfo.genre}
+                {videoInfo.genre}
               </Badge>
             )}
-            {seriesInfo.tone && (
+            {videoInfo.tone && (
               <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">
-                {seriesInfo.tone}
+                {videoInfo.tone}
               </Badge>
             )}
           </div>

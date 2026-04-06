@@ -112,7 +112,7 @@
         "id": "seg_1765040426722_tq2mvj3",
         "prompts": {
           "image": "A montage of famous historical figures looking determined, each in their unique environments, with a warm color palette.",
-          "video": "A series of quick cuts between these figures facing challenges, with dramatic music building intensity, emphasizing their resilience."
+          "video": "A video of quick cuts between these figures facing challenges, with dramatic music building intensity, emphasizing their resilience."
         },
         "speechToText": {
           "refId": "speechToTextId",

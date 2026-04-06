@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-const SERIES_ASSETS_BUCKET = 'series-assets';
+const SERIES_ASSETS_BUCKET = 'video-assets';
 
 type AssetType = 'character' | 'location' | 'prop';
 type GridPromptKey = 'characters' | 'locations' | 'props';
@@ -106,7 +106,7 @@ export interface AssetGenerationStatus {
 interface UseProjectAssetsResult {
   isLoading: boolean;
   error: string | null;
-  seriesId: string | null;
+  videoId: string | null;
   assets: ProjectAsset[];
   gridPrompts: ProjectGridPrompts;
   isSavingPrompt: Record<AssetType, boolean>;
@@ -192,9 +192,9 @@ export function useProjectAssets(
 ): UseProjectAssetsResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
-  const [seriesMetadata, setSeriesMetadata] = useState<Record<string, unknown>>(
+  const [videoMetadata, setVideoMetadata] = useState<Record<string, unknown>>(
     {}
   );
   const [gridPrompts, setGridPrompts] =
@@ -229,9 +229,9 @@ export function useProjectAssets(
           assetIdsRef.current = new Set();
           setIsLoading(false);
           setError(null);
-          setSeriesId(null);
+          setVideoId(null);
           setAssets([]);
-          setSeriesMetadata({});
+          setVideoMetadata({});
           setGridPrompts(DEFAULT_GRID_PROMPTS);
           setGenerationStatus(INITIAL_GENERATION_STATUS);
         }
@@ -250,22 +250,22 @@ export function useProjectAssets(
       const supabase = createClient('studio');
 
       try {
-        const { data: seriesData, error: seriesLoadError } = await supabase
-          .from('series')
+        const { data: videoData, error: videoLoadError } = await supabase
+          .from('videos')
           .select('id, creative_brief')
           .eq('project_id', projectId)
           .order('created_at', { ascending: true })
           .limit(1)
           .maybeSingle();
 
-        if (seriesLoadError) {
-          throw new Error(seriesLoadError.message);
+        if (videoLoadError) {
+          throw new Error(videoLoadError.message);
         }
 
-        const linkedSeriesId =
-          typeof seriesData?.id === 'string' ? seriesData.id : null;
-        const metadata = isRecord(seriesData?.creative_brief)
-          ? seriesData.creative_brief
+        const linkedVideoId =
+          typeof videoData?.id === 'string' ? videoData.id : null;
+        const metadata = isRecord(videoData?.creative_brief)
+          ? videoData.creative_brief
           : {};
 
         const { data: assetsData, error: assetsError } = await supabase
@@ -344,9 +344,9 @@ export function useProjectAssets(
 
         if (!cancelled) {
           assetIdsRef.current = new Set(parsedAssets.map((asset) => asset.id));
-          setSeriesId(linkedSeriesId);
+          setVideoId(linkedVideoId);
           setAssets(parsedAssets);
-          setSeriesMetadata(metadata);
+          setVideoMetadata(metadata);
           setGridPrompts(resolveGridPrompts(metadata));
           setGenerationStatus(nextGenerationStatus);
           setIsLoading(false);
@@ -358,9 +358,9 @@ export function useProjectAssets(
             err instanceof Error ? err.message : 'Failed to load project assets'
           );
           assetIdsRef.current = new Set();
-          setSeriesId(null);
+          setVideoId(null);
           setAssets([]);
-          setSeriesMetadata({});
+          setVideoMetadata({});
           setGridPrompts(DEFAULT_GRID_PROMPTS);
           setGenerationStatus(INITIAL_GENERATION_STATUS);
           setIsLoading(false);
@@ -377,8 +377,8 @@ export function useProjectAssets(
 
   const saveGridPrompt = useCallback(
     async (type: AssetType): Promise<ActionResult> => {
-      if (!seriesId) {
-        return { ok: false, error: 'Series is not linked to this project' };
+      if (!videoId) {
+        return { ok: false, error: 'Video is not linked to this project' };
       }
 
       const metadataKey = GRID_PROMPT_KEY_BY_TYPE[type];
@@ -387,7 +387,7 @@ export function useProjectAssets(
       setIsSavingPrompt((prev) => ({ ...prev, [type]: true }));
 
       try {
-        const currentMetadata = isRecord(seriesMetadata) ? seriesMetadata : {};
+        const currentMetadata = isRecord(videoMetadata) ? videoMetadata : {};
         const currentGridPrompts = isRecord(currentMetadata.grid_prompts)
           ? currentMetadata.grid_prompts
           : {};
@@ -400,7 +400,7 @@ export function useProjectAssets(
           },
         };
 
-        const response = await fetch(`/api/series/${seriesId}`, {
+        const response = await fetch(`/api/videos/${videoId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ creative_brief: nextMetadata }),
@@ -412,13 +412,13 @@ export function useProjectAssets(
         }
 
         const data = await response.json().catch(() => ({}));
-        const returnedMetadata = isRecord(data?.series?.creative_brief)
-          ? data.series.creative_brief
-          : isRecord(data?.series?.metadata)
-            ? data.series.metadata
+        const returnedMetadata = isRecord(data?.video?.creative_brief)
+          ? data.video.creative_brief
+          : isRecord(data?.video?.metadata)
+            ? data.video.metadata
             : nextMetadata;
 
-        setSeriesMetadata(returnedMetadata);
+        setVideoMetadata(returnedMetadata);
         setGridPrompts(resolveGridPrompts(returnedMetadata));
 
         return { ok: true };
@@ -432,7 +432,7 @@ export function useProjectAssets(
         setIsSavingPrompt((prev) => ({ ...prev, [type]: false }));
       }
     },
-    [gridPrompts, seriesId, seriesMetadata]
+    [gridPrompts, videoId, videoMetadata]
   );
 
   const generateGrid = useCallback(
@@ -526,7 +526,7 @@ export function useProjectAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'series',
+          table: 'video',
           filter: `project_id=eq.${projectId}`,
         },
         () => {
@@ -591,7 +591,7 @@ export function useProjectAssets(
   return {
     isLoading,
     error,
-    seriesId,
+    videoId,
     assets,
     gridPrompts,
     isSavingPrompt,

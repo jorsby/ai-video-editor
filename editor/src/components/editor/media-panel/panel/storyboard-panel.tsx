@@ -43,13 +43,13 @@ import {
   IconSend,
   IconSelectAll,
 } from '@tabler/icons-react';
-import { useEpisodeFocusStore } from '@/stores/episode-focus-store';
+import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
-import { useSeriesSelectorStore } from '@/stores/series-selector-store';
+import { useVideoSelectorStore } from '@/stores/video-selector-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type SeriesOption = { id: string; name: string };
+type VideoOption = { id: string; name: string };
 
 interface SceneData {
   id: string;
@@ -69,7 +69,7 @@ interface SceneData {
   video_status: string;
 }
 
-interface EpisodeData {
+interface ChapterData {
   id: string;
   order: number;
   title: string | null;
@@ -118,10 +118,10 @@ function slugToLabel(slug: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Derive episode display status from its scenes */
-function deriveEpisodeStatus(episode: EpisodeData): string {
-  if (episode.scenes.length === 0) return 'draft';
-  const statuses = episode.scenes.map(deriveSceneStatus);
+/** Derive chapter display status from its scenes */
+function deriveChapterStatus(chapter: ChapterData): string {
+  if (chapter.scenes.length === 0) return 'draft';
+  const statuses = chapter.scenes.map(deriveSceneStatus);
   if (statuses.some((s) => s === 'generating')) return 'generating';
   if (statuses.every((s) => s === 'done')) return 'done';
   if (statuses.some((s) => s === 'failed')) return 'failed';
@@ -1356,19 +1356,19 @@ function SendToTimelineModal({
   );
 }
 
-// ── Episode Accordion ──────────────────────────────────────────────────────────
+// ── Chapter Accordion ──────────────────────────────────────────────────────────
 
-function EpisodeAccordion({
-  episode,
+function ChapterAccordion({
+  chapter,
   imageMap,
-  isEpisodeSelected,
-  onToggleEpisodeSelected,
+  isChapterSelected,
+  onToggleChapterSelected,
   forceOpen,
 }: {
-  episode: EpisodeData;
+  chapter: ChapterData;
   imageMap: VariantImageMap;
-  isEpisodeSelected: boolean;
-  onToggleEpisodeSelected: () => void;
+  isChapterSelected: boolean;
+  onToggleChapterSelected: () => void;
   forceOpen?: boolean | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -1389,13 +1389,13 @@ function EpisodeAccordion({
     total: number;
   } | null>(null);
   const [timelineModalOpen, setTimelineModalOpen] = useState(false);
-  const sceneCount = episode.scenes.length;
-  const doneCount = episode.scenes.filter(
+  const sceneCount = chapter.scenes.length;
+  const doneCount = chapter.scenes.filter(
     (s) => !!s.audio_url && !!s.video_url
   ).length;
-  const hasAnyVideo = episode.scenes.some((s) => !!s.video_url);
-  const hasAnyAudio = episode.scenes.some((s) => !!s.audio_url);
-  const totalDuration = episode.scenes.reduce(
+  const hasAnyVideo = chapter.scenes.some((s) => !!s.video_url);
+  const hasAnyAudio = chapter.scenes.some((s) => !!s.audio_url);
+  const totalDuration = chapter.scenes.reduce(
     (sum, s) => sum + (s.audio_duration ?? s.video_duration ?? 0),
     0
   );
@@ -1403,23 +1403,23 @@ function EpisodeAccordion({
   // Collect unique slugs per role across all scenes
   const locationSlugs = [
     ...new Set(
-      episode.scenes
+      chapter.scenes
         .map((s) => s.location_variant_slug)
         .filter(Boolean) as string[]
     ),
   ];
   const characterSlugs = [
-    ...new Set(episode.scenes.flatMap((s) => s.character_variant_slugs ?? [])),
+    ...new Set(chapter.scenes.flatMap((s) => s.character_variant_slugs ?? [])),
   ];
   const propSlugs = [
-    ...new Set(episode.scenes.flatMap((s) => s.prop_variant_slugs ?? [])),
+    ...new Set(chapter.scenes.flatMap((s) => s.prop_variant_slugs ?? [])),
   ];
   const totalAssets =
     locationSlugs.length + characterSlugs.length + propSlugs.length;
   const allSelected =
     sceneCount > 0 &&
-    episode.scenes.every((scene) => selectedScenes.has(scene.id));
-  const selectedSceneList = episode.scenes.filter((scene) =>
+    chapter.scenes.every((scene) => selectedScenes.has(scene.id));
+  const selectedSceneList = chapter.scenes.filter((scene) =>
     selectedScenes.has(scene.id)
   );
   const selectedTtsCount = selectedSceneList.filter(
@@ -1434,28 +1434,28 @@ function EpisodeAccordion({
   const isBatchRunning =
     ttsBatchProgress !== null || videoBatchProgress !== null;
 
-  const { focusedEpisodeId, setFocus, clearFocus } = useEpisodeFocusStore();
-  const isThisEpisodeFocused = focusedEpisodeId === episode.id;
+  const { focusedChapterId, setFocus, clearFocus } = useChapterFocusStore();
+  const isThisChapterFocused = focusedChapterId === chapter.id;
 
   const handleFilterAssets = () => {
-    if (isThisEpisodeFocused) {
+    if (isThisChapterFocused) {
       clearFocus();
       return;
     }
-    // Collect all variant slugs used in this episode's scenes
+    // Collect all variant slugs used in this chapter's scenes
     const allSlugs = [
       ...locationSlugs,
       ...characterSlugs,
       ...propSlugs,
     ];
     if (allSlugs.length > 0) {
-      setFocus(episode.id, allSlugs);
+      setFocus(chapter.id, allSlugs);
     }
   };
 
   useEffect(() => {
     setSelectedScenes((prev) => {
-      const currentIds = new Set(episode.scenes.map((scene) => scene.id));
+      const currentIds = new Set(chapter.scenes.map((scene) => scene.id));
       const next = new Set<string>();
       for (const sceneId of prev) {
         if (currentIds.has(sceneId)) {
@@ -1464,7 +1464,7 @@ function EpisodeAccordion({
       }
       return next;
     });
-  }, [episode.scenes]);
+  }, [chapter.scenes]);
 
   const toggleSceneSelection = (sceneId: string) => {
     setSelectedScenes((prev) => {
@@ -1484,11 +1484,11 @@ function EpisodeAccordion({
       return;
     }
 
-    setSelectedScenes(new Set(episode.scenes.map((scene) => scene.id)));
+    setSelectedScenes(new Set(chapter.scenes.map((scene) => scene.id)));
   };
 
   const runBatchTts = async () => {
-    const targets = episode.scenes.filter(
+    const targets = chapter.scenes.filter(
       (scene) =>
         selectedScenes.has(scene.id) && !!scene.audio_text && !scene.audio_url
     );
@@ -1506,7 +1506,7 @@ function EpisodeAccordion({
   };
 
   const runBatchVideo = async () => {
-    const targets = episode.scenes.filter((scene) => {
+    const targets = chapter.scenes.filter((scene) => {
       if (!selectedScenes.has(scene.id) || !scene.prompt || scene.video_url)
         return false;
       // Skip narrative scenes that still need TTS
@@ -1533,24 +1533,24 @@ function EpisodeAccordion({
         <div className="flex items-center gap-1">
           <input
             type="checkbox"
-            checked={isEpisodeSelected}
-            onChange={onToggleEpisodeSelected}
+            checked={isChapterSelected}
+            onChange={onToggleChapterSelected}
             className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
-            title={`Select EP${episode.order} for timeline`}
+            title={`Select EP${chapter.order} for timeline`}
           />
           {totalAssets > 0 && (
             <button
               type="button"
               onClick={handleFilterAssets}
               className={`shrink-0 p-0.5 rounded transition-colors ${
-                isThisEpisodeFocused
+                isThisChapterFocused
                   ? 'text-primary bg-primary/15'
                   : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30'
               }`}
               title={
-                isThisEpisodeFocused
+                isThisChapterFocused
                   ? 'Clear asset filter'
-                  : `Filter assets to EP${episode.order}`
+                  : `Filter assets to EP${chapter.order}`
               }
             >
               <IconFilter className="size-3" />
@@ -1568,12 +1568,12 @@ function EpisodeAccordion({
               )}
 
               <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">
-                EP{episode.order}
+                EP{chapter.order}
               </span>
 
               <span className="text-xs font-medium truncate flex-1">
-                {episode.title?.replace(/^EP\d+\s*[-—]\s*/, '') ||
-                  `Episode ${episode.order}`}
+                {chapter.title?.replace(/^EP\d+\s*[-—]\s*/, '') ||
+                  `Chapter ${chapter.order}`}
               </span>
 
               {/* Scene progress */}
@@ -1583,9 +1583,9 @@ function EpisodeAccordion({
 
               <Badge
                 variant="outline"
-                className={`text-[9px] shrink-0 ${statusColor(deriveEpisodeStatus(episode))}`}
+                className={`text-[9px] shrink-0 ${statusColor(deriveChapterStatus(chapter))}`}
               >
-                {deriveEpisodeStatus(episode)}
+                {deriveChapterStatus(chapter)}
               </Badge>
             </button>
           </CollapsibleTrigger>
@@ -1593,7 +1593,7 @@ function EpisodeAccordion({
 
         <CollapsibleContent>
           <div className="pl-4 pr-1 pb-3 space-y-2">
-            {/* Episode summary bar */}
+            {/* Chapter summary bar */}
             <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground px-2 py-1.5 bg-muted/15 rounded">
               <span>{sceneCount} scenes</span>
               {totalDuration > 0 && (
@@ -1656,7 +1656,7 @@ function EpisodeAccordion({
                 onClick={() => setTimelineModalOpen(true)}
                 disabled={
                   selectedScenes.size === 0 ||
-                  !episode.scenes.some(
+                  !chapter.scenes.some(
                     (s) =>
                       selectedScenes.has(s.id) && (s.video_url || s.audio_url)
                   ) ||
@@ -1682,14 +1682,14 @@ function EpisodeAccordion({
             </div>
 
             {/* Synopsis */}
-            {episode.synopsis && (
+            {chapter.synopsis && (
               <p className="text-[10px] text-muted-foreground/70 px-2 line-clamp-2 italic">
-                {episode.synopsis}
+                {chapter.synopsis}
               </p>
             )}
 
             {/* Audio Content (collapsible) */}
-            {episode.audio_content && (
+            {chapter.audio_content && (
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <button
@@ -1706,7 +1706,7 @@ function EpisodeAccordion({
                 <CollapsibleContent>
                   <div className="px-2 py-1.5 mt-1 rounded bg-muted/10 border border-border/15">
                     <p className="text-[10px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
-                      {episode.audio_content}
+                      {chapter.audio_content}
                     </p>
                   </div>
                 </CollapsibleContent>
@@ -1714,7 +1714,7 @@ function EpisodeAccordion({
             )}
 
             {/* Visual Outline (collapsible) */}
-            {episode.visual_outline && (
+            {chapter.visual_outline && (
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <button
@@ -1731,7 +1731,7 @@ function EpisodeAccordion({
                 <CollapsibleContent>
                   <div className="px-2 py-1.5 mt-1 rounded bg-muted/10 border border-border/15">
                     <p className="text-[10px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
-                      {episode.visual_outline}
+                      {chapter.visual_outline}
                     </p>
                   </div>
                 </CollapsibleContent>
@@ -1760,9 +1760,9 @@ function EpisodeAccordion({
             )}
 
             {/* Scenes */}
-            {episode.scenes.length > 0 ? (
+            {chapter.scenes.length > 0 ? (
               <div className="space-y-1.5">
-                {episode.scenes.map((scene, i) => (
+                {chapter.scenes.map((scene, i) => (
                   <SceneCard
                     key={scene.id}
                     scene={scene}
@@ -1784,7 +1784,7 @@ function EpisodeAccordion({
 
       {/* Send to Timeline modal */}
       <SendToTimelineModal
-        scenes={episode.scenes.filter(
+        scenes={chapter.scenes.filter(
           (s) => selectedScenes.has(s.id) && (s.video_url || s.audio_url)
         )}
         open={timelineModalOpen}
@@ -1798,58 +1798,58 @@ function EpisodeAccordion({
 
 export default function StoryboardPanel() {
   const projectId = useProjectId();
-  const [allSeries, setAllSeries] = useState<SeriesOption[]>([]);
-  const { getSeriesId, setSeriesId: persistSeriesId } = useSeriesSelectorStore();
-  const [seriesId, setSeriesIdLocal] = useState<string | null>(null);
-  const [episodes, setEpisodes] = useState<EpisodeData[]>([]);
+  const [allVideo, setAllVideo] = useState<VideoOption[]>([]);
+  const { getVideoId, setVideoId: persistVideoId } = useVideoSelectorStore();
+  const [videoId, setVideoIdLocal] = useState<string | null>(null);
+  const [chapters, setChapters] = useState<ChapterData[]>([]);
   const [imageMap, setImageMap] = useState<VariantImageMap>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(
+  const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(
     new Set()
   );
-  const [isSendingEpisodes, setIsSendingEpisodes] = useState(false);
+  const [isSendingChapters, setIsSendingChapters] = useState(false);
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
   const storyboardForceOpen = getForceOpen('storyboard');
 
-  // Helper to set series both locally and in persistent store
-  const setSeriesId = useCallback(
+  // Helper to set video both locally and in persistent store
+  const setVideoId = useCallback(
     (id: string | null) => {
-      setSeriesIdLocal(id);
-      if (id && projectId) persistSeriesId(projectId, id);
+      setVideoIdLocal(id);
+      if (id && projectId) persistVideoId(projectId, id);
     },
-    [projectId, persistSeriesId]
+    [projectId, persistVideoId]
   );
 
-  // Load all series for this project (for the dropdown)
+  // Load all video for this project (for the dropdown)
   useEffect(() => {
     if (!projectId) {
-      setAllSeries([]);
+      setAllVideo([]);
       return;
     }
 
     const supabase = createClient('studio');
     supabase
-      .from('series')
+      .from('videos')
       .select('id, name')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
-        const list: SeriesOption[] = (data ?? []).map((s) => ({
+        const list: VideoOption[] = (data ?? []).map((s) => ({
           id: s.id,
           name: (s.name as string) || 'Untitled',
         }));
-        setAllSeries(list);
+        setAllVideo(list);
 
         // Restore persisted selection or auto-select first
-        const persisted = getSeriesId(projectId);
+        const persisted = getVideoId(projectId);
         if (persisted && list.some((s) => s.id === persisted)) {
-          setSeriesIdLocal(persisted);
+          setVideoIdLocal(persisted);
         } else if (list.length > 0) {
-          setSeriesId(list[0].id);
+          setVideoId(list[0].id);
         }
       });
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1858,7 +1858,7 @@ export default function StoryboardPanel() {
     let cancelled = false;
 
     async function load() {
-      if (!projectId || !seriesId) {
+      if (!projectId || !videoId) {
         setIsLoading(false);
         return;
       }
@@ -1872,38 +1872,38 @@ export default function StoryboardPanel() {
       const supabase = createClient('studio');
 
       try {
-        // Fetch episodes for the selected series
+        // Fetch chapters for the selected video
         const { data: epRows, error: epError } = await supabase
-          .from('episodes')
+          .from('chapters')
           .select(
             'id, "order", title, synopsis, status, audio_content, visual_outline, asset_variant_map'
           )
-          .eq('series_id', seriesId)
+          .eq('video_id', videoId)
           .order('"order"', { ascending: true });
 
         if (epError) throw new Error(epError.message);
 
-        // Fetch all scenes for these episodes
+        // Fetch all scenes for these chapters
         const epIds = (epRows ?? []).map((e: { id: string }) => e.id);
         let allScenes: SceneData[] = [];
         if (epIds.length > 0) {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, episode_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, chapter_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
-            .in('episode_id', epIds)
+            .in('chapter_id', epIds)
             .order('"order"', { ascending: true });
 
           if (scError) throw new Error(scError.message);
           allScenes = (sceneRows ?? []) as unknown as (SceneData & {
-            episode_id: string;
+            chapter_id: string;
           })[];
         }
 
         // Collect all unique variant slugs across scenes
         const slugSet = new Set<string>();
-        for (const s of allScenes as (SceneData & { episode_id: string })[]) {
+        for (const s of allScenes as (SceneData & { chapter_id: string })[]) {
           if (s.location_variant_slug) slugSet.add(s.location_variant_slug);
           for (const c of s.character_variant_slugs ?? []) slugSet.add(c);
           for (const p of s.prop_variant_slugs ?? []) slugSet.add(p);
@@ -1928,15 +1928,15 @@ export default function StoryboardPanel() {
           }
         }
 
-        // Group scenes by episode
+        // Group scenes by chapter
         const scenesByEp = new Map<string, SceneData[]>();
-        for (const s of allScenes as (SceneData & { episode_id: string })[]) {
-          const arr = scenesByEp.get(s.episode_id) ?? [];
+        for (const s of allScenes as (SceneData & { chapter_id: string })[]) {
+          const arr = scenesByEp.get(s.chapter_id) ?? [];
           arr.push(s);
-          scenesByEp.set(s.episode_id, arr);
+          scenesByEp.set(s.chapter_id, arr);
         }
 
-        const parsed: EpisodeData[] = (epRows ?? []).map((ep: any) => ({
+        const parsed: ChapterData[] = (epRows ?? []).map((ep: any) => ({
           id: ep.id,
           order: ep.order,
           title: ep.title,
@@ -1949,7 +1949,7 @@ export default function StoryboardPanel() {
         }));
 
         if (!cancelled) {
-          setEpisodes(parsed);
+          setChapters(parsed);
           setImageMap(newImageMap);
           setIsLoading(false);
           hasLoadedOnce.current = true;
@@ -1994,7 +1994,7 @@ export default function StoryboardPanel() {
       supabaseRT.removeChannel(sceneSub);
       supabaseRT.removeChannel(variantSub);
     };
-  }, [projectId, seriesId]);
+  }, [projectId, videoId]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -2014,30 +2014,30 @@ export default function StoryboardPanel() {
     );
   }
 
-  if (!seriesId || allSeries.length === 0) {
+  if (!videoId || allVideo.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-4 text-center gap-2">
         <IconMovie className="size-8 text-muted-foreground/30" />
-        <p className="text-xs text-muted-foreground">No series linked yet.</p>
+        <p className="text-xs text-muted-foreground">No video linked yet.</p>
         <p className="text-[10px] text-muted-foreground/50">
-          Link a series to this project to see episodes.
+          Link a video to this project to see chapters.
         </p>
       </div>
     );
   }
 
-  if (episodes.length === 0 && !isLoading) {
+  if (chapters.length === 0 && !isLoading) {
     return (
       <div className="h-full flex flex-col">
-        {/* Series selector even when no episodes */}
+        {/* Video selector even when no chapters */}
         <div className="p-3 border-b border-border/20">
-          {allSeries.length > 1 ? (
+          {allVideo.length > 1 ? (
             <select
-              value={seriesId ?? ''}
-              onChange={(e) => setSeriesId(e.target.value || null)}
+              value={videoId ?? ''}
+              onChange={(e) => setVideoId(e.target.value || null)}
               className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
             >
-              {allSeries.map((s) => (
+              {allVideo.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -2045,15 +2045,15 @@ export default function StoryboardPanel() {
             </select>
           ) : (
             <p className="text-sm font-medium">
-              {allSeries.find((s) => s.id === seriesId)?.name || 'Storyboard'}
+              {allVideo.find((s) => s.id === videoId)?.name || 'Storyboard'}
             </p>
           )}
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-4 text-center gap-2">
           <IconMovie className="size-8 text-muted-foreground/30" />
-          <p className="text-xs text-muted-foreground">No episodes yet.</p>
+          <p className="text-xs text-muted-foreground">No chapters yet.</p>
           <p className="text-[10px] text-muted-foreground/50">
-            Create episodes via API to see the storyboard.
+            Create chapters via API to see the storyboard.
           </p>
         </div>
       </div>
@@ -2061,13 +2061,13 @@ export default function StoryboardPanel() {
   }
 
   // Stats
-  const totalScenes = episodes.reduce((s, e) => s + e.scenes.length, 0);
-  const doneScenes = episodes.reduce(
+  const totalScenes = chapters.reduce((s, e) => s + e.scenes.length, 0);
+  const doneScenes = chapters.reduce(
     (s, e) =>
       s + e.scenes.filter((sc) => !!sc.audio_url && !!sc.video_url).length,
     0
   );
-  const totalDuration = episodes.reduce(
+  const totalDuration = chapters.reduce(
     (s, e) =>
       s +
       e.scenes.reduce(
@@ -2079,21 +2079,21 @@ export default function StoryboardPanel() {
   const totalVariantImages = [...imageMap.values()].filter(
     (v) => !!v.image_url
   ).length;
-  const seriesName = allSeries.find((s) => s.id === seriesId)?.name;
+  const videoName = allVideo.find((s) => s.id === videoId)?.name;
 
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-1">
-        {/* Header with series selector */}
+        {/* Header with video selector */}
         <div className="flex items-center justify-between mb-2">
           <div>
-            {allSeries.length > 1 ? (
+            {allVideo.length > 1 ? (
               <select
-                value={seriesId ?? ''}
-                onChange={(e) => setSeriesId(e.target.value || null)}
+                value={videoId ?? ''}
+                onChange={(e) => setVideoId(e.target.value || null)}
                 className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
               >
-                {allSeries.map((s) => (
+                {allVideo.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -2101,11 +2101,11 @@ export default function StoryboardPanel() {
               </select>
             ) : (
               <h3 className="text-sm font-semibold">
-                {seriesName || 'Storyboard'}
+                {videoName || 'Storyboard'}
               </h3>
             )}
             <p className="text-[10px] text-muted-foreground">
-              {episodes.length} episodes · {totalScenes} scenes
+              {chapters.length} chapters · {totalScenes} scenes
               {totalDuration > 0 && ` · ${formatDuration(totalDuration)}`}
               {totalVariantImages > 0 && ` · ${totalVariantImages} images`}
             </p>
@@ -2115,7 +2115,7 @@ export default function StoryboardPanel() {
               type="button"
               onClick={() => toggleAll('storyboard')}
               className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-              title={storyboardForceOpen === false ? 'Expand all episodes' : 'Collapse all episodes'}
+              title={storyboardForceOpen === false ? 'Expand all chapters' : 'Collapse all chapters'}
             >
               {storyboardForceOpen === false ? (
                 <IconChevronDown className="size-3.5" />
@@ -2139,19 +2139,19 @@ export default function StoryboardPanel() {
           />
         </div>
 
-        {/* Episode selection controls */}
-        {episodes.length > 0 && (
+        {/* Chapter selection controls */}
+        {chapters.length > 0 && (
           <div className="flex items-center gap-2 py-1.5 px-1 border-b border-border/20 mb-1">
             <button
               type="button"
               onClick={() => {
-                const allSelected = episodes.every((ep) =>
-                  selectedEpisodeIds.has(ep.id)
+                const allSelected = chapters.every((ep) =>
+                  selectedChapterIds.has(ep.id)
                 );
                 if (allSelected) {
-                  setSelectedEpisodeIds(new Set());
+                  setSelectedChapterIds(new Set());
                 } else {
-                  setSelectedEpisodeIds(new Set(episodes.map((ep) => ep.id)));
+                  setSelectedChapterIds(new Set(chapters.map((ep) => ep.id)));
                 }
               }}
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
@@ -2159,16 +2159,16 @@ export default function StoryboardPanel() {
               <input
                 type="checkbox"
                 checked={
-                  episodes.length > 0 &&
-                  episodes.every((ep) => selectedEpisodeIds.has(ep.id))
+                  chapters.length > 0 &&
+                  chapters.every((ep) => selectedChapterIds.has(ep.id))
                 }
                 readOnly
                 className="size-3 rounded border-border accent-primary cursor-pointer"
               />
-              <span>All Episodes</span>
+              <span>All Chapters</span>
             </button>
 
-            {selectedEpisodeIds.size > 0 && (
+            {selectedChapterIds.size > 0 && (
               <button
                 type="button"
                 onClick={async () => {
@@ -2176,11 +2176,11 @@ export default function StoryboardPanel() {
                     toast.error('Editor not ready');
                     return;
                   }
-                  setIsSendingEpisodes(true);
+                  setIsSendingChapters(true);
                   try {
-                    // Gather all scenes from selected episodes in order
-                    const selectedEps = episodes.filter((ep) =>
-                      selectedEpisodeIds.has(ep.id)
+                    // Gather all scenes from selected chapters in order
+                    const selectedEps = chapters.filter((ep) =>
+                      selectedChapterIds.has(ep.id)
                     );
                     const allScenes: SceneForTimeline[] = [];
                     for (const ep of selectedEps) {
@@ -2192,9 +2192,9 @@ export default function StoryboardPanel() {
                     }
                     if (allScenes.length === 0) {
                       toast.error(
-                        'No scenes with audio/video in selected episodes'
+                        'No scenes with audio/video in selected chapters'
                       );
-                      setIsSendingEpisodes(false);
+                      setIsSendingChapters(false);
                       return;
                     }
 
@@ -2221,14 +2221,14 @@ export default function StoryboardPanel() {
                     if (hasAnyVideo) {
                       const track = studio.addTrack({
                         type: 'Video',
-                        name: 'Episode Video',
+                        name: 'Chapter Video',
                       });
                       videoTrackId = track.id;
                     }
                     if (hasAnyAudio) {
                       const track = studio.addTrack({
                         type: 'Audio',
-                        name: 'Episode Audio',
+                        name: 'Chapter Audio',
                       });
                       audioTrackId = track.id;
                     }
@@ -2253,7 +2253,7 @@ export default function StoryboardPanel() {
                       (r) => r.audioClip
                     ).length;
                     toast.success(
-                      `Added ${videoCount} video + ${audioCount} audio clips from ${selectedEps.length} episode${selectedEps.length > 1 ? 's' : ''}`
+                      `Added ${videoCount} video + ${audioCount} audio clips from ${selectedEps.length} chapter${selectedEps.length > 1 ? 's' : ''}`
                     );
                   } catch (error) {
                     toast.error(
@@ -2262,33 +2262,33 @@ export default function StoryboardPanel() {
                         : 'Failed to send to timeline'
                     );
                   } finally {
-                    setIsSendingEpisodes(false);
+                    setIsSendingChapters(false);
                   }
                 }}
-                disabled={isSendingEpisodes}
+                disabled={isSendingChapters}
                 className="ml-auto inline-flex items-center gap-1 h-6 px-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {isSendingEpisodes ? (
+                {isSendingChapters ? (
                   <IconLoader2 className="size-3 animate-spin" />
                 ) : (
                   <IconSend className="size-3" />
                 )}
-                {selectedEpisodeIds.size} EP
-                {selectedEpisodeIds.size > 1 ? 's' : ''} → Timeline
+                {selectedChapterIds.size} EP
+                {selectedChapterIds.size > 1 ? 's' : ''} → Timeline
               </button>
             )}
           </div>
         )}
 
-        {/* Episode list */}
-        {episodes.map((ep) => (
-          <EpisodeAccordion
+        {/* Chapter list */}
+        {chapters.map((ep) => (
+          <ChapterAccordion
             key={ep.id}
-            episode={ep}
+            chapter={ep}
             imageMap={imageMap}
-            isEpisodeSelected={selectedEpisodeIds.has(ep.id)}
-            onToggleEpisodeSelected={() => {
-              setSelectedEpisodeIds((prev) => {
+            isChapterSelected={selectedChapterIds.has(ep.id)}
+            onToggleChapterSelected={() => {
+              setSelectedChapterIds((prev) => {
                 const next = new Set(prev);
                 if (next.has(ep.id)) {
                   next.delete(ep.id);

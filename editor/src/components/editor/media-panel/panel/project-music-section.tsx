@@ -364,7 +364,7 @@ export function ProjectMusicSection({
             </p>
           ) : tracks.length === 0 ? (
             <p className="text-[10px] text-muted-foreground/70 py-2">
-              No music tracks yet. Generate via API or Series Showrunner.
+              No music tracks yet. Generate via API or Video Showrunner.
             </p>
           ) : (
             tracks.map((track) => (

@@ -375,7 +375,7 @@ export function DashboardContent() {
 
   const handleProjectCreated = (project: DBProject) => {
     setProjects((prev) => [project, ...prev]);
-    // Open canonical project/series flow in a new tab
+    // Open canonical project/video flow in a new tab
     window.open(`/editor/${project.id}`, '_blank');
   };
 

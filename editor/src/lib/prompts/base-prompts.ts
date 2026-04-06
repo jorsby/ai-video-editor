@@ -3,7 +3,7 @@
  *
  * These are the foundational prompts used by the video generation pipeline.
  * They are designed to be augmented by agent memory (user preferences,
- * learned style, series context) at runtime.
+ * learned style, video context) at runtime.
  *
  * DO NOT add content templates here. Style/tone comes from agent memory.
  */

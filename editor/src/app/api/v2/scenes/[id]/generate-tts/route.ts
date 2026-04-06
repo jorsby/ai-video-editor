@@ -14,8 +14,8 @@ const TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
  * Generates TTS audio for a scene's audio_text using ElevenLabs via kie.ai.
  *
  * Body (optional overrides):
- *   voice_id?: string   — ElevenLabs voice ID or name (default from series.voice_id or 'Rachel')
- *   speed?: number       — Speech speed 0.7-1.2 (default from series.tts_speed or 1.0)
+ *   voice_id?: string   — ElevenLabs voice ID or name (default from video.voice_id or 'Rachel')
+ *   speed?: number       — Speech speed 0.7-1.2 (default from video.tts_speed or 1.0)
  *   previous_text?: string — Previous scene audio_text for continuity
  *   next_text?: string     — Next scene audio_text for continuity
  */
@@ -30,11 +30,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const supabase = createServiceClient('studio');
 
-    // ── Fetch scene + episode + series ──────────────────────────────────
+    // ── Fetch scene + chapter + video ──────────────────────────────────
 
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
-      .select('id, episode_id, audio_text, audio_url')
+      .select('id, chapter_id, audio_text, audio_url')
       .eq('id', sceneId)
       .maybeSingle();
 
@@ -49,29 +49,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const { data: episode } = await supabase
-      .from('episodes')
-      .select('id, series_id')
-      .eq('id', scene.episode_id)
+    const { data: chapter } = await supabase
+      .from('chapters')
+      .select('id, video_id')
+      .eq('id', scene.chapter_id)
       .maybeSingle();
 
-    if (!episode) {
-      return NextResponse.json({ error: 'Episode not found' }, { status: 404 });
+    if (!chapter) {
+      return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
     }
 
-    const { data: series } = await supabase
-      .from('series')
+    const { data: video } = await supabase
+      .from('videos')
       .select('id, voice_id, tts_speed, language, user_id')
-      .eq('id', episode.series_id)
+      .eq('id', chapter.video_id)
       .maybeSingle();
 
-    if (!series) {
-      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    if (!video) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
-    // ── Auth: user must own the series ──────────────────────────────────
+    // ── Auth: user must own the video ──────────────────────────────────
 
-    if (series.user_id !== user.id) {
+    if (video.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -79,21 +79,21 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
 
-    if (!series.voice_id) {
+    if (!video.voice_id) {
       return NextResponse.json(
         {
           error:
-            'Series has no voice_id configured. Set it in series settings first.',
+            'Video has no voice_id configured. Set it in video settings first.',
         },
         { status: 400 }
       );
     }
 
-    const voiceId = body.voice_id ?? series.voice_id;
-    const speed = clampSpeed(body.speed ?? series.tts_speed);
+    const voiceId = body.voice_id ?? video.voice_id;
+    const speed = clampSpeed(body.speed ?? video.tts_speed);
     const previousText = body.previous_text ?? '';
     const nextText = body.next_text ?? '';
-    const languageCode = body.language_code ?? series.language ?? '';
+    const languageCode = body.language_code ?? video.language ?? '';
 
     // ── Build webhook URL ───────────────────────────────────────────────
 

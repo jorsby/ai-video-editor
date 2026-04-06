@@ -149,7 +149,7 @@ Example single:
 
 6. Visual & Content Rules
 DO:
-- Prompts are always in English. Visual style adapts to the series bible and style metadata.
+- Prompts are always in English. Visual style adapts to the video bible and style metadata.
 - If the voiceover mentions real people, brands, landmarks, or locations, use their actual names and recognizable features.
 - Favor photorealistic, natural descriptions. Include subtle imperfections (weathered surfaces, natural skin texture, worn clothing details) to avoid an AI-rendered look.
 - Vary camera angles across scenes — avoid repeating the same straight-on medium shot.

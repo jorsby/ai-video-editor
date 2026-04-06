@@ -79,16 +79,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { data: series } = await supabase
-      .from('series')
+    const { data: video } = await supabase
+      .from('videos')
       .select('id, image_provider')
       .eq('project_id', asset.project_id)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    if (!series) {
-      return NextResponse.json({ error: 'Series not found' }, { status: 404 });
+    if (!video) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
     // ── Parse body ──────────────────────────────────────────────────────
@@ -114,11 +114,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // ── Resolve provider & webhook ────────────────────────────────────
 
-    const provider = resolveImageProvider(series.image_provider);
+    const provider = resolveImageProvider(video.image_provider);
     const webhookPath =
       provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
     const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
-    webhookUrl.searchParams.set('step', 'SeriesAssetImage');
+    webhookUrl.searchParams.set('step', 'VideoAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
     // ── Submit edit task ────────────────────────────────────────────────

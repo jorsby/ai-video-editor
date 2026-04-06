@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-const SERIES_ASSETS_BUCKET = 'series-assets';
+const SERIES_ASSETS_BUCKET = 'video-assets';
 
 export interface AssetImageMap {
   [variantId: string]: string;
