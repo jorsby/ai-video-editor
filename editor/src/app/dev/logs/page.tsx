@@ -26,7 +26,7 @@ const TIME_RANGE_MS: Record<TimeRange, number | null> = {
 function getStatus(payload: Record<string, unknown> | null): string {
   if (!payload) return 'unknown';
   if (typeof payload.status === 'string') return payload.status;
-  if (payload.error || payload.fal_error) return 'error';
+  if (payload.error) return 'error';
   if (payload.success === true) return 'success';
   if (payload.success === false) return 'error';
   return 'unknown';

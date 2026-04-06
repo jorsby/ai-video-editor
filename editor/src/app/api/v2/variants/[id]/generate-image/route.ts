@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { queueImageTask, resolveImageProvider } from '@/lib/image-provider';
+import { queueImageTask } from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -9,8 +9,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * POST /api/v2/variants/{id}/generate-image
  *
- * Generates an image for an asset variant using Nano Banana 2 via kie.ai.
- * Always 1K resolution, 9:16 aspect ratio, JPG output.
+ * Generates an image for an asset variant using Flux 2 Pro via kie.ai.
+ * 2K resolution, 9:16 aspect ratio.
  *
  * Uses variant.prompt + asset context to build the generation prompt.
  *
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: video } = await supabase
       .from('videos')
-      .select('id, genre, tone, image_model, image_provider, aspect_ratio')
+      .select('id, genre, tone, aspect_ratio')
       .eq('project_id', asset.project_id)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -74,16 +74,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     if (!video) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
-    }
-
-    if (!video.image_model) {
-      return NextResponse.json(
-        {
-          error:
-            'Video has no image_model configured. Set it in video settings first.',
-        },
-        { status: 400 }
-      );
     }
 
     // ── Build prompt ────────────────────────────────────────────────────
@@ -133,24 +123,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // ── Resolve provider & webhook ────────────────────────────────────
-
-    const provider = resolveImageProvider(video.image_provider);
-    const webhookPath =
-      provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
-    const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
+    const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
     webhookUrl.searchParams.set('step', 'VideoAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
     const aspectRatio = video.aspect_ratio ?? '9:16';
 
     const queued = await queueImageTask({
-      provider,
       prompt,
       webhookUrl: webhookUrl.toString(),
       aspectRatio,
-      resolution: '1K',
-      outputFormat: 'jpg',
+      resolution: '2K',
     });
 
     // ── Mark variant as generating ─────────────────────────────────────
@@ -166,10 +149,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
     return NextResponse.json({
       task_id: queued.requestId,
       model: queued.model,
-      provider: queued.provider,
       variant_id: variantId,
       aspect_ratio: aspectRatio,
-      resolution: '1K',
+      resolution: '2K',
       prompt,
     });
   } catch (error) {

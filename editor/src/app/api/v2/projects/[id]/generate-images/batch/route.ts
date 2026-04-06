@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { queueImageTask, resolveImageProvider } from '@/lib/image-provider';
+import { queueImageTask } from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -10,8 +10,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * POST /api/v2/projects/{id}/generate-images/batch
  *
  * Queue image generation for multiple variants in a single call.
- * Each variant uses the same project-level settings (model, aspect ratio)
- * but can optionally override the prompt per variant.
+ * Uses Flux 2 Pro via kie.ai — 2K resolution, project aspect ratio.
  *
  * Body:
  * {
@@ -19,16 +18,6 @@ type Ctx = { params: Promise<{ id: string }> };
  *   "prompt_overrides": {                       // optional, per-variant prompt override
  *     "uuid1": "custom prompt for this variant"
  *   }
- * }
- *
- * Response 200:
- * {
- *   "queued": 5,
- *   "skipped": 1,
- *   "results": [
- *     { "variant_id": "...", "task_id": "...", "status": "queued" },
- *     { "variant_id": "...", "status": "skipped", "reason": "already generating" }
- *   ]
  * }
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -86,10 +75,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         ? body.prompt_overrides
         : {};
 
-    // Load video settings (image model, aspect ratio, provider)
+    // Load video settings (aspect ratio)
     const { data: video } = await db
       .from('videos')
-      .select('id, genre, tone, image_model, image_provider, aspect_ratio')
+      .select('id, genre, tone, aspect_ratio')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -99,16 +88,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json(
         { error: 'No video found for this project' },
         { status: 404 }
-      );
-    }
-
-    if (!video.image_model) {
-      return NextResponse.json(
-        {
-          error:
-            'Video has no image_model configured. Set it in video settings first.',
-        },
-        { status: 400 }
       );
     }
 
@@ -141,9 +120,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    const provider = resolveImageProvider(video.image_provider);
-    const webhookPath =
-      provider === 'fal' ? '/api/webhook/fal' : '/api/webhook/kieai';
     const aspectRatio = video.aspect_ratio ?? '9:16';
 
     type BatchResult = {
@@ -219,17 +195,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
       // Queue image generation
       try {
-        const webhookUrl = new URL(`${webhookBase}${webhookPath}`);
+        const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
         webhookUrl.searchParams.set('step', 'VideoAssetImage');
         webhookUrl.searchParams.set('variant_id', variantId);
 
         const taskResult = await queueImageTask({
-          provider,
           prompt,
           webhookUrl: webhookUrl.toString(),
           aspectRatio,
-          resolution: '1K',
-          outputFormat: 'jpg',
+          resolution: '2K',
         });
 
         // Mark variant as generating
@@ -263,7 +237,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       failed: results.filter((r) => r.status === 'failed').length,
       total: variantIds.length,
       aspect_ratio: aspectRatio,
-      provider,
+      resolution: '2K',
       results,
     });
   } catch (error) {

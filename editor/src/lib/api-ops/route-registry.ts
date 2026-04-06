@@ -1306,26 +1306,6 @@ const generationRoutes: ApiRouteDefinition[] = [
       image_count: 2,
     },
   },
-  {
-    id: 'v2-variant-edit-image',
-    label: 'Edit variant image',
-    method: 'POST',
-    pathTemplate: '/api/v2/variants/{id}/edit-image',
-    category: 'variant',
-    auth: 'session-or-api-key',
-    description:
-      "Edits a variant's existing image using Grok Imagine image-to-image via kie.ai. Variant must already have an image_url. Always 9:16. Async — webhook uploads to storage, inserts into variant_images, and updates variant.image_url.",
-    pathParams: { id: 'variant-uuid' },
-    body: {
-      prompt: 'Make the character wear a red robe instead of blue',
-    },
-    response: {
-      task_id: 'kie-task-id',
-      model: 'grok-imagine/image-to-image',
-      variant_id: 'variant-uuid',
-      source_image: 'https://...current-image.jpg',
-    },
-  },
 ];
 
 const webhookRoutes: ApiRouteDefinition[] = [

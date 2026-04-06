@@ -1,23 +1,15 @@
 import { createTask } from '@/lib/kieai';
 
-export const KIE_IMAGE_MODEL = 'nano-banana-2';
+export const KIE_IMAGE_MODEL = 'flux-2/pro-text-to-image';
 
 const KIE_ASPECT_RATIOS = new Set([
-  'auto',
-  '21:9',
-  '16:9',
-  '3:2',
-  '4:3',
-  '5:4',
   '1:1',
-  '4:5',
+  '4:3',
   '3:4',
-  '2:3',
+  '16:9',
   '9:16',
-  '4:1',
-  '1:4',
-  '8:1',
-  '1:8',
+  '3:2',
+  '2:3',
 ]);
 
 export function normalizeKieResolution(
@@ -34,22 +26,14 @@ export function normalizeKieResolution(
 
 export function normalizeKieAspectRatio(
   value: string | null | undefined,
-  fallback: 'auto' | string = 'auto'
+  fallback = '9:16'
 ): string {
   const normalized = (value ?? '').trim();
   if (normalized && KIE_ASPECT_RATIOS.has(normalized)) {
     return normalized;
   }
 
-  return KIE_ASPECT_RATIOS.has(fallback) ? fallback : 'auto';
-}
-
-export function normalizeKieOutputFormat(
-  value: string | null | undefined
-): 'jpg' | 'png' {
-  const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized === 'png') return 'png';
-  return 'jpg';
+  return KIE_ASPECT_RATIOS.has(fallback) ? fallback : '9:16';
 }
 
 export async function queueKieImageTask(params: {
@@ -57,19 +41,13 @@ export async function queueKieImageTask(params: {
   callbackUrl: string;
   aspectRatio?: string;
   resolution?: string;
-  outputFormat?: string;
-  imageInput?: string[];
 }) {
   const input: Record<string, unknown> = {
     prompt: params.prompt,
-    aspect_ratio: normalizeKieAspectRatio(params.aspectRatio, 'auto'),
+    aspect_ratio: normalizeKieAspectRatio(params.aspectRatio, '9:16'),
     resolution: normalizeKieResolution(params.resolution),
-    output_format: normalizeKieOutputFormat(params.outputFormat),
+    nsfw_checker: false,
   };
-
-  if (Array.isArray(params.imageInput) && params.imageInput.length > 0) {
-    input.image_input = params.imageInput.slice(0, 14);
-  }
 
   const result = await createTask({
     model: KIE_IMAGE_MODEL,
