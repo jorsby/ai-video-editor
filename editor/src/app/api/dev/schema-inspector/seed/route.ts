@@ -921,7 +921,7 @@ export async function POST(request: NextRequest) {
           evidence_reveal_seconds: 38,
           cliffhanger_seconds: 14,
         },
-        episode_beats: [
+        chapter_beats: [
           {
             order: 1,
             beat: 'Ava confirms active movement at a supposedly inactive dock.',

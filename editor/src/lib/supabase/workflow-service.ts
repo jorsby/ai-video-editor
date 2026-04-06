@@ -10,7 +10,7 @@ import type {
 
 export interface VideoProductionMeta {
   scene_mode?: 'narrative' | 'cinematic';
-  episode_count?: number;
+  chapter_count?: number;
   aspect_ratio?: string;
   language?: string;
   voice_id?: string;

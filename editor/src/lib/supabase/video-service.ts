@@ -133,7 +133,7 @@ export interface VideoChapter {
 
   // Legacy compatibility aliases.
   project_id?: null;
-  episode_number: number;
+  chapter_number: number;
 }
 
 export interface ChapterAssetMap {
@@ -1036,7 +1036,7 @@ export async function listChapters(
       return {
         ...(row as unknown as VideoChapter),
         order: Number(row.order ?? 0),
-        episode_number: Number(row.order ?? 0),
+        chapter_number: Number(row.order ?? 0),
         project_id: null,
         asset_variant_map: map,
         plan_json: asJsonRecordOrNull(row.plan_json),
@@ -1051,7 +1051,7 @@ export async function createChapter(
   videoId: string,
   input: {
     order?: number;
-    episode_number?: number;
+    chapter_number?: number;
     title?: string;
     synopsis?: string;
     audio_content?: string;
@@ -1062,7 +1062,7 @@ export async function createChapter(
   }
 ): Promise<VideoChapter> {
   const resolvedOrder =
-    typeof input.order === 'number' ? input.order : input.episode_number;
+    typeof input.order === 'number' ? input.order : input.chapter_number;
 
   if (!resolvedOrder || resolvedOrder < 1) {
     throw new Error('Chapter order must be a positive integer');
@@ -1092,7 +1092,7 @@ export async function createChapter(
   return {
     ...(row as unknown as VideoChapter),
     order: Number(row.order ?? resolvedOrder),
-    episode_number: Number(row.order ?? resolvedOrder),
+    chapter_number: Number(row.order ?? resolvedOrder),
     project_id: null,
     asset_variant_map: normalizeChapterAssetVariantMap(row.asset_variant_map),
     plan_json: asJsonRecordOrNull(row.plan_json),
@@ -1104,7 +1104,7 @@ export async function updateChapter(
   chapterId: string,
   input: {
     order?: number;
-    episode_number?: number;
+    chapter_number?: number;
     title?: string | null;
     synopsis?: string | null;
     audio_content?: string | null;
@@ -1116,16 +1116,16 @@ export async function updateChapter(
 ): Promise<VideoChapter> {
   const updates: Record<string, unknown> = { ...input };
 
-  if (input.order !== undefined || input.episode_number !== undefined) {
+  if (input.order !== undefined || input.chapter_number !== undefined) {
     const nextOrder =
-      typeof input.order === 'number' ? input.order : input.episode_number;
+      typeof input.order === 'number' ? input.order : input.chapter_number;
 
     if (!nextOrder || nextOrder < 1) {
       throw new Error('Chapter order must be a positive integer');
     }
 
     updates.order = nextOrder;
-    delete updates.episode_number;
+    delete updates.chapter_number;
   }
 
   if (input.asset_variant_map !== undefined) {
@@ -1147,7 +1147,7 @@ export async function updateChapter(
   return {
     ...(row as unknown as VideoChapter),
     order: Number(row.order ?? 0),
-    episode_number: Number(row.order ?? 0),
+    chapter_number: Number(row.order ?? 0),
     project_id: null,
     asset_variant_map: normalizeChapterAssetVariantMap(row.asset_variant_map),
     plan_json: asJsonRecordOrNull(row.plan_json),

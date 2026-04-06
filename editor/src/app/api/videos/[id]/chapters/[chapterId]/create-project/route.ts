@@ -122,7 +122,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // ── Step 3: Create a storyboard for this chapter ───────────────────────
     // Check if a storyboard already exists for this chapter (identified by title)
-    const storyboardTitle = `EP${chapter.episode_number}: ${chapter.title ?? 'Untitled'}`;
+    const storyboardTitle = `CH${chapter.chapter_number}: ${chapter.title ?? 'Untitled'}`;
 
     const { data: existingStoryboard } = await dbClient
       .from('storyboards')

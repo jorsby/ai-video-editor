@@ -30,7 +30,7 @@ interface UseVideoChaptersResult {
 
 interface ChapterRow {
   id: string;
-  episode_number: number;
+  order: number;
   title: string | null;
   synopsis: string | null;
   storyboard_id: string | null;
@@ -146,9 +146,9 @@ export function useVideoChapters(
 
         const { data: chaptersData, error: chaptersError } = await supabase
           .from('chapters')
-          .select('id, episode_number, title, synopsis, storyboard_id')
+          .select('id, order, title, synopsis, storyboard_id')
           .eq('video_id', foundVideoId)
-          .order('episode_number', { ascending: true });
+          .order('order', { ascending: true });
 
         if (chaptersError) {
           throw new Error(chaptersError.message);
@@ -190,7 +190,7 @@ export function useVideoChapters(
 
           return {
             id: chapter.id,
-            chapterNumber: chapter.episode_number,
+            chapterNumber: chapter.order,
             title: chapter.title,
             synopsis: chapter.synopsis,
             storyboardId: chapter.storyboard_id,

@@ -1536,7 +1536,7 @@ function ChapterAccordion({
             checked={isChapterSelected}
             onChange={onToggleChapterSelected}
             className="ml-1 size-3 rounded border-border accent-primary shrink-0 cursor-pointer"
-            title={`Select EP${chapter.order} for timeline`}
+            title={`Select CH${chapter.order} for timeline`}
           />
           {totalAssets > 0 && (
             <button
@@ -1550,7 +1550,7 @@ function ChapterAccordion({
               title={
                 isThisChapterFocused
                   ? 'Clear asset filter'
-                  : `Filter assets to EP${chapter.order}`
+                  : `Filter assets to CH${chapter.order}`
               }
             >
               <IconFilter className="size-3" />

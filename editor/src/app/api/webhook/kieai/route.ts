@@ -238,7 +238,7 @@ async function consumeChapterRuntimeTask(params: {
   taskId: string;
   taskKey: RuntimeTaskKey;
 }): Promise<
-  { ok: true } | { ok: false; reason: 'episode_missing' | 'task_mismatch' }
+  { ok: true } | { ok: false; reason: 'chapter_missing' | 'task_mismatch' }
 > {
   const { supabase, chapterId, sceneId, taskId, taskKey } = params;
 
@@ -249,7 +249,7 @@ async function consumeChapterRuntimeTask(params: {
     .maybeSingle();
 
   if (!chapter) {
-    return { ok: false, reason: 'episode_missing' };
+    return { ok: false, reason: 'chapter_missing' };
   }
 
   const planJson = toRecord(chapter.plan_json);

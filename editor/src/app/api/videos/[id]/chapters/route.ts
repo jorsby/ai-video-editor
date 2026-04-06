@@ -96,13 +96,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const order =
       typeof body?.order === 'number'
         ? body.order
-        : typeof body?.episode_number === 'number'
-          ? body.episode_number
+        : typeof body?.chapter_number === 'number'
+          ? body.chapter_number
           : null;
 
     if (!order || order < 1 || !Number.isInteger(order)) {
       return NextResponse.json(
-        { error: 'order (or episode_number) must be a positive integer' },
+        { error: 'order (or chapter_number) must be a positive integer' },
         { status: 400 }
       );
     }
