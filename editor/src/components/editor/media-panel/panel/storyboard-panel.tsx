@@ -1079,6 +1079,8 @@ function AssetGallery({
 
 // ── Send to Timeline Modal ──────────────────────────────────────────────────────
 
+type TimelineMediaMode = 'both' | 'video-only' | 'audio-only';
+
 function SendToTimelineModal({
   scenes,
   open,
@@ -1091,6 +1093,7 @@ function SendToTimelineModal({
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
 
+  const [mediaMode, setMediaMode] = useState<TimelineMediaMode>('both');
   const [settings, setSettings] = useState<SceneTimelineSettings[]>(() =>
     scenes.map((s) => ({
       sceneId: s.id,
@@ -1146,9 +1149,12 @@ function SendToTimelineModal({
         canvasHeight: canvasSize.height,
       });
 
-      // Create one video track + one audio track, add all clips there
-      const hasAnyVideo = results.some((r) => r.videoClip);
-      const hasAnyAudio = results.some((r) => r.audioClip);
+      // Create tracks based on media mode selection
+      const includeVideo = mediaMode !== 'audio-only';
+      const includeAudio = mediaMode !== 'video-only';
+
+      const hasAnyVideo = includeVideo && results.some((r) => r.videoClip);
+      const hasAnyAudio = includeAudio && results.some((r) => r.audioClip);
 
       let videoTrackId: string | undefined;
       let audioTrackId: string | undefined;
@@ -1171,10 +1177,11 @@ function SendToTimelineModal({
         }
       }
 
-      const videoCount = results.filter((r) => r.videoClip).length;
-      const audioCount = results.filter((r) => r.audioClip).length;
+      const videoCount = hasAnyVideo ? results.filter((r) => r.videoClip).length : 0;
+      const audioCount = hasAnyAudio ? results.filter((r) => r.audioClip).length : 0;
+      const modeLabel = mediaMode === 'video-only' ? 'video' : mediaMode === 'audio-only' ? 'audio' : 'video + audio';
       toast.success(
-        `Added ${videoCount} video + ${audioCount} audio clips to timeline`
+        `Added ${videoCount + audioCount} ${modeLabel} clips to timeline`
       );
       onOpenChange(false);
     } catch (error) {
@@ -1196,6 +1203,30 @@ function SendToTimelineModal({
             {scenes.length} scene{scenes.length !== 1 ? 's' : ''}
           </Badge>
         </DialogTitle>
+
+        {/* Media mode selector */}
+        <div className="flex items-center gap-1 pb-2 border-b border-border/30">
+          {(
+            [
+              { value: 'both', label: 'Video + Audio' },
+              { value: 'video-only', label: 'Video Only' },
+              { value: 'audio-only', label: 'Audio Only' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setMediaMode(opt.value)}
+              className={`flex-1 text-[10px] py-1 px-2 rounded border transition-colors ${
+                mediaMode === opt.value
+                  ? 'border-primary bg-primary/15 text-primary font-medium'
+                  : 'border-border/40 bg-transparent text-muted-foreground hover:bg-muted/20'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
         {/* Bulk controls */}
         <div className="space-y-2 pb-2 border-b border-border/30">
