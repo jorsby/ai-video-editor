@@ -66,6 +66,7 @@ interface SceneData {
   audio_duration: number | null;
   video_url: string | null;
   video_duration: number | null;
+  has_speech: boolean | null;
   status: string | null;
   location_variant_slug: string | null;
   character_variant_slugs: string[];
@@ -885,6 +886,11 @@ function SceneCard({
               {formatDuration(
                 scene.audio_duration ?? scene.video_duration ?? 0
               )}
+            </span>
+          )}
+          {scene.has_speech && (
+            <span className="text-[8px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20" title="Speech detected — video audio will be muted in timeline">
+              🔇 Speech
             </span>
           )}
         </button>
@@ -2243,7 +2249,7 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, chapter_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, chapter_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, has_speech, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
             )
             .in('chapter_id', epIds)
             .order('"order"', { ascending: true });

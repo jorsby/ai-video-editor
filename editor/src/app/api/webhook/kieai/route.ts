@@ -7,6 +7,7 @@ import {
   type KieWebhookVerificationResult,
 } from '@/lib/kieai';
 import { probeMediaDuration } from '@/lib/media-probe';
+import { detectSpeech } from '@/lib/speech-detect';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -669,11 +670,15 @@ async function handleGenerateSceneVideo(params: {
   // Probe the actual video file for exact duration
   const videoDuration = await probeMediaDuration(videoUrl);
 
+  // Detect speech in the generated video audio
+  const hasSpeech = await detectSpeech(videoUrl);
+
   await supabase
     .from('scenes')
     .update({
       video_url: videoUrl,
       ...(videoDuration != null ? { video_duration: videoDuration } : {}),
+      has_speech: hasSpeech,
       video_status: 'done',
       video_task_id: null,
     })
@@ -685,6 +690,7 @@ async function handleGenerateSceneVideo(params: {
     scene_id: sceneId,
     video_url: videoUrl,
     video_duration: videoDuration,
+    has_speech: hasSpeech,
   });
 }
 

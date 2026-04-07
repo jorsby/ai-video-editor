@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { probeMediaDuration } from '@/lib/media-probe';
+import { detectSpeech } from '@/lib/speech-detect';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -82,11 +83,15 @@ export async function POST(req: NextRequest) {
     // Probe actual duration
     const videoDuration = await probeMediaDuration(videoUrl);
 
+    // Detect speech in the generated video audio
+    const hasSpeech = await detectSpeech(videoUrl);
+
     await supabase
       .from('scenes')
       .update({
         video_url: videoUrl,
         ...(videoDuration != null ? { video_duration: videoDuration } : {}),
+        has_speech: hasSpeech,
         video_status: 'done',
         video_task_id: null,
       })
@@ -97,6 +102,7 @@ export async function POST(req: NextRequest) {
       scene_id: sceneId,
       video_url: videoUrl,
       video_duration: videoDuration,
+      has_speech: hasSpeech,
       provider: 'fal',
     });
   } catch (error) {
