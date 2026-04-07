@@ -1020,6 +1020,32 @@ function SceneCard({
               }}
             />
           )}
+          {hasPrompt && effectiveVideoStatus === 'failed' && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLocalVideoStatus('generating');
+                void (async () => {
+                  const result = await callGenerateApi(
+                    `/api/v2/scenes/${scene.id}/generate-video`,
+                    { provider: 'fal' }
+                  );
+                  if (result.ok) {
+                    toast.success(`fal.ai retry started for S${index + 1}`);
+                  } else {
+                    setLocalVideoStatus(null);
+                    toast.error(result.error ?? 'fal.ai retry failed');
+                  }
+                })();
+              }}
+              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors cursor-pointer"
+              title="Retry with fal.ai (max 10s)"
+            >
+              <IconRefresh className="size-2.5" />
+              fal.ai
+            </button>
+          )}
           <span className="ml-auto opacity-50 whitespace-nowrap">
             {charCount}ch {hasLocation ? '1loc' : '0loc'} {propCount}pr
           </span>

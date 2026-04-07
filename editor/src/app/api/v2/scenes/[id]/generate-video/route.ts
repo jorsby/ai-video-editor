@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask } from '@/lib/kieai';
+import { submitFalVideoJob, FAL_MAX_DURATION } from '@/lib/fal-provider';
 import { compileForGrok } from '@/lib/storyboard/prompt-compiler';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
@@ -42,6 +43,7 @@ function normalizeDuration(
  * Body (optional):
  *   duration?: 6–30              — Video duration in seconds (default 6, clamped)
  *   resolution?: "480p"|"720p"   — Video resolution (default "480p")
+ *   provider?: "kie"|"fal"       — Video generation provider (default "kie")
  *   prompt_override?: string      — Custom prompt (bypasses compileForGrok)
  *   image_urls_override?: string[] — Custom image URLs (bypasses DB lookup)
  */
@@ -160,6 +162,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Resolution: body override → video settings → default 480p
+    // Provider: kie (default) or fal
+    const VALID_PROVIDERS = new Set(['kie', 'fal']);
+    const provider =
+      typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider.toLowerCase())
+        ? body.provider.toLowerCase()
+        : 'kie';
+
+    // Resolution: accept 480p or 720p, default from video settings
     const VALID_RESOLUTIONS = new Set(['480p', '720p']);
     const requestedRes =
       typeof body.resolution === 'string' ? body.resolution.trim().toLowerCase() : '';
@@ -240,39 +250,60 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
-    webhookUrl.searchParams.set('step', 'GenerateSceneVideo');
-    webhookUrl.searchParams.set('scene_id', sceneId);
-
-    // ── Submit to kie.ai ────────────────────────────────────────────────
-
     const videoModel = video.video_model;
     const aspectRatio = video.aspect_ratio ?? '9:16';
 
-    const result = await createTask({
-      model: videoModel,
-      callbackUrl: webhookUrl.toString(),
-      input: {
+    let taskId: string;
+
+    if (provider === 'fal') {
+      // ── Submit to fal.ai ────────────────────────────────────────────
+      const falWebhookUrl = new URL(`${webhookBase}/api/webhook/fal`);
+      falWebhookUrl.searchParams.set('step', 'GenerateSceneVideo');
+      falWebhookUrl.searchParams.set('scene_id', sceneId);
+
+      // fal.ai Grok Imagine max 10s — clamp handled inside provider
+      const falResult = await submitFalVideoJob({
         prompt: compiledPrompt,
-        image_urls: imageUrls,
+        imageUrls,
         duration,
-        aspect_ratio: aspectRatio,
+        aspectRatio,
         resolution,
-      },
-    });
+        webhookUrl: falWebhookUrl.toString(),
+      });
+      taskId = falResult.requestId;
+    } else {
+      // ── Submit to kie.ai (default) ──────────────────────────────────
+      const kieWebhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
+      kieWebhookUrl.searchParams.set('step', 'GenerateSceneVideo');
+      kieWebhookUrl.searchParams.set('scene_id', sceneId);
+
+      const kieResult = await createTask({
+        model: videoModel,
+        callbackUrl: kieWebhookUrl.toString(),
+        input: {
+          prompt: compiledPrompt,
+          image_urls: imageUrls,
+          duration,
+          aspect_ratio: aspectRatio,
+          resolution,
+        },
+      });
+      taskId = kieResult.taskId;
+    }
 
     // ── Mark video as generating ───────────────────────────────────────
 
     await supabase
       .from('scenes')
-      .update({ video_status: 'generating', video_task_id: result.taskId })
+      .update({ video_status: 'generating', video_task_id: taskId })
       .eq('id', sceneId);
 
     return NextResponse.json({
-      task_id: result.taskId,
+      task_id: taskId,
+      provider,
       model: videoModel,
       scene_id: sceneId,
-      duration,
+      duration: provider === 'fal' ? Math.min(duration, FAL_MAX_DURATION) : duration,
       aspect_ratio: aspectRatio,
       resolution,
       image_count: imageUrls.length,
