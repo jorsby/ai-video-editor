@@ -42,6 +42,7 @@ import {
   IconRefresh,
   IconSend,
   IconSelectAll,
+  IconFileText,
 } from '@tabler/icons-react';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
@@ -1395,6 +1396,88 @@ function SendToTimelineModal({
   );
 }
 
+// ── Full Script Section ────────────────────────────────────────────────────────
+
+function FullScriptSection({ chapters }: { chapters: ChapterData[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Gather all voiceover text grouped by chapter
+  const scriptChapters = chapters
+    .map((ch) => ({
+      order: ch.order,
+      title: ch.title,
+      lines: ch.scenes
+        .filter((s) => s.audio_text)
+        .map((s) => s.audio_text as string),
+    }))
+    .filter((ch) => ch.lines.length > 0);
+
+  if (scriptChapters.length === 0) return null;
+
+  const totalLines = scriptChapters.reduce(
+    (sum, ch) => sum + ch.lines.length,
+    0
+  );
+  const fullText = scriptChapters
+    .map(
+      (ch) =>
+        `CH${ch.order}: ${ch.title ?? 'Untitled'}\n${ch.lines.join('\n')}`
+    )
+    .join('\n\n');
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="w-full flex items-center gap-2 px-2 py-2 rounded-md border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors mb-1"
+        >
+          <IconFileText className="size-4 text-primary/70 shrink-0" />
+          <span className="text-xs font-medium flex-1 text-left">
+            Full Script
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {totalLines} lines
+          </span>
+          {isOpen ? (
+            <IconChevronUp className="size-3.5 text-muted-foreground" />
+          ) : (
+            <IconChevronDown className="size-3.5 text-muted-foreground" />
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mb-2 rounded-md border border-border/20 bg-background/50 overflow-hidden">
+          {/* Copy all button */}
+          <div className="flex items-center justify-end px-2.5 py-1.5 border-b border-border/20">
+            <CopyButton text={fullText} />
+          </div>
+          {/* Script content */}
+          <div className="px-3 py-2 space-y-3 max-h-[400px] overflow-y-auto">
+            {scriptChapters.map((ch) => (
+              <div key={ch.order}>
+                <h4 className="text-[11px] font-semibold text-foreground/80 mb-1">
+                  CH{ch.order}: {ch.title ?? 'Untitled'}
+                </h4>
+                <div className="space-y-1">
+                  {ch.lines.map((line, i) => (
+                    <p
+                      key={`${ch.order}-${i}`}
+                      className="text-[11px] text-muted-foreground leading-relaxed"
+                    >
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 // ── Chapter Accordion ──────────────────────────────────────────────────────────
 
 function ChapterAccordion({
@@ -2318,6 +2401,11 @@ export default function StoryboardPanel() {
             )}
           </div>
         )}
+
+        {/* Full Script — all voiceovers combined */}
+        {chapters.some((ch) =>
+          ch.scenes.some((s) => s.audio_text)
+        ) && <FullScriptSection chapters={chapters} />}
 
         {/* Chapter list */}
         {chapters.map((ep) => (
