@@ -152,9 +152,11 @@ export function handleTrackRelocation(timeline: Timeline, options: any) {
     targetAny.type === 'activeSelection' ||
     target.type === 'activeSelection'
   ) {
+    // Multi-select track relocation is handled by handleClipModification.
+    // Just clean up separator state — do NOT requestRenderAll here
+    // as that would reset positions before handleClipModification runs.
     timeline.clearSeparatorHighlights();
     timeline.setActiveSeparatorIndex(null);
-    timeline.canvas.requestRenderAll();
     return;
   }
 
