@@ -1765,11 +1765,11 @@ function ChapterAccordion({
               )}
 
               <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">
-                EP{chapter.order}
+                CH{chapter.order}
               </span>
 
               <span className="text-xs font-medium truncate flex-1">
-                {chapter.title?.replace(/^EP\d+\s*[-—]\s*/, '') ||
+                {chapter.title?.replace(/^(EP|CH)\d+\s*[-—]\s*/, '') ||
                   `Chapter ${chapter.order}`}
               </span>
 
@@ -2470,7 +2470,7 @@ export default function StoryboardPanel() {
                 ) : (
                   <IconSend className="size-3" />
                 )}
-                {selectedChapterIds.size} EP
+                {selectedChapterIds.size} CH
                 {selectedChapterIds.size > 1 ? 's' : ''} → Timeline
               </button>
             )}
