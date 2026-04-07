@@ -10,7 +10,7 @@ type PlanStatus = 'draft' | 'finalized';
 const CONTENT_MODES: ContentMode[] = ['narrative', 'cinematic', 'hybrid'];
 const PLAN_STATUSES: PlanStatus[] = ['draft', 'finalized'];
 const SERIES_SELECT =
-  'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status, created_at, updated_at';
+  'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, video_resolution, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status, created_at, updated_at';
 
 type OwnedVideoLookup =
   | {
@@ -146,6 +146,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       'language',
       'aspect_ratio',
       'video_model',
+      'video_resolution',
       'image_model',
       'voice_id',
       'visual_style',

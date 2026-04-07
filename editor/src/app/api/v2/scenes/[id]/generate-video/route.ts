@@ -105,7 +105,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: video } = await supabase
       .from('videos')
-      .select('id, project_id, video_model, aspect_ratio')
+      .select('id, project_id, video_model, video_resolution, aspect_ratio')
       .eq('id', chapter.video_id)
       .maybeSingle();
 
@@ -159,11 +159,16 @@ export async function POST(req: NextRequest, context: RouteContext) {
       duration = normalizeDuration(scene.video_duration ?? MIN_DURATION);
     }
 
-    // Resolution: accept 480p or 720p, default 480p
+    // Resolution: body override → video settings → default 480p
     const VALID_RESOLUTIONS = new Set(['480p', '720p']);
     const requestedRes =
       typeof body.resolution === 'string' ? body.resolution.trim().toLowerCase() : '';
-    const resolution = VALID_RESOLUTIONS.has(requestedRes) ? requestedRes : '480p';
+    const videoDefault = video.video_resolution ?? '480p';
+    const resolution = VALID_RESOLUTIONS.has(requestedRes)
+      ? requestedRes
+      : VALID_RESOLUTIONS.has(videoDefault)
+        ? videoDefault
+        : '480p';
 
     let compiledPrompt: string;
     let imageUrls: string[];

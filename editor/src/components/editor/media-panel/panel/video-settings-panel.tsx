@@ -21,6 +21,7 @@ interface VideoSettings {
   voice_id: string;
   tts_speed: number;
   video_model: string;
+  video_resolution: string;
   image_model: string;
   aspect_ratio: string | null;
   visual_style: string | null;
@@ -74,9 +75,15 @@ const VIDEO_MODEL_OPTIONS = [
   { value: 'kling/v1.6/image-to-video', label: 'Kling v1.6 (Image→Video)' },
 ];
 
+const VIDEO_RESOLUTION_OPTIONS = [
+  { value: '480p', label: '480p (Fast, Lower Quality)' },
+  { value: '720p', label: '720p (Slower, Higher Quality)' },
+];
+
 const IMAGE_MODEL_OPTIONS = [
-  { value: 'nano-banana-2', label: 'Nano Banana 2' },
-  { value: 'flux-1.1-pro', label: 'Flux 1.1 Pro' },
+  { value: 'flux-2/pro-text-to-image', label: 'Flux 2 Pro (2K)' },
+  { value: 'nano-banana-2', label: 'Nano Banana 2 (Legacy)' },
+  { value: 'flux-1.1-pro', label: 'Flux 1.1 Pro (Legacy)' },
 ];
 
 const ASPECT_RATIO_OPTIONS = [
@@ -144,7 +151,7 @@ export default function VideoSettingsPanel() {
     const { data: video, error: fetchError } = await supabase
       .from('videos')
       .select(
-        'id, name, language, voice_id, tts_speed, video_model, image_model, aspect_ratio, visual_style, genre, tone'
+        'id, name, language, voice_id, tts_speed, video_model, video_resolution, image_model, aspect_ratio, visual_style, genre, tone'
       )
       .eq('id', resolvedVideoId)
       .maybeSingle();
@@ -338,6 +345,20 @@ export default function VideoSettingsPanel() {
               className="w-full h-8 text-xs rounded border border-border bg-background px-2"
             >
               {ASPECT_RATIO_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+
+          <SettingRow label="Video Resolution">
+            <select
+              value={merged.video_resolution ?? '480p'}
+              onChange={(e) => updateDraft('video_resolution', e.target.value)}
+              className="w-full h-8 text-xs rounded border border-border bg-background px-2"
+            >
+              {VIDEO_RESOLUTION_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
