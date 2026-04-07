@@ -2312,12 +2312,12 @@ export default function StoryboardPanel() {
               type="button"
               onClick={() => toggleAll('storyboard')}
               className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-              title={storyboardForceOpen === false ? 'Expand all chapters' : 'Collapse all chapters'}
+              title={storyboardForceOpen === true ? 'Collapse all chapters' : 'Expand all chapters'}
             >
-              {storyboardForceOpen === false ? (
-                <IconChevronDown className="size-3.5" />
-              ) : (
+              {storyboardForceOpen === true ? (
                 <IconChevronUp className="size-3.5" />
+              ) : (
+                <IconChevronDown className="size-3.5" />
               )}
             </button>
             <Badge variant="outline" className="text-[9px]">

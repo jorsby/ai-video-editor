@@ -23,16 +23,15 @@ export const usePanelCollapseStore = create<PanelCollapseState>()(
       panels: {},
       toggleAll: (panel: string) => {
         const current = get().panels[panel];
-        // null/false → true (expand), true → false (collapse)
-        // But we want: click = toggle. If expanded or null → collapse. If collapsed → expand.
-        const next = current === false ? null : false;
+        // Toggle: expand all ↔ collapse all
+        const next = current === true ? false : true;
         set({ panels: { ...get().panels, [panel]: next } });
       },
       getForceOpen: (panel: string) => {
         const val = get().panels[panel];
+        if (val === true) return true; // force expanded
         if (val === false) return false; // force collapsed
-        if (val === null || val === undefined) return null; // individual
-        return null;
+        return null; // individual
       },
       resetForce: (panel: string) => {
         set({ panels: { ...get().panels, [panel]: null } });
