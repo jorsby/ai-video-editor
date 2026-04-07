@@ -82,8 +82,6 @@ const VIDEO_RESOLUTION_OPTIONS = [
 
 const IMAGE_MODEL_OPTIONS = [
   { value: 'flux-2/pro-text-to-image', label: 'Flux 2 Pro (2K)' },
-  { value: 'nano-banana-2', label: 'Nano Banana 2 (Legacy)' },
-  { value: 'flux-1.1-pro', label: 'Flux 1.1 Pro (Legacy)' },
 ];
 
 const ASPECT_RATIO_OPTIONS = [
