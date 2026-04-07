@@ -691,6 +691,79 @@ function GenerationStatus({
   );
 }
 
+// ── Scene Variant Tile (retry image from scene expand) ─────────────────────────
+
+function SceneVariantTile({
+  slug,
+  imageMap,
+}: {
+  slug: string;
+  imageMap: VariantImageMap;
+}) {
+  const info = imageMap.get(slug);
+  const url = info?.image_url;
+  const variantId = info?.id;
+  const [isRetrying, setIsRetrying] = useState(false);
+  const label = slugToLabel(slug);
+
+  const handleRetry = async () => {
+    if (!variantId || isRetrying) return;
+    setIsRetrying(true);
+    try {
+      const res = await fetch(`/api/v2/variants/${variantId}/generate-image`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        (await import('sonner')).toast.success(`Image regenerating: ${label}`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        (await import('sonner')).toast.error(data.error ?? 'Failed to retry image');
+      }
+    } catch {
+      (await import('sonner')).toast.error('Network error');
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-1 group">
+      <div className="relative">
+        {url ? (
+          <img
+            src={url}
+            alt={label}
+            className="size-12 rounded-md object-cover border border-border/30"
+          />
+        ) : (
+          <div className="size-12 rounded-md bg-muted/40 border border-border/30 flex items-center justify-center">
+            <span className="text-[8px] text-muted-foreground">?</span>
+          </div>
+        )}
+        {/* Retry overlay */}
+        {variantId && (
+          <button
+            type="button"
+            onClick={() => void handleRetry()}
+            disabled={isRetrying}
+            className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+            title={`Regenerate ${label}`}
+          >
+            {isRetrying ? (
+              <IconLoader2 className="size-3.5 text-white animate-spin" />
+            ) : (
+              <IconRefresh className="size-3.5 text-white" />
+            )}
+          </button>
+        )}
+      </div>
+      <span className="text-[8px] text-muted-foreground truncate max-w-[52px] text-center">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 // ── Scene Card ─────────────────────────────────────────────────────────────────
 
 function SceneCard({
@@ -1049,6 +1122,20 @@ function SceneCard({
           <p className="text-[10px] text-muted-foreground/50 italic">
             No visual prompt written yet.
           </p>
+        </div>
+      )}
+
+      {/* Expanded: Scene variant assets with retry */}
+      {isExpanded && allSlugs.length > 0 && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/20">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+            Scene Assets
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {allSlugs.map((slug) => (
+              <SceneVariantTile key={slug} slug={slug} imageMap={imageMap} />
+            ))}
+          </div>
         </div>
       )}
     </div>
