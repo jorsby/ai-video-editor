@@ -119,16 +119,15 @@ export async function buildSceneClips(params: {
   const { scenes, settings, canvasWidth, canvasHeight, onProgress } = params;
   const results: SceneClipResult[] = [];
 
-  // Sort by scene order
-  const sorted = [...scenes].sort((a, b) => a.order - b.order);
-
+  // Scenes arrive pre-sorted by the caller (chapter order → scene order).
+  // Do NOT re-sort globally — that would interleave scenes across chapters.
   let currentOffset = 0; // microseconds
 
-  for (const [idx, scene] of sorted.entries()) {
+  for (const [idx, scene] of scenes.entries()) {
     const sceneSettings = settings.find((s) => s.sceneId === scene.id);
     if (!sceneSettings) continue;
 
-    onProgress?.(idx, sorted.length);
+    onProgress?.(idx, scenes.length);
 
     let videoClip: InstanceType<typeof Video> | null = null;
     let audioClip: InstanceType<typeof Audio> | null = null;
@@ -137,18 +136,20 @@ export async function buildSceneClips(params: {
 
     if (scene.video_url) {
       videoClip = await Video.fromUrl(proxyUrl(scene.video_url));
-      videoClip.name = scene.title
-        ? `S${scene.order} – ${scene.title}`
-        : `Scene ${scene.order}`;
+      const sceneLabel = scene.title
+        ? `S${idx + 1} – ${scene.title}`
+        : `Scene ${idx + 1}`;
+      videoClip.name = sceneLabel;
       await videoClip.scaleToFit(canvasWidth, canvasHeight);
       videoClip.centerInScene(canvasWidth, canvasHeight);
     }
 
     if (scene.audio_url) {
       audioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
-      audioClip.name = scene.title
-        ? `VO – S${scene.order} – ${scene.title}`
-        : `VO – Scene ${scene.order}`;
+      const voLabel = scene.title
+        ? `VO – S${idx + 1} – ${scene.title}`
+        : `VO – Scene ${idx + 1}`;
+      audioClip.name = voLabel;
     }
 
     // ── Get real durations from probed clips ────────────────────────
@@ -228,6 +229,6 @@ export async function buildSceneClips(params: {
     currentOffset += sceneDurUs;
   }
 
-  onProgress?.(sorted.length, sorted.length);
+  onProgress?.(scenes.length, scenes.length);
   return results;
 }
