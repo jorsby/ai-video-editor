@@ -1,13 +1,3 @@
 {
-  
-  "crons": [
-    {
-      "path": "/api/cron/publish-scheduled",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/workflow/poll-skyreels",
-      "schedule": "0 0 * * *"
-    }
-  ]
+  "installCommand": "cd .. && pnpm install --no-frozen-lockfile"
 }
