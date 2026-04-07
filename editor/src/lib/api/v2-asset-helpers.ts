@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { slugify as toSlug } from '@/lib/utils/slugify';
+import { queueImageTask } from '@/lib/image-provider';
+import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 export type AssetType = 'character' | 'location' | 'prop';
 export type AssetRouteScope = 'project' | 'video';
@@ -20,6 +22,50 @@ function toNullableString(value: unknown): string | null {
 
 // biome-ignore lint/suspicious/noExplicitAny: Supabase client type
 type DB = any;
+
+/**
+ * Fire-and-forget image generation for a list of variants.
+ * Marks each variant as 'generating' and queues a Flux 2 Pro task via Kie.ai.
+ * Errors are swallowed per-variant so one failure doesn't block others.
+ */
+async function autoGenerateImages(
+  db: DB,
+  variants: Array<{ id: string; prompt: string }>,
+  req: NextRequest,
+  aspectRatio = '9:16'
+): Promise<void> {
+  const webhookBase = resolveWebhookBaseUrl(req);
+  if (!webhookBase) return; // Can't generate without webhook URL
+
+  for (const variant of variants) {
+    if (!variant.prompt) continue;
+    try {
+      const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
+      webhookUrl.searchParams.set('step', 'VideoAssetImage');
+      webhookUrl.searchParams.set('variant_id', variant.id);
+
+      const queued = await queueImageTask({
+        prompt: variant.prompt,
+        webhookUrl: webhookUrl.toString(),
+        aspectRatio,
+        resolution: '2K',
+      });
+
+      await db
+        .from('project_asset_variants')
+        .update({
+          image_gen_status: 'generating',
+          image_task_id: queued.requestId,
+        })
+        .eq('id', variant.id);
+    } catch (err) {
+      console.error(
+        `[auto-generate] Failed for variant ${variant.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+}
 
 type ScopeResolution =
   | {
@@ -333,8 +379,35 @@ export async function postAssetsByType(
     }
   );
 
+  let insertedVariants: Array<{ id: string; prompt: string }> = [];
   if (mainVariants.length > 0) {
-    await db.from('project_asset_variants').insert(mainVariants);
+    const { data: variantRows } = await db
+      .from('project_asset_variants')
+      .insert(mainVariants)
+      .select('id, prompt');
+    insertedVariants = (variantRows ?? []) as Array<{
+      id: string;
+      prompt: string;
+    }>;
+  }
+
+  // Auto-generate images for all created main variants (fire-and-forget)
+  if (insertedVariants.length > 0) {
+    // Get project aspect ratio from video settings
+    const { data: video } = await db
+      .from('videos')
+      .select('aspect_ratio')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    autoGenerateImages(
+      db,
+      insertedVariants,
+      req,
+      video?.aspect_ratio ?? '9:16'
+    ).catch(() => {}); // fire-and-forget
   }
 
   const ids = (assets ?? []).map((asset: { id: string }) => asset.id);
@@ -516,12 +589,11 @@ export async function postVariantsByAsset(
 
   const { assetId } = await context.params;
   const body = await req.json().catch(() => null);
-  const isBatch = Array.isArray(body);
-  const items = isBatch ? body : body ? [body] : [];
+  const items = Array.isArray(body) ? body : body ? [body] : [];
 
   if (items.length === 0) {
     return NextResponse.json(
-      { error: 'At least one variant required' },
+      { error: 'Body must be a non-empty array of variants' },
       { status: 400 }
     );
   }
@@ -548,14 +620,6 @@ export async function postVariantsByAsset(
         ? item.slug.trim()
         : toSlug(name);
 
-    if (item?.is_main === true) {
-      await db
-        .from('project_asset_variants')
-        .update({ is_main: false })
-        .eq('asset_id', assetId)
-        .eq('is_main', true);
-    }
-
     const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
     const whereToUse =
       typeof item?.where_to_use === 'string' ? item.where_to_use.trim() : '';
@@ -579,8 +643,7 @@ export async function postVariantsByAsset(
       name,
       slug,
       prompt,
-      image_url: toNullableString(item?.image_url),
-      is_main: item?.is_main === true,
+      is_main: false,
       where_to_use: whereToUse,
       reasoning:
         typeof item?.reasoning === 'string' ? item.reasoning.trim() : '',
@@ -606,9 +669,23 @@ export async function postVariantsByAsset(
     );
   }
 
-  return NextResponse.json(isBatch ? (data ?? []) : (data ?? [])[0], {
-    status: 201,
-  });
+  // Auto-generate images for all created variants (fire-and-forget)
+  const created = (data ?? []) as Array<{ id: string; prompt: string }>;
+  if (created.length > 0) {
+    const { data: video } = await db
+      .from('videos')
+      .select('aspect_ratio')
+      .eq('project_id', asset.project_id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    autoGenerateImages(db, created, req, video?.aspect_ratio ?? '9:16').catch(
+      () => {}
+    );
+  }
+
+  return NextResponse.json(data ?? [], { status: 201 });
 }
 
 /* ── Variant PATCH ──────────────────────────────────────────────────── */

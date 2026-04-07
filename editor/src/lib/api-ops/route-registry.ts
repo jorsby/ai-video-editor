@@ -848,42 +848,7 @@ const assetRoutes: ApiRouteDefinition[] = [
     body: null,
     response: null,
   },
-  {
-    id: 'v2-project-variants-bulk',
-    label: 'Bulk create variants',
-    method: 'POST',
-    pathTemplate: '/api/v2/projects/{id}/variants/bulk',
-    category: 'variant',
-    auth: 'session-or-api-key',
-    description:
-      'Create multiple variants across multiple assets in one call. Each variant needs asset_id, name, prompt, and where_to_use.',
-    pathParams: { id: 'project-uuid' },
-    body: {
-      _note: 'Send a bare array at top level',
-      example: [
-        {
-          asset_id: 'asset-uuid',
-          name: 'Hero Variant',
-          prompt: 'Full body hero pose, dramatic lighting, power aura',
-          where_to_use: 'Hero scenes and thumbnails',
-          reasoning: 'Main promotional look',
-        },
-      ],
-    },
-    response: {
-      created: 3,
-      variants: [
-        {
-          id: 'variant-uuid',
-          asset_id: 'asset-uuid',
-          name: 'Hero Variant',
-          slug: 'hero-variant',
-          prompt: '...',
-          is_main: false,
-        },
-      ],
-    },
-  },
+
   {
     id: 'v2-project-generate-images-batch',
     label: 'Batch generate images',
