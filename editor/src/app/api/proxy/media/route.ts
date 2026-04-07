@@ -12,6 +12,7 @@ const ALLOWED_DOMAINS = [
   'scenify.io',
   'oss-accelerate.aliyuncs.com',
   'aiquickdraw.com',
+  'fal.media',
 ];
 
 function isDomainAllowed(url: string): boolean {
