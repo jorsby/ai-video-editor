@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useProjectId } from '@/contexts/project-context';
 import { createClient } from '@/lib/supabase/client';
-import { clearTimeline } from '@/lib/supabase/timeline-service';
+import {
+  loadTimeline,
+  reconstructProjectJSON,
+  saveTimeline,
+} from '@/lib/supabase/timeline-service';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -2351,121 +2355,72 @@ export default function StoryboardPanel() {
     };
   }, [projectId, videoId]);
 
-  // ── Auto-reload timeline when video selection changes ─────────────────────
+  // ── Swap timeline when video selection changes ─────────────────────────────
   useEffect(() => {
-    // Skip the initial mount — only react to actual user-driven video changes
+    // Skip the initial mount — preview-panel handles first load
     if (prevVideoIdRef.current === null) {
       prevVideoIdRef.current = videoId;
       return;
     }
     if (videoId === prevVideoIdRef.current) return;
+
+    const previousVideoId = prevVideoIdRef.current;
     prevVideoIdRef.current = videoId;
 
-    if (!videoId || !studio || !projectId) return;
+    if (!studio || !projectId) return;
 
     let cancelled = false;
 
-    const reloadTimeline = async () => {
+    const swapTimeline = async () => {
       try {
-        // 1. Clear existing timeline (UI + DB)
+        // 1. Save current timeline to the PREVIOUS video
+        if (previousVideoId && studio.tracks.length > 0) {
+          await saveTimeline(
+            projectId,
+            studio.tracks,
+            studio.clips,
+            previousVideoId
+          );
+        }
+
+        // 2. Clear UI
         studio.clear();
-        await clearTimeline(projectId);
+
+        if (cancelled || !videoId) return;
+
+        // 3. Load the NEW video's timeline from DB
+        const savedData = await loadTimeline(projectId, videoId);
 
         if (cancelled) return;
 
-        // 2. Fetch scenes for the NEW video directly from DB (don't rely on stale state)
-        const supabase = createClient('studio');
-        const { data: chapterRows } = await supabase
-          .from('chapters')
-          .select('id')
-          .eq('video_id', videoId)
-          .order('"order"', { ascending: true });
-
-        const chapterIds = (chapterRows ?? []).map((c: { id: string }) => c.id);
-        if (chapterIds.length === 0 || cancelled) {
-          if (!cancelled) toast.info('No chapters in this video');
-          return;
+        if (savedData && savedData.length > 0) {
+          const projectJson = reconstructProjectJSON(savedData);
+          await studio.loadFromJSON(projectJson as any);
+          const trackCount = savedData.length;
+          const clipCount = savedData.reduce(
+            (sum, t) => sum + (t.clips?.length ?? 0),
+            0
+          );
+          toast.success(
+            `Loaded timeline: ${trackCount} track${trackCount !== 1 ? 's' : ''}, ${clipCount} clip${clipCount !== 1 ? 's' : ''}`
+          );
+        } else {
+          toast.info('Empty timeline — add scenes from storyboard');
         }
-
-        const { data: sceneRows } = await supabase
-          .from('scenes')
-          .select(
-            'id, chapter_id, "order", prompt, audio_text, audio_url, audio_duration, video_url, video_duration'
-          )
-          .in('chapter_id', chapterIds)
-          .order('"order"', { ascending: true });
-
-        if (cancelled) return;
-
-        const allScenes: SceneForTimeline[] = ((sceneRows ?? []) as unknown as SceneForTimeline[]).filter(
-          (s) => s.video_url || s.audio_url
-        );
-
-        if (allScenes.length === 0) {
-          toast.info('No scenes with media in this video');
-          return;
-        }
-
-        // 3. Build clips
-        const settings: SceneTimelineSettings[] = allScenes.map((s) => ({
-          sceneId: s.id,
-          matchVideoToAudio: !!s.audio_text,
-        }));
-        const results = await buildSceneClips({
-          scenes: allScenes,
-          settings,
-          canvasWidth: canvasSize.width,
-          canvasHeight: canvasSize.height,
-        });
-
-        if (cancelled) return;
-
-        // 4. Create tracks & add clips
-        const hasAnyVideo = results.some((r) => r.videoClip);
-        const hasAnyAudio = results.some((r) => r.audioClip);
-
-        let videoTrackId: string | undefined;
-        let audioTrackId: string | undefined;
-
-        if (hasAnyVideo) {
-          const track = studio.addTrack({ type: 'Video', name: 'Video' });
-          videoTrackId = track.id;
-        }
-        if (hasAnyAudio) {
-          const track = studio.addTrack({ type: 'Audio', name: 'Voiceover' });
-          audioTrackId = track.id;
-        }
-
-        for (const result of results) {
-          if (result.videoClip && videoTrackId) {
-            await studio.addClip(result.videoClip, { trackId: videoTrackId });
-          }
-          if (result.audioClip && audioTrackId) {
-            await studio.addClip(result.audioClip, { trackId: audioTrackId });
-          }
-        }
-
-        if (cancelled) return;
-
-        const videoCount = results.filter((r) => r.videoClip).length;
-        const audioCount = results.filter((r) => r.audioClip).length;
-        toast.success(
-          `Timeline reloaded: ${videoCount} video + ${audioCount} audio clips`
-        );
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to reload timeline:', err);
-          toast.error('Failed to reload timeline');
+          console.error('Failed to swap timeline:', err);
+          toast.error('Failed to load timeline');
         }
       }
     };
 
-    reloadTimeline();
+    swapTimeline();
 
     return () => {
       cancelled = true;
     };
-  }, [videoId, studio, projectId, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoId, studio, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

@@ -10,20 +10,23 @@ interface StudioTrack {
 }
 
 /**
- * Save timeline (tracks and clips) to Supabase
+ * Save timeline (tracks and clips) to Supabase.
+ * When videoId is provided, only the tracks for that video are replaced.
+ * When videoId is omitted, all tracks for the project are replaced (legacy behaviour).
  */
 export async function saveTimeline(
   projectId: string,
   tracks: StudioTrack[],
-  clips: IClip[]
+  clips: IClip[],
+  videoId?: string | null
 ) {
   const supabase = createClient('studio');
 
-  // Fetch existing track IDs for this project
-  const { data: existingTracks, error: fetchError } = await supabase
-    .from('tracks')
-    .select('id')
-    .eq('project_id', projectId);
+  // Build filter for existing tracks
+  let query = supabase.from('tracks').select('id').eq('project_id', projectId);
+  if (videoId) query = query.eq('video_id', videoId);
+
+  const { data: existingTracks, error: fetchError } = await query;
   if (fetchError) throw fetchError;
 
   const existingTrackIds = (existingTracks ?? []).map((t) => t.id);
@@ -37,18 +40,21 @@ export async function saveTimeline(
     if (deleteClipsError) throw deleteClipsError;
   }
 
-  // Delete existing tracks for this project
-  const { error: deleteTracksError } = await supabase
-    .from('tracks')
-    .delete()
-    .eq('project_id', projectId);
-  if (deleteTracksError) throw deleteTracksError;
+  // Delete existing tracks
+  if (existingTrackIds.length > 0) {
+    const { error: deleteTracksError } = await supabase
+      .from('tracks')
+      .delete()
+      .in('id', existingTrackIds);
+    if (deleteTracksError) throw deleteTracksError;
+  }
 
   // Insert tracks
   if (tracks.length > 0) {
     const trackRows = tracks.map((track, i) => ({
       id: track.id,
       project_id: projectId,
+      video_id: videoId ?? null,
       position: i,
       data: track, // Full track object in JSONB
     }));
@@ -100,19 +106,25 @@ interface TrackWithClips {
 }
 
 /**
- * Load timeline from Supabase
- * Returns tracks with nested clips data
+ * Load timeline from Supabase.
+ * When videoId is provided, only tracks for that video are loaded.
  */
 export async function loadTimeline(
-  projectId: string
+  projectId: string,
+  videoId?: string | null
 ): Promise<TrackWithClips[] | null> {
   const supabase = createClient('studio');
 
-  const { data: tracks, error } = await supabase
+  let query = supabase
     .from('tracks')
     .select('*, clips(*)')
-    .eq('project_id', projectId)
-    .order('position');
+    .eq('project_id', projectId);
+
+  if (videoId) {
+    query = query.eq('video_id', videoId);
+  }
+
+  const { data: tracks, error } = await query.order('position');
 
   if (error) {
     console.error('Failed to load timeline:', error);
@@ -123,16 +135,20 @@ export async function loadTimeline(
 }
 
 /**
- * Clear tracks and clips for a project from Supabase.
+ * Clear tracks and clips from Supabase.
+ * When videoId is provided, only that video's tracks are cleared.
  */
-export async function clearTimeline(projectId: string) {
+export async function clearTimeline(
+  projectId: string,
+  videoId?: string | null
+) {
   const supabase = createClient('studio');
 
-  // Fetch track IDs for this project
-  const { data: tracks, error: fetchError } = await supabase
-    .from('tracks')
-    .select('id')
-    .eq('project_id', projectId);
+  // Fetch track IDs
+  let query = supabase.from('tracks').select('id').eq('project_id', projectId);
+  if (videoId) query = query.eq('video_id', videoId);
+
+  const { data: tracks, error: fetchError } = await query;
   if (fetchError) throw fetchError;
 
   const trackIds = (tracks ?? []).map((t) => t.id);
@@ -147,11 +163,13 @@ export async function clearTimeline(projectId: string) {
   }
 
   // Delete tracks
-  const { error: deleteTracksError } = await supabase
-    .from('tracks')
-    .delete()
-    .eq('project_id', projectId);
-  if (deleteTracksError) throw deleteTracksError;
+  if (trackIds.length > 0) {
+    const { error: deleteTracksError } = await supabase
+      .from('tracks')
+      .delete()
+      .in('id', trackIds);
+    if (deleteTracksError) throw deleteTracksError;
+  }
 }
 
 export function reconstructProjectJSON(tracks: TrackWithClips[]) {

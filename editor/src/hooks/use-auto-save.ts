@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStudioStore } from '@/stores/studio-store';
 import { useProjectId } from '@/contexts/project-context';
+import { useVideoSelectorStore } from '@/stores/video-selector-store';
 import { saveTimeline } from '@/lib/supabase/timeline-service';
 
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
@@ -17,6 +18,7 @@ export function waitForSave(): Promise<void> {
 export function useAutoSave() {
   const { studio } = useStudioStore();
   const projectId = useProjectId();
+  const { getVideoId } = useVideoSelectorStore();
   const isSavingRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -30,12 +32,15 @@ export function useAutoSave() {
     setSaveStatus('saving');
     clearTimeout(savedTimerRef.current);
 
+    const currentVideoId = getVideoId(projectId) ?? undefined;
+
     const promise = (async () => {
       try {
         await saveTimeline(
           projectId,
           state.studio!.tracks,
-          state.studio!.clips
+          state.studio!.clips,
+          currentVideoId
         );
         setSaveStatus('saved');
         savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
@@ -54,7 +59,7 @@ export function useAutoSave() {
 
     saveInFlightPromise = promise;
     await promise;
-  }, [projectId]);
+  }, [projectId, getVideoId]);
 
   // Auto-save interval
   useEffect(() => {
@@ -67,12 +72,13 @@ export function useAutoSave() {
       clearTimeout(savedTimerRef.current);
       // Sync save on unmount (best effort)
       if (studio && studio.clips.length > 0) {
-        saveTimeline(projectId, studio.tracks, studio.clips).catch(
+        const currentVideoId = getVideoId(projectId) ?? undefined;
+        saveTimeline(projectId, studio.tracks, studio.clips, currentVideoId).catch(
           console.error
         );
       }
     };
-  }, [studio, projectId, performSave]);
+  }, [studio, projectId, performSave, getVideoId]);
 
   // Cmd+S / Ctrl+S shortcut
   useEffect(() => {

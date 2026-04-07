@@ -8,6 +8,7 @@ import {
   reconstructProjectJSON,
 } from '@/lib/supabase/timeline-service';
 import { useProjectId } from '@/contexts/project-context';
+import { useVideoSelectorStore } from '@/stores/video-selector-store';
 import { toast } from 'sonner';
 
 const defaultSize = {
@@ -24,6 +25,7 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
   const onReadyRef = useRef(onReady);
   const { setStudio } = useStudioStore();
   const projectId = useProjectId();
+  const { getVideoId } = useVideoSelectorStore();
 
   // Keep onReady ref up to date
   useEffect(() => {
@@ -71,8 +73,9 @@ export function PreviewPanel({ onReady }: PreviewPanelProps) {
 
         if (abortController.signal.aborted) return;
 
-        // Load timeline
-        const savedData = await loadTimeline(projectId);
+        // Load timeline for the currently selected video
+        const currentVideoId = getVideoId(projectId) ?? undefined;
+        const savedData = await loadTimeline(projectId, currentVideoId);
         if (abortController.signal.aborted) return;
 
         if (savedData && savedData.length > 0) {
