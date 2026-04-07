@@ -34,13 +34,14 @@ function normalizeDuration(
  * POST /api/v2/scenes/{id}/generate-video
  *
  * Generates video for a scene using Grok Imagine ref-to-video via kie.ai.
- * Always 480p, 9:16 aspect ratio, 6–30 seconds.
+ * 480p or 720p, 9:16 aspect ratio, 6–30 seconds.
  *
  * The endpoint compiles @variant-slug → @imageN refs and builds image_urls[]
  * from variant images in DB.
  *
  * Body (optional):
  *   duration?: 6–30              — Video duration in seconds (default 6, clamped)
+ *   resolution?: "480p"|"720p"   — Video resolution (default "480p")
  *   prompt_override?: string      — Custom prompt (bypasses compileForGrok)
  *   image_urls_override?: string[] — Custom image URLs (bypasses DB lookup)
  */
@@ -158,6 +159,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       duration = normalizeDuration(scene.video_duration ?? MIN_DURATION);
     }
 
+    // Resolution: accept 480p or 720p, default 480p
+    const VALID_RESOLUTIONS = new Set(['480p', '720p']);
+    const requestedRes =
+      typeof body.resolution === 'string' ? body.resolution.trim().toLowerCase() : '';
+    const resolution = VALID_RESOLUTIONS.has(requestedRes) ? requestedRes : '480p';
+
     let compiledPrompt: string;
     let imageUrls: string[];
 
@@ -245,7 +252,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         image_urls: imageUrls,
         duration,
         aspect_ratio: aspectRatio,
-        resolution: '480p',
+        resolution,
       },
     });
 
@@ -262,7 +269,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       scene_id: sceneId,
       duration,
       aspect_ratio: aspectRatio,
-      resolution: '480p',
+      resolution,
       image_count: imageUrls.length,
     });
   } catch (error) {
