@@ -2361,7 +2361,9 @@ export default function StoryboardPanel() {
     if (videoId === prevVideoIdRef.current) return;
     prevVideoIdRef.current = videoId;
 
-    if (!videoId || !studio || !projectId || chapters.length === 0) return;
+    if (!videoId || !studio || !projectId) return;
+
+    let cancelled = false;
 
     const reloadTimeline = async () => {
       try {
@@ -2369,15 +2371,35 @@ export default function StoryboardPanel() {
         studio.clear();
         await clearTimeline(projectId);
 
-        // 2. Gather all scenes with media from all chapters
-        const allScenes: SceneForTimeline[] = [];
-        for (const ch of chapters) {
-          for (const scene of ch.scenes) {
-            if (scene.video_url || scene.audio_url) {
-              allScenes.push(scene as SceneForTimeline);
-            }
-          }
+        if (cancelled) return;
+
+        // 2. Fetch scenes for the NEW video directly from DB (don't rely on stale state)
+        const supabase = createClient('studio');
+        const { data: chapterRows } = await supabase
+          .from('chapters')
+          .select('id')
+          .eq('video_id', videoId)
+          .order('"order"', { ascending: true });
+
+        const chapterIds = (chapterRows ?? []).map((c: { id: string }) => c.id);
+        if (chapterIds.length === 0 || cancelled) {
+          if (!cancelled) toast.info('No chapters in this video');
+          return;
         }
+
+        const { data: sceneRows } = await supabase
+          .from('scenes')
+          .select(
+            'id, chapter_id, "order", prompt, audio_text, audio_url, audio_duration, video_url, video_duration'
+          )
+          .in('chapter_id', chapterIds)
+          .order('"order"', { ascending: true });
+
+        if (cancelled) return;
+
+        const allScenes: SceneForTimeline[] = ((sceneRows ?? []) as unknown as SceneForTimeline[]).filter(
+          (s) => s.video_url || s.audio_url
+        );
 
         if (allScenes.length === 0) {
           toast.info('No scenes with media in this video');
@@ -2395,6 +2417,8 @@ export default function StoryboardPanel() {
           canvasWidth: canvasSize.width,
           canvasHeight: canvasSize.height,
         });
+
+        if (cancelled) return;
 
         // 4. Create tracks & add clips
         const hasAnyVideo = results.some((r) => r.videoClip);
@@ -2421,19 +2445,27 @@ export default function StoryboardPanel() {
           }
         }
 
+        if (cancelled) return;
+
         const videoCount = results.filter((r) => r.videoClip).length;
         const audioCount = results.filter((r) => r.audioClip).length;
         toast.success(
           `Timeline reloaded: ${videoCount} video + ${audioCount} audio clips`
         );
       } catch (err) {
-        console.error('Failed to reload timeline:', err);
-        toast.error('Failed to reload timeline');
+        if (!cancelled) {
+          console.error('Failed to reload timeline:', err);
+          toast.error('Failed to reload timeline');
+        }
       }
     };
 
     reloadTimeline();
-  }, [videoId, chapters, studio, projectId, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId, studio, projectId, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
