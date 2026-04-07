@@ -1628,8 +1628,16 @@ function ChapterAccordion({
     if (scene.audio_text && !scene.audio_url) return false;
     return true;
   }).length;
+  const failedVideoScenes = chapter.scenes.filter(
+    (scene) => scene.video_status === 'failed' && !scene.video_url && !!scene.prompt
+  );
+  const failedVideoCount = failedVideoScenes.length;
+  const [retryBatchProgress, setRetryBatchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const isBatchRunning =
-    ttsBatchProgress !== null || videoBatchProgress !== null;
+    ttsBatchProgress !== null || videoBatchProgress !== null || retryBatchProgress !== null;
 
   const { focusedChapterId, setFocus, clearFocus } = useChapterFocusStore();
   const isThisChapterFocused = focusedChapterId === chapter.id;
@@ -1721,6 +1729,20 @@ function ChapterAccordion({
       }
     } finally {
       setVideoBatchProgress(null);
+    }
+  };
+
+  const runRetryFailedVideos = async () => {
+    if (failedVideoScenes.length < 1) return;
+
+    setRetryBatchProgress({ done: 0, total: failedVideoScenes.length });
+    try {
+      for (const [index, scene] of failedVideoScenes.entries()) {
+        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        setRetryBatchProgress({ done: index + 1, total: failedVideoScenes.length });
+      }
+    } finally {
+      setRetryBatchProgress(null);
     }
   };
 
@@ -1848,6 +1870,27 @@ function ChapterAccordion({
                   </span>
                 )}
               </div>
+              {failedVideoCount > 0 && (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runRetryFailedVideos();
+                  }}
+                  disabled={isBatchRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconRefresh className="size-2.5" />
+                  Retry Failed ({failedVideoCount})
+                </button>
+                {retryBatchProgress && (
+                  <span className="text-[9px] text-yellow-400 mt-0.5">
+                    Retrying {retryBatchProgress.done}/
+                    {retryBatchProgress.total}...
+                  </span>
+                )}
+              </div>
+              )}
               <button
                 type="button"
                 onClick={() => setTimelineModalOpen(true)}
