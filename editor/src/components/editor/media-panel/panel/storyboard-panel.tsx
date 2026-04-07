@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useProjectId } from '@/contexts/project-context';
 import { createClient } from '@/lib/supabase/client';
+import { clearTimeline } from '@/lib/supabase/timeline-service';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -2159,6 +2160,7 @@ export default function StoryboardPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  const prevVideoIdRef = useRef<string | null>(null);
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(
     new Set()
   );
@@ -2348,6 +2350,90 @@ export default function StoryboardPanel() {
       supabaseRT.removeChannel(variantSub);
     };
   }, [projectId, videoId]);
+
+  // ── Auto-reload timeline when video selection changes ─────────────────────
+  useEffect(() => {
+    // Skip the initial mount — only react to actual user-driven video changes
+    if (prevVideoIdRef.current === null) {
+      prevVideoIdRef.current = videoId;
+      return;
+    }
+    if (videoId === prevVideoIdRef.current) return;
+    prevVideoIdRef.current = videoId;
+
+    if (!videoId || !studio || !projectId || chapters.length === 0) return;
+
+    const reloadTimeline = async () => {
+      try {
+        // 1. Clear existing timeline (UI + DB)
+        studio.clear();
+        await clearTimeline(projectId);
+
+        // 2. Gather all scenes with media from all chapters
+        const allScenes: SceneForTimeline[] = [];
+        for (const ch of chapters) {
+          for (const scene of ch.scenes) {
+            if (scene.video_url || scene.audio_url) {
+              allScenes.push(scene as SceneForTimeline);
+            }
+          }
+        }
+
+        if (allScenes.length === 0) {
+          toast.info('No scenes with media in this video');
+          return;
+        }
+
+        // 3. Build clips
+        const settings: SceneTimelineSettings[] = allScenes.map((s) => ({
+          sceneId: s.id,
+          matchVideoToAudio: !!s.audio_text,
+        }));
+        const results = await buildSceneClips({
+          scenes: allScenes,
+          settings,
+          canvasWidth: canvasSize.width,
+          canvasHeight: canvasSize.height,
+        });
+
+        // 4. Create tracks & add clips
+        const hasAnyVideo = results.some((r) => r.videoClip);
+        const hasAnyAudio = results.some((r) => r.audioClip);
+
+        let videoTrackId: string | undefined;
+        let audioTrackId: string | undefined;
+
+        if (hasAnyVideo) {
+          const track = studio.addTrack({ type: 'Video', name: 'Video' });
+          videoTrackId = track.id;
+        }
+        if (hasAnyAudio) {
+          const track = studio.addTrack({ type: 'Audio', name: 'Voiceover' });
+          audioTrackId = track.id;
+        }
+
+        for (const result of results) {
+          if (result.videoClip && videoTrackId) {
+            await studio.addClip(result.videoClip, { trackId: videoTrackId });
+          }
+          if (result.audioClip && audioTrackId) {
+            await studio.addClip(result.audioClip, { trackId: audioTrackId });
+          }
+        }
+
+        const videoCount = results.filter((r) => r.videoClip).length;
+        const audioCount = results.filter((r) => r.audioClip).length;
+        toast.success(
+          `Timeline reloaded: ${videoCount} video + ${audioCount} audio clips`
+        );
+      } catch (err) {
+        console.error('Failed to reload timeline:', err);
+        toast.error('Failed to reload timeline');
+      }
+    };
+
+    reloadTimeline();
+  }, [videoId, chapters, studio, projectId, canvasSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
