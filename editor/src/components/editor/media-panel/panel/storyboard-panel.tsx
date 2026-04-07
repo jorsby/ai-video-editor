@@ -8,6 +8,11 @@ import {
   reconstructProjectJSON,
   saveTimeline,
 } from '@/lib/supabase/timeline-service';
+import {
+  pauseAutoSave,
+  resumeAutoSave,
+  waitForSave,
+} from '@/hooks/use-auto-save';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -2373,6 +2378,10 @@ export default function StoryboardPanel() {
 
     const swapTimeline = async () => {
       try {
+        // Pause auto-save so it doesn't write empty state mid-swap
+        pauseAutoSave();
+        await waitForSave();
+
         // 1. Save current timeline to the PREVIOUS video
         if (previousVideoId && studio.tracks.length > 0) {
           await saveTimeline(
@@ -2383,10 +2392,13 @@ export default function StoryboardPanel() {
           );
         }
 
-        // 2. Clear UI
-        studio.clear();
+        // 2. Clear UI (async — must await)
+        await studio.clear();
 
-        if (cancelled || !videoId) return;
+        if (cancelled || !videoId) {
+          resumeAutoSave();
+          return;
+        }
 
         // 3. Load the NEW video's timeline from DB
         const savedData = await loadTimeline(projectId, videoId);
@@ -2407,7 +2419,10 @@ export default function StoryboardPanel() {
         } else {
           toast.info('Empty timeline — add scenes from storyboard');
         }
+        // Resume auto-save after swap is complete
+        resumeAutoSave();
       } catch (err) {
+        resumeAutoSave();
         if (!cancelled) {
           console.error('Failed to swap timeline:', err);
           toast.error('Failed to load timeline');

@@ -15,6 +15,15 @@ export function waitForSave(): Promise<void> {
   return saveInFlightPromise ?? Promise.resolve();
 }
 
+// When true, auto-save is paused (e.g. during video swap)
+let autoSavePaused = false;
+export function pauseAutoSave() {
+  autoSavePaused = true;
+}
+export function resumeAutoSave() {
+  autoSavePaused = false;
+}
+
 export function useAutoSave() {
   const { studio } = useStudioStore();
   const projectId = useProjectId();
@@ -24,6 +33,7 @@ export function useAutoSave() {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const performSave = useCallback(async () => {
+    if (autoSavePaused) return;
     const state = useStudioStore.getState();
     if (state.isExporting) return;
     if (isSavingRef.current || !state.studio) return;
