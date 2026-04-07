@@ -22,7 +22,6 @@ export interface SceneForTimeline {
   audio_text: string | null;
   audio_duration: number | null; // seconds (from DB, may be inaccurate)
   video_duration: number | null; // seconds (from DB, may be inaccurate)
-  has_speech: boolean | null; // speech detected in generated video audio
 }
 
 /**
@@ -184,10 +183,7 @@ export async function buildSceneClips(params: {
       const rawVideoDurUs = Math.round(realVideoDur * MICROSECONDS_PER_SECOND);
       videoClip.trim = { from: 0, to: rawVideoDurUs };
 
-      // Mute video audio when speech is detected (avoid AI speech over voiceover)
-      if (scene.has_speech) {
-        videoClip.volume = 0;
-      }
+      // Video keeps its original audio volume — user adjusts via mixer
     }
 
     // ── Apply timing to audio clip ──────────────────────────────────
