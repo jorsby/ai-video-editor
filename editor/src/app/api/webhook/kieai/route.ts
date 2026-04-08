@@ -193,6 +193,99 @@ function extractAudioUrl(result: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * Build voiceover transcription from ElevenLabs character-level timestamps.
+ *
+ * kie.ai resultJson structure for ElevenLabs TTS (with timestamps: true):
+ * {
+ *   resultObject: {
+ *     timestamps: [{ characters, character_start_times_seconds, character_end_times_seconds }],
+ *     audio: { url, ... }
+ *   },
+ *   resultUrls: ["https://..."]
+ * }
+ */
+function buildVoiceoverTranscription(
+  result: Record<string, unknown>,
+  audioDuration: number | null
+): {
+  text: string;
+  words: { word: string; start: number; end: number; confidence: number }[];
+  language: string | null;
+  duration: number | null;
+} | null {
+  const resultObject = result.resultObject as
+    | Record<string, unknown>
+    | undefined;
+  if (!resultObject) return null;
+
+  const timestampsArr = resultObject.timestamps;
+  if (!Array.isArray(timestampsArr) || timestampsArr.length === 0) return null;
+
+  const ts = timestampsArr[0] as {
+    characters?: string[];
+    character_start_times_seconds?: number[];
+    character_end_times_seconds?: number[];
+  };
+
+  const chars = ts.characters;
+  const starts = ts.character_start_times_seconds;
+  const ends = ts.character_end_times_seconds;
+
+  if (!chars || !starts || !ends || chars.length === 0) return null;
+
+  const words: {
+    word: string;
+    start: number;
+    end: number;
+    confidence: number;
+  }[] = [];
+  let currentWord = '';
+  let wordStart = -1;
+  let wordEnd = -1;
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (ch === ' ' || ch === '\n' || ch === '\t') {
+      if (currentWord.length > 0) {
+        words.push({
+          word: currentWord,
+          start: wordStart,
+          end: wordEnd,
+          confidence: 1.0,
+        });
+        currentWord = '';
+        wordStart = -1;
+        wordEnd = -1;
+      }
+    } else {
+      if (currentWord.length === 0) {
+        wordStart = starts[i];
+      }
+      currentWord += ch;
+      wordEnd = ends[i];
+    }
+  }
+
+  if (currentWord.length > 0) {
+    words.push({
+      word: currentWord,
+      start: wordStart,
+      end: wordEnd,
+      confidence: 1.0,
+    });
+  }
+
+  if (words.length === 0) return null;
+
+  return {
+    text: words.map((w) => w.word).join(' '),
+    words,
+    language: null,
+    duration: audioDuration ?? (ends.length > 0 ? ends[ends.length - 1] : null),
+  };
+}
+
 interface SunoTrack {
   id?: unknown;
   audio_url?: unknown;
@@ -566,6 +659,12 @@ async function handleGenerateSceneTts(params: {
   // Probe the actual audio file for exact duration
   const audioDuration = await probeMediaDuration(audioUrl);
 
+  // Extract word-level timestamps from ElevenLabs character timestamps
+  const voiceoverTranscription = buildVoiceoverTranscription(
+    result,
+    audioDuration
+  );
+
   await supabase
     .from('scenes')
     .update({
@@ -573,7 +672,9 @@ async function handleGenerateSceneTts(params: {
       ...(audioDuration != null ? { audio_duration: audioDuration } : {}),
       tts_status: 'done',
       tts_task_id: null,
-      has_speech: true,
+      ...(voiceoverTranscription != null
+        ? { voiceover_transcription: voiceoverTranscription }
+        : {}),
     })
     .eq('id', sceneId);
 
@@ -583,6 +684,7 @@ async function handleGenerateSceneTts(params: {
     scene_id: sceneId,
     audio_url: audioUrl,
     audio_duration: audioDuration,
+    has_voiceover_transcription: voiceoverTranscription != null,
   });
 }
 
@@ -670,10 +772,6 @@ async function handleGenerateSceneVideo(params: {
   // Probe the actual video file for exact duration
   const videoDuration = await probeMediaDuration(videoUrl);
 
-  // If scene has no audio_text and no audio_url, it's visual-only → no speech
-  const hasSpeech =
-    !scene.audio_text?.trim() && !scene.audio_url ? false : undefined;
-
   await supabase
     .from('scenes')
     .update({
@@ -681,7 +779,6 @@ async function handleGenerateSceneVideo(params: {
       ...(videoDuration != null ? { video_duration: videoDuration } : {}),
       video_status: 'done',
       video_task_id: null,
-      ...(hasSpeech !== undefined ? { has_speech: hasSpeech } : {}),
     })
     .eq('id', sceneId);
 
@@ -920,7 +1017,7 @@ async function handleGenerateMusic(params: {
     .eq('task_id', taskId)
     .eq('status', 'generating')
     .select(
-      'id, project_id, name, music_type, prompt, style, title, sort_order'
+      'id, project_id, video_id, name, music_type, prompt, style, title, sort_order'
     )
     .maybeSingle();
 
@@ -981,6 +1078,7 @@ async function handleGenerateMusic(params: {
         .from('project_music')
         .insert({
           project_id: updatedMusic.project_id,
+          video_id: updatedMusic.video_id,
           name: `${updatedMusic.name} (Alt)`,
           music_type: updatedMusic.music_type,
           prompt: updatedMusic.prompt,
