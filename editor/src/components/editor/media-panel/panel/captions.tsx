@@ -115,8 +115,18 @@ export default function PanelCaptions() {
     let cancelled = false;
     async function checkCache() {
       for (const clip of mediaItems) {
-        const audioUrl = (clip as any).src;
+        let audioUrl: string = (clip as any).src ?? '';
         if (!audioUrl) continue;
+        // Extract real URL from proxy wrapper
+        if (audioUrl.includes('/api/proxy/media')) {
+          try {
+            const parsed = new URL(audioUrl, window.location.origin);
+            const realUrl = parsed.searchParams.get('url');
+            if (realUrl) audioUrl = realUrl;
+          } catch {
+            // keep original
+          }
+        }
         const cached = await loadTranscription(projectId, audioUrl);
         if (cached && !cancelled) {
           setHasCachedTranscription(true);
@@ -153,9 +163,21 @@ export default function PanelCaptions() {
       for (const mediaClip of mediaItems) {
         try {
           // 1. Get transcription (check cache first)
-          const audioUrl = (mediaClip as any).src;
+          let audioUrl: string = (mediaClip as any).src ?? '';
           if (!audioUrl) continue;
           if ((mediaClip as any).volume === 0) continue;
+
+          // Clip src may be a proxy URL like /api/proxy/media?url=<encoded>
+          // Deepgram needs the real URL, so extract it.
+          if (audioUrl.includes('/api/proxy/media')) {
+            try {
+              const parsed = new URL(audioUrl, window.location.origin);
+              const realUrl = parsed.searchParams.get('url');
+              if (realUrl) audioUrl = realUrl;
+            } catch {
+              // keep original if parsing fails
+            }
+          }
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let transcriptionData: any = null;
