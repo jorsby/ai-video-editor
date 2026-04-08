@@ -21,6 +21,7 @@ import {
   Container,
   Graphics,
   CanvasTextMetrics,
+  BitmapFontManager,
 } from 'pixi.js';
 import { isTransparent, parseColor, resolveColor } from '../utils/color';
 import type { BaseSpriteEvents } from '../sprite/base-sprite';
@@ -747,6 +748,11 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     renderer?: Application['renderer']
   ) {
     super();
+    // Increase BitmapFont glyph atlas padding to prevent clipping of
+    // diacritical marks (e.g. Turkish Ç cedilla, Ğ breve)
+    if ((BitmapFontManager.defaultOptions.padding ?? 0) < 10) {
+      BitmapFontManager.defaultOptions.padding = 10;
+    }
     // Store original options for serialization (shallow copy is fine since options are primitives)
     this.originalOpts = { ...opts };
     // Store external renderer if provided (e.g., from Studio)
@@ -764,7 +770,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       align: opts.align ?? 'center',
       wordWrapWidth: opts.wordWrapWidth ?? 0,
       wordWrap: opts.wordWrap ?? false,
-      lineHeight: opts.lineHeight ?? 1,
+      lineHeight: opts.lineHeight ?? 1.1,
       letterSpacing: opts.letterSpacing ?? 0,
       textCase: opts.textCase ?? 'none',
       videoWidth:

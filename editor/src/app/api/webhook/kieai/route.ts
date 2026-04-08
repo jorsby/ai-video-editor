@@ -573,6 +573,7 @@ async function handleGenerateSceneTts(params: {
       ...(audioDuration != null ? { audio_duration: audioDuration } : {}),
       tts_status: 'done',
       tts_task_id: null,
+      has_speech: true,
     })
     .eq('id', sceneId);
 
@@ -596,7 +597,7 @@ async function handleGenerateSceneVideo(params: {
 
   const { data: scene } = await supabase
     .from('scenes')
-    .select('id, chapter_id, audio_url')
+    .select('id, chapter_id, audio_url, audio_text')
     .eq('id', sceneId)
     .maybeSingle();
 
@@ -669,6 +670,10 @@ async function handleGenerateSceneVideo(params: {
   // Probe the actual video file for exact duration
   const videoDuration = await probeMediaDuration(videoUrl);
 
+  // If scene has no audio_text and no audio_url, it's visual-only → no speech
+  const hasSpeech =
+    !scene.audio_text?.trim() && !scene.audio_url ? false : undefined;
+
   await supabase
     .from('scenes')
     .update({
@@ -676,6 +681,7 @@ async function handleGenerateSceneVideo(params: {
       ...(videoDuration != null ? { video_duration: videoDuration } : {}),
       video_status: 'done',
       video_task_id: null,
+      ...(hasSpeech !== undefined ? { has_speech: hasSpeech } : {}),
     })
     .eq('id', sceneId);
 
