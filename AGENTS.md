@@ -18,17 +18,18 @@ This file provides guidance to AI coding agents (Claude Code, Codex, etc.) worki
 
 ## ⚠️ The #1 Mistake
 
-**Webhook URLs must point to Next.js API routes, NOT Supabase.**
+**Webhook URLs must use `WEBHOOK_BASE_URL`, NOT Supabase.**
 
 ```ts
 // ✅ CORRECT
-const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal?step=${step}&id=${id}`;
+const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/api/webhook/kieai?step=${step}&scene_id=${id}`;
 
 // ❌ WRONG — old Supabase URL, will silently fail
 const webhookUrl = `${process.env.SUPABASE_URL}/functions/v1/webhook?step=${step}`;
-```
 
-We migrated away from Supabase Edge Functions. Search for `NEXT_PUBLIC_APP_URL` to see existing patterns.
+// ❌ WRONG — old fal.ai pattern, we use Kie.ai now
+const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/fal?step=${step}`;
+```
 
 ---
 
@@ -38,7 +39,7 @@ AI Video Editor (Octupost) — SaaS platform for AI-powered video creation and s
 
 ```
 ┌─────────────┐       ┌──────────────────┐       ┌───────────┐
-│   Browser    │──────▶│  Next.js API      │──────▶│  fal.ai   │
+│   Browser    │──────▶│  Next.js API      │──────▶│  Kie.ai   │
 │  (React/TS)  │◀─sub─│  Routes (Vercel)  │◀─wh──│  (async)  │
 └─────────────┘       └──────────────────┘       └───────────┘
        │                       │
@@ -46,7 +47,7 @@ AI Video Editor (Octupost) — SaaS platform for AI-powered video creation and s
        └───────────────────────┘
 ```
 
-**All AI generation is async.** Frontend → API route → fal.ai queue → webhook callback → DB update → frontend polls/subscribes via Supabase Realtime.
+**All AI generation is async.** Frontend → API route → Kie.ai → webhook callback → DB update → frontend polls/subscribes via Supabase Realtime.
 
 ## Common Commands
 
@@ -66,22 +67,46 @@ AI Video Editor (Octupost) — SaaS platform for AI-powered video creation and s
 ```
 editor/                      # Next.js 16 app (App Router)
   src/
-    app/api/                 # 25+ API route groups
-      webhook/fal/           # fal.ai callback handler (no auth)
-      workflow/              # Workflow routes (video, tts, sfx, edit-image)
-      storyboard/            # Storyboard lifecycle (plan, approve, grids)
+    app/api/                 # API route groups
+      webhook/kieai/         # Kie.ai callback handler (HMAC-verified, no user auth)
+      webhook/fal/           # Legacy fal.ai handler (deprecated, being removed)
+      v2/                    # V2 API routes (primary)
+        videos/              # Video CRUD + chapters/characters/locations/music/props
+        chapters/            # Chapter CRUD + scenes + asset-map
+        scenes/              # Scene CRUD + generate-video + generate-tts
+        variants/            # Variant CRUD + generate-image
+        projects/            # Project CRUD + characters/locations/music/props/variants
+        posts/               # Post CRUD + publish
+        accounts/            # Social account sync
+        characters/          # Character CRUD
+        locations/           # Location CRUD
+        music/               # Music CRUD
+        props/               # Prop CRUD
+        feedback/            # Feedback
+        generation-logs/     # Generation log viewer
+      workflow/              # Legacy workflow routes (generate-image, tts, sfx, ref-first-frame)
+      proxy/media/           # Media proxy (allowed-domain fetch proxy for CORS)
+      transcribe/            # Deepgram transcription API
+      generate-caption/      # Social media caption generation
     components/
-      editor/                # Video editor UI
+      editor/                # Video editor UI (timeline, storyboard, export, media panel)
       dashboard/             # Dashboard views
       workflow/              # Workflow components
       post/                  # Social posting UI
       ui/                    # Shared primitives (shadcn-style)
     lib/
-      supabase/              # DB clients (admin, server, client)
+      supabase/              # DB clients (admin, server, client) + timeline-service
       social/                # Social media provider integrations
-      supabase/workflow-service.ts  # Frontend → API orchestration
+      transcribe/            # Deepgram client + types
+      timeline/              # scene-to-timeline conversion
+      caption-generator.ts   # Word-level caption clip generator
+      caption-utils.ts       # Caption utilities
+    stores/
+      studio-store.ts        # Compositor/Studio state
+      timeline-store.ts      # Timeline state
+      panel-collapse-store.ts # Panel expand/collapse
 packages/
-  openvideo/                 # Video engine
+  openvideo/                 # Video compositor engine (PixiJS + WebCodecs)
   video/                     # Video utilities
   node/                      # Node utilities
 supabase/
@@ -113,91 +138,124 @@ const supabase = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
 **Hard rules:**
 - `admin.ts` = server-side only. Never import in `"use client"` files.
-- `SUPABASE_SERVICE_ROLE_KEY` and `FAL_KEY` must NEVER appear in client-side code.
+- `SUPABASE_SERVICE_ROLE_KEY` and `KIE_API_KEY` must NEVER appear in client-side code.
 
-## The Storyboard Workflow
+## The Storyboard / Video Workflow
 
 This is the core feature. Understand it before touching anything.
 
-1. **Plan** — User creates storyboard. LLM (via OpenRouter) generates a plan.
-2. **Approve** — User approves → API route writes to DB, creates scene + voiceover records.
-3. **Generate** — Video generation via `/api/v2/storyboard/{id}/generate-video` endpoint.
-4. **Webhook** — fal.ai POSTs results to `/api/webhook/fal?step=GenerateVideo` (etc.).
-5. **Update** — Webhook handler parses results, updates DB tables.
-6. **Subscribe** — Frontend subscribes via Supabase Realtime for status changes.
+### Data Hierarchy
 
-**Modes:** `image_to_video` (generate images → animate) | `ref_to_video` (reference images → video)
+```
+Project
+  └── Video (has video_resolution: 480p/720p/1080p)
+        └── Chapter (ordered)
+              └── Scene (ordered)
+                    ├── prompt (image/video generation prompt)
+                    ├── audio_text (TTS narration text)
+                    ├── audio_url (generated TTS audio)
+                    ├── video_url (generated video)
+                    ├── video_status (pending/processing/completed/failed)
+                    └── Variants (asset variants with generated images)
+```
 
-> **📖 For video generation details, read [`docs/VIDEO_GENERATION_WORKFLOW.md`](docs/VIDEO_GENERATION_WORKFLOW.md) BEFORE generating any videos.** It covers the exact API calls, payload format, prompt rules, and common mistakes. Skipping it costs real money.
+### Generation Flow
+
+1. **Image Generation** — `POST /api/v2/variants/{id}/generate-image` → Kie.ai (Flux 2 Pro) → webhook
+2. **TTS Generation** — `POST /api/v2/scenes/{id}/generate-tts` → Kie.ai (ElevenLabs) → webhook
+3. **Video Generation** — `POST /api/v2/scenes/{id}/generate-video` → Kie.ai (Grok Imagine) → webhook
+4. **Webhook** — Kie.ai POSTs to `/api/webhook/kieai?step=GenerateSceneVideo&scene_id=...`
+5. **Update** — Webhook handler verifies HMAC, parses results, updates DB
+6. **Subscribe** — Frontend subscribes via Supabase Realtime for status changes
+
+### Models
+
+| Type | Model | Provider |
+|------|-------|----------|
+| Image | `flux-2/pro-text-to-image` | Kie.ai |
+| Video | `grok-imagine/image-to-video` | Kie.ai |
+| TTS | ElevenLabs (via Kie.ai) | Kie.ai |
+| Transcription | Deepgram `nova-3` | Direct API |
+| LLM | OpenRouter (various) | Direct API |
 
 ## Database Schema (Key Tables)
 
+All in `studio` schema:
+
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `storyboards` | Top-level container | `plan`, `plan_status`, `mode` |
-| `grid_images` | Generated image grids | `prompt`, `url`, `status`, `type` (scene/objects/backgrounds) |
-| `scenes` | Individual scenes | `order`, `video_url`, `video_status`, `sfx_status` |
-| `first_frames` | Scene first frames | `url`, `final_url`, `image_edit_status` |
-| `voiceovers` | TTS audio | `text`, `audio_url`, `duration`, `status` |
-| `objects` | Extracted objects | `url`, `final_url`, `grid_position`, `status` |
-| `backgrounds` | Extracted backgrounds | `url`, `final_url`, `grid_position`, `status` |
+| `projects` | Top-level container | `name`, `user_id` |
+| `videos` | Videos within project | `project_id`, `title`, `video_resolution`, `order` |
+| `chapters` | Chapters within video | `video_id`, `title`, `order` |
+| `scenes` | Scenes within chapter | `chapter_id`, `order`, `prompt`, `audio_text`, `audio_url`, `video_url`, `video_status` |
+| `assets` | Project-level assets | `project_id`, `name`, `type` (character/location/prop/music) |
+| `variants` | Asset variants | `asset_id`, `slug`, `image_url`, `image_gen_status` |
+| `tracks` | Timeline tracks | `project_id`, `video_id`, `data` |
+| `clips` | Timeline clips | `track_id`, `data`, `position` |
+| `rendered_videos` | Exported videos | `project_id`, `url`, `platform` |
 
-Schemas: `studio` (main app), `social_auth` (social media accounts).
+Social schema: `social_auth` (social media accounts + posts).
 
 ## Critical Patterns
 
-### fal.ai Webhook Pattern
+### Kie.ai Webhook Pattern
 
-Every fal.ai request follows this pattern. Do not invent a new one.
+Every Kie.ai request follows this pattern. Do not invent a new one.
 
 ```ts
 // Submitting a job (in API route)
-const falUrl = new URL("https://queue.fal.run/workflows/octupost/model");
-falUrl.searchParams.set("fal_webhook", webhookUrl);
-
-const response = await fetch(falUrl.toString(), {
+const response = await fetch("https://api.kieai.com/v1/tasks", {
   method: "POST",
-  headers: { Authorization: `Key ${process.env.FAL_KEY}`, "Content-Type": "application/json" },
-  body: JSON.stringify({ prompt }),
+  headers: {
+    "Authorization": `Bearer ${process.env.KIE_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "flux-2/pro-text-to-image",
+    input: { prompt },
+    webhook: {
+      url: `${process.env.WEBHOOK_BASE_URL}/api/webhook/kieai?step=GenerateImage&scene_id=${sceneId}`,
+      secret: process.env.KIE_WEBHOOK_HMAC_KEY,
+    },
+  }),
 });
+const { task_id } = await response.json();
 ```
 
 ```ts
-// Receiving callback (in /api/webhook/fal/route.ts)
-const { searchParams } = new URL(request.url);
-const step = searchParams.get("step");
-// Route to handler based on step
+// Receiving callback (in /api/webhook/kieai/route.ts)
+// 1. Verify HMAC signature
+// 2. Parse step + entity ID from searchParams
+// 3. Update DB with result
 ```
 
 ### Atomic DB Gates (Race Condition Prevention)
 
-fal.ai sends concurrent webhooks. We prevent double-processing with atomic UPDATE gates:
+Concurrent webhooks can cause double-processing. Prevent with atomic UPDATE gates:
 
 ```ts
 // ✅ CORRECT — atomic gate: only one callback wins
 const { data } = await supabase
-  .from("storyboards")
-  .update({ plan_status: "approved" })
-  .eq("id", storyboardId)
-  .eq("plan_status", "splitting")  // ← Only succeeds if still "splitting"
+  .from("scenes")
+  .update({ video_status: "completed", video_url: resultUrl })
+  .eq("id", sceneId)
+  .eq("video_status", "processing")  // ← Only succeeds if still "processing"
   .select("id");
 
 if (!data || data.length === 0) return; // Another webhook already processed this
 ```
 
 ```ts
-// ❌ WRONG — race condition: two callbacks both read "splitting" and both proceed
-const job = await supabase.from("storyboards").select().eq("id", id).single();
-if (job.data.plan_status === "splitting") {
-  await supabase.from("storyboards").update({ plan_status: "approved" }).eq("id", id);
+// ❌ WRONG — race condition
+const scene = await supabase.from("scenes").select().eq("id", id).single();
+if (scene.data.video_status === "processing") {
+  await supabase.from("scenes").update({ video_status: "completed" }).eq("id", id);
 }
 ```
 
-Pattern names in codebase: `tryCompleteSplitting`, `tryComplete*`. **Do not refactor these into check-then-act.**
-
 ### CORS on Webhook Routes
 
-Webhook routes **must** include CORS headers. fal.ai callbacks fail silently without them.
+Webhook routes **must** include CORS headers:
 
 ```ts
 const CORS_HEADERS = {
@@ -215,8 +273,32 @@ export async function OPTIONS() {
 
 | Route Pattern | Auth Required? | Why |
 |---|---|---|
-| `/api/webhook/*` | **NO** | External services (fal.ai) POST here |
+| `/api/webhook/*` | **NO** (HMAC-verified) | External services (Kie.ai) POST here |
 | `/api/*` (everything else) | **YES** — `getUser()` | User-facing, must verify identity |
+
+### Media Proxy
+
+Timeline clips use proxy URLs for CORS-free media loading:
+
+```ts
+// Wrap external URL for browser playback
+const proxied = `/api/proxy/media?url=${encodeURIComponent(realUrl)}`;
+
+// Extract real URL from proxy wrapper (e.g., for Deepgram)
+const realUrl = new URL(proxyUrl, window.location.origin).searchParams.get("url");
+```
+
+Allowed domains: `r2.dev`, `googleapis.com`, `aiquickdraw.com`, `elevenlabs.io`, etc.
+
+### Timeline (Per-Video)
+
+Each video has its own independent timeline. When switching videos:
+1. Save current timeline
+2. `await studio.clear()` (always await!)
+3. Load new video's timeline from DB
+
+Key functions: `saveTimeline()`, `loadTimeline()`, `clearTimeline()` — all accept optional `videoId`.
+Auto-save: `pauseAutoSave()` / `resumeAutoSave()` during transitions.
 
 ## 🚫 DO NOT
 
@@ -227,33 +309,44 @@ export async function OPTIONS() {
 | Create Supabase edge functions | Migrating away | Next.js API routes in `editor/src/app/api/` |
 | Edit `supabase/functions/` | Deprecated | Port to Next.js API route instead |
 | Use anon key server-side | Misses data (RLS) | Import from `admin.ts` |
-| Skip error handling on fal.ai | They fail often | Always try/catch + update DB status to "failed" |
+| Skip error handling on Kie.ai | They fail often | Always try/catch + update DB status to "failed" |
 | Forget CORS on webhook routes | Silent failures | Add CORS headers |
-| Hardcode URLs | Breaks across envs | Use `NEXT_PUBLIC_APP_URL`, `SUPABASE_URL` |
+| Hardcode URLs | Breaks across envs | Use `WEBHOOK_BASE_URL`, `NEXT_PUBLIC_APP_URL` |
 | Refactor `try*` functions | Race conditions | Keep atomic UPDATE gates |
-| Make direct fetch from components | Breaks pattern | Use `workflow-service.ts` |
+| Make direct fetch from components | Breaks pattern | Use API routes or service functions |
 | Add packages without checking | May already exist | Search codebase first |
+| Use fal.ai | Removed entirely | Use Kie.ai for all generation |
+| Forget to `await studio.clear()` | Async — causes race conditions | Always `await` |
 
 ## Environment Variables
 
 | Variable | Purpose | Server/Client |
 |---|---|---|
-| `SUPABASE_URL` | Supabase project URL | Both |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Both |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public key (RLS-enforced) | Client |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin key (bypasses RLS) | **Server only** |
-| `FAL_KEY` | fal.ai API key | **Server only** |
-| `NEXT_PUBLIC_APP_URL` | App URL (webhook callbacks) | Both |
-| `OPENROUTER_API_KEY` | LLM calls | Server only |
+| `KIE_API_KEY` | Kie.ai API key | **Server only** |
+| `KIE_WEBHOOK_HMAC_KEY` | Kie.ai webhook signature verification | **Server only** |
+| `WEBHOOK_BASE_URL` | Base URL for webhook callbacks | Server only |
+| `NEXT_PUBLIC_APP_URL` | App URL for frontend | Both |
+| `OPENROUTER_API_KEY` | LLM calls (caption gen, storyboard planning) | Server only |
+| `DEEPGRAM_API_KEY` | Speech-to-text transcription | Server only |
+| `DEEPGRAM_MODEL` | Deepgram model (default: `nova-3`) | Server only |
+| `ELEVENLABS_API_KEY` | ElevenLabs TTS (direct, non-Kie path) | Server only |
+| `PEXELS_API_KEY` | Stock video/image search | Server only |
+| `OCTUPOST_API_KEY` | Internal API auth | Server only |
+| `PROVIDER_VIDEO` | Video provider (`kie`) | Server only |
+| `PROVIDER_IMAGE` | Image provider (`kie`) | Server only |
+| `PROVIDER_TTS` | TTS provider (`kie`) | Server only |
 
-## Adding a New fal.ai Generation Step
+## Adding a New Kie.ai Generation Step
 
 1. **DB** — Add status columns to relevant table (migration in `supabase/migrations/`)
-2. **API route** — Create `editor/src/app/api/workflow/<step>/route.ts` that queues fal.ai with webhook URL
-3. **Webhook handler** — Add case in `/api/webhook/fal/route.ts` `switch(step)` block
+2. **API route** — Create `editor/src/app/api/v2/<entity>/[id]/generate-<type>/route.ts` that sends to Kie.ai with webhook URL
+3. **Webhook handler** — Add case in `/api/webhook/kieai/route.ts` `switch(step)` block
 4. **Atomic gate** — Use `UPDATE ... WHERE status='processing'` in webhook handler
-5. **Workflow service** — Add method in `workflow-service.ts` for frontend to call
-6. **Frontend** — Subscribe to Supabase Realtime for status changes
-7. **CORS** — Ensure webhook route has CORS headers
+5. **Frontend** — Subscribe to Supabase Realtime for status changes, add generate/retry buttons
+6. **CORS** — Ensure webhook route has CORS headers
 
 ## Before You Commit
 
@@ -264,10 +357,10 @@ pnpm biome check .               # Must pass — lint + format
 
 **Self-review checklist:**
 - [ ] No hardcoded URLs (search for `https://` in your changes)
-- [ ] Webhook routes have CORS headers + no auth
+- [ ] Webhook routes have CORS headers + HMAC verification
 - [ ] User-facing routes check auth via `getUser()`
-- [ ] fal.ai webhook URL uses `NEXT_PUBLIC_APP_URL`
-- [ ] fal.ai errors handled with try/catch + DB status update
+- [ ] Webhook URL uses `WEBHOOK_BASE_URL`
+- [ ] Kie.ai errors handled with try/catch + DB status update
 - [ ] No `any` types without justification comment
 - [ ] No new files in `supabase/functions/`
 - [ ] `pnpm build` passes

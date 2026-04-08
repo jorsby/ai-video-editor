@@ -1,6 +1,0 @@
-Both background agents have completed and confirmed the edge function details match what's documented. The two final documents are complete:
-
-- **`STORYBOARD_I2V_FINAL.md`** — 14 sections covering the full I2V pipeline
-- **`STORYBOARD_REF_FINAL.md`** — 16 sections covering the full Ref-to-Video pipeline (Kling O3 + WAN 2.6 Flash)
-
-All prompts, schemas, and technical details are verified against source code and copied verbatim.

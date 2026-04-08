@@ -15,26 +15,26 @@ No skipping steps. No jumping to UI.
    - Discuss with Serhat, get approval before touching DB
 
 2. **API Design**
-   - Check API Cookbook — does an endpoint exist?
+   - Check existing v2 routes — does an endpoint exist?
    - If not: propose endpoint (method, path, input, output)
    - **If async (Kie.ai):** design BOTH directions:
      - Outgoing: POST to Kie.ai → returns task_id
-     - Incoming webhook: Kie.ai calls us → updates status + result fields
+     - Incoming webhook: Kie.ai calls `/api/webhook/kieai` → updates status + result fields
    - Get approval or self-verify
 
 3. **API Implementation**
-   - Write the outgoing endpoint
-   - **Write the webhook handler** (if async)
+   - Write the outgoing endpoint in `editor/src/app/api/v2/`
+   - **Write the webhook handler** (add case in `/api/webhook/kieai/route.ts`)
    - Test the full loop:
      - [ ] API call returns task_id?
      - [ ] task_id + status saved to DB?
      - [ ] Webhook fires back?
+     - [ ] HMAC signature verified?
      - [ ] Webhook updates correct row with result (url, duration)?
      - [ ] Status transitions correct? (pending → processing → completed/failed)
 
 4. **Dev API UI**
-   - Update the development API visualization panel
-   - Show webhook status if applicable
+   - Update the development API visualization panel if applicable
 
 5. **Backend Logic**
    - Update backend services if needed
@@ -42,7 +42,8 @@ No skipping steps. No jumping to UI.
 6. **UI Implementation**
    - Add/update components, buttons, views
    - Show loading/generating states based on status field
-   - Handle webhook-driven updates (polling or realtime)
+   - Handle webhook-driven updates (Supabase Realtime subscription)
+   - Add retry buttons for failed states
 
 7. **Review & Test**
    - Review each step sequentially
@@ -70,22 +71,35 @@ All Kie.ai integrations follow this pattern:
 
 ```
 [UI Button Click]
-  → POST /api/generate-{type}  (our API)
-    → POST Kie.ai API           (external)
+  → POST /api/v2/scenes/{id}/generate-video  (our API)
+    → POST Kie.ai API                        (external)
     ← task_id returned
     → Save task_id + status=pending to DB
   ← Return task_id to UI
 
 [Kie.ai completes]
-  → POST /api/webhooks/{type}   (our webhook handler)
+  → POST /api/webhook/kieai?step=GenerateSceneVideo&scene_id=...  (our webhook)
+    → Verify HMAC signature
     → Validate payload
-    → Update DB: status=completed, url, duration
-    → UI picks up new state
+    → Atomic UPDATE: status=completed, video_url, video_duration
+    → UI picks up new state via Supabase Realtime
 ```
+
+### Provider Configuration
+
+Providers are configured via env vars — no hardcoding:
+
+| Env Var | Current Value | Purpose |
+|---------|---------------|---------|
+| `PROVIDER_VIDEO` | `kie` | Video generation provider |
+| `PROVIDER_IMAGE` | `kie` | Image generation provider |
+| `PROVIDER_TTS` | `kie` | TTS provider |
 
 ### Hard Rules
 - NEVER skip to UI before data model + API are done
 - NEVER write API before data model is agreed
 - NEVER forget the webhook handler for async features
+- NEVER forget HMAC verification in webhook handlers
 - Each step must be reviewed before moving to next
 - If uncertain, ask — don't assume
+- `await studio.clear()` and `await studio.loadFromJSON()` — always await async compositor calls

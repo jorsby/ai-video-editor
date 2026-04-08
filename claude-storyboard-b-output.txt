@@ -1,7 +1,0 @@
-All three documents are complete:
-
-- **STORYBOARD_I2V_B.md** — Image-to-Video pipeline (single grid, first frames, visual flow prompts, I2V video models)
-- **STORYBOARD_REF_KLING_B.md** — Kling O3 Ref-to-Video pipeline (dual grids, two-phase LLM, `@ElementN`/`@Image1` native syntax, `elements[]` array payload, multi-shot with `splitMultiPromptDurations`)
-- **STORYBOARD_REF_WAN_B.md** — Wan 2.6 Flash Ref-to-Video pipeline (dual grids, two-phase LLM, `@Element1`=bg/`@Element2+`=objects offset syntax, flat `image_urls` payload, `scene_multi_shots` boolean array, 5s/10s duration only)
-
-Each document has all 13 required sections with verbatim AI prompts, verbatim Zod schemas, complete call chains from UI to DB, webhook flows, database state machines, and Mermaid sequence diagrams.

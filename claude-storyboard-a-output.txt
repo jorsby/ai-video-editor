@@ -1,7 +1,0 @@
-All 3 documents are written:
-
-1. **`STORYBOARD_I2V_A.md`** — Complete I2V pipeline documentation with Mermaid diagram, verbatim prompts (I2V_SYSTEM_PROMPT, I2V_GRID_PROMPT_PREFIX, EDIT_PROMPT, ENHANCE_PROMPT), all schemas, 15-step flow, database table definitions, API routes, edge functions, webhook handlers, frontend components, and error handling.
-
-2. **`STORYBOARD_REF_KLING_A.md`** — Complete Kling O3 ref-to-video pipeline with verbatim prompts (KLING_O3_SYSTEM_PROMPT, KLING_O3_REVIEWER_SYSTEM_PROMPT, REF_OBJECTS_GRID_PREFIX, REF_BACKGROUNDS_GRID_PREFIX), two-pass LLM flow, reviewer user prompt construction, @ElementN/@Image1 reference syntax, multi-shot prompt handling with `splitMultiPromptDurations()`, `elements` payload structure, atomic `tryCompleteSplitting` gate, and all Kling-specific configurations.
-
-3. **`STORYBOARD_REF_WAN_A.md`** — Complete Wan 2.6 Flash ref-to-video pipeline with verbatim prompts (WAN26_FLASH_SYSTEM_PROMPT, WAN26_FLASH_REVIEWER_SYSTEM_PROMPT), detailed comparison tables vs both I2V and Kling O3, @Element1=background numbering difference, `scene_multi_shots` boolean array, `resolvePrompt()` function, 5/10s duration bucketing, `image_urls` array structure, `enable_audio: false`, and all Wan-specific validations.
