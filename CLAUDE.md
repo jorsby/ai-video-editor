@@ -37,6 +37,14 @@ After every code change, check if these docs need updating **in the same commit*
 
 **Rule:** If you change an API route, the cookbook update goes in the same commit. Not a follow-up. Not "I'll do it later." Same commit.
 
+## Git Workflow
+
+- **Push directly to `main`** — no branches, no PRs (for now)
+- Commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+- `--no-verify` flag OK (Biome runs in build anyway)
+- Always `pnpm build` before pushing — build = test suite
+- One logical change per commit (don't bundle unrelated changes)
+
 ## Don't
 
 - Don't use fal.ai — removed, we use Kie.ai

@@ -348,6 +348,15 @@ Auto-save: `pauseAutoSave()` / `resumeAutoSave()` during transitions.
 5. **Frontend** — Subscribe to Supabase Realtime for status changes, add generate/retry buttons
 6. **CORS** — Ensure webhook route has CORS headers
 
+## Git Workflow
+
+- **Push directly to `main`** — no branches, no PRs
+- Commit message prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+- `--no-verify` flag is OK (Biome runs in build step anyway)
+- Always run `pnpm build` before pushing — **build = test suite**
+- One logical change per commit — don't bundle unrelated changes
+- If build fails, fix before pushing. Never push broken code to main.
+
 ## 📝 Keep Docs Updated (MANDATORY)
 
 After every code change, check if these docs need updating **in the same commit**:
