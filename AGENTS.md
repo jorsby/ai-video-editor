@@ -348,6 +348,19 @@ Auto-save: `pauseAutoSave()` / `resumeAutoSave()` during transitions.
 5. **Frontend** — Subscribe to Supabase Realtime for status changes, add generate/retry buttons
 6. **CORS** — Ensure webhook route has CORS headers
 
+## 📝 Keep Docs Updated (MANDATORY)
+
+After every code change, check if these docs need updating **in the same commit**:
+
+| Doc | Update when... |
+|-----|---------------|
+| `docs/API-COOKBOOK.md` | Any API endpoint added, changed, or removed |
+| `AGENTS.md` | Architecture, patterns, DB schema, env vars, or project structure changes |
+| `HOW-TO-DEVELOP.md` | Development workflow or async pattern changes |
+| `CLAUDE.md` | New top-level rules, stack changes, or critical "don't" items |
+
+**Rule:** Code change + doc update = same commit. No exceptions.
+
 ## Before You Commit
 
 ```bash
