@@ -2174,6 +2174,11 @@ export default function StoryboardPanel() {
     new Set()
   );
   const [isSendingChapters, setIsSendingChapters] = useState(false);
+  const [videoLevelBatch, setVideoLevelBatch] = useState<{
+    type: 'retry' | 'retry-fal' | 'tts' | null;
+    done: number;
+    total: number;
+  } | null>(null);
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
@@ -2720,6 +2725,105 @@ export default function StoryboardPanel() {
             )}
           </div>
         )}
+
+        {/* ── Video-level bulk actions ───────────────────────────────── */}
+        {chapters.length > 0 && (() => {
+          const allScenes = chapters.flatMap((ch) => ch.scenes);
+          const failedVideoScenes = allScenes.filter((s) => s.video_status === 'failed');
+          const pendingTtsScenes = allScenes.filter((s) => !!s.audio_text && !s.audio_url);
+          const isRunning = videoLevelBatch !== null;
+
+          if (failedVideoScenes.length === 0 && pendingTtsScenes.length === 0) return null;
+
+          return (
+            <div className="flex flex-wrap items-center gap-1.5 px-1 py-1.5 border-b border-border/20 mb-1">
+              <span className="text-[9px] text-muted-foreground/60 mr-1">Video Actions:</span>
+
+              {failedVideoScenes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setVideoLevelBatch({ type: 'retry', done: 0, total: failedVideoScenes.length });
+                    try {
+                      for (const [i, scene] of failedVideoScenes.entries()) {
+                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+                        setVideoLevelBatch({ type: 'retry', done: i + 1, total: failedVideoScenes.length });
+                      }
+                      toast.success(`Retried ${failedVideoScenes.length} failed video(s)`);
+                    } catch {
+                      toast.error('Retry failed');
+                    } finally {
+                      setVideoLevelBatch(null);
+                    }
+                  }}
+                  disabled={isRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconRefresh className="size-2.5" />
+                  Retry Failed ({failedVideoScenes.length})
+                </button>
+              )}
+
+              {failedVideoScenes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setVideoLevelBatch({ type: 'retry-fal', done: 0, total: failedVideoScenes.length });
+                    try {
+                      for (const [i, scene] of failedVideoScenes.entries()) {
+                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`, { provider: 'fal' });
+                        setVideoLevelBatch({ type: 'retry-fal', done: i + 1, total: failedVideoScenes.length });
+                      }
+                      toast.success(`Retried ${failedVideoScenes.length} video(s) via fal.ai`);
+                    } catch {
+                      toast.error('fal.ai retry failed');
+                    } finally {
+                      setVideoLevelBatch(null);
+                    }
+                  }}
+                  disabled={isRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconRefresh className="size-2.5" />
+                  Retry fal.ai ({failedVideoScenes.length})
+                </button>
+              )}
+
+              {pendingTtsScenes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setVideoLevelBatch({ type: 'tts', done: 0, total: pendingTtsScenes.length });
+                    try {
+                      for (const [i, scene] of pendingTtsScenes.entries()) {
+                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+                        setVideoLevelBatch({ type: 'tts', done: i + 1, total: pendingTtsScenes.length });
+                      }
+                      toast.success(`Generated TTS for ${pendingTtsScenes.length} scene(s)`);
+                    } catch {
+                      toast.error('TTS generation failed');
+                    } finally {
+                      setVideoLevelBatch(null);
+                    }
+                  }}
+                  disabled={isRunning}
+                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <IconSparkles className="size-2.5" />
+                  Generate TTS ({pendingTtsScenes.length})
+                </button>
+              )}
+
+              {isRunning && videoLevelBatch && (
+                <span className="text-[9px] text-yellow-400 ml-1">
+                  {videoLevelBatch.type === 'retry' ? 'Retrying' :
+                   videoLevelBatch.type === 'retry-fal' ? 'Retrying (fal.ai)' : 'Generating TTS'}{' '}
+                  {videoLevelBatch.done}/{videoLevelBatch.total}...
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Full Script — all voiceovers combined */}
         {chapters.some((ch) =>
