@@ -57,4 +57,54 @@ export async function submitFalVideoJob(params: {
   return { requestId: request_id };
 }
 
+/**
+ * Submit a TTS job to fal.ai queue with webhook callback.
+ * Uses fal-ai/elevenlabs/tts/turbo-v2.5 model.
+ */
+export async function submitFalTtsJob(params: {
+  text: string;
+  voice: string;
+  speed: number;
+  stability: number;
+  similarityBoost: number;
+  timestamps: boolean;
+  previousText: string;
+  nextText: string;
+  languageCode: string;
+  webhookUrl: string;
+}): Promise<{ requestId: string }> {
+  const {
+    text,
+    voice,
+    speed,
+    stability,
+    similarityBoost,
+    timestamps,
+    previousText,
+    nextText,
+    languageCode,
+    webhookUrl,
+  } = params;
+
+  const input: Record<string, unknown> = {
+    text,
+    voice,
+    speed,
+    stability,
+    similarity_boost: similarityBoost,
+    timestamps,
+  };
+
+  if (previousText) input.previous_text = previousText;
+  if (nextText) input.next_text = nextText;
+  if (languageCode) input.language_code = languageCode;
+
+  const { request_id } = await fal.queue.submit(
+    'fal-ai/elevenlabs/tts/turbo-v2.5' as string,
+    { input, webhookUrl }
+  );
+
+  return { requestId: request_id };
+}
+
 export { FAL_MAX_DURATION };

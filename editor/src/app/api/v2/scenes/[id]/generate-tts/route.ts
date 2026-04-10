@@ -2,23 +2,96 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask } from '@/lib/kieai';
+import { submitFalTtsJob } from '@/lib/fal-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
+const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam
+
+interface TtsParams {
+  text: string;
+  voiceId: string;
+  speed: number;
+  previousText: string;
+  nextText: string;
+  languageCode: string;
+}
+
+function resolveVoiceId(bodyVoice: unknown, videoVoice: unknown): string {
+  if (typeof bodyVoice === 'string' && bodyVoice.trim().length > 0)
+    return bodyVoice.trim();
+  if (typeof videoVoice === 'string' && videoVoice.trim().length > 0)
+    return videoVoice.trim();
+  return DEFAULT_VOICE_ID;
+}
+
+async function submitToFal(
+  params: TtsParams,
+  sceneId: string,
+  webhookBase: string
+): Promise<string> {
+  const url = new URL(`${webhookBase}/api/webhook/fal`);
+  url.searchParams.set('step', 'GenerateSceneTTS');
+  url.searchParams.set('scene_id', sceneId);
+
+  const result = await submitFalTtsJob({
+    text: params.text,
+    voice: params.voiceId,
+    speed: params.speed,
+    stability: 0.5,
+    similarityBoost: 0.75,
+    timestamps: true,
+    previousText: params.previousText,
+    nextText: params.nextText,
+    languageCode: params.languageCode,
+    webhookUrl: url.toString(),
+  });
+  return result.requestId;
+}
+
+async function submitToKie(
+  params: TtsParams,
+  sceneId: string,
+  webhookBase: string
+): Promise<string> {
+  const url = new URL(`${webhookBase}/api/webhook/kieai`);
+  url.searchParams.set('step', 'GenerateSceneTTS');
+  url.searchParams.set('scene_id', sceneId);
+
+  const result = await createTask({
+    model: TTS_MODEL,
+    callbackUrl: url.toString(),
+    input: {
+      text: params.text,
+      voice: params.voiceId,
+      speed: params.speed,
+      stability: 0.5,
+      similarity_boost: 0.75,
+      style: 0,
+      timestamps: true,
+      previous_text: params.previousText,
+      next_text: params.nextText,
+      language_code: params.languageCode,
+    },
+  });
+  return result.taskId;
+}
 
 /**
  * POST /api/v2/scenes/{id}/generate-tts
  *
- * Generates TTS audio for a scene's audio_text using ElevenLabs via kie.ai.
+ * Generates TTS audio for a scene's audio_text using ElevenLabs via kie.ai or fal.ai.
  *
  * Body (optional overrides):
- *   voice_id?: string   — ElevenLabs voice ID or name (default from video.voice_id or 'Rachel')
- *   speed?: number       — Speech speed 0.7-1.2 (default from video.tts_speed or 1.0)
+ *   provider?: 'kie' | 'fal' — Provider to use (default 'kie')
+ *   voice_id?: string   — ElevenLabs voice ID or name
+ *   speed?: number       — Speech speed 0.7-1.2
  *   previous_text?: string — Previous scene audio_text for continuity
  *   next_text?: string     — Next scene audio_text for continuity
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential validation chain
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { id: sceneId } = await context.params;
@@ -79,23 +152,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
 
-    if (!video.voice_id) {
-      return NextResponse.json(
-        {
-          error:
-            'Video has no voice_id configured. Set it in video settings first.',
-        },
-        { status: 400 }
-      );
-    }
-
-    const voiceId = body.voice_id ?? video.voice_id;
-    const speed = clampSpeed(body.speed ?? video.tts_speed);
-    const previousText = body.previous_text ?? '';
-    const nextText = body.next_text ?? '';
-    const languageCode = body.language_code ?? video.language ?? '';
-
-    // ── Build webhook URL ───────────────────────────────────────────────
+    const provider =
+      typeof body.provider === 'string' && body.provider.toLowerCase() === 'fal'
+        ? 'fal'
+        : 'kie';
 
     const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
@@ -105,42 +165,43 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
-    webhookUrl.searchParams.set('step', 'GenerateSceneTTS');
-    webhookUrl.searchParams.set('scene_id', sceneId);
+    const ttsParams: TtsParams = {
+      text: scene.audio_text.trim(),
+      voiceId: resolveVoiceId(body.voice_id, video.voice_id),
+      speed: clampSpeed(body.speed ?? video.tts_speed),
+      previousText: body.previous_text ?? '',
+      nextText: body.next_text ?? '',
+      languageCode: body.language_code ?? video.language ?? '',
+    };
 
-    // ── Submit to kie.ai ────────────────────────────────────────────────
+    // ── Submit to provider ──────────────────────────────────────────────
 
-    const result = await createTask({
-      model: TTS_MODEL,
-      callbackUrl: webhookUrl.toString(),
-      input: {
-        text: scene.audio_text.trim(),
-        voice: voiceId,
-        speed,
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0,
-        timestamps: false,
-        previous_text: previousText,
-        next_text: nextText,
-        language_code: languageCode,
-      },
-    });
+    const taskId =
+      provider === 'fal'
+        ? await submitToFal(ttsParams, sceneId, webhookBase)
+        : await submitToKie(ttsParams, sceneId, webhookBase);
 
     // ── Mark TTS as generating ─────────────────────────────────────────
 
     await supabase
       .from('scenes')
-      .update({ tts_status: 'generating', tts_task_id: result.taskId })
+      .update({
+        tts_status: 'generating',
+        tts_task_id: taskId,
+        audio_url: null,
+        audio_duration: null,
+        voiceover_transcription: null,
+      })
       .eq('id', sceneId);
 
     return NextResponse.json({
-      task_id: result.taskId,
-      model: TTS_MODEL,
+      task_id: taskId,
+      model:
+        provider === 'fal' ? 'fal-ai/elevenlabs/tts/turbo-v2.5' : TTS_MODEL,
+      provider,
       scene_id: sceneId,
-      voice_id: voiceId,
-      speed,
+      voice_id: ttsParams.voiceId,
+      speed: ttsParams.speed,
     });
   } catch (error) {
     const message =
