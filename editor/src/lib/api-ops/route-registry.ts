@@ -154,7 +154,7 @@ const videoRoutes: ApiRouteDefinition[] = [
       language: 'en',
       aspect_ratio: '16:9',
       video_model: 'kling-v2.1',
-      image_model: 'flux-1.1-pro',
+
       voice_id: 'voice-123',
       tts_speed: 1.0,
       visual_style: 'Photorealistic cinematic, warm golden-hour tones',
@@ -170,7 +170,7 @@ const videoRoutes: ApiRouteDefinition[] = [
       language: 'en',
       aspect_ratio: '16:9',
       video_model: 'kling-v2.1',
-      image_model: 'flux-1.1-pro',
+
       voice_id: 'voice-123',
       tts_speed: 1.0,
       visual_style: 'Photorealistic cinematic, warm golden-hour tones',
@@ -202,7 +202,7 @@ const videoRoutes: ApiRouteDefinition[] = [
       language: 'en',
       aspect_ratio: '16:9',
       video_model: 'kling-v2.1',
-      image_model: 'flux-1.1-pro',
+
       voice_id: 'voice-123',
       tts_speed: 1.0,
       visual_style: 'Photorealistic cinematic, warm golden-hour tones',
@@ -220,7 +220,7 @@ const videoRoutes: ApiRouteDefinition[] = [
     category: 'video',
     auth: 'session-or-api-key',
     description:
-      'Updates any video field. Only pass fields you want to change. Supports: name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status.',
+      'Updates any video field. Only pass fields you want to change. Supports: name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, voice_id, tts_speed, visual_style, creative_brief, plan_status.',
     pathParams: { id: 'video-uuid' },
     body: {
       name: 'Updated Video Name',
@@ -231,7 +231,7 @@ const videoRoutes: ApiRouteDefinition[] = [
       language: 'tr',
       aspect_ratio: '9:16',
       video_model: 'kling-v2.1',
-      image_model: 'flux-1.1-pro',
+
       voice_id: 'voice-456',
       tts_speed: 1.2,
       visual_style: 'Neon noir, high contrast',
@@ -493,7 +493,6 @@ const assetRoutes: ApiRouteDefinition[] = [
               prompt: 'Young man, 20s, dark hair, determined expression...',
               image_url: null,
               is_main: true,
-              where_to_use: 'Standard daylight scenes',
               reasoning: 'Primary appearance for most scenes',
             },
           ],
@@ -943,7 +942,6 @@ const variantRoutes: ApiRouteDefinition[] = [
           prompt: 'Young man, 20s, dark hair, determined expression...',
           image_url: null,
           is_main: true,
-          where_to_use: 'Standard daylight scenes',
           reasoning: 'Primary appearance for most scenes',
           created_at: '2026-03-31T00:00:00Z',
           updated_at: '2026-03-31T00:00:00Z',
@@ -968,7 +966,6 @@ const variantRoutes: ApiRouteDefinition[] = [
         'Young man in dramatic moonlit silhouette, blue-toned lighting...',
       image_url: null,
       is_main: false,
-      where_to_use: 'Night and dramatic scenes',
       reasoning: 'Creates visual contrast for evening sequences',
     },
     response: {
@@ -990,7 +987,7 @@ const variantRoutes: ApiRouteDefinition[] = [
     category: 'variant',
     auth: 'session-or-api-key',
     description:
-      'Updates a variant. Supports: name, slug, prompt, image_url, is_main, where_to_use, reasoning. Setting is_main=true resets others.',
+      'Updates a variant. Supports: name, slug, prompt, image_url, is_main, reasoning. Setting is_main=true resets others.',
     pathParams: { id: 'variant-uuid' },
     body: {
       name: 'Updated Variant Name',
@@ -998,7 +995,6 @@ const variantRoutes: ApiRouteDefinition[] = [
       prompt: 'Updated generation prompt...',
       image_url: 'https://example.com/variant-ref.png',
       is_main: true,
-      where_to_use: 'Updated usage notes',
       reasoning: 'Updated reasoning',
     },
     response: {
@@ -1074,7 +1070,7 @@ const sceneRoutes: ApiRouteDefinition[] = [
     category: 'scene',
     auth: 'session-or-api-key',
     description:
-      'Creates one or more scenes for an chapter. Order is auto-assigned at 1000 increments. Send a bare array or wrap in { scenes: [...] }.',
+      'Creates one or more scenes for a chapter. location_variant_slug is required for every scene. character_variant_slugs and prop_variant_slugs default to []. Response includes a warnings array when optional slug fields are empty. Order is auto-assigned at 1000 increments. Send a bare array or wrap in { scenes: [...] }.',
     pathParams: { id: 'chapter-uuid' },
     body: {
       scenes: [
@@ -1109,6 +1105,13 @@ const sceneRoutes: ApiRouteDefinition[] = [
           order: 2000,
           title: 'The Confrontation',
           status: 'draft',
+        },
+      ],
+      warnings: [
+        {
+          scene_index: 1,
+          field: 'prop_variant_slugs',
+          message: 'No prop variants assigned to this scene',
         },
       ],
     },

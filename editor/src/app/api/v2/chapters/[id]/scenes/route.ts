@@ -12,6 +12,12 @@ type SceneInsert = Record<string, unknown> & {
   order: number;
 };
 
+type SceneWarning = {
+  scene_index: number;
+  field: string;
+  message: string;
+};
+
 const SCENE_SELECT =
   'id, chapter_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
@@ -150,7 +156,12 @@ function parseSceneCreateInput(
   input: unknown,
   index: number,
   id: string
-): { scene?: SceneInsert; explicitOrder?: number; error?: string } {
+): {
+  scene?: SceneInsert;
+  explicitOrder?: number;
+  error?: string;
+  warnings?: SceneWarning[];
+} {
   if (!isRecord(input)) {
     return { error: `scenes[${index}] must be an object` };
   }
@@ -222,6 +233,11 @@ function parseSceneCreateInput(
   if (prompt.error) return { error: `scenes[${index}].${prompt.error}` };
   if (prompt.value !== undefined) scene.prompt = prompt.value;
 
+  if (input.location_variant_slug === undefined) {
+    return {
+      error: `scenes[${index}].location_variant_slug is required`,
+    };
+  }
   const locationVariantSlug = toNullableString(
     input.location_variant_slug,
     'location_variant_slug'
@@ -229,9 +245,12 @@ function parseSceneCreateInput(
   if (locationVariantSlug.error) {
     return { error: `scenes[${index}].${locationVariantSlug.error}` };
   }
-  if (locationVariantSlug.value !== undefined) {
-    scene.location_variant_slug = locationVariantSlug.value;
+  if (!locationVariantSlug.value) {
+    return {
+      error: `scenes[${index}].location_variant_slug cannot be null or empty`,
+    };
   }
+  scene.location_variant_slug = locationVariantSlug.value;
 
   const characterVariantSlugs = toSlugArray(
     input.character_variant_slugs,
@@ -240,9 +259,7 @@ function parseSceneCreateInput(
   if (characterVariantSlugs.error) {
     return { error: `scenes[${index}].${characterVariantSlugs.error}` };
   }
-  if (characterVariantSlugs.value !== undefined) {
-    scene.character_variant_slugs = characterVariantSlugs.value;
-  }
+  scene.character_variant_slugs = characterVariantSlugs.value ?? [];
 
   const propVariantSlugs = toSlugArray(
     input.prop_variant_slugs,
@@ -251,9 +268,7 @@ function parseSceneCreateInput(
   if (propVariantSlugs.error) {
     return { error: `scenes[${index}].${propVariantSlugs.error}` };
   }
-  if (propVariantSlugs.value !== undefined) {
-    scene.prop_variant_slugs = propVariantSlugs.value;
-  }
+  scene.prop_variant_slugs = propVariantSlugs.value ?? [];
 
   const audioText = toNullableString(input.audio_text, 'audio_text');
   if (audioText.error) return { error: `scenes[${index}].${audioText.error}` };
@@ -267,9 +282,28 @@ function parseSceneCreateInput(
   if (videoUrl.error) return { error: `scenes[${index}].${videoUrl.error}` };
   if (videoUrl.value !== undefined) scene.video_url = videoUrl.value;
 
+  const warnings: SceneWarning[] = [];
+
+  if ((scene.character_variant_slugs as string[]).length === 0) {
+    warnings.push({
+      scene_index: index,
+      field: 'character_variant_slugs',
+      message: 'No character variants assigned to this scene',
+    });
+  }
+
+  if ((scene.prop_variant_slugs as string[]).length === 0) {
+    warnings.push({
+      scene_index: index,
+      field: 'prop_variant_slugs',
+      message: 'No prop variants assigned to this scene',
+    });
+  }
+
   return {
     scene,
     explicitOrder: order.value,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
@@ -368,6 +402,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const inserts: SceneInsert[] = [];
     const seenOrders = new Set<number>();
+    const allWarnings: SceneWarning[] = [];
 
     for (let index = 0; index < scenesInput.length; index += 1) {
       const parsed = parseSceneCreateInput(scenesInput[index], index, id);
@@ -376,6 +411,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
           { error: parsed.error ?? `Invalid scenes[${index}]` },
           { status: 400 }
         );
+      }
+
+      if (parsed.warnings) {
+        allWarnings.push(...parsed.warnings);
       }
 
       const resolvedOrder = parsed.explicitOrder ?? nextAutoOrder;
@@ -428,7 +467,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       (a, b) => (a.order as number) - (b.order as number)
     );
 
-    return NextResponse.json(orderedScenes, { status: 201 });
+    return NextResponse.json(
+      { scenes: orderedScenes, warnings: allWarnings },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('[v2/chapters/scenes][POST] Unexpected error:', error);
     return NextResponse.json(
