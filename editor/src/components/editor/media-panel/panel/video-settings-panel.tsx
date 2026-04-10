@@ -14,20 +14,33 @@ import {
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
 
-interface VideoSettings {
-  id: string;
-  name: string;
-  language: string | null;
-  voice_id: string;
-  tts_speed: number;
-  video_model: string;
-  video_resolution: string;
-  image_model: string;
-  aspect_ratio: string | null;
-  visual_style: string | null;
-  genre: string | null;
-  tone: string | null;
+interface ImageModels {
+  character: string;
+  location: string;
+  prop: string;
+  character_i2i?: string;
+  location_i2i?: string;
+  prop_i2i?: string;
 }
+
+interface ProjectSettings {
+  voice_id?: string;
+  tts_speed?: number;
+  video_model?: string;
+  video_resolution?: string;
+  image_models?: ImageModels;
+  aspect_ratio?: string;
+  visual_style?: string;
+  genre?: string;
+  tone?: string;
+  language?: string;
+}
+
+const DEFAULT_IMAGE_MODELS: ImageModels = {
+  character: 'z-image',
+  location: 'gpt-image/1.5-text-to-image',
+  prop: 'z-image',
+};
 
 const VOICE_OPTIONS = [
   { value: 'Rachel', label: 'Rachel (Calm, Narrator)' },
@@ -67,6 +80,7 @@ const VOICE_OPTIONS = [
   { value: 'Glinda', label: 'Glinda (Witch, Female)' },
   { value: 'Giovanni', label: 'Giovanni (Foreigner, Male)' },
   { value: 'Mimi', label: 'Mimi (Childish, Female)' },
+  { value: 'KoQQbl9zjAdLgKZjm8Ol', label: 'Sunu (Turkish)' },
 ];
 
 const VIDEO_MODEL_OPTIONS = [
@@ -81,8 +95,23 @@ const VIDEO_RESOLUTION_OPTIONS = [
 ];
 
 const IMAGE_MODEL_OPTIONS = [
+  { value: 'z-image', label: 'Z-Image' },
+  { value: 'gpt-image/1.5-text-to-image', label: 'GPT Image 1.5' },
   { value: 'flux-2/pro-text-to-image', label: 'Flux 2 Pro (2K)' },
+  { value: 'nano-banana-2', label: 'Nano Banana 2' },
 ];
+
+const I2I_MODEL_OPTIONS = [
+  { value: 'flux-2/pro-image-to-image', label: 'Flux 2 Pro (I2I)' },
+  { value: 'gpt-image/1.5-image-to-image', label: 'GPT Image 1.5 (I2I)' },
+  { value: 'nano-banana-2', label: 'Nano Banana 2 (I2I)' },
+];
+
+const DEFAULT_I2I_IMAGE_MODELS: Record<string, string> = {
+  character_i2i: 'flux-2/pro-image-to-image',
+  location_i2i: 'gpt-image/1.5-image-to-image',
+  prop_i2i: 'flux-2/pro-image-to-image',
+};
 
 const ASPECT_RATIO_OPTIONS = [
   { value: '9:16', label: '9:16 (Vertical)' },
@@ -112,56 +141,50 @@ function SettingRow({
   );
 }
 
+const SETTINGS_DEFAULTS: Required<ProjectSettings> = {
+  voice_id: 'Rachel',
+  tts_speed: 1.0,
+  video_model: 'grok-imagine/image-to-video',
+  video_resolution: '480p',
+  image_models: { ...DEFAULT_IMAGE_MODELS },
+  aspect_ratio: '9:16',
+  visual_style: '',
+  genre: '',
+  tone: '',
+  language: '',
+};
+
 export default function VideoSettingsPanel() {
   const projectId = useProjectId();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [settings, setSettings] = useState<VideoSettings | null>(null);
-  const [videoId, setVideoId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<ProjectSettings | null>(null);
+  const [projectName, setProjectName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   // Draft state for editing
-  const [draft, setDraft] = useState<Partial<VideoSettings>>({});
+  const [draft, setDraft] = useState<Partial<ProjectSettings>>({});
 
   const load = useCallback(async () => {
     if (!projectId) return;
 
     const supabase = createClient('studio');
 
-    const { data: project } = await supabase
+    const { data: project, error: fetchError } = await supabase
       .from('projects')
-      .select('settings')
+      .select('name, settings')
       .eq('id', projectId)
       .maybeSingle();
 
-    const projectSettings = project?.settings as Record<string, unknown> | null;
-    const resolvedVideoId =
-      typeof projectSettings?.video_id === 'string'
-        ? projectSettings.video_id
-        : null;
-
-    if (!resolvedVideoId) {
-      setError('No video linked to this project');
+    if (fetchError || !project) {
+      setError('Project not found');
       setIsLoading(false);
       return;
     }
 
-    const { data: video, error: fetchError } = await supabase
-      .from('videos')
-      .select(
-        'id, name, language, voice_id, tts_speed, video_model, video_resolution, image_model, aspect_ratio, visual_style, genre, tone'
-      )
-      .eq('id', resolvedVideoId)
-      .maybeSingle();
-
-    if (fetchError || !video) {
-      setError('Failed to load video settings');
-      setIsLoading(false);
-      return;
-    }
-
-    setVideoId(resolvedVideoId);
-    setSettings(video as VideoSettings);
+    setProjectName(project.name ?? 'Untitled');
+    const saved = (project.settings ?? {}) as ProjectSettings;
+    setSettings(saved);
     setDraft({});
     setIsLoading(false);
   }, [projectId]);
@@ -170,29 +193,32 @@ export default function VideoSettingsPanel() {
     void load();
   }, [load]);
 
-  const merged = settings ? { ...settings, ...draft } : null;
+  const merged = settings
+    ? { ...SETTINGS_DEFAULTS, ...settings, ...draft }
+    : null;
 
   const hasChanges = Object.keys(draft).length > 0;
 
   const save = async () => {
-    if (!videoId || !hasChanges) return;
+    if (!projectId || !hasChanges) return;
 
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/v2/videos/${videoId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft),
-      });
+      const supabase = createClient('studio');
+      const newSettings = { ...settings, ...draft };
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? 'Failed to save settings');
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({ settings: newSettings })
+        .eq('id', projectId);
+
+      if (updateError) {
+        toast.error('Failed to save settings');
         return;
       }
 
-      toast.success('Video settings saved');
-      setSettings((prev) => (prev ? { ...prev, ...draft } : prev));
+      toast.success('Project settings saved');
+      setSettings(newSettings);
       setDraft({});
     } catch {
       toast.error('Network error');
@@ -201,7 +227,7 @@ export default function VideoSettingsPanel() {
     }
   };
 
-  const updateDraft = (field: keyof VideoSettings, value: unknown) => {
+  const updateDraft = (field: keyof ProjectSettings, value: unknown) => {
     setDraft((prev) => {
       // If value matches original, remove from draft
       if (settings && settings[field] === value) {
@@ -225,7 +251,7 @@ export default function VideoSettingsPanel() {
     return (
       <div className="h-full flex items-center justify-center p-4">
         <p className="text-xs text-destructive text-center">
-          {error ?? 'No settings available'}
+          {error ?? 'Settings unavailable'}
         </p>
       </div>
     );
@@ -238,7 +264,7 @@ export default function VideoSettingsPanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <IconSettings className="size-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Video Settings</h3>
+            <h3 className="text-sm font-semibold">Project Settings</h3>
           </div>
           {hasChanges && (
             <Badge variant="secondary" className="text-[9px] animate-pulse">
@@ -247,12 +273,15 @@ export default function VideoSettingsPanel() {
           )}
         </div>
 
-        {/* Video name (read-only display) */}
+        {/* Project name (read-only display) */}
         <div className="px-2 py-1.5 bg-muted/20 rounded border border-border/30">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Video
+            Project
           </p>
-          <p className="text-xs font-medium">{merged.name}</p>
+          <p className="text-xs font-medium">{projectName}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            New videos inherit these defaults
+          </p>
         </div>
 
         {/* ── TTS Settings ─────────────────────────────────────────── */}
@@ -371,26 +400,87 @@ export default function VideoSettingsPanel() {
             🖼️ Image Generation
           </p>
 
-          <SettingRow label="Image Model" required>
-            <select
-              value={merged.image_model}
-              onChange={(e) => updateDraft('image_model', e.target.value)}
-              className="w-full h-8 text-xs rounded border border-border bg-background px-2"
-            >
-              {IMAGE_MODEL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-              {!IMAGE_MODEL_OPTIONS.some(
-                (opt) => opt.value === merged.image_model
-              ) && (
-                <option value={merged.image_model}>
-                  {merged.image_model} (Custom)
-                </option>
-              )}
-            </select>
-          </SettingRow>
+          {(['character', 'location', 'prop'] as const).map((assetType) => {
+            const currentModels: Record<string, string> = {
+              ...DEFAULT_IMAGE_MODELS,
+              ...DEFAULT_I2I_IMAGE_MODELS,
+              ...merged.image_models,
+            };
+            const t2iValue = currentModels[assetType];
+            const i2iKey = `${assetType}_i2i`;
+            const i2iValue =
+              currentModels[i2iKey] ?? DEFAULT_I2I_IMAGE_MODELS[i2iKey];
+            const label =
+              assetType === 'character'
+                ? 'Character'
+                : assetType === 'location'
+                  ? 'Location'
+                  : 'Prop';
+
+            return (
+              <div key={assetType} className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {label}
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <span className="text-[9px] text-muted-foreground/70">
+                      Generate
+                    </span>
+                    <select
+                      value={t2iValue}
+                      onChange={(e) => {
+                        const updated = {
+                          ...currentModels,
+                          [assetType]: e.target.value,
+                        };
+                        updateDraft('image_models', updated);
+                      }}
+                      className="w-full h-7 text-[11px] rounded border border-border bg-background px-1.5"
+                    >
+                      {IMAGE_MODEL_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                      {!IMAGE_MODEL_OPTIONS.some(
+                        (opt) => opt.value === t2iValue
+                      ) && (
+                        <option value={t2iValue}>{t2iValue} (Custom)</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-muted-foreground/70">
+                      Variation
+                    </span>
+                    <select
+                      value={i2iValue}
+                      onChange={(e) => {
+                        const updated = {
+                          ...currentModels,
+                          [i2iKey]: e.target.value,
+                        };
+                        updateDraft('image_models', updated);
+                      }}
+                      className="w-full h-7 text-[11px] rounded border border-border bg-background px-1.5"
+                    >
+                      {I2I_MODEL_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                      {!I2I_MODEL_OPTIONS.some(
+                        (opt) => opt.value === i2iValue
+                      ) && (
+                        <option value={i2iValue}>{i2iValue} (Custom)</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* ── Style Settings ───────────────────────────────────────── */}
@@ -440,7 +530,7 @@ export default function VideoSettingsPanel() {
           ) : (
             <IconDeviceFloppy className="size-3.5" />
           )}
-          {isSaving ? 'Saving...' : 'Save Settings'}
+          {isSaving ? 'Saving...' : 'Save Project Defaults'}
         </Button>
       </div>
     </ScrollArea>

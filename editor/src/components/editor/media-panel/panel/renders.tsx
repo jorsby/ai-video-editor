@@ -17,6 +17,9 @@ import {
   Trash2,
   Send,
   Share2,
+  Flame,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   IconDeviceTv,
@@ -64,19 +67,6 @@ function getAspectRatio(resolution: string | null): string {
   return `${parsed.width} / ${parsed.height}`;
 }
 
-function getLanguageBadgeColor(language: string | null): string {
-  switch (language?.toUpperCase()) {
-    case 'EN':
-      return 'bg-blue-500/80';
-    case 'TR':
-      return 'bg-red-500/80';
-    case 'AR':
-      return 'bg-emerald-500/80';
-    default:
-      return 'bg-white/20';
-  }
-}
-
 function getGridStyle(
   resolution: string | null,
   cardSize: number
@@ -97,9 +87,11 @@ interface RenderBatch {
 }
 
 function groupIntoBatches(renders: RenderedVideo[]): RenderBatch[] {
-  if (renders.length === 0) return [];
+  // Filter out shorts — they'll be nested under their parent
+  const topLevel = renders.filter((r) => r.type !== 'short');
+  if (topLevel.length === 0) return [];
 
-  const sorted = [...renders].sort(
+  const sorted = [...topLevel].sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
@@ -128,6 +120,15 @@ function groupIntoBatches(renders: RenderedVideo[]): RenderBatch[] {
   });
 
   return batches;
+}
+
+function getShortsForParent(
+  renders: RenderedVideo[],
+  parentId: string
+): RenderedVideo[] {
+  return renders
+    .filter((r) => r.type === 'short' && r.parent_id === parentId)
+    .sort((a, b) => (b.virality_score || 0) - (a.virality_score || 0));
 }
 
 // ── Fullscreen video modal ──────────────────────────────────────────
@@ -292,17 +293,35 @@ function RenderCard({
           <Skeleton className="h-full w-full rounded-none" />
         )}
 
-        {/* Language badge — always visible */}
-        <div
-          className={`absolute top-2 left-2 rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm ${getLanguageBadgeColor(render.language)}`}
-        >
-          {render.language}
+        {/* Resolution + type badges — always visible */}
+        <div className="absolute top-2 left-2 flex items-center gap-1">
+          {render.type === 'short' && (
+            <div className="rounded bg-purple-500/80 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
+              Short
+            </div>
+          )}
+          {render.type === 'short' && render.virality_score != null && (
+            <div className="flex items-center gap-0.5 rounded bg-orange-500/70 px-1.5 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm">
+              <Flame className="h-3 w-3" />
+              {render.virality_score}
+            </div>
+          )}
+          {render.resolution && render.type !== 'short' && (
+            <div className="rounded bg-white/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
+              {render.resolution}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Info + actions */}
       <div className="px-3 py-2.5 space-y-2">
         {/* Row 1: Metadata */}
+        {render.type === 'short' && render.segment_title && (
+          <p className="text-xs font-medium text-white truncate">
+            {render.segment_title}
+          </p>
+        )}
         <div className="text-xs text-muted-foreground">
           {render.resolution && <span>{render.resolution}</span>}
           {render.file_size ? (
@@ -409,6 +428,51 @@ function RenderCard({
   );
 }
 
+// ── Shorts group (collapsible) ─────────────────────────────────────
+function ShortsGroup({
+  shorts,
+  onAddToTimeline,
+  onFullscreen,
+  onDelete,
+}: {
+  shorts: RenderedVideo[];
+  onAddToTimeline: (r: RenderedVideo) => void;
+  onFullscreen: (r: RenderedVideo) => void;
+  onDelete: (r: RenderedVideo) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className="mt-2 ml-3 border-l border-purple-500/30 pl-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-[11px] font-medium text-purple-400 hover:text-purple-300 transition-colors mb-2"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
+        {shorts.length} short{shorts.length !== 1 ? 's' : ''}
+      </button>
+      {expanded && (
+        <div className="grid gap-2">
+          {shorts.map((short) => (
+            <RenderCard
+              key={short.id}
+              render={short}
+              onAddToTimeline={onAddToTimeline}
+              onFullscreen={onFullscreen}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main panel ──────────────────────────────────────────────────────
 export default function PanelRenders() {
   const projectId = useProjectId();
@@ -452,7 +516,7 @@ export default function PanelRenders() {
         'postgres_changes',
         {
           event: 'INSERT',
-          schema: 'public',
+          schema: 'studio',
           table: 'rendered_videos',
           filter: `project_id=eq.${projectId}`,
         },
@@ -468,7 +532,7 @@ export default function PanelRenders() {
         'postgres_changes',
         {
           event: 'DELETE',
-          schema: 'public',
+          schema: 'studio',
           table: 'rendered_videos',
           filter: `project_id=eq.${projectId}`,
         },
@@ -492,7 +556,7 @@ export default function PanelRenders() {
       if (!studio) return;
       try {
         const videoClip = await Video.fromUrl(render.url);
-        videoClip.name = `Render – ${render.language}`;
+        videoClip.name = `Render – ${render.resolution || 'video'}`;
         await videoClip.scaleToFit(canvasSize.width, canvasSize.height);
         videoClip.centerInScene(canvasSize.width, canvasSize.height);
         await studio.addClip(videoClip);
@@ -619,15 +683,27 @@ export default function PanelRenders() {
                   className="grid gap-3"
                   style={getGridStyle(batch.resolution, cardSize)}
                 >
-                  {batch.renders.map((render) => (
-                    <RenderCard
-                      key={render.id}
-                      render={render}
-                      onAddToTimeline={handleAddToTimeline}
-                      onFullscreen={setFullscreenRender}
-                      onDelete={handleDelete}
-                    />
-                  ))}
+                  {batch.renders.map((render) => {
+                    const shorts = getShortsForParent(renders, render.id);
+                    return (
+                      <div key={render.id}>
+                        <RenderCard
+                          render={render}
+                          onAddToTimeline={handleAddToTimeline}
+                          onFullscreen={setFullscreenRender}
+                          onDelete={handleDelete}
+                        />
+                        {shorts.length > 0 && (
+                          <ShortsGroup
+                            shorts={shorts}
+                            onAddToTimeline={handleAddToTimeline}
+                            onFullscreen={setFullscreenRender}
+                            onDelete={handleDelete}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

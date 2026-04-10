@@ -5,16 +5,14 @@ import { toast } from 'sonner';
 import { Compositor, Log } from 'openvideo';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Cloud, Check, Download, Send } from 'lucide-react';
+import { Loader2, Cloud, Check, Download, Send, Scissors } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { useStudioStore } from '@/stores/studio-store';
 
-import {
-  INSTAGRAM_REELS_MAX_SECONDS,
-  INSTAGRAM_REELS_MAX_MICROS,
-} from '@/lib/constants/social-limits';
 import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
+import { splitVideoSegment } from '@/lib/split-video';
 import type { RenderedVideo } from '@/types/rendered-video';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
@@ -48,7 +46,7 @@ function RenderVariantRow({ render }: { render: RenderedVideo }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2">
       <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
-        {render.language}
+        {render.resolution || 'video'}
       </span>
       <div className="flex-1 min-w-0 text-xs text-zinc-400">
         {render.resolution && <span>{render.resolution}</span>}
@@ -103,6 +101,13 @@ export function ExportModal({
   const [showCompletion, setShowCompletion] = useState(false);
   const [allRenders, setAllRenders] = useState<RenderedVideo[]>([]);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  const [generateShorts, setGenerateShorts] = useState(false);
+  const [shortsStatus, setShortsStatus] = useState<
+    'idle' | 'analyzing' | 'splitting' | 'done' | 'error'
+  >('idle');
+  const [shortsProgress, setShortsProgress] = useState('');
+  const [shortsCreated, setShortsCreated] = useState(0);
+  const [shortsTotal, setShortsTotal] = useState(0);
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
@@ -130,6 +135,11 @@ export function ExportModal({
     setRenderStarted(false);
     setShowCompletion(false);
     setAllRenders([]);
+    setGenerateShorts(false);
+    setShortsStatus('idle');
+    setShortsProgress('');
+    setShortsCreated(0);
+    setShortsTotal(0);
   };
 
   const handleClose = () => {
@@ -215,19 +225,18 @@ export function ExportModal({
       com.destroy();
       setExportCombinator(null);
 
-      // Remux fMP4 → standard faststart MP4 for Instagram compatibility
-      setIsRemuxing(true);
-      setRemuxProgress(0);
-      const blob = await remuxToInstagramMp4(rawBlob, (p) =>
-        setRemuxProgress(p)
-      );
-      setIsRemuxing(false);
-
-      const blobUrl = URL.createObjectURL(blob);
-      setExportBlobUrl(blobUrl);
-
       if (mode === 'download') {
-        // Download mode: auto-download and close
+        // Download mode: remux fMP4 → standard faststart MP4 for social media compatibility
+        setIsRemuxing(true);
+        setRemuxProgress(0);
+        const blob = await remuxToInstagramMp4(rawBlob, (p) =>
+          setRemuxProgress(p)
+        );
+        setIsRemuxing(false);
+
+        const blobUrl = URL.createObjectURL(blob);
+        setExportBlobUrl(blobUrl);
+
         setTimeout(() => {
           handleDownload(blobUrl);
           toast.success('Rendering complete! Your download has started.');
@@ -236,8 +245,10 @@ export function ExportModal({
           }, 1500);
         }, 500);
       } else {
-        // Cloud mode: upload to R2
-        await handleCloudUpload(blob, combinatorOpts);
+        // Cloud mode: upload raw MP4 directly (remux skipped for speed)
+        const blobUrl = URL.createObjectURL(rawBlob);
+        setExportBlobUrl(blobUrl);
+        await handleCloudUpload(rawBlob, combinatorOpts);
       }
     } catch (error) {
       Log.error('Export error:', error);
@@ -262,7 +273,7 @@ export function ExportModal({
         uploadAbortRef.current.signal
       );
 
-      await fetch('/api/rendered-videos', {
+      const saveRes = await fetch('/api/rendered-videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -271,10 +282,28 @@ export function ExportModal({
           file_size: file.size,
           duration: maxDuration / 1e6,
           resolution: `${settings.width}x${settings.height}`,
+          type: 'video',
         }),
       });
 
-      toast.success('Uploaded to cloud!');
+      let parentVideoId: string | null = null;
+
+      if (!saveRes.ok) {
+        const errBody = await saveRes.json().catch(() => ({}));
+        Log.error('Failed to save rendered video:', errBody);
+        toast.error('Upload succeeded but failed to save render record');
+      } else {
+        const saveData = await saveRes.json();
+        parentVideoId = saveData.rendered_video?.id || null;
+        toast.success('Uploaded to cloud!');
+      }
+
+      setIsUploading(false);
+
+      // Generate shorts if enabled and parent video was saved
+      if (generateShorts && parentVideoId) {
+        await handleGenerateShorts(blob, parentVideoId, settings);
+      }
 
       // Fetch all renders for this project to show in completion screen
       try {
@@ -299,6 +328,116 @@ export function ExportModal({
       uploadAbortRef.current = null;
       setIsUploading(false);
       setStoreIsExporting(false);
+    }
+  };
+
+  const handleGenerateShorts = async (
+    fullVideoBlob: Blob,
+    parentVideoId: string,
+    settings: any
+  ) => {
+    try {
+      // 1. Analyze transcript
+      setShortsStatus('analyzing');
+      setShortsProgress('Analyzing transcript for viral moments...');
+
+      console.log('[Shorts] Calling analyze-shorts API for:', parentVideoId);
+      const analyzeRes = await fetch(
+        `/api/v2/rendered-videos/${parentVideoId}/analyze-shorts`,
+        { method: 'POST' }
+      );
+
+      console.log('[Shorts] Analyze response status:', analyzeRes.status);
+
+      if (!analyzeRes.ok) {
+        const err = await analyzeRes.json().catch(() => ({}));
+        console.error('[Shorts] Analysis failed:', err);
+        Log.error('Shorts analysis failed:', err);
+        toast.error(
+          `Shorts analysis failed: ${err.error || analyzeRes.status}`
+        );
+        setShortsStatus('error');
+        return;
+      }
+
+      const { segments } = await analyzeRes.json();
+      console.log('[Shorts] Segments received:', segments?.length, segments);
+
+      if (!segments || segments.length === 0) {
+        toast.info('No suitable segments found for shorts');
+        setShortsStatus('done');
+        return;
+      }
+
+      // 2. Split and upload each segment
+      setShortsStatus('splitting');
+      setShortsTotal(segments.length);
+      let succeeded = 0;
+      let failed = 0;
+
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        setShortsProgress(
+          `Creating short ${i + 1}/${segments.length}: "${segment.title}"`
+        );
+
+        try {
+          // Split video segment
+          const shortBlob = await splitVideoSegment(
+            fullVideoBlob,
+            segment.start_time,
+            segment.end_time,
+            i
+          );
+
+          // Upload to R2
+          const shortFile = new File(
+            [shortBlob],
+            `short-${Date.now()}-${i}.mp4`,
+            { type: 'video/mp4' }
+          );
+          const uploadResult = await smartUpload(shortFile);
+
+          // Save to DB
+          const saveRes = await fetch('/api/rendered-videos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              project_id: projectId,
+              url: uploadResult.url,
+              file_size: shortFile.size,
+              duration: segment.end_time - segment.start_time,
+              resolution: `${settings.width}x${settings.height}`,
+              type: 'short',
+              parent_id: parentVideoId,
+              virality_score: segment.virality_score,
+              segment_title: segment.title,
+            }),
+          });
+
+          if (saveRes.ok) {
+            succeeded++;
+            setShortsCreated(succeeded);
+          } else {
+            failed++;
+            Log.error(`Failed to save short ${i + 1}`);
+          }
+        } catch (err) {
+          failed++;
+          Log.error(`Failed to create short ${i + 1}:`, err);
+        }
+      }
+
+      setShortsStatus('done');
+      if (failed === 0) {
+        toast.success(`${succeeded} shorts created!`);
+      } else {
+        toast.warning(`${succeeded}/${segments.length} shorts created`);
+      }
+    } catch (error) {
+      Log.error('Generate shorts error:', error);
+      toast.error('Failed to generate shorts');
+      setShortsStatus('error');
     }
   };
 
@@ -339,6 +478,12 @@ export function ExportModal({
             </DialogTitle>
             <p className="mb-6 text-center text-sm text-zinc-400">
               Your video has been rendered and uploaded to the cloud.
+              {shortsCreated > 0 && (
+                <span className="block mt-1 text-purple-400">
+                  {shortsCreated} short{shortsCreated !== 1 ? 's' : ''}{' '}
+                  generated
+                </span>
+              )}
             </p>
 
             {/* Video preview */}
@@ -413,19 +558,25 @@ export function ExportModal({
               automatically.
             </p>
 
-            {maxDuration > INSTAGRAM_REELS_MAX_MICROS && (
-              <div className="mb-4 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-                <p className="text-sm font-medium text-amber-400">
-                  Timeline is {Math.round(maxDuration / 1e6)}s — exceeds
-                  Instagram&apos;s {INSTAGRAM_REELS_MAX_SECONDS}s limit
-                </p>
-                <p className="mt-1 text-xs text-amber-400/70">
-                  Instagram will reject this video. Trim your timeline to{' '}
-                  {INSTAGRAM_REELS_MAX_SECONDS}s or shorter before rendering for
-                  Instagram.
-                </p>
+            <div className="mb-6 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Scissors className="h-4 w-4 text-zinc-400" />
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      Generate Shorts
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      AI finds viral moments and creates short clips
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={generateShorts}
+                  onCheckedChange={setGenerateShorts}
+                />
               </div>
-            )}
+            </div>
 
             <div className="flex w-full gap-3">
               <Button
@@ -506,14 +657,20 @@ export function ExportModal({
           <div className="w-full px-1">
             <div className="mb-3 flex items-center justify-between text-[13px]">
               <span className="font-medium text-zinc-300">
-                {isUploading
-                  ? 'Uploading to cloud...'
-                  : isRemuxing
-                    ? 'Converting for social media...'
-                    : 'Progress'}
+                {shortsStatus === 'analyzing' || shortsStatus === 'splitting'
+                  ? 'Generating Shorts...'
+                  : isUploading
+                    ? 'Uploading to cloud...'
+                    : isRemuxing
+                      ? 'Converting for social media...'
+                      : 'Progress'}
               </span>
               <span className="font-mono text-zinc-400">
-                {isUploading ? (
+                {shortsStatus === 'analyzing' ? (
+                  'Analyzing transcript...'
+                ) : shortsStatus === 'splitting' ? (
+                  `Short ${shortsCreated + 1}/${shortsTotal}`
+                ) : isUploading ? (
                   `Uploading... ${Math.round(uploadProgress * 100)}%`
                 ) : isRemuxing ? (
                   `Converting... ${Math.round(remuxProgress * 100)}%`
@@ -537,18 +694,25 @@ export function ExportModal({
             <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div
                 className={`absolute bottom-0 left-0 top-0 transition-all duration-300 ease-out ${
-                  isUploading
-                    ? 'bg-blue-500'
-                    : isRemuxing
-                      ? 'bg-amber-500'
-                      : 'bg-white'
+                  shortsStatus === 'analyzing' || shortsStatus === 'splitting'
+                    ? 'bg-purple-500'
+                    : isUploading
+                      ? 'bg-blue-500'
+                      : isRemuxing
+                        ? 'bg-amber-500'
+                        : 'bg-white'
                 }`}
                 style={{
-                  width: isUploading
-                    ? `${Math.round(uploadProgress * 100)}%`
-                    : isRemuxing
-                      ? `${Math.round(remuxProgress * 100)}%`
-                      : `${exportProgress * 100}%`,
+                  width:
+                    shortsStatus === 'analyzing'
+                      ? '100%'
+                      : shortsStatus === 'splitting' && shortsTotal > 0
+                        ? `${Math.round((shortsCreated / shortsTotal) * 100)}%`
+                        : isUploading
+                          ? `${Math.round(uploadProgress * 100)}%`
+                          : isRemuxing
+                            ? `${Math.round(remuxProgress * 100)}%`
+                            : `${exportProgress * 100}%`,
                 }}
               />
             </div>
@@ -560,7 +724,11 @@ export function ExportModal({
               onClick={handleClose}
               className="flex h-11 items-center gap-2.5 rounded-xl border-zinc-800 bg-zinc-900/50 px-8 text-[13px] font-medium text-white transition-all hover:bg-zinc-800 hover:text-white"
             >
-              {(isExporting || isRemuxing || isUploading) && (
+              {(isExporting ||
+                isRemuxing ||
+                isUploading ||
+                shortsStatus === 'analyzing' ||
+                shortsStatus === 'splitting') && (
                 <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
               )}
               Cancel
