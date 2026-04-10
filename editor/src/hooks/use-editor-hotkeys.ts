@@ -130,6 +130,12 @@ export function useEditorHotkeys({
       studio?.selection.move(step, 0);
     });
 
+    // Collapse Gaps
+    hotkeys('command+shift+g, ctrl+shift+g', (event) => {
+      event.preventDefault();
+      studio?.collapseGaps();
+    });
+
     // Last Frame
     hotkeys('command+left, ctrl+left', (event) => {
       event.preventDefault();
@@ -157,6 +163,7 @@ export function useEditorHotkeys({
       hotkeys.unbind('down, shift+down');
       hotkeys.unbind('left, shift+left');
       hotkeys.unbind('right, shift+right');
+      hotkeys.unbind('command+shift+g, ctrl+shift+g');
       hotkeys.unbind('command+left, ctrl+left');
       hotkeys.unbind('command+right, ctrl+right');
     };

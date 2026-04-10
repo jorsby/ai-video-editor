@@ -186,13 +186,13 @@ export default function Header({ saveNow, saveStatus }: HeaderProps) {
     };
   }, [studio]);
 
-  const handleNew = () => {
+  const handleNew = async () => {
     if (!studio) return;
     const confirmed = window.confirm(
       'Are you sure you want to start a new project? Unsaved changes will be lost.'
     );
     if (confirmed) {
-      studio.clear();
+      await studio.clear();
     }
   };
 

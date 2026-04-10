@@ -1,3 +1,5 @@
+import type { ICaptionsControlProps } from '@/components/editor/interface/captions';
+
 export const HOOK_CLIP_NAME = '__video_hook__';
 
 interface HookClipOptions {
@@ -103,4 +105,116 @@ export function generateHookTextConfig(
       durationUs,
     },
   };
+}
+
+/**
+ * Render hook text as a transparent PNG using Canvas API,
+ * styled with a caption preset. Used for FFmpeg overlay on shorts.
+ */
+export async function renderHookOverlayPng(options: {
+  hookLines: { line1: string; line2: string; line3: string };
+  preset: ICaptionsControlProps;
+  videoWidth: number;
+  videoHeight: number;
+}): Promise<Blob> {
+  const { hookLines, preset, videoWidth, videoHeight } = options;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = videoWidth;
+  canvas.height = videoHeight;
+  const ctx = canvas.getContext('2d')!;
+
+  // Load custom font if preset specifies one
+  const fontFamily = preset.fontFamily || 'Montserrat';
+  const fontUrl =
+    preset.fontUrl ||
+    'https://fonts.gstatic.com/s/montserrat/v18/JTURjIg1_i6t8kCHKm45_c5H7g7J_950vCo.ttf';
+
+  try {
+    const face = new FontFace(fontFamily, `url(${fontUrl})`);
+    const loaded = await face.load();
+    document.fonts.add(loaded);
+  } catch {
+    // Fall back to system font if loading fails
+  }
+
+  const fontSize = Math.round(videoWidth * 0.065);
+  const lineSpacing = fontSize * 1.6;
+
+  // Build lines array, apply textTransform
+  let lines = [hookLines.line1, hookLines.line2, hookLines.line3].filter(
+    Boolean
+  );
+  if (preset.textTransform === 'uppercase') {
+    lines = lines.map((l) => l.toUpperCase());
+  } else if (preset.textTransform === 'lowercase') {
+    lines = lines.map((l) => l.toLowerCase());
+  }
+
+  const fontSpec = `800 ${fontSize}px "${fontFamily}", sans-serif`;
+  ctx.font = fontSpec;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const totalHeight = lines.length * lineSpacing;
+  const startY = videoHeight * 0.35 - totalHeight / 2 + lineSpacing / 2;
+  const centerX = videoWidth / 2;
+
+  for (let i = 0; i < lines.length; i++) {
+    const y = startY + i * lineSpacing;
+    const text = lines[i];
+
+    // Background box behind text
+    if (preset.backgroundColor && preset.backgroundColor !== 'transparent') {
+      const metrics = ctx.measureText(text);
+      const padX = fontSize * 0.4;
+      const padY = fontSize * 0.25;
+      const boxW = metrics.width + padX * 2;
+      const boxH = lineSpacing * 0.85;
+      ctx.fillStyle = preset.backgroundColor;
+      ctx.beginPath();
+      ctx.roundRect(centerX - boxW / 2, y - boxH / 2, boxW, boxH, 6);
+      ctx.fill();
+    }
+
+    // Drop shadow
+    if (preset.boxShadow && preset.boxShadow.color !== 'transparent') {
+      ctx.shadowColor = preset.boxShadow.color;
+      ctx.shadowBlur = preset.boxShadow.blur;
+      ctx.shadowOffsetX = preset.boxShadow.x;
+      ctx.shadowOffsetY = preset.boxShadow.y;
+    }
+
+    // Stroke (border)
+    if (
+      preset.borderWidth > 0 &&
+      preset.borderColor &&
+      preset.borderColor !== 'transparent'
+    ) {
+      ctx.strokeStyle = preset.borderColor;
+      ctx.lineWidth = preset.borderWidth;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(text, centerX, y);
+    }
+
+    // Fill text with activeColor (hook text is all "active")
+    ctx.fillStyle = preset.activeColor || '#ffffff';
+    ctx.fillText(text, centerX, y);
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to render hook PNG'));
+      },
+      'image/png'
+    );
+  });
 }

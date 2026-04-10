@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
+import { useTimelineStore } from '@/stores/timeline-store';
+import { useMediaPanelStore } from '@/components/editor/media-panel/store';
 import {
   TooltipProvider,
   Tooltip,
@@ -22,6 +24,7 @@ import {
   Trash2,
   Scissors,
   RotateCcw,
+  AlignLeft,
 } from 'lucide-react';
 import { DEFAULT_FPS } from '@/stores/project-store';
 import { formatTimeCode } from '@/lib/time';
@@ -34,6 +37,7 @@ import {
   IconPlayerSkipForward,
   IconVolume,
   IconVolume3,
+  IconLayoutList,
 } from '@tabler/icons-react';
 
 export function TimelineToolbar({
@@ -43,6 +47,7 @@ export function TimelineToolbar({
   onDuplicate,
   onSplit,
   onReset,
+  onCollapseGaps,
 }: {
   zoomLevel: number;
   setZoomLevel: (zoom: number) => void;
@@ -50,8 +55,16 @@ export function TimelineToolbar({
   onDuplicate?: () => void;
   onSplit?: () => void;
   onReset?: () => void;
+  onCollapseGaps?: () => void;
 }) {
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
+  const { selectedClipIds, clips } = useTimelineStore();
+
+  // Resolve sceneId from the currently selected clip (if exactly one scene-linked clip)
+  const selectedSceneId =
+    selectedClipIds.length === 1
+      ? (clips[selectedClipIds[0]]?.metadata?.sceneId as string | undefined)
+      : undefined;
 
   const handleZoomIn = () => {
     setZoomLevel(Math.min(3.5, zoomLevel + 0.15));
@@ -114,6 +127,37 @@ export function TimelineToolbar({
             </TooltipTrigger>
             <TooltipContent>Reset timeline</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onCollapseGaps}>
+                <AlignLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Collapse gaps (Ctrl+Shift+G)</TooltipContent>
+          </Tooltip>
+
+          {selectedSceneId && (
+            <>
+              <div className="w-px h-4 bg-border mx-1" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      useMediaPanelStore
+                        .getState()
+                        .requestRevealScene(selectedSceneId)
+                    }
+                  >
+                    <IconLayoutList className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Go to Scene</TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </TooltipProvider>
       </div>
 

@@ -75,11 +75,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
-    const belongsToVideo = await chapterExistsInVideo(
-      dbClient,
-      id,
-      chapterId
-    );
+    const belongsToVideo = await chapterExistsInVideo(dbClient, id, chapterId);
     if (!belongsToVideo) {
       return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
     }
@@ -199,11 +195,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
-    const belongsToVideo = await chapterExistsInVideo(
-      dbClient,
-      id,
-      chapterId
-    );
+    const belongsToVideo = await chapterExistsInVideo(dbClient, id, chapterId);
     if (!belongsToVideo) {
       return NextResponse.json({ error: 'Chapter not found' }, { status: 404 });
     }

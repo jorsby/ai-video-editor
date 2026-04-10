@@ -26,7 +26,7 @@ export default function PanelCaptions() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCaptionId, setActiveCaptionId] = useState<string | null>(null);
   const [hasCachedTranscription, setHasCachedTranscription] = useState(false);
-  const [captionLanguage, setCaptionLanguage] = useState<string>('en');
+  const [captionLanguage, setCaptionLanguage] = useState<string>('auto');
   const [hookClip, setHookClip] = useState<IClip | null>(null);
 
   // Use refs to access latest state inside event listeners without re-binding

@@ -11,6 +11,7 @@ import {
   IconChevronUp,
 } from '@tabler/icons-react';
 import { useProjectId } from '@/contexts/project-context';
+import { createClient } from '@/lib/supabase/client';
 
 interface VariantImage {
   id: string;
@@ -153,71 +154,16 @@ export default function PanelProjectLibrary() {
       setLoading(true);
       setError(null);
       try {
-        // Try multiple methods to find the linked video
-        let videoId: string | undefined;
+        // Find the video linked to this project
+        const supabase = createClient('studio');
+        const { data: linkedVideo } = await supabase
+          .from('videos')
+          .select('id')
+          .eq('project_id', projectId)
+          .limit(1)
+          .maybeSingle();
 
-        // Method 1: project settings via API
-        try {
-          const projRes = await fetch(`/api/projects/${projectId}`);
-          if (projRes.ok) {
-            const projData = await projRes.json();
-            const settings = projData?.project?.settings as Record<
-              string,
-              unknown
-            > | null;
-            videoId = settings?.video_id as string | undefined;
-          }
-        } catch {
-          // Continue to fallback
-        }
-
-        // Method 2: check all video for chapters linked to this project
-        if (!videoId) {
-          try {
-            const videoRes = await fetch('/api/videos');
-            if (videoRes.ok) {
-              const videoData = await videoRes.json();
-              for (const s of videoData.video ?? []) {
-                try {
-                  const epRes = await fetch(`/api/videos/${s.id}/chapters`);
-                  if (epRes.ok) {
-                    const epData = await epRes.json();
-                    const match = (epData.chapters ?? []).find(
-                      (ep: { project_id: string }) =>
-                        ep.project_id === projectId
-                    );
-                    if (match) {
-                      videoId = s.id;
-                      break;
-                    }
-                  }
-                } catch {
-                  // Continue
-                }
-              }
-            }
-          } catch {
-            // Continue
-          }
-        }
-
-        // Method 3: check project.settings from video metadata column
-        if (!videoId) {
-          try {
-            const videoRes = await fetch('/api/videos');
-            if (videoRes.ok) {
-              const videoData = await videoRes.json();
-              for (const s of videoData.video ?? []) {
-                if (s.project_id === projectId) {
-                  videoId = s.id;
-                  break;
-                }
-              }
-            }
-          } catch {
-            // Continue
-          }
-        }
+        const videoId = linkedVideo?.id as string | undefined;
 
         if (!videoId) {
           // Standalone project — no video

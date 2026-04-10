@@ -1058,6 +1058,15 @@ export class Studio extends EventEmitter<StudioEvents> {
     }
   }
 
+  async collapseGaps(trackId?: string): Promise<void> {
+    this.beginHistoryGroup();
+    try {
+      return await this.timeline.collapseGaps(trackId);
+    } finally {
+      this.endHistoryGroup();
+    }
+  }
+
   async trimSelected(trimFromSeconds: number): Promise<void> {
     return this.timeline.trimSelected(trimFromSeconds);
   }
@@ -2284,7 +2293,11 @@ export class Studio extends EventEmitter<StudioEvents> {
   }
 
   async loadFromJSON(json: ProjectJSON): Promise<void> {
-    return this.timeline.loadFromJSON(json);
+    await this.timeline.loadFromJSON(json);
+    // Re-initialize history so the loaded project is the baseline.
+    // Without this, the first undo would revert to the empty state
+    // that was recorded during Studio construction.
+    this.history.init(this.exportToJSON());
   }
 
   // End of class Studio (removed legacy commented out code)

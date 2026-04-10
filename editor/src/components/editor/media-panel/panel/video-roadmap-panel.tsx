@@ -609,7 +609,6 @@ export default function VideoRoadmapPanel() {
     const resolvedVideoId = videoId;
 
     try {
-
       const { data: videoRow, error: videoError } = await supabase
         .from('videos')
         .select(
@@ -984,7 +983,11 @@ export default function VideoRoadmapPanel() {
                   }
                 }}
                 className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-                title={expandedEps.size > 0 ? 'Collapse all chapters' : 'Expand all chapters'}
+                title={
+                  expandedEps.size > 0
+                    ? 'Collapse all chapters'
+                    : 'Expand all chapters'
+                }
               >
                 {expandedEps.size > 0 ? (
                   <IconChevronUp className="size-3.5" />

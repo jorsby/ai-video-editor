@@ -5,7 +5,7 @@ import { createServiceClient } from '@/lib/supabase/admin';
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MUSIC_SELECT =
-  'id, project_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, suno_track_id, generation_metadata, sort_order, created_at, updated_at';
+  'id, project_id, video_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
 
 type OwnedMusic = {
   id: string;
@@ -176,6 +176,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: parsed.error }, { status: 400 });
       }
       updates.title = parsed.value;
+    }
+
+    if (body.video_id !== undefined) {
+      if (body.video_id !== null) {
+        if (typeof body.video_id !== 'string') {
+          return NextResponse.json(
+            { error: 'video_id must be a UUID string or null' },
+            { status: 400 }
+          );
+        }
+        const { data: video } = await db
+          .from('videos')
+          .select('id, project_id')
+          .eq('id', body.video_id)
+          .maybeSingle();
+        if (!video || video.project_id !== owned.music.project_id) {
+          return NextResponse.json(
+            { error: 'video_id must reference a video in the same project' },
+            { status: 400 }
+          );
+        }
+        updates.video_id = body.video_id;
+      } else {
+        updates.video_id = null;
+      }
     }
 
     if (Object.keys(updates).length === 0) {

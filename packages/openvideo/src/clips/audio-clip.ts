@@ -139,6 +139,10 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       clip.setAnimation(json.animation.keyFrames, json.animation.opts);
     }
 
+    if ((json as any).metadata) {
+      clip.metadata = { ...(json as any).metadata };
+    }
+
     return clip;
   }
 

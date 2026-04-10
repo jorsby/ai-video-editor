@@ -8,7 +8,7 @@ type MusicType = 'lyrical' | 'instrumental';
 
 const MUSIC_TYPES = new Set<MusicType>(['lyrical', 'instrumental']);
 const MUSIC_SELECT =
-  'id, project_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, suno_track_id, generation_metadata, sort_order, created_at, updated_at';
+  'id, project_id, video_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
 
 type OwnedProjectLookup =
   | {
@@ -26,10 +26,12 @@ type OwnedProjectLookup =
 type ProjectResolution =
   | {
       projectId: string;
+      videoId: string;
       error?: undefined;
     }
   | {
       projectId?: undefined;
+      videoId?: undefined;
       error: NextResponse;
     };
 
@@ -94,7 +96,7 @@ export async function resolveProjectIdFromVideo(
     };
   }
 
-  return { projectId: video.project_id };
+  return { projectId: video.project_id, videoId };
 }
 
 export async function listProjectMusic(
@@ -137,11 +139,54 @@ export async function listProjectMusic(
   }
 }
 
+export async function listVideoMusic(
+  req: NextRequest,
+  videoId: string,
+  projectId: string,
+  logPrefix: string
+) {
+  try {
+    const user = await getUserOrApiKey(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const db = createServiceClient('studio');
+    const owned = await getOwnedProject(db, projectId, user.id);
+    if (owned.error) return owned.error;
+
+    const { data, error } = await db
+      .from('project_music')
+      .select(MUSIC_SELECT)
+      .eq('project_id', projectId)
+      .eq('video_id', videoId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error(`${logPrefix} Failed to list tracks:`, error);
+      return NextResponse.json(
+        { error: 'Failed to list music tracks' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(data ?? []);
+  } catch (error) {
+    console.error(`${logPrefix} Unexpected error:`, error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: request validation and queue flow
 export async function createProjectMusic(
   req: NextRequest,
   projectId: string,
-  logPrefix: string
+  logPrefix: string,
+  videoId?: string | null
 ) {
   try {
     const user = await getUserOrApiKey(req);
@@ -233,6 +278,7 @@ export async function createProjectMusic(
       .from('project_music')
       .insert({
         project_id: projectId,
+        video_id: videoId ?? null,
         name: name.value,
         music_type: musicType,
         prompt,

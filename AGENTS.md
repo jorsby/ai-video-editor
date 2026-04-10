@@ -184,7 +184,7 @@ All in `studio` schema:
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `projects` | Top-level container | `name`, `user_id` |
+| `projects` | Top-level container | `name`, `user_id`, `settings` (JSONB — default voice/model/style for new videos) |
 | `videos` | Videos within project | `project_id`, `title`, `video_resolution`, `order` |
 | `chapters` | Chapters within video | `video_id`, `title`, `order` |
 | `scenes` | Scenes within chapter | `chapter_id`, `order`, `prompt`, `audio_text`, `audio_url`, `video_url`, `video_status` |
@@ -363,10 +363,10 @@ After every code change, check if these docs need updating **in the same commit*
 
 | Doc | Update when... |
 |-----|---------------|
-| `docs/API-COOKBOOK.md` | Any API endpoint added, changed, or removed |
+| `API-COOKBOOK.md` | Any API endpoint added, changed, or removed |
 | `AGENTS.md` | Architecture, patterns, DB schema, env vars, or project structure changes |
 | `HOW-TO-DEVELOP.md` | Development workflow or async pattern changes |
-| `CLAUDE.md` | New top-level rules, stack changes, or critical "don't" items |
+
 
 **Rule:** Code change + doc update = same commit. No exceptions.
 

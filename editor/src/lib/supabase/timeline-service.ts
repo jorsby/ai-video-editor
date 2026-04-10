@@ -22,49 +22,14 @@ export async function saveTimeline(
 ) {
   const supabase = createClient('studio');
 
-  // Build filter for existing tracks
-  let query = supabase.from('tracks').select('id').eq('project_id', projectId);
-  if (videoId) query = query.eq('video_id', videoId);
+  // Build track rows for RPC
+  const trackRows = tracks.map((track, i) => ({
+    id: track.id,
+    position: i,
+    data: track,
+  }));
 
-  const { data: existingTracks, error: fetchError } = await query;
-  if (fetchError) throw fetchError;
-
-  const existingTrackIds = (existingTracks ?? []).map((t) => t.id);
-
-  // Delete existing clips for these tracks
-  if (existingTrackIds.length > 0) {
-    const { error: deleteClipsError } = await supabase
-      .from('clips')
-      .delete()
-      .in('track_id', existingTrackIds);
-    if (deleteClipsError) throw deleteClipsError;
-  }
-
-  // Delete existing tracks
-  if (existingTrackIds.length > 0) {
-    const { error: deleteTracksError } = await supabase
-      .from('tracks')
-      .delete()
-      .in('id', existingTrackIds);
-    if (deleteTracksError) throw deleteTracksError;
-  }
-
-  // Insert tracks
-  if (tracks.length > 0) {
-    const trackRows = tracks.map((track, i) => ({
-      id: track.id,
-      project_id: projectId,
-      video_id: videoId ?? null,
-      position: i,
-      data: track, // Full track object in JSONB
-    }));
-    const { error: trackError } = await supabase
-      .from('tracks')
-      .insert(trackRows);
-    if (trackError) throw trackError;
-  }
-
-  // Insert clips (track-first: use track.clipIds as authoritative order)
+  // Build clip rows (track-first: use track.clipIds as authoritative order)
   const clipById = new Map<string, IClip>(clips.map((c) => [c.id, c]));
   const clipRows: Array<{
     id: string;
@@ -86,10 +51,15 @@ export async function saveTimeline(
     }
   }
 
-  if (clipRows.length > 0) {
-    const { error: clipError } = await supabase.from('clips').insert(clipRows);
-    if (clipError) throw clipError;
-  }
+  // Single transactional RPC call — all-or-nothing
+  const { error } = await supabase.rpc('save_timeline', {
+    p_project_id: projectId,
+    p_video_id: videoId ?? null,
+    p_tracks: trackRows,
+    p_clips: clipRows,
+  });
+
+  if (error) throw error;
 }
 
 interface TrackWithClips {

@@ -92,7 +92,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       prompt: asOptionalString(body?.prompt),
       image_url: asOptionalString(body?.image_url),
       is_main: Boolean(body?.is_main),
-      where_to_use: asOptionalString(body?.where_to_use ?? body?.description),
       reasoning: asOptionalString(body?.reasoning),
     });
 

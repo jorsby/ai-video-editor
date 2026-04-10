@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 interface MusicTrack {
   id: string;
   project_id: string;
+  video_id: string | null;
   name: string;
   music_type: 'lyrical' | 'instrumental';
   prompt: string | null;
@@ -167,8 +168,10 @@ function MusicTrackCard({
 
 export function ProjectMusicSection({
   projectId,
+  videoId,
 }: {
   projectId: string | null;
+  videoId?: string | null;
 }) {
   const { studio } = useStudioStore();
   const [isOpen, setIsOpen] = useState(true);
@@ -182,7 +185,10 @@ export function ProjectMusicSection({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/v2/projects/${projectId}/music`);
+      const url = videoId
+        ? `/api/v2/videos/${videoId}/music`
+        : `/api/v2/projects/${projectId}/music`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setTracks(data);
@@ -192,7 +198,7 @@ export function ProjectMusicSection({
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, videoId]);
 
   useEffect(() => {
     void fetchTracks();
@@ -203,15 +209,18 @@ export function ProjectMusicSection({
     if (!projectId) return;
 
     const supabase = createClient('studio');
+    const filterStr = videoId
+      ? `video_id=eq.${videoId}`
+      : `project_id=eq.${projectId}`;
     const channel = supabase
-      .channel(`project-music-${projectId}`)
+      .channel(`project-music-${videoId ?? projectId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'studio',
           table: 'project_music',
-          filter: `project_id=eq.${projectId}`,
+          filter: filterStr,
         },
         () => {
           void fetchTracks();
@@ -222,7 +231,7 @@ export function ProjectMusicSection({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [projectId, fetchTracks]);
+  }, [projectId, videoId, fetchTracks]);
 
   const handleAddToTimeline = useCallback(
     async (track: MusicTrack) => {

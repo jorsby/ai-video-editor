@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AlertCircle,
   ChevronsDownUp,
@@ -108,6 +108,17 @@ export function SocialAccountsList({
     groups.length > 0 && groups.every((g) => openGroupIds.has(g.id));
 
   const isSyncingAny = (platformMediaLoading?.size ?? 0) > 0;
+
+  // Auto-fetch platform media (post counts) when Social tab first opens
+  const autoSyncedRef = useRef(false);
+  useEffect(() => {
+    if (autoSyncedRef.current || accounts.length === 0 || !onFetchPlatformMedia)
+      return;
+    autoSyncedRef.current = true;
+    for (const account of accounts) {
+      onFetchPlatformMedia(account.account_id);
+    }
+  }, [accounts, onFetchPlatformMedia]);
 
   const handleSyncAll = () => {
     if (!onFetchPlatformMedia || isSyncingAny) return;

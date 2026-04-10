@@ -140,6 +140,7 @@ export async function buildSceneClips(params: {
         ? `S${idx + 1} – ${scene.title}`
         : `Scene ${idx + 1}`;
       videoClip.name = sceneLabel;
+      videoClip.metadata = { sceneId: scene.id };
       await videoClip.scaleToFit(canvasWidth, canvasHeight);
       videoClip.centerInScene(canvasWidth, canvasHeight);
     }
@@ -150,6 +151,7 @@ export async function buildSceneClips(params: {
         ? `VO – S${idx + 1} – ${scene.title}`
         : `VO – Scene ${idx + 1}`;
       audioClip.name = voLabel;
+      audioClip.metadata = { sceneId: scene.id };
     }
 
     // ── Get real durations from probed clips ────────────────────────

@@ -10,6 +10,7 @@ import {
   Ellipsis,
   ArrowUp,
   ArrowDown,
+  AlignLeft,
 } from 'lucide-react';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
@@ -36,11 +37,13 @@ import { TimelineStudioSync } from './timeline-studio-sync';
 import { useEditorHotkeys } from '@/hooks/use-editor-hotkeys';
 import { clearTimeline } from '@/lib/supabase/timeline-service';
 import { useProjectId } from '@/contexts/project-context';
+import { useVideoSelectorStore } from '@/stores/video-selector-store';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
@@ -51,6 +54,7 @@ export function Timeline() {
     usePlaybackStore();
   const { studio } = useStudioStore();
   const projectId = useProjectId();
+  const { getVideoId } = useVideoSelectorStore();
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
@@ -334,19 +338,31 @@ export function Timeline() {
     )
       return;
     try {
-      studio?.clear();
+      await studio?.clear();
       setCurrentTime(0);
       setDuration(0);
       setIsPlaying(false);
       if (projectId) {
-        await clearTimeline(projectId);
+        const currentVideoId = getVideoId(projectId) ?? undefined;
+        await clearTimeline(projectId, currentVideoId);
       }
       toast.success('Timeline reset');
     } catch (err) {
       console.error('Failed to reset timeline:', err);
       toast.error('Failed to reset timeline');
     }
-  }, [studio, projectId, setCurrentTime, setDuration, setIsPlaying]);
+  }, [
+    studio,
+    projectId,
+    getVideoId,
+    setCurrentTime,
+    setDuration,
+    setIsPlaying,
+  ]);
+
+  const handleCollapseGaps = useCallback(() => {
+    studio?.collapseGaps();
+  }, [studio]);
 
   useEditorHotkeys({
     timelineCanvas: timelineCanvasRef.current,
@@ -368,6 +384,7 @@ export function Timeline() {
         onDuplicate={handleDuplicate}
         onSplit={handleSplit}
         onReset={handleReset}
+        onCollapseGaps={handleCollapseGaps}
       />
       <TimelineStudioSync timelineCanvas={timelineCanvasRef.current} />
 
@@ -516,6 +533,15 @@ export function Timeline() {
                             >
                               <ArrowDown className="size-4 mr-2" />
                               Move track down
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                studio?.collapseGaps(track.id);
+                              }}
+                            >
+                              <AlignLeft className="size-4 mr-2" />
+                              Collapse gaps
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

@@ -43,6 +43,7 @@ import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { ExpandableText } from '../shared/expandable-text';
 import { CopyButton } from '../shared/copy-button';
+import { CopyIdBadge } from '../shared/copy-id-badge';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -220,7 +221,10 @@ function VariantCard({
                 </Badge>
               )}
             </div>
-            <SlugBadge slug={variant.slug} />
+            <div className="flex items-center gap-1">
+              <SlugBadge slug={variant.slug} />
+              <CopyIdBadge id={variant.id} />
+            </div>
           </div>
 
           {isGenerating ? (
@@ -267,7 +271,7 @@ function VariantCard({
           ) : null}
         </div>
 
-        {(variant.prompt || variant.whereToUse || variant.reasoning) && (
+        {(variant.prompt || variant.reasoning) && (
           <div className="px-2.5 py-1.5 space-y-1 border-t border-border/20">
             {variant.prompt && (
               <DetailRow label="Prompt">
@@ -275,15 +279,6 @@ function VariantCard({
                   text={variant.prompt}
                   label="Prompt"
                   clampLines={3}
-                />
-              </DetailRow>
-            )}
-            {variant.whereToUse && (
-              <DetailRow label="Where">
-                <ExpandableText
-                  text={variant.whereToUse}
-                  label="Where"
-                  clampLines={2}
                 />
               </DetailRow>
             )}
@@ -552,6 +547,7 @@ function AssetCard({
               <div className="flex items-center gap-1.5 flex-wrap">
                 <p className="text-xs font-medium truncate">{asset.name}</p>
                 {asset.slug && <SlugBadge slug={asset.slug} />}
+                <CopyIdBadge id={asset.id} />
                 {asset.variants.some((v) => v.isFinalized) && (
                   <Badge
                     variant="outline"
@@ -916,6 +912,7 @@ export default function ProjectAssetsPanel() {
   // Chapter filter
   const { focusedChapterId, focusedVariantSlugs, clearFocus } =
     useChapterFocusStore();
+
   const [variantDisplayById, setVariantDisplayById] = useState<
     Map<
       string,
@@ -933,10 +930,12 @@ export default function ProjectAssetsPanel() {
 
   // Filter assets by chapter focus (if active)
   const filteredAssets = useMemo(() => {
-    if (!focusedChapterId || focusedVariantSlugs.size === 0) return assets;
-    return assets.filter((asset) =>
-      asset.variants.some((v) => focusedVariantSlugs.has(v.slug))
-    );
+    if (focusedChapterId && focusedVariantSlugs.size > 0) {
+      return assets.filter((asset) =>
+        asset.variants.some((v) => focusedVariantSlugs.has(v.slug))
+      );
+    }
+    return assets;
   }, [assets, focusedChapterId, focusedVariantSlugs]);
 
   const groupedAssets = useMemo(() => {
@@ -1250,7 +1249,11 @@ export default function ProjectAssetsPanel() {
             type="button"
             onClick={() => toggleAll('assets')}
             className="h-7 px-2 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-            title={forceOpen === false ? 'Expand all sections' : 'Collapse all sections'}
+            title={
+              forceOpen === false
+                ? 'Expand all sections'
+                : 'Collapse all sections'
+            }
           >
             {forceOpen === false ? (
               <IconPlus size={14} />

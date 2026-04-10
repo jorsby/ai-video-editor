@@ -53,7 +53,6 @@ export interface Video {
   language: string | null;
   aspect_ratio: string | null;
   video_model: string | null;
-  image_model: string | null;
   voice_id: string | null;
   tts_speed: number | null;
   visual_style: string | JsonRecord | null;
@@ -90,7 +89,6 @@ export interface VideoAssetVariant {
   prompt: string | null;
   image_url: string | null;
   is_main: boolean;
-  where_to_use: string | null;
   reasoning: string | null;
   created_at: string;
   updated_at: string;
@@ -300,10 +298,7 @@ function toVariantWithCompatibility(
     ...(variant as unknown as VideoAssetVariant),
     image_url: resolvedImageUrl,
     label: typeof variant.name === 'string' ? variant.name : undefined,
-    description:
-      typeof variant.where_to_use === 'string'
-        ? variant.where_to_use
-        : ((variant.where_to_use as string | null) ?? null),
+    description: null,
     is_finalized: false,
     finalized_at: null,
   };
@@ -556,7 +551,6 @@ export async function createVideo(
     language?: string;
     aspect_ratio?: string;
     video_model?: string;
-    image_model?: string;
     voice_id?: string;
     tts_speed?: number;
     visual_style?: unknown;
@@ -583,7 +577,6 @@ export async function createVideo(
       language: asNullableText(input.language),
       aspect_ratio: asNullableText(input.aspect_ratio),
       video_model: asNullableText(input.video_model),
-      image_model: asNullableText(input.image_model),
       voice_id: asNullableText(input.voice_id),
       tts_speed:
         typeof input.tts_speed === 'number' && Number.isFinite(input.tts_speed)
@@ -613,7 +606,6 @@ export async function updateVideo(
     language?: string | null;
     aspect_ratio?: string | null;
     video_model?: string | null;
-    image_model?: string | null;
     voice_id?: string | null;
     tts_speed?: number | null;
     visual_style?: unknown;
@@ -790,9 +782,7 @@ export async function createAssetVariant(
     prompt?: string;
     image_url?: string;
     is_main?: boolean;
-    where_to_use?: string;
     reasoning?: string;
-    description?: string;
   }
 ): Promise<VideoAssetVariant> {
   const resolvedName = asNullableText(input.name ?? input.label);
@@ -825,7 +815,6 @@ export async function createAssetVariant(
       prompt: asNullableText(input.prompt),
       image_url: asNullableText(input.image_url),
       is_main: Boolean(input.is_main),
-      where_to_use: asNullableText(input.where_to_use ?? input.description),
       reasoning: asNullableText(input.reasoning),
     })
     .select()
@@ -850,9 +839,7 @@ export async function updateAssetVariant(
     prompt?: string | null;
     image_url?: string | null;
     is_main?: boolean;
-    where_to_use?: string | null;
     reasoning?: string | null;
-    description?: string | null;
   }
 ): Promise<VideoAssetVariant> {
   const updates: Record<string, unknown> = {};
@@ -875,11 +862,6 @@ export async function updateAssetVariant(
   if (input.prompt !== undefined) updates.prompt = asNullableText(input.prompt);
   if (input.image_url !== undefined)
     updates.image_url = asNullableText(input.image_url);
-  if (input.where_to_use !== undefined || input.description !== undefined) {
-    updates.where_to_use = asNullableText(
-      input.where_to_use ?? input.description ?? null
-    );
-  }
   if (input.reasoning !== undefined)
     updates.reasoning = asNullableText(input.reasoning);
 

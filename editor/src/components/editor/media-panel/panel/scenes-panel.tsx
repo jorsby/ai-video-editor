@@ -89,9 +89,7 @@ export default function ScenesPanel() {
                 <p className="text-xs font-semibold truncate">
                   {video.name || 'Untitled Video'}
                 </p>
-                <p className="text-[10px] text-muted-foreground">
-                  Video Bible
-                </p>
+                <p className="text-[10px] text-muted-foreground">Video Bible</p>
               </div>
               <IconChevronDown className="size-3.5 text-muted-foreground group-data-[state=open]:hidden" />
               <IconChevronUp className="size-3.5 text-muted-foreground hidden group-data-[state=open]:block" />

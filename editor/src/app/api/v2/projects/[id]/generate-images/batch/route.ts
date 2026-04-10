@@ -1,7 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { queueImageTask } from '@/lib/image-provider';
+import {
+  queueImageTask,
+  getT2iModel,
+  getI2iModel,
+  getImageAspectRatio,
+  getImageResolution,
+} from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -10,7 +16,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * POST /api/v2/projects/{id}/generate-images/batch
  *
  * Queue image generation for multiple variants in a single call.
- * Uses Flux 2 Pro via kie.ai — 2K resolution, project aspect ratio.
+ * Uses per-model aspect ratio and resolution from image_models settings.
  *
  * Body:
  * {
@@ -39,10 +45,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       .maybeSingle();
 
     if (!project) {
-      return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
     if (project.user_id !== user.id) {
@@ -78,7 +81,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     // Load video settings (aspect ratio)
     const { data: video } = await db
       .from('videos')
-      .select('id, genre, tone, aspect_ratio')
+      .select('id, genre, tone, aspect_ratio, image_models')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -95,7 +98,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const { data: variants, error: variantsError } = await db
       .from('project_asset_variants')
       .select(
-        'id, asset_id, slug, prompt, image_gen_status, asset:project_assets!inner(id, project_id, name, type, description)'
+        'id, asset_id, slug, prompt, is_main, image_gen_status, asset:project_assets!inner(id, project_id, name, type, description)'
       )
       .in('id', variantIds)
       .eq('project_assets.project_id', projectId);
@@ -120,7 +123,29 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    const aspectRatio = video.aspect_ratio ?? '9:16';
+    const globalAspectRatio = video.aspect_ratio ?? '9:16';
+    const imageModels = video.image_models as Record<string, string> | null;
+
+    // Pre-fetch main variant image URLs for i2i lookups (grouped by asset_id)
+    const allAssetIds = [
+      ...new Set(
+        (variants ?? [])
+          .filter((v: Record<string, unknown>) => !v.is_main)
+          .map((v: Record<string, unknown>) => v.asset_id as string)
+      ),
+    ];
+    const mainImageMap = new Map<string, string>();
+    if (allAssetIds.length > 0) {
+      const { data: mainVariants } = await db
+        .from('project_asset_variants')
+        .select('asset_id, image_url')
+        .in('asset_id', allAssetIds)
+        .eq('is_main', true);
+      for (const mv of mainVariants ?? []) {
+        if (mv.image_url)
+          mainImageMap.set(mv.asset_id as string, mv.image_url as string);
+      }
+    }
 
     type BatchResult = {
       variant_id: string;
@@ -135,7 +160,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     let skipped = 0;
 
     for (const variantId of variantIds) {
-      const variant = variantMap.get(variantId) as Record<string, unknown> | undefined;
+      const variant = variantMap.get(variantId) as
+        | Record<string, unknown>
+        | undefined;
 
       if (!variant) {
         results.push({
@@ -160,12 +187,12 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       // Build prompt
       const asset = variant.asset as Record<string, unknown>;
       let prompt: string;
+      const assetType = asset.type as string;
 
       if (promptOverrides[variantId]) {
         prompt = promptOverrides[variantId];
       } else {
         const parts: string[] = [];
-        const assetType = asset.type as string;
 
         if (assetType === 'character') {
           parts.push(
@@ -193,17 +220,40 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         prompt = parts.join('. ');
       }
 
+      // Resolve model: main → t2i, non-main → i2i (if main image available)
+      let model = getT2iModel(imageModels, assetType);
+      let inputUrls: string[] | undefined;
+
+      if (!variant.is_main) {
+        const mainImageUrl = mainImageMap.get(variant.asset_id as string);
+        if (mainImageUrl) {
+          model = getI2iModel(imageModels, assetType);
+          inputUrls = [mainImageUrl];
+        }
+      }
+
       // Queue image generation
       try {
         const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
         webhookUrl.searchParams.set('step', 'VideoAssetImage');
         webhookUrl.searchParams.set('variant_id', variantId);
 
+        const isI2i = !!inputUrls;
+        const aspectRatio = getImageAspectRatio(
+          imageModels,
+          assetType,
+          isI2i,
+          globalAspectRatio
+        );
+        const resolution = getImageResolution(imageModels, assetType, isI2i);
+
         const taskResult = await queueImageTask({
           prompt,
           webhookUrl: webhookUrl.toString(),
+          model,
+          inputUrls,
           aspectRatio,
-          resolution: '2K',
+          resolution,
         });
 
         // Mark variant as generating
@@ -236,8 +286,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       skipped,
       failed: results.filter((r) => r.status === 'failed').length,
       total: variantIds.length,
-      aspect_ratio: aspectRatio,
-      resolution: '2K',
+      aspect_ratio: globalAspectRatio,
       results,
     });
   } catch (error) {

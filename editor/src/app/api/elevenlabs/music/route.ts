@@ -1,6 +1,5 @@
 import { R2StorageService } from '@/lib/r2';
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 
 // Note: Reusing SFX logic for Music as a placeholder or if using SFX "instrumental" capabilities.
 // If a specific Music API becomes available, this should be updated.
@@ -60,36 +59,7 @@ export async function POST(req: NextRequest) {
     const fileName = `music/${Date.now()}.mp3`;
     const publicUrl = await r2.uploadData(fileName, buffer, 'audio/mpeg');
 
-    // Save to Supabase
-    const supabase = await createClient('studio');
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: asset, error: dbError } = await supabase
-      .from('assets')
-      .insert({
-        user_id: user.id,
-        project_id,
-        type: 'music',
-        url: publicUrl,
-        name: text.substring(0, 100),
-        prompt: text,
-      })
-      .select()
-      .single();
-
-    if (dbError) {
-      console.error('Database error:', dbError);
-      // Still return the URL even if DB save fails
-      return NextResponse.json({ url: publicUrl });
-    }
-
-    return NextResponse.json({ url: publicUrl, id: asset.id });
+    return NextResponse.json({ url: publicUrl });
   } catch (error) {
     console.error('Music generation error:', error);
     return NextResponse.json(

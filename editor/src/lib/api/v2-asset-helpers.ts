@@ -2,7 +2,14 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { slugify as toSlug } from '@/lib/utils/slugify';
-import { queueImageTask } from '@/lib/image-provider';
+import {
+  queueImageTask,
+  getT2iModel,
+  getI2iModel,
+  getImageAspectRatio,
+  getImageResolution,
+} from '@/lib/image-provider';
+import type { ImageModelId } from '@/lib/kie-image';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 export type AssetType = 'character' | 'location' | 'prop';
@@ -11,7 +18,7 @@ export type AssetRouteScope = 'project' | 'video';
 const ASSET_SELECT =
   'id, project_id, type, name, slug, description, sort_order, created_at, updated_at';
 const VARIANT_SELECT =
-  'id, asset_id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_task_id, image_gen_status, created_at, updated_at';
+  'id, asset_id, name, slug, prompt, image_url, is_main, reasoning, image_task_id, image_gen_status, created_at, updated_at';
 
 function toNullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -25,14 +32,17 @@ type DB = any;
 
 /**
  * Fire-and-forget image generation for a list of variants.
- * Marks each variant as 'generating' and queues a Flux 2 Pro task via Kie.ai.
+ * Marks each variant as 'generating' and queues a task via Kie.ai.
  * Errors are swallowed per-variant so one failure doesn't block others.
  */
 async function autoGenerateImages(
   db: DB,
   variants: Array<{ id: string; prompt: string }>,
   req: NextRequest,
-  aspectRatio = '9:16'
+  aspectRatio = '9:16',
+  model?: ImageModelId,
+  inputUrls?: string[],
+  resolution = '2K'
 ): Promise<void> {
   const webhookBase = resolveWebhookBaseUrl(req);
   if (!webhookBase) return; // Can't generate without webhook URL
@@ -47,8 +57,10 @@ async function autoGenerateImages(
       const queued = await queueImageTask({
         prompt: variant.prompt,
         webhookUrl: webhookUrl.toString(),
+        model,
+        inputUrls,
         aspectRatio,
-        resolution: '2K',
+        resolution,
       });
 
       await db
@@ -283,7 +295,6 @@ export async function postAssetsByType(
     description: string | null;
     sort_order: number;
     _variant_prompt: string;
-    _variant_where_to_use: string;
     _variant_reasoning: string;
   }> = [];
 
@@ -309,19 +320,10 @@ export async function postAssetsByType(
     }
 
     const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
-    const whereToUse =
-      typeof item?.where_to_use === 'string' ? item.where_to_use.trim() : '';
 
     if (!prompt) {
       return NextResponse.json(
         { error: `"prompt" is required for "${name}"` },
-        { status: 400 }
-      );
-    }
-
-    if (!whereToUse) {
-      return NextResponse.json(
-        { error: `"where_to_use" is required for "${name}"` },
         { status: 400 }
       );
     }
@@ -334,14 +336,12 @@ export async function postAssetsByType(
       description: toNullableString(item?.description),
       sort_order: nextSort++,
       _variant_prompt: prompt,
-      _variant_where_to_use: whereToUse,
       _variant_reasoning: toNullableString(item?.reasoning) ?? '',
     });
   }
 
   const dbRows = rows.map(
-    ({ _variant_prompt, _variant_where_to_use, _variant_reasoning, ...rest }) =>
-      rest
+    ({ _variant_prompt, _variant_reasoning, ...rest }) => rest
   );
 
   const { data: assets, error: insertErr } = await db
@@ -373,7 +373,6 @@ export async function postAssetsByType(
         slug: `${asset.slug}-main`,
         is_main: true,
         prompt: (inputRow._variant_prompt as string) ?? '',
-        where_to_use: (inputRow._variant_where_to_use as string) ?? '',
         reasoning: (inputRow._variant_reasoning as string) ?? '',
       };
     }
@@ -391,22 +390,34 @@ export async function postAssetsByType(
     }>;
   }
 
-  // Auto-generate images for all created main variants (fire-and-forget)
+  // Auto-generate images for all created main variants (fire-and-forget, t2i)
   if (insertedVariants.length > 0) {
-    // Get project aspect ratio from video settings
     const { data: video } = await db
       .from('videos')
-      .select('aspect_ratio')
+      .select('aspect_ratio, image_models')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
+    const imgModels = video?.image_models as Record<string, string> | null;
+    const t2iModel = getT2iModel(imgModels, type);
+    const arForType = getImageAspectRatio(
+      imgModels,
+      type,
+      false,
+      video?.aspect_ratio ?? '9:16'
+    );
+    const resForType = getImageResolution(imgModels, type, false);
+
     autoGenerateImages(
       db,
       insertedVariants,
       req,
-      video?.aspect_ratio ?? '9:16'
+      arForType,
+      t2iModel,
+      undefined,
+      resForType
     ).catch(() => {}); // fire-and-forget
   }
 
@@ -621,19 +632,10 @@ export async function postVariantsByAsset(
         : toSlug(name);
 
     const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
-    const whereToUse =
-      typeof item?.where_to_use === 'string' ? item.where_to_use.trim() : '';
 
     if (!prompt) {
       return NextResponse.json(
         { error: `"prompt" is required for variant "${name}"` },
-        { status: 400 }
-      );
-    }
-
-    if (!whereToUse) {
-      return NextResponse.json(
-        { error: `"where_to_use" is required for variant "${name}"` },
         { status: 400 }
       );
     }
@@ -644,7 +646,6 @@ export async function postVariantsByAsset(
       slug,
       prompt,
       is_main: false,
-      where_to_use: whereToUse,
       reasoning:
         typeof item?.reasoning === 'string' ? item.reasoning.trim() : '',
     });
@@ -670,19 +671,57 @@ export async function postVariantsByAsset(
   }
 
   // Auto-generate images for all created variants (fire-and-forget)
+  // Non-main variants use i2i with main variant's image if available
   const created = (data ?? []) as Array<{ id: string; prompt: string }>;
   if (created.length > 0) {
     const { data: video } = await db
       .from('videos')
-      .select('aspect_ratio')
+      .select('aspect_ratio, image_models')
       .eq('project_id', asset.project_id)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    autoGenerateImages(db, created, req, video?.aspect_ratio ?? '9:16').catch(
-      () => {}
+    const assetType = asset.type as string;
+    const imageModels = video?.image_models as Record<string, string> | null;
+
+    // Check if main variant has an image for i2i
+    const { data: mainVariant } = await db
+      .from('project_asset_variants')
+      .select('image_url')
+      .eq('asset_id', assetId)
+      .eq('is_main', true)
+      .maybeSingle();
+
+    let model: ImageModelId;
+    let inputUrls: string[] | undefined;
+
+    let isI2i = false;
+    if (mainVariant?.image_url) {
+      model = getI2iModel(imageModels, assetType);
+      inputUrls = [mainVariant.image_url as string];
+      isI2i = true;
+    } else {
+      model = getT2iModel(imageModels, assetType);
+    }
+
+    const variantAr = getImageAspectRatio(
+      imageModels,
+      assetType,
+      isI2i,
+      video?.aspect_ratio ?? '9:16'
     );
+    const variantRes = getImageResolution(imageModels, assetType, isI2i);
+
+    autoGenerateImages(
+      db,
+      created,
+      req,
+      variantAr,
+      model,
+      inputUrls,
+      variantRes
+    ).catch(() => {});
   }
 
   return NextResponse.json(data ?? [], { status: 201 });
@@ -724,8 +763,6 @@ export async function patchVariantById(
     updates.prompt = toNullableString(body.prompt);
   if (body?.image_url !== undefined)
     updates.image_url = toNullableString(body.image_url);
-  if (body?.where_to_use !== undefined)
-    updates.where_to_use = toNullableString(body.where_to_use);
   if (body?.reasoning !== undefined)
     updates.reasoning = toNullableString(body.reasoning);
 

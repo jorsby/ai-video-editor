@@ -13,6 +13,10 @@ import {
   IconSettings,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
+import {
+  IMAGE_MODEL_CONFIGS,
+  type ImageModelId,
+} from '@/lib/kie-image-configs';
 
 interface ImageModels {
   character: string;
@@ -107,6 +111,12 @@ const I2I_MODEL_OPTIONS = [
   { value: 'nano-banana-2', label: 'Nano Banana 2 (I2I)' },
 ];
 
+const IMAGE_RESOLUTION_OPTIONS = [
+  { value: '1K', label: '1K' },
+  { value: '2K', label: '2K' },
+  { value: '4K', label: '4K' },
+];
+
 const DEFAULT_I2I_IMAGE_MODELS: Record<string, string> = {
   character_i2i: 'flux-2/pro-image-to-image',
   location_i2i: 'gpt-image/1.5-image-to-image',
@@ -154,6 +164,20 @@ const SETTINGS_DEFAULTS: Required<ProjectSettings> = {
   language: '',
 };
 
+// Fields that live on the video row (not in projects.settings)
+const VIDEO_LEVEL_FIELDS = [
+  'voice_id',
+  'tts_speed',
+  'video_model',
+  'video_resolution',
+  'image_models',
+  'aspect_ratio',
+  'genre',
+  'tone',
+  'language',
+  'visual_style',
+] as const;
+
 export default function VideoSettingsPanel() {
   const projectId = useProjectId();
   const [isLoading, setIsLoading] = useState(true);
@@ -161,6 +185,7 @@ export default function VideoSettingsPanel() {
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
   const [projectName, setProjectName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(null);
 
   // Draft state for editing
   const [draft, setDraft] = useState<Partial<ProjectSettings>>({});
@@ -184,6 +209,28 @@ export default function VideoSettingsPanel() {
 
     setProjectName(project.name ?? 'Untitled');
     const saved = (project.settings ?? {}) as ProjectSettings;
+
+    // Also load video-level fields from the first video
+    const { data: video } = await supabase
+      .from('videos')
+      .select(
+        'id, voice_id, tts_speed, video_model, video_resolution, image_models, aspect_ratio, genre, tone, language, visual_style'
+      )
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (video) {
+      setVideoId(video.id);
+      // Video-level fields override project.settings when present
+      for (const field of VIDEO_LEVEL_FIELDS) {
+        if (video[field] != null) {
+          (saved as Record<string, unknown>)[field] = video[field];
+        }
+      }
+    }
+
     setSettings(saved);
     setDraft({});
     setIsLoading(false);
@@ -207,6 +254,7 @@ export default function VideoSettingsPanel() {
       const supabase = createClient('studio');
       const newSettings = { ...settings, ...draft };
 
+      // Save project-level settings
       const { error: updateError } = await supabase
         .from('projects')
         .update({ settings: newSettings })
@@ -215,6 +263,22 @@ export default function VideoSettingsPanel() {
       if (updateError) {
         toast.error('Failed to save settings');
         return;
+      }
+
+      // Also sync video-level fields to the active video
+      if (videoId) {
+        const videoUpdates: Record<string, unknown> = {};
+        for (const field of VIDEO_LEVEL_FIELDS) {
+          if (field in draft) {
+            videoUpdates[field] = (draft as Record<string, unknown>)[field];
+          }
+        }
+        if (Object.keys(videoUpdates).length > 0) {
+          await supabase
+            .from('videos')
+            .update(videoUpdates)
+            .eq('id', videoId);
+        }
       }
 
       toast.success('Project settings saved');
@@ -417,25 +481,70 @@ export default function VideoSettingsPanel() {
                   ? 'Location'
                   : 'Prop';
 
+            const t2iConfig =
+              IMAGE_MODEL_CONFIGS[t2iValue as ImageModelId] ?? null;
+            const i2iConfig =
+              IMAGE_MODEL_CONFIGS[i2iValue as ImageModelId] ?? null;
+
+            const t2iArKey = `${assetType}_aspect_ratio`;
+            const i2iArKey = `${assetType}_i2i_aspect_ratio`;
+            const t2iResKey = `${assetType}_resolution`;
+            const i2iResKey = `${assetType}_i2i_resolution`;
+
+            const t2iAr =
+              currentModels[t2iArKey] ??
+              t2iConfig?.defaultAspectRatio ??
+              '9:16';
+            const i2iAr =
+              currentModels[i2iArKey] ??
+              i2iConfig?.defaultAspectRatio ??
+              '9:16';
+            const t2iRes = currentModels[t2iResKey] ?? '2K';
+            const i2iRes = currentModels[i2iResKey] ?? '2K';
+
+            const handleModelChange = (
+              key: string,
+              newModel: string,
+              arKey: string,
+              resKey: string,
+              currentAr: string
+            ) => {
+              const config =
+                IMAGE_MODEL_CONFIGS[newModel as ImageModelId] ?? null;
+              const updated = { ...currentModels, [key]: newModel };
+
+              if (config && !config.supportedAspectRatios.has(currentAr)) {
+                updated[arKey] = config.defaultAspectRatio;
+              }
+              if (config && !config.supportsResolution) {
+                delete updated[resKey];
+              }
+
+              updateDraft('image_models', updated);
+            };
+
             return (
               <div key={assetType} className="space-y-1">
                 <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                   {label}
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
-                  <div>
+                  {/* T2I column */}
+                  <div className="space-y-1">
                     <span className="text-[9px] text-muted-foreground/70">
                       Generate
                     </span>
                     <select
                       value={t2iValue}
-                      onChange={(e) => {
-                        const updated = {
-                          ...currentModels,
-                          [assetType]: e.target.value,
-                        };
-                        updateDraft('image_models', updated);
-                      }}
+                      onChange={(e) =>
+                        handleModelChange(
+                          assetType,
+                          e.target.value,
+                          t2iArKey,
+                          t2iResKey,
+                          t2iAr
+                        )
+                      }
                       className="w-full h-7 text-[11px] rounded border border-border bg-background px-1.5"
                     >
                       {IMAGE_MODEL_OPTIONS.map((opt) => (
@@ -449,20 +558,65 @@ export default function VideoSettingsPanel() {
                         <option value={t2iValue}>{t2iValue} (Custom)</option>
                       )}
                     </select>
+                    {t2iConfig && (
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={t2iAr}
+                          onChange={(e) => {
+                            const updated = {
+                              ...currentModels,
+                              [t2iArKey]: e.target.value,
+                            };
+                            updateDraft('image_models', updated);
+                          }}
+                          className="flex-1 h-6 text-[10px] rounded border border-border bg-background px-1"
+                          title="Aspect Ratio"
+                        >
+                          {[...t2iConfig.supportedAspectRatios].map((ar) => (
+                            <option key={ar} value={ar}>
+                              {ar}
+                            </option>
+                          ))}
+                        </select>
+                        {t2iConfig.supportsResolution && (
+                          <select
+                            value={t2iRes}
+                            onChange={(e) => {
+                              const updated = {
+                                ...currentModels,
+                                [t2iResKey]: e.target.value,
+                              };
+                              updateDraft('image_models', updated);
+                            }}
+                            className="w-14 h-6 text-[10px] rounded border border-border bg-background px-1"
+                            title="Resolution"
+                          >
+                            {IMAGE_RESOLUTION_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div>
+                  {/* I2I column */}
+                  <div className="space-y-1">
                     <span className="text-[9px] text-muted-foreground/70">
                       Variation
                     </span>
                     <select
                       value={i2iValue}
-                      onChange={(e) => {
-                        const updated = {
-                          ...currentModels,
-                          [i2iKey]: e.target.value,
-                        };
-                        updateDraft('image_models', updated);
-                      }}
+                      onChange={(e) =>
+                        handleModelChange(
+                          i2iKey,
+                          e.target.value,
+                          i2iArKey,
+                          i2iResKey,
+                          i2iAr
+                        )
+                      }
                       className="w-full h-7 text-[11px] rounded border border-border bg-background px-1.5"
                     >
                       {I2I_MODEL_OPTIONS.map((opt) => (
@@ -476,6 +630,48 @@ export default function VideoSettingsPanel() {
                         <option value={i2iValue}>{i2iValue} (Custom)</option>
                       )}
                     </select>
+                    {i2iConfig && (
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={i2iAr}
+                          onChange={(e) => {
+                            const updated = {
+                              ...currentModels,
+                              [i2iArKey]: e.target.value,
+                            };
+                            updateDraft('image_models', updated);
+                          }}
+                          className="flex-1 h-6 text-[10px] rounded border border-border bg-background px-1"
+                          title="Aspect Ratio"
+                        >
+                          {[...i2iConfig.supportedAspectRatios].map((ar) => (
+                            <option key={ar} value={ar}>
+                              {ar}
+                            </option>
+                          ))}
+                        </select>
+                        {i2iConfig.supportsResolution && (
+                          <select
+                            value={i2iRes}
+                            onChange={(e) => {
+                              const updated = {
+                                ...currentModels,
+                                [i2iResKey]: e.target.value,
+                              };
+                              updateDraft('image_models', updated);
+                            }}
+                            className="w-14 h-6 text-[10px] rounded border border-border bg-background px-1"
+                            title="Resolution"
+                          >
+                            {IMAGE_RESOLUTION_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

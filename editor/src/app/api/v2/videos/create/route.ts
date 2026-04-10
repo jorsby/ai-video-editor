@@ -51,8 +51,6 @@ export async function POST(req: NextRequest) {
       typeof body?.tts_speed === 'number' ? body.tts_speed : null;
     const videoModel =
       typeof body?.video_model === 'string' ? body.video_model.trim() : null;
-    const imageModel =
-      typeof body?.image_model === 'string' ? body.image_model.trim() : null;
     const aspectRatio =
       typeof body?.aspect_ratio === 'string' ? body.aspect_ratio.trim() : null;
     const visualStyle =
@@ -64,19 +62,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    // Required production settings — no fallbacks
-    const missingFields: string[] = [];
-    if (!voiceId) missingFields.push('voice_id');
-    if (ttsSpeed === null) missingFields.push('tts_speed');
-    if (!videoModel) missingFields.push('video_model');
-    if (!imageModel) missingFields.push('image_model');
-
-    if (missingFields.length > 0) {
-      return NextResponse.json(
-        { error: `Missing required fields: ${missingFields.join(', ')}` },
-        { status: 400 }
-      );
-    }
+    // Required fields validated after project defaults are applied (below)
 
     const characters = normalizeAssets(body?.characters);
     const locations = normalizeAssets(body?.locations);
@@ -86,6 +72,9 @@ export async function POST(req: NextRequest) {
 
     // --- Resolve or create project FIRST (video.project_id is NOT NULL) ---
     let projectId = '';
+
+    // Project defaults — used to fill in missing fields
+    let projectDefaults: Record<string, unknown> = {};
 
     if (requestedProjectId) {
       const { data: existingProject, error: projectLookupError } =
@@ -104,6 +93,12 @@ export async function POST(req: NextRequest) {
       }
 
       projectId = existingProject.id as string;
+      if (
+        existingProject.settings &&
+        typeof existingProject.settings === 'object'
+      ) {
+        projectDefaults = existingProject.settings as Record<string, unknown>;
+      }
     } else {
       const { data: project, error: projectError } = await dbClient
         .from('projects')
@@ -128,6 +123,41 @@ export async function POST(req: NextRequest) {
       projectId = project.id as string;
     }
 
+    // --- Merge explicit values with project defaults ---
+    const def = (key: string) =>
+      typeof projectDefaults[key] === 'string'
+        ? (projectDefaults[key] as string)
+        : null;
+    const defNum = (key: string) =>
+      typeof projectDefaults[key] === 'number'
+        ? (projectDefaults[key] as number)
+        : null;
+
+    const finalVoiceId = voiceId ?? def('voice_id');
+    const finalTtsSpeed = ttsSpeed ?? defNum('tts_speed');
+    const finalVideoModel = videoModel ?? def('video_model');
+    const finalAspectRatio = aspectRatio ?? def('aspect_ratio');
+    const finalVisualStyle = visualStyle ?? def('visual_style');
+    const finalVideoResolution = def('video_resolution');
+    const finalImageModels =
+      projectDefaults.image_models &&
+      typeof projectDefaults.image_models === 'object'
+        ? projectDefaults.image_models
+        : null;
+
+    // Validate required fields after defaults applied
+    const missingFields: string[] = [];
+    if (!finalVoiceId) missingFields.push('voice_id');
+    if (finalTtsSpeed === null) missingFields.push('tts_speed');
+    if (!finalVideoModel) missingFields.push('video_model');
+
+    if (missingFields.length > 0) {
+      return NextResponse.json(
+        { error: `Missing required fields: ${missingFields.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     // --- Create video with project_id ---
     const { data: video, error: videoError } = await dbClient
       .from('videos')
@@ -135,15 +165,18 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         project_id: projectId,
         name,
-        genre,
-        tone,
-        language,
-        voice_id: voiceId,
-        tts_speed: ttsSpeed,
-        video_model: videoModel,
-        image_model: imageModel,
-        aspect_ratio: aspectRatio,
-        visual_style: visualStyle,
+        genre: genre ?? def('genre'),
+        tone: tone ?? def('tone'),
+        language: language ?? def('language'),
+        voice_id: finalVoiceId,
+        tts_speed: finalTtsSpeed,
+        video_model: finalVideoModel,
+        ...(finalImageModels ? { image_models: finalImageModels } : {}),
+        ...(finalVideoResolution
+          ? { video_resolution: finalVideoResolution }
+          : {}),
+        aspect_ratio: finalAspectRatio,
+        visual_style: finalVisualStyle,
       })
       .select('id')
       .single();
@@ -157,41 +190,6 @@ export async function POST(req: NextRequest) {
     }
 
     const videoId = video.id as string;
-
-    // --- Update project settings with video_id ---
-    const existingSettings = requestedProjectId
-      ? await dbClient
-          .from('projects')
-          .select('settings')
-          .eq('id', projectId)
-          .single()
-          .then(
-            (r: { data: { settings: unknown } | null }) =>
-              (isRecord(r.data?.settings) ? r.data!.settings : {}) as Record<
-                string,
-                unknown
-              >
-          )
-      : {};
-
-    const { error: projectSettingsError } = await dbClient
-      .from('projects')
-      .update({
-        settings: {
-          ...existingSettings,
-          video_id: videoId,
-        },
-      })
-      .eq('id', projectId)
-      .eq('user_id', user.id);
-
-    if (projectSettingsError) {
-      console.error(
-        '[v2/video/create] Failed to update project settings:',
-        projectSettingsError
-      );
-      // Non-fatal — video + project already created and linked
-    }
 
     // --- Batch-insert assets (skip if empty) ---
     const assetTypes = [
@@ -278,7 +276,6 @@ export async function POST(req: NextRequest) {
           prompt: asset.description ?? `${asset.name} reference`,
           image_url: null,
           is_main: true,
-          where_to_use: asset.description ?? 'Main reference variant',
           reasoning: '',
           image_gen_status: 'idle',
         };

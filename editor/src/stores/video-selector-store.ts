@@ -16,8 +16,7 @@ export const useVideoSelectorStore = create<VideoSelectorState>()(
   persist(
     (set, get) => ({
       selections: {},
-      getVideoId: (projectId: string) =>
-        get().selections[projectId] ?? null,
+      getVideoId: (projectId: string) => get().selections[projectId] ?? null,
       setVideoId: (projectId: string, videoId: string) =>
         set({
           selections: { ...get().selections, [projectId]: videoId },

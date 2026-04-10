@@ -10,18 +10,27 @@ const scenePromptItem = z.union([
   z.array(z.string()).min(2).max(3),
 ]);
 
+<<<<<<< Updated upstream:editor/src/lib/schemas/grok-plan.ts
 export const grokPlanSchema = z.object({
   // Objects grid
   objects_rows: z.number().int().min(2).max(6),
   objects_cols: z.number().int().min(2).max(6),
   objects_grid_prompt: z.string(),
   objects: z.array(planElementSchema).min(1).max(36),
+=======
+export const klingO3PlanSchema = z.object({
+  // Objects grid — @deprecated: grid fields optional, assets created separately now
+  objects_rows: z.number().int().min(2).max(6).optional(),
+  objects_cols: z.number().int().min(2).max(6).optional(),
+  objects_grid_prompt: z.string().optional(),
+  objects: z.array(klingElementSchema).min(1).max(36).optional(),
+>>>>>>> Stashed changes:editor/src/lib/schemas/kling-o3-plan.ts
 
-  // Backgrounds grid
-  bg_rows: z.number().int().min(2).max(6),
-  bg_cols: z.number().int().min(2).max(6),
-  backgrounds_grid_prompt: z.string(),
-  background_names: z.array(z.string()).min(1).max(36),
+  // Backgrounds grid — @deprecated: grid fields optional, assets created separately now
+  bg_rows: z.number().int().min(2).max(6).optional(),
+  bg_cols: z.number().int().min(2).max(6).optional(),
+  backgrounds_grid_prompt: z.string().optional(),
+  background_names: z.array(z.string()).min(1).max(36).optional(),
 
   // Scene mapping
   scene_prompts: z.array(scenePromptItem),
@@ -50,16 +59,26 @@ export const grokPlanSchema = z.object({
 export type GrokPlan = z.infer<typeof grokPlanSchema>;
 
 // Content schema (before translation — voiceover_list is a flat array)
+<<<<<<< Updated upstream:editor/src/lib/schemas/grok-plan.ts
 export const grokContentSchema = z.object({
   objects_rows: z.number().int().min(2).max(6),
   objects_cols: z.number().int().min(2).max(6),
   objects_grid_prompt: z.string(),
   objects: z.array(planElementSchema).min(1).max(36),
+=======
+export const klingO3ContentSchema = z.object({
+  // @deprecated — grid fields optional, assets created separately
+  objects_rows: z.number().int().min(2).max(6).optional(),
+  objects_cols: z.number().int().min(2).max(6).optional(),
+  objects_grid_prompt: z.string().optional(),
+  objects: z.array(klingElementSchema).min(1).max(36).optional(),
+>>>>>>> Stashed changes:editor/src/lib/schemas/kling-o3-plan.ts
 
-  bg_rows: z.number().int().min(2).max(6),
-  bg_cols: z.number().int().min(2).max(6),
-  backgrounds_grid_prompt: z.string(),
-  background_names: z.array(z.string()).min(1).max(36),
+  // @deprecated — grid fields optional
+  bg_rows: z.number().int().min(2).max(6).optional(),
+  bg_cols: z.number().int().min(2).max(6).optional(),
+  backgrounds_grid_prompt: z.string().optional(),
+  background_names: z.array(z.string()).min(1).max(36).optional(),
 
   scene_prompts: z.array(scenePromptItem),
   scene_first_frame_prompts: z.array(z.string()).optional(),
@@ -238,6 +257,8 @@ DO NOT CHANGE:
 
 Return ONLY the corrected scene_prompts, scene_bg_indices, and scene_object_indices.`;
 
+/** @deprecated Grid-based asset generation replaced by per-asset generation in Step 3. Kept for backward compat with old storyboards. */
 export const REF_OBJECTS_GRID_PREFIX = `Photorealistic cinematic style with natural skin texture. Grid image with each cell in the same size with 1px black grid lines. Each cell shows one character/object on a neutral white background, front-facing, full body visible from head to shoes, clearly separated. Each character must show their complete outfit clearly visible. Grid cells should be in the same size `;
 
+/** @deprecated Grid-based asset generation replaced by per-asset generation in Step 3. Kept for backward compat with old storyboards. */
 export const REF_BACKGROUNDS_GRID_PREFIX = `Photorealistic cinematic style. Grid image with each cell in the same size with 1px black grid lines. Each cell shows one empty environment/location with no people, with varied cinematic camera angles (eye-level, low angle, three-quarter view, wide establishing shot). Locations should feel lived-in and atmospheric with natural lighting and environmental details. Grid cells should be in the same size `;

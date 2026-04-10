@@ -22,7 +22,6 @@ type Ctx = { params: Promise<{ id: string }> };
  *     "prompt": "...",
  *     "image_url": "...",
  *     "is_main": false,
- *     "where_to_use": "...",
  *     "image_gen_status": "idle",
  *     "asset": { "id": "...", "name": "Sultan Mehmed", "type": "character", "slug": "sultan-mehmed" }
  *   }
@@ -47,10 +46,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       .maybeSingle();
 
     if (!project) {
-      return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
     if (project.user_id !== user.id) {
@@ -64,7 +60,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     let query = db
       .from('project_asset_variants')
       .select(
-        'id, asset_id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_gen_status, image_task_id, created_at, updated_at, asset:project_assets!inner(id, name, type, slug, description, project_id)'
+        'id, asset_id, name, slug, prompt, image_url, is_main, reasoning, image_gen_status, image_task_id, created_at, updated_at, asset:project_assets!inner(id, name, type, slug, description, project_id)'
       )
       .eq('project_assets.project_id', projectId);
 

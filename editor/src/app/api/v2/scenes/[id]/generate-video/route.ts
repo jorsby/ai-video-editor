@@ -125,16 +125,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    if (!video.video_model) {
-      return NextResponse.json(
-        {
-          error:
-            'Video has no video_model configured. Set it in video settings first.',
-        },
-        { status: 400 }
-      );
-    }
-
     if (project.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -165,14 +155,17 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Provider: kie (default) or fal
     const VALID_PROVIDERS = new Set(['kie', 'fal']);
     const provider =
-      typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider.toLowerCase())
+      typeof body.provider === 'string' &&
+      VALID_PROVIDERS.has(body.provider.toLowerCase())
         ? body.provider.toLowerCase()
         : 'kie';
 
     // Resolution: accept 480p or 720p, default from video settings
     const VALID_RESOLUTIONS = new Set(['480p', '720p']);
     const requestedRes =
-      typeof body.resolution === 'string' ? body.resolution.trim().toLowerCase() : '';
+      typeof body.resolution === 'string'
+        ? body.resolution.trim().toLowerCase()
+        : '';
     const videoDefault = video.video_resolution ?? '480p';
     const resolution = VALID_RESOLUTIONS.has(requestedRes)
       ? requestedRes
@@ -250,7 +243,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    const videoModel = video.video_model;
+    const videoModel =
+      typeof video.video_model === 'string' && video.video_model.trim().length > 0
+        ? video.video_model.trim()
+        : DEFAULT_VIDEO_MODEL;
     const aspectRatio = video.aspect_ratio ?? '9:16';
 
     let taskId: string;
@@ -295,7 +291,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     await supabase
       .from('scenes')
-      .update({ video_status: 'generating', video_task_id: taskId })
+      .update({
+        video_status: 'generating',
+        video_task_id: taskId,
+        video_url: null,
+        video_duration: null,
+        video_transcription: null,
+        has_speech: null,
+      })
       .eq('id', sceneId);
 
     return NextResponse.json({
@@ -303,7 +306,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       provider,
       model: videoModel,
       scene_id: sceneId,
-      duration: provider === 'fal' ? Math.min(duration, FAL_MAX_DURATION) : duration,
+      duration:
+        provider === 'fal' ? Math.min(duration, FAL_MAX_DURATION) : duration,
       aspect_ratio: aspectRatio,
       resolution,
       image_count: imageUrls.length,

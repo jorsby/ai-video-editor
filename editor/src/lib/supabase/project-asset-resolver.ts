@@ -179,9 +179,7 @@ export async function resolveProjectAssetsForProject(
 ): Promise<ProjectAssetMap | null> {
   const { data: assets, error: assetsError } = await supabase
     .from('project_assets')
-    .select(
-      'id, name, type, project_asset_variants (id, is_main, image_url)'
-    )
+    .select('id, name, type, project_asset_variants (id, is_main, image_url)')
     .eq('project_id', projectId);
 
   if (assetsError) {

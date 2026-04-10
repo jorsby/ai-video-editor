@@ -16,6 +16,7 @@ import {
   IconSettings,
 } from '@tabler/icons-react';
 import { create } from 'zustand';
+import { useSceneFocusStore } from '@/stores/scene-focus-store';
 
 export type Tab =
   | 'uploads'
@@ -101,6 +102,7 @@ interface MediaPanelStore {
   highlightMediaId: string | null;
   requestRevealMedia: (mediaId: string) => void;
   clearHighlight: () => void;
+  requestRevealScene: (sceneId: string) => void;
   showProperties: boolean;
   setShowProperties: (show: boolean) => void;
 }
@@ -116,6 +118,10 @@ export const useMediaPanelStore = create<MediaPanelStore>((set) => ({
       showProperties: false,
     }),
   clearHighlight: () => set({ highlightMediaId: null }),
+  requestRevealScene: (sceneId) => {
+    set({ activeTab: 'storyboard', showProperties: false });
+    useSceneFocusStore.getState().focusScene(sceneId);
+  },
   showProperties: false,
   setShowProperties: (show) => set({ showProperties: show }),
 }));

@@ -177,7 +177,10 @@ export async function uploadFileMultipart(
   });
 
   if (!initRes.ok) {
-    throw new Error('Failed to initiate multipart upload');
+    const errBody = await initRes.json().catch(() => ({}));
+    throw new Error(
+      `Failed to initiate multipart upload: ${errBody?.details || errBody?.error || initRes.status}`
+    );
   }
 
   const { uploadId, key, presignedUrls, url, partCount } = await initRes.json();

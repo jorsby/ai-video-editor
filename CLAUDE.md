@@ -1,55 +1,28 @@
 # CLAUDE.md
 
-## Quick Start
+**Read [`AGENTS.md`](AGENTS.md)** for full project context, architecture, patterns, and rules.
+**Read [`HOW-TO-DEVELOP.md`](HOW-TO-DEVELOP.md)** for the mandatory development workflow (data model → API → UI).
+**If working on a project:** Read `docs/projects/<project>/PROJECT.md`.
 
-1. **Read [`AGENTS.md`](AGENTS.md)** — full project context, architecture, patterns, rules
-2. **Read [`HOW-TO-DEVELOP.md`](HOW-TO-DEVELOP.md)** — mandatory development workflow (data model → API → UI)
-3. **If working on a project:** Read `docs/projects/<project>/PROJECT.md`
-
-## TL;DR
-
-- **Stack:** Next.js 16 (App Router) + TypeScript + Supabase + Kie.ai + PixiJS compositor
-- **Monorepo:** pnpm + Turborepo + Biome (NOT npm/yarn/ESLint/Prettier)
-- **AI generation:** All async via Kie.ai → webhook → DB update → Supabase Realtime
-- **Webhook route:** `/api/webhook/kieai` (HMAC-verified, no user auth)
-- **DB clients:** `admin.ts` (server), `server.ts` (user auth), `client.ts` (browser)
-- **Build = test suite:** `cd editor && pnpm build` must pass before any commit
-- **Lint:** `pnpm biome check .` must pass
-
-## Key Commands
+## Quick Reference
 
 ```bash
 pnpm dev                    # Start dev server
-cd editor && pnpm build     # Build (= test suite)
+cd editor && pnpm build     # Build (= test suite, must pass before commit)
 pnpm biome check . --write  # Auto-fix lint/format
 ```
 
-## 📝 Keep Docs Updated (MANDATORY)
+## Git Workflow
 
-After every code change, check if these docs need updating **in the same commit**:
+- Push directly to `main` — no branches, no PRs
+- Commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
+- One logical change per commit
+- `pnpm build` before pushing
+
+## Keep Docs Updated (same commit as code change)
 
 | Doc | Update when... |
 |-----|---------------|
-| [`docs/API-COOKBOOK.md`](docs/API-COOKBOOK.md) | Any API endpoint added, changed, or removed |
+| [`API-COOKBOOK.md`](API-COOKBOOK.md) | Any API endpoint added, changed, or removed |
 | [`AGENTS.md`](AGENTS.md) | Architecture, patterns, DB schema, env vars, or project structure changes |
 | [`HOW-TO-DEVELOP.md`](HOW-TO-DEVELOP.md) | Development workflow or async pattern changes |
-| [`CLAUDE.md`](CLAUDE.md) | New top-level rules, stack changes, or critical "don't" items |
-
-**Rule:** If you change an API route, the cookbook update goes in the same commit. Not a follow-up. Not "I'll do it later." Same commit.
-
-## Git Workflow
-
-- **Push directly to `main`** — no branches, no PRs (for now)
-- Commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`
-- `--no-verify` flag OK (Biome runs in build anyway)
-- Always `pnpm build` before pushing — build = test suite
-- One logical change per commit (don't bundle unrelated changes)
-
-## Don't
-
-- Don't use fal.ai — removed, we use Kie.ai
-- Don't create Supabase edge functions — use Next.js API routes
-- Don't use anon key server-side — use `admin.ts`
-- Don't skip `await` on `studio.clear()` or `studio.loadFromJSON()`
-- Don't hardcode URLs — use `WEBHOOK_BASE_URL` / `NEXT_PUBLIC_APP_URL`
-- Don't change an API without updating `docs/API-COOKBOOK.md`

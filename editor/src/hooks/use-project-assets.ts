@@ -13,7 +13,6 @@ interface VariantRow {
   prompt: string | null;
   image_url: string | null;
   is_main: boolean;
-  where_to_use: string | null;
   reasoning: string | null;
   image_gen_status?: string | null;
   // Legacy compatibility flag; canonical schema does not require lock state.
@@ -39,7 +38,6 @@ export interface ProjectAssetVariant {
   isFinalized: boolean;
   imageUrl: string | null;
   imageGenStatus: string | null;
-  whereToUse: string | null;
   reasoning: string | null;
 }
 
@@ -271,7 +269,7 @@ export function useProjectAssets(
         const { data: assetsData, error: assetsError } = await supabase
           .from('project_assets')
           .select(
-            'id, name, slug, type, description, sort_order, project_asset_variants(id, name, slug, prompt, image_url, is_main, where_to_use, reasoning, image_gen_status)'
+            'id, name, slug, type, description, sort_order, project_asset_variants(id, name, slug, prompt, image_url, is_main, reasoning, image_gen_status)'
           )
           .eq('project_id', projectId)
           .order('type', { ascending: true })
@@ -300,7 +298,6 @@ export function useProjectAssets(
               isFinalized: Boolean(variant.is_finalized),
               imageUrl: resolveStoredUrl(supabase, variant.image_url),
               imageGenStatus: variant.image_gen_status ?? null,
-              whereToUse: variant.where_to_use ?? null,
               reasoning: variant.reasoning ?? null,
             })
           );

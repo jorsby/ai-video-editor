@@ -9,8 +9,8 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const PRIMARY_MODEL = 'x-ai/grok-4.1-fast';
-const BACKUP_MODEL = 'arcee-ai/trinity-large-preview:free';
+const PRIMARY_MODEL = 'z-ai/glm-5.1';
+const BACKUP_MODEL = 'x-ai/grok-4.1-fast';
 
 const segmentSchema = z.object({
   title: z

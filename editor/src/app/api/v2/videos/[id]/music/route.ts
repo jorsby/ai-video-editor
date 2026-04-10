@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/admin';
 import {
   createProjectMusic,
-  listProjectMusic,
+  listVideoMusic,
   resolveProjectIdFromVideo,
 } from '@/lib/api/v2-project-music';
 
@@ -15,8 +15,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const resolved = await resolveProjectIdFromVideo(db, videoId);
   if (resolved.error) return resolved.error;
 
-  return listProjectMusic(
+  return listVideoMusic(
     req,
+    videoId,
     resolved.projectId,
     '[v2/video/:id/music][GET]'
   );
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   return createProjectMusic(
     req,
     resolved.projectId,
-    '[v2/video/:id/music][POST]'
+    '[v2/video/:id/music][POST]',
+    videoId
   );
 }

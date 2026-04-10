@@ -27,6 +27,12 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
   src: string = '';
 
   /**
+   * Generic metadata bag for editor-level annotations (e.g. sceneId).
+   * Survives serialization round-trips but is ignored by the rendering engine.
+   */
+  metadata: Record<string, unknown> = {};
+
+  /**
    * Transition info (optional)
    */
   transition?: ITransitionInfo;
@@ -339,6 +345,7 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
       ...(animation && { animation }),
       ...(animations.length > 0 && { animations }),
       ...(main && { main: true }),
+      ...(Object.keys(this.metadata).length > 0 && { metadata: this.metadata }),
       chromaKey: this.chromaKey,
     } as ClipJSON;
   }

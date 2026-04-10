@@ -143,29 +143,8 @@ export async function POST(req: NextRequest) {
 
     const { imageUrl } = await waitForKieImage(taskId);
 
-    const { data: asset, error: insertError } = await supabase
-      .from('assets')
-      .insert({
-        user_id: user.id,
-        project_id: projectId,
-        type: 'image',
-        url: imageUrl,
-        name: prompt,
-        prompt,
-      })
-      .select('id, url')
-      .single();
-
-    if (insertError || !asset) {
-      return NextResponse.json(
-        { error: insertError?.message ?? 'Failed to store generated image' },
-        { status: 500 }
-      );
-    }
-
     return NextResponse.json({
-      id: asset.id,
-      url: asset.url,
+      url: imageUrl,
       provider: 'kie',
       request_id: taskId,
     });

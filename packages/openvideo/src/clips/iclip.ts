@@ -180,6 +180,12 @@ export interface IClip<T extends BaseSpriteEvents = BaseSpriteEvents>
    * Chroma key settings (green screen removal)
    */
   chromaKey: IChromaKeyOpts;
+
+  /**
+   * Generic metadata bag for editor-level annotations (e.g. sceneId).
+   * Ignored by the rendering engine; survives serialization round-trips.
+   */
+  metadata: Record<string, unknown>;
 }
 
 /**

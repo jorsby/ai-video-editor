@@ -68,3 +68,103 @@ export async function splitVideoSegment(
   const data = await ffmpeg.readFile(outputName);
   return new Blob([data as BlobPart], { type: 'video/mp4' });
 }
+
+/**
+ * Overlay a hook PNG on the first 3 seconds of a short video.
+ *
+ * Re-encodes the video with the PNG composited on top, then outputs
+ * a faststart MP4 suitable for social media upload.
+ */
+export async function overlayHookOnShort(
+  shortBlob: Blob,
+  hookPngBlob: Blob,
+  segmentIndex: number
+): Promise<Blob> {
+  const ffmpeg = new FFmpeg();
+
+  await ffmpeg.load({
+    coreURL: await toBlobURL(
+      `${FFMPEG_BASE_URL}/ffmpeg-core.js`,
+      'text/javascript'
+    ),
+    wasmURL: await toBlobURL(
+      `${FFMPEG_BASE_URL}/ffmpeg-core.wasm`,
+      'application/wasm'
+    ),
+  });
+
+  await ffmpeg.writeFile('input.mp4', await fetchFile(shortBlob));
+  await ffmpeg.writeFile('hook.png', await fetchFile(hookPngBlob));
+
+  const HOOK_DURATION = 3;
+
+  // Step 1: Encode only the first 3s with hook overlay
+  let exitCode = await ffmpeg.exec([
+    '-t',
+    String(HOOK_DURATION),
+    '-i',
+    'input.mp4',
+    '-i',
+    'hook.png',
+    '-filter_complex',
+    '[0:v][1:v]overlay=(W-w)/2:(H-h)/2',
+    '-c:v',
+    'libx264',
+    '-b:v',
+    '3500k',
+    '-profile:v',
+    'high',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    'part_hook.mp4',
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`ffmpeg hook encode failed (exit ${exitCode})`);
+  }
+
+  // Step 2: Stream-copy the rest (after 3s) — near-instant
+  exitCode = await ffmpeg.exec([
+    '-ss',
+    String(HOOK_DURATION),
+    '-i',
+    'input.mp4',
+    '-c',
+    'copy',
+    '-avoid_negative_ts',
+    'make_zero',
+    'part_rest.mp4',
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`ffmpeg rest copy failed (exit ${exitCode})`);
+  }
+
+  // Step 3: Concat both parts without re-encoding
+  await ffmpeg.writeFile(
+    'list.txt',
+    "file 'part_hook.mp4'\nfile 'part_rest.mp4'\n"
+  );
+  const outputName = `hooked_${segmentIndex}.mp4`;
+  exitCode = await ffmpeg.exec([
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    'list.txt',
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
+    outputName,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`ffmpeg concat failed (exit ${exitCode})`);
+  }
+
+  const data = await ffmpeg.readFile(outputName);
+  return new Blob([data as BlobPart], { type: 'video/mp4' });
+}

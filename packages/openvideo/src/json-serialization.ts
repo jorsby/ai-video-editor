@@ -67,6 +67,7 @@ interface BaseClipJSON {
     params?: any;
   }>;
   main?: boolean; // For Compositor only
+  metadata?: Record<string, unknown>;
 }
 
 // Video clip specific

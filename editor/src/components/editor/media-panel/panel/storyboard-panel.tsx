@@ -55,34 +55,34 @@ import {
   IconFileText,
   IconPencil,
   IconDeviceFloppy,
+  IconTrash,
+  IconArrowsExchange2,
 } from '@tabler/icons-react';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
+import { useSceneFocusStore } from '@/stores/scene-focus-store';
+import { useTimelineStore } from '@/stores/timeline-store';
+import { syncSceneToTimeline } from '@/lib/timeline/sync-scene-to-timeline';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { useVideoSelectorStore } from '@/stores/video-selector-store';
+import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 import { CopyButton } from '../shared/copy-button';
+import { CopyIdBadge } from '../shared/copy-id-badge';
 import { ExpandableText } from '../shared/expandable-text';
+import {
+  type SceneData,
+  type VariantInfo,
+  type VariantImageMap,
+  statusColor,
+  slugToLabel,
+  deriveSceneStatus,
+  formatDuration,
+  callGenerateApi,
+} from '../shared/scene-types';
+import { ProjectMusicSection } from './project-music-section';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type VideoOption = { id: string; name: string };
-
-interface SceneData {
-  id: string;
-  order: number;
-  title: string | null;
-  prompt: string | null;
-  audio_text: string | null;
-  audio_url: string | null;
-  audio_duration: number | null;
-  video_url: string | null;
-  video_duration: number | null;
-  status: string | null;
-  location_variant_slug: string | null;
-  character_variant_slugs: string[];
-  prop_variant_slugs: string[];
-  tts_status: string;
-  video_status: string;
-}
 
 interface ChapterData {
   id: string;
@@ -100,38 +100,7 @@ interface ChapterData {
   scenes: SceneData[];
 }
 
-/** slug → variant info lookup */
-interface VariantInfo {
-  image_url: string | null;
-  id: string;
-  image_gen_status: string;
-}
-type VariantImageMap = Map<string, VariantInfo>;
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-function statusColor(status: string | null): string {
-  switch (status) {
-    case 'done':
-      return 'border-green-500/40 bg-green-500/10 text-green-400';
-    case 'partial':
-    case 'ready':
-      return 'border-blue-500/40 bg-blue-500/10 text-blue-400';
-    case 'generating':
-      return 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400';
-    case 'failed':
-      return 'border-red-500/40 bg-red-500/10 text-red-400';
-    default:
-      return 'border-border/60 bg-secondary/20 text-muted-foreground';
-  }
-}
-
-function slugToLabel(slug: string): string {
-  return slug
-    .replace(/-main$/, '')
-    .replace(/-/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 /** Derive chapter display status from its scenes */
 function deriveChapterStatus(chapter: ChapterData): string {
@@ -142,36 +111,6 @@ function deriveChapterStatus(chapter: ChapterData): string {
   if (statuses.some((s) => s === 'failed')) return 'failed';
   if (statuses.some((s) => s === 'done' || s === 'partial')) return 'partial';
   return 'draft';
-}
-
-/** Derive a display status from generation states + URL presence.
- *  URL presence takes priority over stale failed status — if the asset
- *  was successfully re-generated the URL proves it succeeded. */
-function deriveSceneStatus(scene: SceneData): string {
-  if (scene.tts_status === 'generating' || scene.video_status === 'generating')
-    return 'generating';
-
-  // Check URL-based completion first — a present URL means the asset
-  // succeeded even if a previous attempt left a stale 'failed' status.
-  const ttsOk = !scene.audio_text?.trim() || !!scene.audio_url;
-  const videoOk = !!scene.video_url;
-
-  if (ttsOk && videoOk) return 'done';
-
-  // Only show failed if the status says failed AND the URL is still missing
-  const ttsFailed = scene.tts_status === 'failed' && !scene.audio_url;
-  const videoFailed = scene.video_status === 'failed' && !scene.video_url;
-  if (ttsFailed || videoFailed) return 'failed';
-
-  if (scene.audio_url || scene.video_url) return 'partial';
-  if (scene.prompt) return 'ready';
-  return 'draft';
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
 }
 
 // ── Image Lightbox ─────────────────────────────────────────────────────────────
@@ -541,30 +480,6 @@ function HighlightedPrompt({
   return <>{parts}</>;
 }
 
-// ── Generate API Calls ─────────────────────────────────────────────────────────
-
-async function callGenerateApi(
-  path: string,
-  body: Record<string, unknown> = {}
-): Promise<{ ok: boolean; task_id?: string; error?: string }> {
-  try {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok)
-      return { ok: false, error: data.error ?? `HTTP ${res.status}` };
-    return { ok: true, task_id: data.task_id };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Network error',
-    };
-  }
-}
-
 // ── Generate Button ────────────────────────────────────────────────────────────
 
 function GenerateButton({
@@ -727,7 +642,9 @@ function SceneVariantTile({
         (await import('sonner')).toast.success(`Image regenerating: ${label}`);
       } else {
         const data = await res.json().catch(() => ({}));
-        (await import('sonner')).toast.error(data.error ?? 'Failed to retry image');
+        (await import('sonner')).toast.error(
+          data.error ?? 'Failed to retry image'
+        );
       }
     } catch {
       (await import('sonner')).toast.error('Network error');
@@ -782,19 +699,29 @@ function SceneCard({
   imageMap,
   isSelected,
   onToggleSelected,
+  onDelete,
+  isFocused,
 }: {
   scene: SceneData;
   index: number;
   imageMap: VariantImageMap;
   isSelected: boolean;
   onToggleSelected: () => void;
+  onDelete: () => void;
+  isFocused?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [localTtsStatus, setLocalTtsStatus] = useState<string | null>(null);
   const [localVideoStatus, setLocalVideoStatus] = useState<string | null>(null);
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [editPromptText, setEditPromptText] = useState('');
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const { confirm } = useDeleteConfirmation();
+  const { studio } = useStudioStore();
+  const { canvasSize } = useProjectStore();
 
   // Reset local overrides when DB status arrives via Realtime
   useEffect(() => {
@@ -817,6 +744,25 @@ function SceneCard({
     }
   }, [scene.video_status]);
 
+  // Auto-expand and scroll into view when focused from timeline
+  useEffect(() => {
+    if (!isFocused) return;
+    setIsExpanded(true);
+    // Small delay so the DOM has time to expand before scrolling
+    const timer = setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      useSceneFocusStore.getState().clearSceneFocus();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isFocused]);
+
+  // Check if this scene has clips in the timeline
+  const isInTimeline = useTimelineStore((state) =>
+    Object.values(state.clips).some(
+      (clip) => (clip.metadata?.sceneId as string) === scene.id
+    )
+  );
+
   const effectiveTtsStatus = localTtsStatus ?? scene.tts_status;
   const effectiveVideoStatus = localVideoStatus ?? scene.video_status;
 
@@ -838,7 +784,8 @@ function SceneCard({
 
   return (
     <div
-      className={`rounded-md overflow-hidden transition-colors ${isSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-card/50'}`}
+      ref={cardRef}
+      className={`rounded-md overflow-hidden transition-colors ${isFocused ? 'ring-2 ring-primary animate-pulse' : ''} ${isSelected ? 'border-2 border-primary/60 bg-primary/5' : 'border border-border/40 bg-card/50'}`}
     >
       {/* Scene header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border/30">
@@ -864,6 +811,7 @@ function SceneCard({
           <span className="text-[10px] font-mono text-muted-foreground w-5 shrink-0">
             S{index + 1}
           </span>
+          <CopyIdBadge id={scene.id} />
           <span className="text-xs font-medium truncate flex-1">
             {scene.title || `Scene ${index + 1}`}
           </span>
@@ -1084,11 +1032,16 @@ function SceneCard({
                   </button>
                   <button
                     type="button"
-                    disabled={isSavingPrompt || editPromptText.trim() === (scene.prompt ?? '')}
+                    disabled={
+                      isSavingPrompt ||
+                      editPromptText.trim() === (scene.prompt ?? '')
+                    }
                     onClick={async () => {
                       setIsSavingPrompt(true);
                       try {
-                        const supabase = (await import('@/lib/supabase/client')).createClient('studio');
+                        const supabase = (
+                          await import('@/lib/supabase/client')
+                        ).createClient('studio');
                         const { error } = await supabase
                           .from('scenes')
                           .update({ prompt: editPromptText.trim() })
@@ -1174,6 +1127,101 @@ function SceneCard({
           </div>
         </div>
       )}
+
+      {/* Expanded: Sync to Timeline + In Timeline badge */}
+      {isExpanded && isInTimeline && (hasAudio || hasVideo) && (
+        <div className="px-3 pb-2 pt-1 border-t border-border/20 flex items-center justify-between">
+          <span className="text-[9px] text-primary/70 font-medium">
+            In Timeline
+          </span>
+          <button
+            type="button"
+            disabled={isSyncing || !studio}
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (!studio) return;
+              setIsSyncing(true);
+              try {
+                const result = await syncSceneToTimeline({
+                  sceneId: scene.id,
+                  scene: {
+                    id: scene.id,
+                    order: scene.order,
+                    title: scene.title,
+                    audio_url: scene.audio_url,
+                    video_url: scene.video_url,
+                    audio_text: scene.audio_text,
+                    audio_duration: scene.audio_duration,
+                    video_duration: scene.video_duration,
+                  },
+                  studio,
+                  matchVideoToAudio: true,
+                  canvasWidth: canvasSize.width,
+                  canvasHeight: canvasSize.height,
+                });
+                toast.success(
+                  `Synced ${result.replaced} clip${result.replaced !== 1 ? 's' : ''} to timeline`
+                );
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Sync failed');
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+            className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isSyncing ? (
+              <IconLoader2 className="size-2.5 animate-spin" />
+            ) : (
+              <IconArrowsExchange2 className="size-2.5" />
+            )}
+            {isSyncing ? 'Syncing...' : 'Sync to Timeline'}
+          </button>
+        </div>
+      )}
+
+      {/* Expanded: Delete scene */}
+      {isExpanded && (
+        <div className="px-3 pb-2 pt-1 border-t border-border/20 flex justify-end">
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={async (e) => {
+              e.stopPropagation();
+              const ok = await confirm({
+                title: 'Delete Scene',
+                description: `Delete scene "${scene.title || `S${index + 1}`}"? This cannot be undone.`,
+              });
+              if (!ok) return;
+              setIsDeleting(true);
+              try {
+                const res = await fetch(`/api/v2/scenes/${scene.id}`, {
+                  method: 'DELETE',
+                });
+                if (!res.ok) {
+                  const data = await res.json().catch(() => ({}));
+                  toast.error(data.error ?? 'Failed to delete scene');
+                } else {
+                  toast.success(`Scene S${index + 1} deleted`);
+                  onDelete();
+                }
+              } catch {
+                toast.error('Failed to delete scene');
+              } finally {
+                setIsDeleting(false);
+              }
+            }}
+            className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isDeleting ? (
+              <IconLoader2 className="size-2.5 animate-spin" />
+            ) : (
+              <IconTrash className="size-2.5" />
+            )}
+            {isDeleting ? 'Deleting...' : 'Delete Scene'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1239,6 +1287,61 @@ function GalleryCard({
         />
       )}
     </div>
+  );
+}
+
+// ── Video-level Assets Section ────────────────────────────────────────────────
+
+function VideoAssetsSection({
+  locationSlugs,
+  characterSlugs,
+  propSlugs,
+  imageMap,
+  totalAssets,
+}: {
+  locationSlugs: string[];
+  characterSlugs: string[];
+  propSlugs: string[];
+  imageMap: VariantImageMap;
+  totalAssets: number;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md bg-muted/15 border border-border/30 text-left hover:bg-muted/25 transition-colors"
+        >
+          <IconPhoto className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[11px] font-medium flex-1">Video Assets</span>
+          <span className="text-[9px] text-muted-foreground/60">
+            {totalAssets}
+          </span>
+          {open ? (
+            <IconChevronUp className="size-3 text-muted-foreground" />
+          ) : (
+            <IconChevronDown className="size-3 text-muted-foreground" />
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-2 py-2 mt-1 bg-muted/10 rounded-md border border-border/20 space-y-3">
+          <AssetGallery
+            slugs={locationSlugs}
+            role="location"
+            imageMap={imageMap}
+          />
+          <AssetGallery
+            slugs={characterSlugs}
+            role="character"
+            imageMap={imageMap}
+          />
+          <AssetGallery slugs={propSlugs} role="prop" imageMap={imageMap} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -1384,9 +1487,18 @@ function SendToTimelineModal({
         }
       }
 
-      const videoCount = hasAnyVideo ? results.filter((r) => r.videoClip).length : 0;
-      const audioCount = hasAnyAudio ? results.filter((r) => r.audioClip).length : 0;
-      const modeLabel = mediaMode === 'video-only' ? 'video' : mediaMode === 'audio-only' ? 'audio' : 'video + audio';
+      const videoCount = hasAnyVideo
+        ? results.filter((r) => r.videoClip).length
+        : 0;
+      const audioCount = hasAnyAudio
+        ? results.filter((r) => r.audioClip).length
+        : 0;
+      const modeLabel =
+        mediaMode === 'video-only'
+          ? 'video'
+          : mediaMode === 'audio-only'
+            ? 'audio'
+            : 'video + audio';
       toast.success(
         `Added ${videoCount + audioCount} ${modeLabel} clips to timeline`
       );
@@ -1618,8 +1730,7 @@ function FullScriptSection({ chapters }: { chapters: ChapterData[] }) {
   );
   const fullText = scriptChapters
     .map(
-      (ch) =>
-        `CH${ch.order}: ${ch.title ?? 'Untitled'}\n${ch.lines.join('\n')}`
+      (ch) => `CH${ch.order}: ${ch.title ?? 'Untitled'}\n${ch.lines.join('\n')}`
     )
     .join('\n\n');
 
@@ -1684,12 +1795,16 @@ function ChapterAccordion({
   isChapterSelected,
   onToggleChapterSelected,
   forceOpen,
+  onSceneDeleted,
+  focusedSceneId,
 }: {
   chapter: ChapterData;
   imageMap: VariantImageMap;
   isChapterSelected: boolean;
   onToggleChapterSelected: () => void;
   forceOpen?: boolean | null;
+  onSceneDeleted: (sceneId: string) => void;
+  focusedSceneId?: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -1698,6 +1813,13 @@ function ChapterAccordion({
       setIsOpen(forceOpen);
     }
   }, [forceOpen]);
+
+  // Auto-open chapter when a scene inside it is focused
+  useEffect(() => {
+    if (focusedSceneId && chapter.scenes.some((s) => s.id === focusedSceneId)) {
+      setIsOpen(true);
+    }
+  }, [focusedSceneId, chapter.scenes]);
   const [showAssets, setShowAssets] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<Set<string>>(new Set());
   const [ttsBatchProgress, setTtsBatchProgress] = useState<{
@@ -1752,15 +1874,28 @@ function ChapterAccordion({
     return true;
   }).length;
   const failedVideoScenes = chapter.scenes.filter(
-    (scene) => scene.video_status === 'failed' && !scene.video_url && !!scene.prompt
+    (scene) =>
+      scene.video_status === 'failed' && !scene.video_url && !!scene.prompt
   );
   const failedVideoCount = failedVideoScenes.length;
+  const failedTtsScenes = chapter.scenes.filter(
+    (scene) =>
+      scene.tts_status === 'failed' && !scene.audio_url && !!scene.audio_text
+  );
+  const failedTtsCount = failedTtsScenes.length;
   const [retryBatchProgress, setRetryBatchProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
+  const [retryTtsBatchProgress, setRetryTtsBatchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const isBatchRunning =
-    ttsBatchProgress !== null || videoBatchProgress !== null || retryBatchProgress !== null;
+    ttsBatchProgress !== null ||
+    videoBatchProgress !== null ||
+    retryBatchProgress !== null ||
+    retryTtsBatchProgress !== null;
 
   const { focusedChapterId, setFocus, clearFocus } = useChapterFocusStore();
   const isThisChapterFocused = focusedChapterId === chapter.id;
@@ -1771,11 +1906,7 @@ function ChapterAccordion({
       return;
     }
     // Collect all variant slugs used in this chapter's scenes
-    const allSlugs = [
-      ...locationSlugs,
-      ...characterSlugs,
-      ...propSlugs,
-    ];
+    const allSlugs = [...locationSlugs, ...characterSlugs, ...propSlugs];
     if (allSlugs.length > 0) {
       setFocus(chapter.id, allSlugs);
     }
@@ -1862,7 +1993,10 @@ function ChapterAccordion({
     try {
       for (const [index, scene] of failedVideoScenes.entries()) {
         await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
-        setRetryBatchProgress({ done: index + 1, total: failedVideoScenes.length });
+        setRetryBatchProgress({
+          done: index + 1,
+          total: failedVideoScenes.length,
+        });
       }
     } finally {
       setRetryBatchProgress(null);
@@ -1912,6 +2046,7 @@ function ChapterAccordion({
               <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">
                 CH{chapter.order}
               </span>
+              <CopyIdBadge id={chapter.id} />
 
               <span className="text-xs font-medium truncate flex-1">
                 {chapter.title?.replace(/^(EP|CH)\d+\s*[-—]\s*/, '') ||
@@ -1994,25 +2129,90 @@ function ChapterAccordion({
                 )}
               </div>
               {failedVideoCount > 0 && (
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void runRetryFailedVideos();
-                  }}
-                  disabled={isBatchRunning}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <IconRefresh className="size-2.5" />
-                  Retry Failed ({failedVideoCount})
-                </button>
-                {retryBatchProgress && (
-                  <span className="text-[9px] text-yellow-400 mt-0.5">
-                    Retrying {retryBatchProgress.done}/
-                    {retryBatchProgress.total}...
-                  </span>
-                )}
-              </div>
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void runRetryFailedVideos();
+                    }}
+                    disabled={isBatchRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry Failed ({failedVideoCount})
+                  </button>
+                  {retryBatchProgress && (
+                    <span className="text-[9px] text-yellow-400 mt-0.5">
+                      Retrying {retryBatchProgress.done}/
+                      {retryBatchProgress.total}...
+                    </span>
+                  )}
+                </div>
+              )}
+              {failedTtsCount > 0 && (
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setRetryTtsBatchProgress({
+                        done: 0,
+                        total: failedTtsScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedTtsScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-tts`
+                          );
+                          setRetryTtsBatchProgress({
+                            done: i + 1,
+                            total: failedTtsScenes.length,
+                          });
+                        }
+                      } finally {
+                        setRetryTtsBatchProgress(null);
+                      }
+                    }}
+                    disabled={isBatchRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry Failed TTS ({failedTtsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setRetryTtsBatchProgress({
+                        done: 0,
+                        total: failedTtsScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedTtsScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-tts`,
+                            { provider: 'fal' }
+                          );
+                          setRetryTtsBatchProgress({
+                            done: i + 1,
+                            total: failedTtsScenes.length,
+                          });
+                        }
+                      } finally {
+                        setRetryTtsBatchProgress(null);
+                      }
+                    }}
+                    disabled={isBatchRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry fal.ai TTS ({failedTtsCount})
+                  </button>
+                  {retryTtsBatchProgress && (
+                    <span className="text-[9px] text-yellow-400 mt-0.5">
+                      Retrying TTS {retryTtsBatchProgress.done}/
+                      {retryTtsBatchProgress.total}...
+                    </span>
+                  )}
+                </div>
               )}
               <button
                 type="button"
@@ -2133,6 +2333,8 @@ function ChapterAccordion({
                     imageMap={imageMap}
                     isSelected={selectedScenes.has(scene.id)}
                     onToggleSelected={() => toggleSceneSelection(scene.id)}
+                    onDelete={() => onSceneDeleted(scene.id)}
+                    isFocused={focusedSceneId === scene.id}
                   />
                 ))}
               </div>
@@ -2175,7 +2377,7 @@ export default function StoryboardPanel() {
   );
   const [isSendingChapters, setIsSendingChapters] = useState(false);
   const [videoLevelBatch, setVideoLevelBatch] = useState<{
-    type: 'retry' | 'retry-fal' | 'tts' | null;
+    type: 'retry' | 'retry-fal' | 'tts' | 'retry-tts' | 'retry-tts-fal' | null;
     done: number;
     total: number;
   } | null>(null);
@@ -2183,6 +2385,7 @@ export default function StoryboardPanel() {
   const { canvasSize } = useProjectStore();
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
   const storyboardForceOpen = getForceOpen('storyboard');
+  const { focusedSceneId } = useSceneFocusStore();
 
   // Helper to set video both locally and in persistent store
   const setVideoId = useCallback(
@@ -2345,6 +2548,13 @@ export default function StoryboardPanel() {
           if (!cancelled) load();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'studio', table: 'scenes' },
+        () => {
+          if (!cancelled) load();
+        }
+      )
       .subscribe();
 
     const variantSub = supabaseRT
@@ -2387,14 +2597,22 @@ export default function StoryboardPanel() {
         pauseAutoSave();
         await waitForSave();
 
-        // 1. Save current timeline to the PREVIOUS video
+        // 1. Best-effort save current timeline to the PREVIOUS video
+        //    Don't abort swap if save fails — user must still switch.
         if (previousVideoId && studio.tracks.length > 0) {
-          await saveTimeline(
-            projectId,
-            studio.tracks,
-            studio.clips,
-            previousVideoId
-          );
+          try {
+            await saveTimeline(
+              projectId,
+              studio.tracks,
+              studio.clips,
+              previousVideoId
+            );
+          } catch (saveErr) {
+            console.warn(
+              'Failed to save previous video timeline (continuing swap):',
+              saveErr
+            );
+          }
         }
 
         // 2. Clear UI (async — must await)
@@ -2561,7 +2779,11 @@ export default function StoryboardPanel() {
               type="button"
               onClick={() => toggleAll('storyboard')}
               className="h-6 px-1.5 text-xs rounded border bg-background hover:bg-accent text-muted-foreground transition-colors"
-              title={storyboardForceOpen === true ? 'Collapse all chapters' : 'Expand all chapters'}
+              title={
+                storyboardForceOpen === true
+                  ? 'Collapse all chapters'
+                  : 'Expand all chapters'
+              }
             >
               {storyboardForceOpen === true ? (
                 <IconChevronUp className="size-3.5" />
@@ -2727,108 +2949,289 @@ export default function StoryboardPanel() {
         )}
 
         {/* ── Video-level bulk actions ───────────────────────────────── */}
-        {chapters.length > 0 && (() => {
-          const allScenes = chapters.flatMap((ch) => ch.scenes);
-          const failedVideoScenes = allScenes.filter((s) => s.video_status === 'failed');
-          const pendingTtsScenes = allScenes.filter((s) => !!s.audio_text && !s.audio_url);
-          const isRunning = videoLevelBatch !== null;
+        {chapters.length > 0 &&
+          (() => {
+            const allScenes = chapters.flatMap((ch) => ch.scenes);
+            const failedVideoScenes = allScenes.filter(
+              (s) => s.video_status === 'failed' && !s.video_url
+            );
+            const failedTtsScenes = allScenes.filter(
+              (s) =>
+                s.tts_status === 'failed' && !s.audio_url && !!s.audio_text
+            );
+            const pendingTtsScenes = allScenes.filter(
+              (s) => !!s.audio_text && !s.audio_url
+            );
+            const isRunning = videoLevelBatch !== null;
 
-          if (failedVideoScenes.length === 0 && pendingTtsScenes.length === 0) return null;
+            if (
+              failedVideoScenes.length === 0 &&
+              failedTtsScenes.length === 0 &&
+              pendingTtsScenes.length === 0
+            )
+              return null;
 
-          return (
-            <div className="flex flex-wrap items-center gap-1.5 px-1 py-1.5 border-b border-border/20 mb-1">
-              <span className="text-[9px] text-muted-foreground/60 mr-1">Video Actions:</span>
-
-              {failedVideoScenes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setVideoLevelBatch({ type: 'retry', done: 0, total: failedVideoScenes.length });
-                    try {
-                      for (const [i, scene] of failedVideoScenes.entries()) {
-                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
-                        setVideoLevelBatch({ type: 'retry', done: i + 1, total: failedVideoScenes.length });
-                      }
-                      toast.success(`Retried ${failedVideoScenes.length} failed video(s)`);
-                    } catch {
-                      toast.error('Retry failed');
-                    } finally {
-                      setVideoLevelBatch(null);
-                    }
-                  }}
-                  disabled={isRunning}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <IconRefresh className="size-2.5" />
-                  Retry Failed ({failedVideoScenes.length})
-                </button>
-              )}
-
-              {failedVideoScenes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setVideoLevelBatch({ type: 'retry-fal', done: 0, total: failedVideoScenes.length });
-                    try {
-                      for (const [i, scene] of failedVideoScenes.entries()) {
-                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`, { provider: 'fal' });
-                        setVideoLevelBatch({ type: 'retry-fal', done: i + 1, total: failedVideoScenes.length });
-                      }
-                      toast.success(`Retried ${failedVideoScenes.length} video(s) via fal.ai`);
-                    } catch {
-                      toast.error('fal.ai retry failed');
-                    } finally {
-                      setVideoLevelBatch(null);
-                    }
-                  }}
-                  disabled={isRunning}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <IconRefresh className="size-2.5" />
-                  Retry fal.ai ({failedVideoScenes.length})
-                </button>
-              )}
-
-              {pendingTtsScenes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setVideoLevelBatch({ type: 'tts', done: 0, total: pendingTtsScenes.length });
-                    try {
-                      for (const [i, scene] of pendingTtsScenes.entries()) {
-                        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
-                        setVideoLevelBatch({ type: 'tts', done: i + 1, total: pendingTtsScenes.length });
-                      }
-                      toast.success(`Generated TTS for ${pendingTtsScenes.length} scene(s)`);
-                    } catch {
-                      toast.error('TTS generation failed');
-                    } finally {
-                      setVideoLevelBatch(null);
-                    }
-                  }}
-                  disabled={isRunning}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <IconSparkles className="size-2.5" />
-                  Generate TTS ({pendingTtsScenes.length})
-                </button>
-              )}
-
-              {isRunning && videoLevelBatch && (
-                <span className="text-[9px] text-yellow-400 ml-1">
-                  {videoLevelBatch.type === 'retry' ? 'Retrying' :
-                   videoLevelBatch.type === 'retry-fal' ? 'Retrying (fal.ai)' : 'Generating TTS'}{' '}
-                  {videoLevelBatch.done}/{videoLevelBatch.total}...
+            return (
+              <div className="flex flex-wrap items-center gap-1.5 px-1 py-1.5 border-b border-border/20 mb-1">
+                <span className="text-[9px] text-muted-foreground/60 mr-1">
+                  Video Actions:
                 </span>
-              )}
-            </div>
-          );
-        })()}
+
+                {failedVideoScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'retry',
+                        done: 0,
+                        total: failedVideoScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedVideoScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-video`
+                          );
+                          setVideoLevelBatch({
+                            type: 'retry',
+                            done: i + 1,
+                            total: failedVideoScenes.length,
+                          });
+                        }
+                        toast.success(
+                          `Retried ${failedVideoScenes.length} failed video(s)`
+                        );
+                      } catch {
+                        toast.error('Retry failed');
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry Failed ({failedVideoScenes.length})
+                  </button>
+                )}
+
+                {failedVideoScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'retry-fal',
+                        done: 0,
+                        total: failedVideoScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedVideoScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-video`,
+                            { provider: 'fal' }
+                          );
+                          setVideoLevelBatch({
+                            type: 'retry-fal',
+                            done: i + 1,
+                            total: failedVideoScenes.length,
+                          });
+                        }
+                        toast.success(
+                          `Retried ${failedVideoScenes.length} video(s) via fal.ai`
+                        );
+                      } catch {
+                        toast.error('fal.ai retry failed');
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry fal.ai ({failedVideoScenes.length})
+                  </button>
+                )}
+
+                {pendingTtsScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'tts',
+                        done: 0,
+                        total: pendingTtsScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of pendingTtsScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-tts`
+                          );
+                          setVideoLevelBatch({
+                            type: 'tts',
+                            done: i + 1,
+                            total: pendingTtsScenes.length,
+                          });
+                        }
+                        toast.success(
+                          `Generated TTS for ${pendingTtsScenes.length} scene(s)`
+                        );
+                      } catch {
+                        toast.error('TTS generation failed');
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconSparkles className="size-2.5" />
+                    Generate TTS ({pendingTtsScenes.length})
+                  </button>
+                )}
+
+                {failedTtsScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'retry-tts',
+                        done: 0,
+                        total: failedTtsScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedTtsScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-tts`
+                          );
+                          setVideoLevelBatch({
+                            type: 'retry-tts',
+                            done: i + 1,
+                            total: failedTtsScenes.length,
+                          });
+                        }
+                        toast.success(
+                          `Retried ${failedTtsScenes.length} failed TTS scene(s)`
+                        );
+                      } catch {
+                        toast.error('TTS retry failed');
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry Failed TTS ({failedTtsScenes.length})
+                  </button>
+                )}
+
+                {failedTtsScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'retry-tts-fal',
+                        done: 0,
+                        total: failedTtsScenes.length,
+                      });
+                      try {
+                        for (const [i, scene] of failedTtsScenes.entries()) {
+                          await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-tts`,
+                            { provider: 'fal' }
+                          );
+                          setVideoLevelBatch({
+                            type: 'retry-tts-fal',
+                            done: i + 1,
+                            total: failedTtsScenes.length,
+                          });
+                        }
+                        toast.success(
+                          `Retried ${failedTtsScenes.length} TTS scene(s) via fal.ai`
+                        );
+                      } catch {
+                        toast.error('fal.ai TTS retry failed');
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <IconRefresh className="size-2.5" />
+                    Retry fal.ai TTS ({failedTtsScenes.length})
+                  </button>
+                )}
+
+                {isRunning && videoLevelBatch && (
+                  <span className="text-[9px] text-yellow-400 ml-1">
+                    {videoLevelBatch.type === 'retry'
+                      ? 'Retrying'
+                      : videoLevelBatch.type === 'retry-fal'
+                        ? 'Retrying (fal.ai)'
+                        : videoLevelBatch.type === 'retry-tts'
+                          ? 'Retrying TTS'
+                          : videoLevelBatch.type === 'retry-tts-fal'
+                            ? 'Retrying TTS (fal.ai)'
+                            : 'Generating TTS'}{' '}
+                    {videoLevelBatch.done}/{videoLevelBatch.total}...
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
         {/* Full Script — all voiceovers combined */}
-        {chapters.some((ch) =>
-          ch.scenes.some((s) => s.audio_text)
-        ) && <FullScriptSection chapters={chapters} />}
+        {chapters.some((ch) => ch.scenes.some((s) => s.audio_text)) && (
+          <FullScriptSection chapters={chapters} />
+        )}
+
+        {/* Video-level Assets */}
+        {imageMap.size > 0 &&
+          (() => {
+            const allLocationSlugs = [
+              ...new Set(
+                chapters.flatMap((ch) =>
+                  ch.scenes
+                    .map((s) => s.location_variant_slug)
+                    .filter((s): s is string => !!s)
+                )
+              ),
+            ];
+            const allCharacterSlugs = [
+              ...new Set(
+                chapters.flatMap((ch) =>
+                  ch.scenes.flatMap((s) => s.character_variant_slugs ?? [])
+                )
+              ),
+            ];
+            const allPropSlugs = [
+              ...new Set(
+                chapters.flatMap((ch) =>
+                  ch.scenes.flatMap((s) => s.prop_variant_slugs ?? [])
+                )
+              ),
+            ];
+            const totalAssets =
+              allLocationSlugs.length +
+              allCharacterSlugs.length +
+              allPropSlugs.length;
+            if (totalAssets === 0) return null;
+
+            return (
+              <VideoAssetsSection
+                locationSlugs={allLocationSlugs}
+                characterSlugs={allCharacterSlugs}
+                propSlugs={allPropSlugs}
+                imageMap={imageMap}
+                totalAssets={totalAssets}
+              />
+            );
+          })()}
+
+        {/* Video Music */}
+        <ProjectMusicSection projectId={projectId} videoId={videoId} />
 
         {/* Chapter list */}
         {chapters.map((ep) => (
@@ -2849,6 +3252,19 @@ export default function StoryboardPanel() {
               });
             }}
             forceOpen={storyboardForceOpen}
+            focusedSceneId={focusedSceneId}
+            onSceneDeleted={(sceneId) => {
+              setChapters((prev) =>
+                prev.map((ch) =>
+                  ch.id === ep.id
+                    ? {
+                        ...ch,
+                        scenes: ch.scenes.filter((s) => s.id !== sceneId),
+                      }
+                    : ch
+                )
+              );
+            }}
           />
         ))}
       </div>

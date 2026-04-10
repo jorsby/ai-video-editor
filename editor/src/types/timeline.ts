@@ -37,7 +37,7 @@ export interface IClip {
   style?: any;
   caption?: any;
   effects?: any[];
-  // ... any other props
+  metadata?: Record<string, unknown>;
 }
 
 // Track interface from Studio schema (Normalized)

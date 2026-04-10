@@ -14,7 +14,6 @@ type AssetVariantSeed = {
   prompt: string;
   image_url: string;
   is_main: boolean;
-  where_to_use: string;
   reasoning: string;
 };
 
@@ -43,8 +42,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-studio-intro.jpg',
         is_main: true,
-        where_to_use:
-          'Opening monologues, recap moments, and direct-to-camera narration.',
         reasoning:
           'Neutral wardrobe and controlled lighting keep visual continuity across chapter intros.',
       },
@@ -55,8 +52,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-field-reporter.jpg',
         is_main: false,
-        where_to_use:
-          'On-location scenes, tense discovery beats, and transitions between locations.',
         reasoning:
           'Adds urgency and environmental context while preserving the same identity traits.',
       },
@@ -77,8 +72,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/marcus-vale-archive-worker.jpg',
         is_main: true,
-        where_to_use:
-          'Flashbacks, evidence review scenes, and explanatory dialogue moments.',
         reasoning:
           'Grounds Marcus in his professional past and clarifies why he has insider access.',
       },
@@ -89,8 +82,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/marcus-vale-anonymous-source.jpg',
         is_main: false,
-        where_to_use:
-          'Secret handoff scenes, threat moments, and cliffhanger reveals.',
         reasoning:
           'Visually communicates risk and secrecy without changing character identity.',
       },
@@ -111,8 +102,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-blue-hour.jpg',
         is_main: true,
-        where_to_use:
-          'Chapter cold opens and scene transitions into field investigation.',
         reasoning:
           'Reliable establishing frame that orients viewers quickly in recurring chapters.',
       },
@@ -123,8 +112,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-searchlight-night.jpg',
         is_main: false,
-        where_to_use:
-          'High-risk pursuit scenes, surveillance beats, and escalating tension moments.',
         reasoning:
           'Adds danger and motion cues while keeping the same physical location.',
       },
@@ -145,8 +132,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/city-records-vault-catalog-aisle.jpg',
         is_main: true,
-        where_to_use:
-          'Research scenes where dialogue and object details need high readability.',
         reasoning:
           'Balanced exposure helps legibility for papers, IDs, and evidence props.',
       },
@@ -157,8 +142,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/city-records-vault-emergency-power.jpg',
         is_main: false,
-        where_to_use:
-          'Power-failure twists, alarm-triggered beats, and deadline-pressure moments.',
         reasoning:
           'Creates immediate tonal shift without introducing a brand new set.',
       },
@@ -179,8 +162,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-closed.jpg',
         is_main: true,
-        where_to_use:
-          'General continuity shots when the watch is present but unopened.',
         reasoning:
           'Defines the baseline silhouette and material properties for prop continuity.',
       },
@@ -191,8 +172,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-open.jpg',
         is_main: false,
-        where_to_use:
-          'Reveal moments, clue decoding scenes, and chapter turning points.',
         reasoning:
           'Makes the hidden mechanism explicit for story clarity during reveals.',
       },
@@ -213,8 +192,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/echo-9-dossier-sealed.jpg',
         is_main: true,
-        where_to_use:
-          'Teases, transition inserts, and setup beats before information is revealed.',
         reasoning:
           'Builds anticipation while maintaining mystery around dossier contents.',
       },
@@ -225,8 +202,6 @@ const SAMPLE_ASSETS: AssetSeed[] = [
         image_url:
           'https://cdn.octupost.dev/samples/schema-inspector/variants/echo-9-dossier-open-layout.jpg',
         is_main: false,
-        where_to_use:
-          'Investigation breakdowns and explanatory narration sections.',
         reasoning:
           'Supports visual storytelling when Ava connects multiple evidence threads.',
       },
@@ -898,7 +873,6 @@ export async function POST(request: NextRequest) {
       language: 'en-US',
       aspect_ratio: '9:16',
       video_model: 'kling-v2.1-reference',
-      image_model: 'flux-dev-cinematic-v3',
       voice_id: 'alloy-investigative-neutral',
       tts_speed: 1.03,
       visual_style:
@@ -1001,7 +975,6 @@ export async function POST(request: NextRequest) {
         prompt: variant.prompt,
         image_url: variant.image_url,
         is_main: variant.is_main,
-        where_to_use: variant.where_to_use,
         reasoning: variant.reasoning,
       };
     });

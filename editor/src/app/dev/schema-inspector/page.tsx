@@ -35,7 +35,6 @@ interface SchemaVideo {
   language: string | null;
   aspect_ratio: string | null;
   video_model: string | null;
-  image_model: string | null;
   voice_id: string | null;
   tts_speed: number | null;
   visual_style: string | null;
@@ -65,7 +64,6 @@ interface SchemaVideoAssetVariant {
   prompt: string | null;
   image_url: string | null;
   is_main: boolean;
-  where_to_use: string | null;
   reasoning: string | null;
   created_at: string;
   updated_at: string;
@@ -425,7 +423,7 @@ function createMockInspectorData(userId: string) {
     language: 'en-US',
     aspect_ratio: '9:16',
     video_model: 'kling-v2.1-reference',
-    image_model: 'flux-dev-cinematic-v3',
+
     voice_id: 'alloy-investigative-neutral',
     tts_speed: 1.03,
     visual_style:
@@ -474,7 +472,7 @@ function createMockInspectorData(userId: string) {
     language: 'en-US',
     aspect_ratio: '16:9',
     video_model: 'kling-v2.1-reference',
-    image_model: 'flux-dev-cinematic-v3',
+
     voice_id: 'alloy-neutral',
     tts_speed: 1,
     visual_style: 'Minimal control sample for selector and empty-state checks.',
@@ -535,8 +533,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-studio-intro.jpg',
       is_main: true,
-      where_to_use:
-        'Opening monologues, recap moments, and direct-to-camera sections.',
       reasoning:
         'Neutral wardrobe and stable lighting preserve continuity across recurring intros.',
       created_at: createdAt,
@@ -552,7 +548,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/ava-kim-field-reporter.jpg',
       is_main: false,
-      where_to_use: 'On-location scenes and high-risk discovery beats.',
       reasoning:
         'Adds urgency and environmental context while keeping character identity fixed.',
       created_at: createdAt,
@@ -568,7 +563,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-blue-hour.jpg',
       is_main: true,
-      where_to_use: 'Cold opens and transition shots into field investigation.',
       reasoning:
         'Reliable establishing frame that quickly orients viewers in recurring chapters.',
       created_at: createdAt,
@@ -584,7 +578,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/pier-17-searchlight-night.jpg',
       is_main: false,
-      where_to_use: 'Pursuit scenes and escalating tension moments.',
       reasoning: 'Introduces danger cues while preserving location continuity.',
       created_at: createdAt,
       updated_at: updatedAt,
@@ -599,7 +592,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-closed.jpg',
       is_main: true,
-      where_to_use: 'Continuity shots when the watch is present but unopened.',
       reasoning:
         'Defines baseline silhouette and material consistency for prop tracking.',
       created_at: createdAt,
@@ -615,7 +607,6 @@ function createMockInspectorData(userId: string) {
       image_url:
         'https://cdn.octupost.dev/samples/schema-inspector/variants/cipher-watch-open.jpg',
       is_main: false,
-      where_to_use: 'Reveal moments and clue decoding sequences.',
       reasoning:
         'Makes the hidden mechanism explicit during pivotal narrative turns.',
       created_at: createdAt,
@@ -979,7 +970,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       ? await supabase
           .from('videos')
           .select(
-            'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, image_model, voice_id, tts_speed, visual_style, creative_brief, plan_status, created_at, updated_at'
+            'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, voice_id, tts_speed, visual_style, creative_brief, plan_status, created_at, updated_at'
           )
           .eq('project_id', selectedProject.id)
           .order('created_at', { ascending: true })
@@ -1017,7 +1008,7 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
       ? await supabase
           .from('project_asset_variants')
           .select(
-            'id, asset_id, slug, name, prompt, image_url, is_main, where_to_use, reasoning, created_at, updated_at'
+            'id, asset_id, slug, name, prompt, image_url, is_main, reasoning, created_at, updated_at'
           )
           .in('asset_id', assetIds)
           .order('created_at', { ascending: true })
@@ -1425,7 +1416,6 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                         <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                           <span>voice: {video.voice_id ?? '—'}</span>
                           <span>video: {video.video_model ?? '—'}</span>
-                          <span>image: {video.image_model ?? '—'}</span>
                         </div>
                       </Link>
                     ))}
@@ -1772,7 +1762,6 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                       value: selectedVideo.aspect_ratio,
                     },
                     { label: 'video_model', value: selectedVideo.video_model },
-                    { label: 'image_model', value: selectedVideo.image_model },
                     { label: 'voice_id', value: selectedVideo.voice_id },
                     { label: 'tts_speed', value: selectedVideo.tts_speed },
                     { label: 'plan_status', value: selectedVideo.plan_status },
@@ -1910,10 +1899,6 @@ export default async function SchemaInspectorPage({ searchParams }: PageProps) {
                                             {
                                               label: 'prompt',
                                               value: variant.prompt,
-                                            },
-                                            {
-                                              label: 'where_to_use',
-                                              value: variant.where_to_use,
                                             },
                                             {
                                               label: 'reasoning',

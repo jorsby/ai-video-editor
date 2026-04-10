@@ -315,31 +315,44 @@ export const TimelineStudioSync = ({
     };
 
     const handleClipReplaced = ({
+      oldClip,
       newClip,
+      trackId,
     }: {
       oldClip: IClip;
       newClip: IClip;
       trackId: string;
     }) => {
       useTimelineStore.setState((state) => {
-        if (!state.clips[newClip.id]) return state;
-
         const serializedClip = clipToJSON(newClip as unknown as StudioClip);
-        const updatedClips = {
-          ...state.clips,
-          [newClip.id]: {
-            ...state.clips[newClip.id],
-            ...serializedClip,
-            id: (serializedClip.id || newClip.id) as string,
-            display: { ...serializedClip.display },
-            trim: serializedClip.trim ? { ...serializedClip.trim } : undefined,
-            sourceDuration: (newClip as any).meta?.duration || newClip.duration,
-          },
+
+        // Remove old clip entry, add new clip entry
+        const updatedClips = { ...state.clips };
+        delete updatedClips[oldClip.id];
+        updatedClips[newClip.id] = {
+          ...serializedClip,
+          id: (serializedClip.id || newClip.id) as string,
+          display: { ...serializedClip.display },
+          trim: serializedClip.trim ? { ...serializedClip.trim } : undefined,
+          sourceDuration: (newClip as any).meta?.duration || newClip.duration,
         };
+
+        // Update track clipIds: old ID → new ID
+        const updatedTracks = state.tracks.map((t) => {
+          if (t.id !== trackId) return t;
+          return {
+            ...t,
+            clipIds: t.clipIds.map((id) =>
+              id === oldClip.id ? newClip.id : id
+            ),
+          };
+        });
 
         return {
           ...state,
           clips: updatedClips,
+          tracks: updatedTracks,
+          _tracks: updatedTracks,
         };
       });
     };

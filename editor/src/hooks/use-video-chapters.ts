@@ -41,10 +41,6 @@ interface StoryboardStatusRow {
   plan_status: string | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
 function resolveChapterStatus(
   storyboardId: string | null,
   storyboardPlanStatus: string | null
@@ -90,40 +86,18 @@ export function useVideoChapters(
       const supabase = createClient('studio');
 
       try {
-        let foundVideoId: string | null = null;
+        const { data: linkedVideo, error: videoLookupError } = await supabase
+          .from('videos')
+          .select('id')
+          .eq('project_id', projectId)
+          .limit(1)
+          .maybeSingle();
 
-        try {
-          const projectResponse = await fetch(`/api/projects/${projectId}`);
-          if (projectResponse.ok) {
-            const projectData: unknown = await projectResponse.json();
-            const project = isRecord(projectData) ? projectData.project : null;
-            const settings =
-              isRecord(project) && isRecord(project.settings)
-                ? project.settings
-                : null;
-
-            if (settings?.video_id && typeof settings.video_id === 'string') {
-              foundVideoId = settings.video_id;
-            }
-          }
-        } catch {
-          // Fall back to video.project_id lookup below.
+        if (videoLookupError) {
+          throw new Error(videoLookupError.message);
         }
 
-        if (!foundVideoId) {
-          const { data: fallbackVideo, error: fallbackError } = await supabase
-            .from('videos')
-            .select('id')
-            .eq('project_id', projectId)
-            .limit(1)
-            .maybeSingle();
-
-          if (fallbackError) {
-            throw new Error(fallbackError.message);
-          }
-
-          foundVideoId = fallbackVideo?.id ?? null;
-        }
+        const foundVideoId = linkedVideo?.id ?? null;
 
         if (!foundVideoId) {
           if (!cancelled) {
@@ -220,9 +194,7 @@ export function useVideoChapters(
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error
-              ? err.message
-              : 'Failed to load video chapters'
+            err instanceof Error ? err.message : 'Failed to load video chapters'
           );
           setVideo(null);
           setChapters([]);

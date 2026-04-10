@@ -12,7 +12,10 @@ import { useStudioStore } from '@/stores/studio-store';
 import { useProjectId } from '@/contexts/project-context';
 import { smartUpload } from '@/lib/upload-utils';
 import { remuxToInstagramMp4 } from '@/lib/remux';
-import { splitVideoSegment } from '@/lib/split-video';
+import { splitVideoSegment, overlayHookOnShort } from '@/lib/split-video';
+import { renderHookOverlayPng } from '@/lib/hook-generator';
+import { STYLE_CAPTION_PRESETS } from './constant/caption';
+import type { ICaptionsControlProps } from './interface/captions';
 import type { RenderedVideo } from '@/types/rendered-video';
 
 // Transform external URLs to proxy through our API to avoid CORS errors during export
@@ -108,6 +111,10 @@ export function ExportModal({
   const [shortsProgress, setShortsProgress] = useState('');
   const [shortsCreated, setShortsCreated] = useState(0);
   const [shortsTotal, setShortsTotal] = useState(0);
+  const [addHookToShorts, setAddHookToShorts] = useState(false);
+  const [hookPreset, setHookPreset] = useState<ICaptionsControlProps>(
+    STYLE_CAPTION_PRESETS[0]
+  );
 
   const maxDuration = studio?.getMaxDuration() || 0;
 
@@ -140,6 +147,8 @@ export function ExportModal({
     setShortsProgress('');
     setShortsCreated(0);
     setShortsTotal(0);
+    setAddHookToShorts(false);
+    setHookPreset(STYLE_CAPTION_PRESETS[0]);
   };
 
   const handleClose = () => {
@@ -369,7 +378,32 @@ export function ExportModal({
         return;
       }
 
-      // 2. Split and upload each segment
+      // 2. Generate hook PNG if enabled
+      let hookPngBlob: Blob | null = null;
+      if (addHookToShorts) {
+        setShortsProgress('Generating hook...');
+        try {
+          const hookRes = await fetch('/api/generate-hook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_id: projectId }),
+          });
+          if (hookRes.ok) {
+            const hookData = await hookRes.json();
+            hookPngBlob = await renderHookOverlayPng({
+              hookLines: hookData,
+              preset: hookPreset,
+              videoWidth: settings.width,
+              videoHeight: settings.height,
+            });
+            console.log('[Shorts] Hook PNG generated');
+          }
+        } catch (err) {
+          console.warn('[Shorts] Hook generation failed, continuing without:', err);
+        }
+      }
+
+      // 3. Split and upload each segment
       setShortsStatus('splitting');
       setShortsTotal(segments.length);
       let succeeded = 0;
@@ -383,12 +417,20 @@ export function ExportModal({
 
         try {
           // Split video segment
-          const shortBlob = await splitVideoSegment(
+          let shortBlob = await splitVideoSegment(
             fullVideoBlob,
             segment.start_time,
             segment.end_time,
             i
           );
+
+          // Overlay hook if enabled
+          if (hookPngBlob) {
+            setShortsProgress(
+              `Adding hook to short ${i + 1}/${segments.length}...`
+            );
+            shortBlob = await overlayHookOnShort(shortBlob, hookPngBlob, i);
+          }
 
           // Upload to R2
           const shortFile = new File(
@@ -573,9 +615,78 @@ export function ExportModal({
                 </div>
                 <Switch
                   checked={generateShorts}
-                  onCheckedChange={setGenerateShorts}
+                  onCheckedChange={(v) => {
+                    setGenerateShorts(v);
+                    if (!v) setAddHookToShorts(false);
+                  }}
                 />
               </div>
+
+              {generateShorts && (
+                <div className="mt-3 border-t border-white/5 pt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm text-zinc-400">🪝</span>
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          Add Hook
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          3s text overlay at the start of each short
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={addHookToShorts}
+                      onCheckedChange={setAddHookToShorts}
+                    />
+                  </div>
+
+                  {addHookToShorts && (
+                    <div className="mt-3 grid grid-cols-4 gap-1.5">
+                      {STYLE_CAPTION_PRESETS.map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => setHookPreset(preset)}
+                          className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                            hookPreset.name === preset.name
+                              ? 'border-blue-500 bg-blue-500/20 text-white'
+                              : 'border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span
+                            className="mb-1 flex h-7 items-center justify-center rounded text-base font-extrabold"
+                            style={{
+                              color: preset.activeColor,
+                              WebkitTextStroke:
+                                preset.borderWidth > 0 &&
+                                preset.borderColor !== 'transparent'
+                                  ? `${Math.min(preset.borderWidth, 3)}px ${preset.borderColor}`
+                                  : undefined,
+                              textShadow:
+                                preset.boxShadow &&
+                                preset.boxShadow.color !== 'transparent'
+                                  ? `${preset.boxShadow.x}px ${preset.boxShadow.y}px ${preset.boxShadow.blur}px ${preset.boxShadow.color}`
+                                  : undefined,
+                              backgroundColor:
+                                preset.backgroundColor !== 'transparent'
+                                  ? preset.backgroundColor
+                                  : undefined,
+                              textTransform:
+                                (preset.textTransform as React.CSSProperties['textTransform']) ||
+                                undefined,
+                            }}
+                          >
+                            Aa
+                          </span>
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex w-full gap-3">

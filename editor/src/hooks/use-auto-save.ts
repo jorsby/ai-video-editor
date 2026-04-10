@@ -24,6 +24,9 @@ export function resumeAutoSave() {
   autoSavePaused = false;
 }
 
+// Dirty flag: true when Studio has unsaved changes
+let isDirty = false;
+
 export function useAutoSave() {
   const { studio } = useStudioStore();
   const projectId = useProjectId();
@@ -31,6 +34,9 @@ export function useAutoSave() {
   const isSavingRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const debouncedSaveTimerRef =
+    useRef<ReturnType<typeof setTimeout>>(undefined);
+  const DEBOUNCE_DELAY = 5000; // 5 seconds
 
   const performSave = useCallback(async () => {
     if (autoSavePaused) return;
@@ -52,6 +58,8 @@ export function useAutoSave() {
           state.studio!.clips,
           currentVideoId
         );
+        isDirty = false;
+        clearTimeout(debouncedSaveTimerRef.current);
         setSaveStatus('saved');
         savedTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000);
       } catch (error) {
@@ -71,6 +79,41 @@ export function useAutoSave() {
     await promise;
   }, [projectId, getVideoId]);
 
+  // Schedule a debounced save when Studio state changes
+  const scheduleDebouncedSave = useCallback(() => {
+    if (autoSavePaused) return;
+    isDirty = true;
+    clearTimeout(debouncedSaveTimerRef.current);
+    debouncedSaveTimerRef.current = setTimeout(performSave, DEBOUNCE_DELAY);
+  }, [performSave]);
+
+  // Listen to Studio change events for change-triggered saves
+  useEffect(() => {
+    if (!studio) return;
+    const CHANGE_EVENTS = [
+      'clip:added',
+      'clips:added',
+      'clip:removed',
+      'clips:removed',
+      'clip:updated',
+      'clip:replaced',
+      'track:added',
+      'track:removed',
+      'track:order-changed',
+      'studio:restored',
+    ];
+
+    for (const event of CHANGE_EVENTS) {
+      studio.on(event, scheduleDebouncedSave);
+    }
+    return () => {
+      for (const event of CHANGE_EVENTS) {
+        studio.off(event, scheduleDebouncedSave);
+      }
+      clearTimeout(debouncedSaveTimerRef.current);
+    };
+  }, [studio, scheduleDebouncedSave]);
+
   // Auto-save interval
   useEffect(() => {
     if (!studio) return;
@@ -80,15 +123,40 @@ export function useAutoSave() {
     return () => {
       clearInterval(intervalId);
       clearTimeout(savedTimerRef.current);
-      // Sync save on unmount (best effort)
-      if (studio && studio.clips.length > 0) {
+      // Sync save on unmount (best effort, only if dirty)
+      if (isDirty && studio && studio.clips.length > 0) {
         const currentVideoId = getVideoId(projectId) ?? undefined;
-        saveTimeline(projectId, studio.tracks, studio.clips, currentVideoId).catch(
-          console.error
-        );
+        saveTimeline(
+          projectId,
+          studio.tracks,
+          studio.clips,
+          currentVideoId
+        ).catch(console.error);
       }
     };
   }, [studio, projectId, performSave, getVideoId]);
+
+  // Warn on tab close if unsaved changes; save when tab goes to background
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isDirty) {
+        performSave();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [performSave]);
 
   // Cmd+S / Ctrl+S shortcut
   useEffect(() => {

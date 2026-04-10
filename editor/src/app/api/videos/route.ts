@@ -127,7 +127,6 @@ export async function POST(req: NextRequest) {
       language: asOptionalString(body?.language),
       aspect_ratio: asOptionalString(body?.aspect_ratio),
       video_model: asOptionalString(body?.video_model),
-      image_model: asOptionalString(body?.image_model),
       voice_id: asOptionalString(body?.voice_id),
       tts_speed:
         typeof body?.tts_speed === 'number' && Number.isFinite(body.tts_speed)

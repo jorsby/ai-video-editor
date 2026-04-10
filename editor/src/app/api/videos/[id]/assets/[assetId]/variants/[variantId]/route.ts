@@ -133,11 +133,6 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       updates.prompt = asOptionalString(body.prompt);
     if (body.image_url !== undefined)
       updates.image_url = asOptionalString(body.image_url);
-    if (body.where_to_use !== undefined || body.description !== undefined) {
-      updates.where_to_use = asOptionalString(
-        body.where_to_use ?? body.description ?? null
-      );
-    }
     if (body.reasoning !== undefined)
       updates.reasoning = asOptionalString(body.reasoning);
     if (body.is_main !== undefined) updates.is_main = Boolean(body.is_main);

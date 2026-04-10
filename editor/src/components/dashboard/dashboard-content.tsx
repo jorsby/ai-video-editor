@@ -231,6 +231,17 @@ export function DashboardContent() {
     } finally {
       setAccountsLoading(false);
     }
+
+    // Background: refresh account metadata from Octupost (profile images, expiry)
+    try {
+      const syncRes = await fetch('/api/v2/accounts/sync', { method: 'POST' });
+      if (syncRes.ok) {
+        const { accounts: refreshed } = await syncRes.json();
+        if (refreshed) setAccounts(refreshed);
+      }
+    } catch {
+      // Silent — background refresh
+    }
   };
 
   const fetchGroups = async () => {

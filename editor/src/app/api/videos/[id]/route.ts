@@ -84,7 +84,6 @@ function parseVideoUpdates(body: Record<string, unknown>) {
     'language',
     'aspect_ratio',
     'video_model',
-    'image_model',
     'voice_id',
   ] as const;
 

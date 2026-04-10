@@ -204,12 +204,10 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
     loadData();
   }, [renderedVideoId]);
 
-  // Sync caption language from video once loaded
+  // Default caption language
   useEffect(() => {
-    if (video?.language) {
-      setCaptionLanguage(video.language as LanguageCode);
-    }
-  }, [video?.language]);
+    setCaptionLanguage('en' as LanguageCode);
+  }, []);
 
   const handleGenerateCaption = async () => {
     if (!video?.project_id) return;
@@ -522,11 +520,6 @@ export function PostPage({ renderedVideoId }: PostPageProps) {
               />
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {video.language && (
-                <span className="rounded bg-white/10 px-2 py-0.5 font-semibold uppercase">
-                  {video.language}
-                </span>
-              )}
               {video.resolution && <span>{video.resolution}</span>}
               {video.duration && (
                 <span>

@@ -1,7 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
-import { queueImageTask } from '@/lib/image-provider';
+import {
+  queueImageTask,
+  getT2iModel,
+  getI2iModel,
+  getImageAspectRatio,
+  getImageResolution,
+} from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -10,7 +16,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  * POST /api/v2/variants/{id}/generate-image
  *
  * Generates an image for an asset variant using Flux 2 Pro via kie.ai.
- * 2K resolution, 9:16 aspect ratio.
+ * Uses per-model aspect ratio and resolution from image_models settings.
  *
  * Uses variant.prompt + asset context to build the generation prompt.
  *
@@ -66,7 +72,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: video } = await supabase
       .from('videos')
-      .select('id, genre, tone, aspect_ratio')
+      .select('id, genre, tone, aspect_ratio, image_models')
       .eq('project_id', asset.project_id)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -127,13 +133,47 @@ export async function POST(req: NextRequest, context: RouteContext) {
     webhookUrl.searchParams.set('step', 'VideoAssetImage');
     webhookUrl.searchParams.set('variant_id', variantId);
 
-    const aspectRatio = video.aspect_ratio ?? '9:16';
+    const globalAspectRatio = video.aspect_ratio ?? '9:16';
+
+    // ── Resolve model: main → t2i, non-main → i2i ─────────────────────
+
+    const imageModels = video.image_models as Record<string, string> | null;
+    const assetType = asset.type as string;
+    let model = getT2iModel(imageModels, assetType);
+    let inputUrls: string[] | undefined;
+
+    if (!variant.is_main) {
+      // Non-main variant: use image-to-image with main variant's image
+      const { data: mainVariant } = await supabase
+        .from('project_asset_variants')
+        .select('image_url')
+        .eq('asset_id', variant.asset_id)
+        .eq('is_main', true)
+        .maybeSingle();
+
+      if (mainVariant?.image_url) {
+        model = getI2iModel(imageModels, assetType);
+        inputUrls = [mainVariant.image_url as string];
+      }
+      // If main has no image yet, fall back to t2i
+    }
+
+    const isI2i = !!inputUrls;
+    const aspectRatio = getImageAspectRatio(
+      imageModels,
+      assetType,
+      isI2i,
+      globalAspectRatio
+    );
+    const resolution = getImageResolution(imageModels, assetType, isI2i);
 
     const queued = await queueImageTask({
       prompt,
       webhookUrl: webhookUrl.toString(),
+      model,
+      inputUrls,
       aspectRatio,
-      resolution: '2K',
+      resolution,
     });
 
     // ── Mark variant as generating ─────────────────────────────────────
@@ -143,6 +183,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .update({
         image_gen_status: 'generating',
         image_task_id: queued.requestId,
+        image_url: null,
       })
       .eq('id', variantId);
 
@@ -151,7 +192,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
       model: queued.model,
       variant_id: variantId,
       aspect_ratio: aspectRatio,
-      resolution: '2K',
       prompt,
     });
   } catch (error) {

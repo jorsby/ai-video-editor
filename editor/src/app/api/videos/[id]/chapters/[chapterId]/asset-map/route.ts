@@ -208,7 +208,9 @@ function uniqueAssetIdsFromMap(
 
 function mapFromLegacyAssetIds(
   assetIds: string[],
-  assets: Array<AssetRecord & { project_asset_variants: VariantRecord[] | null }>
+  assets: Array<
+    AssetRecord & { project_asset_variants: VariantRecord[] | null }
+  >
 ): AssetVariantMap | null {
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
 

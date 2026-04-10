@@ -17,6 +17,7 @@ import StoryboardPanel from './panel/storyboard-panel';
 import VideoSettingsPanel from './panel/video-settings-panel';
 import PanelRenders from './panel/renders';
 import { PropertiesPanel } from '../properties-panel';
+import { SceneClipPanel } from '../scene-clip-panel';
 import { Assistant } from '@/components/assistant';
 import type { IClip } from 'openvideo';
 import { useEffect, useState } from 'react';
@@ -107,7 +108,11 @@ export function MediaPanel() {
       <Separator orientation="horizontal" />
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {selectedClips.length > 0 && showProperties ? (
-          <PropertiesPanel selectedClips={selectedClips} />
+          selectedClips.length === 1 && selectedClips[0]?.metadata?.sceneId ? (
+            <SceneClipPanel selectedClips={selectedClips} />
+          ) : (
+            <PropertiesPanel selectedClips={selectedClips} />
+          )
         ) : (
           viewMap[activeTab]
         )}

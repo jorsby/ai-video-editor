@@ -15,7 +15,6 @@ export interface VideoProductionMeta {
   language?: string;
   voice_id?: string;
   video_model?: string;
-  image_model?: string;
 }
 
 // ── Scene ────────────────────────────────────────────────────────────────────
