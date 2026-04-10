@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const planElementSchema = z.object({
+const klingElementSchema = z.object({
   name: z.string(),
   description: z.string(),
 });
@@ -10,21 +10,12 @@ const scenePromptItem = z.union([
   z.array(z.string()).min(2).max(3),
 ]);
 
-<<<<<<< Updated upstream:editor/src/lib/schemas/grok-plan.ts
-export const grokPlanSchema = z.object({
-  // Objects grid
-  objects_rows: z.number().int().min(2).max(6),
-  objects_cols: z.number().int().min(2).max(6),
-  objects_grid_prompt: z.string(),
-  objects: z.array(planElementSchema).min(1).max(36),
-=======
 export const klingO3PlanSchema = z.object({
   // Objects grid — @deprecated: grid fields optional, assets created separately now
   objects_rows: z.number().int().min(2).max(6).optional(),
   objects_cols: z.number().int().min(2).max(6).optional(),
   objects_grid_prompt: z.string().optional(),
   objects: z.array(klingElementSchema).min(1).max(36).optional(),
->>>>>>> Stashed changes:editor/src/lib/schemas/kling-o3-plan.ts
 
   // Backgrounds grid — @deprecated: grid fields optional, assets created separately now
   bg_rows: z.number().int().min(2).max(6).optional(),
@@ -42,12 +33,12 @@ export const klingO3PlanSchema = z.object({
   voiceover_list: z.record(z.string(), z.array(z.string())),
 
   // Per-scene duration (seconds) — used for single-prompt scenes
-  scene_durations: z.array(z.number().int().min(3).max(30)).optional(),
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
 
   // Per-shot durations for multi-prompt scenes — array of arrays
   // null for single-prompt scenes, [duration1, duration2, ...] for multi-shot
   scene_shot_durations: z
-    .array(z.union([z.null(), z.array(z.number().int().min(3).max(30))]))
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
     .optional(),
 
   // Workflow metadata
@@ -56,23 +47,15 @@ export const klingO3PlanSchema = z.object({
   content_template: z.string().optional(), // deprecated, kept for v1 compat
 });
 
-export type GrokPlan = z.infer<typeof grokPlanSchema>;
+export type KlingO3Plan = z.infer<typeof klingO3PlanSchema>;
 
 // Content schema (before translation — voiceover_list is a flat array)
-<<<<<<< Updated upstream:editor/src/lib/schemas/grok-plan.ts
-export const grokContentSchema = z.object({
-  objects_rows: z.number().int().min(2).max(6),
-  objects_cols: z.number().int().min(2).max(6),
-  objects_grid_prompt: z.string(),
-  objects: z.array(planElementSchema).min(1).max(36),
-=======
 export const klingO3ContentSchema = z.object({
   // @deprecated — grid fields optional, assets created separately
   objects_rows: z.number().int().min(2).max(6).optional(),
   objects_cols: z.number().int().min(2).max(6).optional(),
   objects_grid_prompt: z.string().optional(),
   objects: z.array(klingElementSchema).min(1).max(36).optional(),
->>>>>>> Stashed changes:editor/src/lib/schemas/kling-o3-plan.ts
 
   // @deprecated — grid fields optional
   bg_rows: z.number().int().min(2).max(6).optional(),
@@ -87,13 +70,13 @@ export const klingO3ContentSchema = z.object({
 
   voiceover_list: z.array(z.string()),
 
-  scene_durations: z.array(z.number().int().min(3).max(30)).optional(),
+  scene_durations: z.array(z.number().int().min(3).max(15)).optional(),
   scene_shot_durations: z
-    .array(z.union([z.null(), z.array(z.number().int().min(3).max(30))]))
+    .array(z.union([z.null(), z.array(z.number().int().min(3).max(15))]))
     .optional(),
 });
 
-export const GROK_SYSTEM_PROMPT = `You are a storyboard planner for AI video generation using Grok Imagine (reference-to-video).
+export const KLING_O3_SYSTEM_PROMPT = `You are a storyboard planner for AI video generation using Kling O3 (reference-to-video).
 
 RULES:
 1. Voiceover Splitting and Grid Planning
@@ -123,20 +106,20 @@ RULES:
 - Valid grid sizes for backgrounds grid: 2x2(4), 3x2(6), 3x3(9), 4x3(12), 4x4(16), 5x4(20), 5x5(25), 6x5(30), 6x6(36).
 
 4. Scene Prompts
-- Scene prompts use Grok Imagine reference syntax:
-  - @image1 = the background (from scene_bg_indices).
-  - @image2..@imageN = objects in the order of scene_object_indices.
-- CRITICAL: Do NOT reference @imageN beyond the number of images available.
-  - Example: If scene_object_indices[i] = [0, 3], that scene has 2 objects. Use @image1 (bg), @image2 and @image3 ONLY.
-  - Example: If scene_object_indices[i] = [2], that scene has 1 object. Use @image1 (bg) and @image2 ONLY.
-- CHARACTER ATTRIBUTION: When multiple characters appear in a scene, explicitly state which character performs which action. Grok Imagine confuses character-action relationships. BAD: "@image2 and @image3 argue, one throws a glass." GOOD: "@image2 slams his fist on the table while @image3 flinches and steps back."
-- REFERENCE BINDING: Place @image references at the specific narrative moment they appear, not just at the start. E.g., "Camera pans across @image1, then @image2 enters from the left and approaches @image3 who is seated."
-- FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @image1 when Grok Imagine should have creative freedom with the environment.
-- DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Grok Imagine generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
+- Scene prompts use Kling native reference syntax:
+  - @ElementN refers to the Nth element assigned to that scene (in order from scene_object_indices). @Element1 is the first object, @Element2 is the second, etc.
+  - @Image1 refers to the background assigned to that scene.
+- CRITICAL: Do NOT reference @ElementN where N > the number of objects in that scene's scene_object_indices.
+  - Example: If scene_object_indices[i] = [0, 3], that scene has 2 objects. Use @Element1 and @Element2 ONLY. Do NOT use @Element3 or higher.
+  - Example: If scene_object_indices[i] = [2], that scene has 1 object. Use @Element1 ONLY.
+- CHARACTER ATTRIBUTION: When multiple characters appear in a scene, explicitly state which character performs which action. Kling confuses character-action relationships. BAD: "@Element1 and @Element2 argue, one throws a glass." GOOD: "@Element1 slams his fist on the table while @Element2 flinches and steps back."
+- REFERENCE BINDING: Place @Element and @Image1 references at the specific narrative moment they appear, not just at the start. E.g., "Camera pans across @Image1, then @Element1 enters from the left and approaches @Element2 who is seated."
+- FEWER REFERENCES FOR COMPLEX ACTIONS: For action-heavy scenes (running, fighting, falling), using 1-2 elements produces better motion quality than 3-4. Omit @Image1 when Kling should have creative freedom with the environment.
+- DIALOGUE: When characters speak, include emotional delivery cues — tone of voice, facial expression, body language. Kling O3 generates native audio, so ambient sound cues (rain pattering, crowd murmur, footsteps echoing) improve output.
 - ONE ACTION PER SINGLE-PROMPT SCENE: Each single prompt should describe ONE clear action or moment. Don't chain "enters room, sets bag, touches wall, camera pans to mirror" — pick the money shot.
 
 5. Multi-Shot vs Single-Prompt Decision
-Grok Imagine supports multi-shot video generation: multiple prompts in one API call, each with its own duration (3-30s per shot), producing a single video with cuts between shots.
+Kling O3 supports multi-shot video generation: multiple prompts in one API call, each with its own duration (3-15s per shot), producing a single video with cuts between shots.
 
 USE MULTI-SHOT (array of 2-3 prompts) when:
 - The scene has a camera angle change (wide → close-up, establishing → detail)
@@ -154,21 +137,21 @@ SHOT DURATION GUIDELINES:
 - Medium action shots: 4-6 seconds (standard narrative pacing)
 - Close-ups and reactions: 3-5 seconds (quick emotional beats)
 - Reveals/payoff shots: 5-7 seconds (hold for impact)
-- Total multi-shot scene: 6-30 seconds (sum of all shot durations)
+- Total multi-shot scene: 6-15 seconds (sum of all shot durations)
 
-Each shot uses the same @image references as the parent scene.
+Each shot uses the same @ElementN and @Image1 references as the parent scene.
 Shots should form a coherent visual sequence with varied framing.
 
 Example multi-shot:
-  ["Wide tracking shot following @image2 walking down @image1, flickering lights, 7s establishing tension",
-   "Close-up of @image2 glancing up nervously, quickening pace, 4s quick beat"]
+  ["Wide tracking shot following @Element1 walking down @Image1, flickering lights, 7s establishing tension",
+   "Close-up of @Element1 glancing up nervously, quickening pace, 4s quick beat"]
 
 Example single:
-  "Slow dolly push-in on @image2 in @image1, dim fluorescent light, guarded expression"
+  "Slow dolly push-in on @Element1 in @Image1, dim fluorescent light, guarded expression"
 
 6. Visual & Content Rules
 DO:
-- Prompts are always in English. Visual style adapts to the video bible and style metadata.
+- Prompts are always in English. Visual style adapts to the series bible and style metadata.
 - If the voiceover mentions real people, brands, landmarks, or locations, use their actual names and recognizable features.
 - Favor photorealistic, natural descriptions. Include subtle imperfections (weathered surfaces, natural skin texture, worn clothing details) to avoid an AI-rendered look.
 - Vary camera angles across scenes — avoid repeating the same straight-on medium shot.
@@ -191,9 +174,9 @@ Return valid JSON matching this structure:
   "backgrounds_grid_prompt": "A 2x2 Grid. Grid_1x1: [atmospheric location description, no people]. Grid_1x2: ...",
   "background_names": ["Hotel Lobby", "Room 4B", "Hallway", "Exterior"],
   "scene_prompts": [
-    "Single continuous shot: @image2 walks through @image1, dim lighting, guarded expression",
-    ["Wide tracking shot of @image2 in @image1, tension building", "Close-up of @image2 reacting with widening eyes"],
-    "@image2 sits alone in @image1, slow dolly push-in"
+    "Single continuous shot: @Element1 walks through @Image1, dim lighting, guarded expression",
+    ["Wide tracking shot of @Element1 in @Image1, tension building", "Close-up of @Element1 reacting with widening eyes"],
+    "@Element1 sits alone in @Image1, slow dolly push-in"
   ],
   "scene_bg_indices": [0, 2, 1],
   "scene_object_indices": [[0], [0], [0, 1]],
@@ -207,23 +190,26 @@ IMPORTANT:
 - scene_shot_durations[i] = null for single-prompt scenes, [d1, d2, ...] for multi-shot (must match scene_prompts[i] array length)
 - scene_shot_durations array length must equal scene_prompts length`;
 
-export const grokReviewerOutputSchema = z.object({
+export const klingO3ReviewerOutputSchema = z.object({
   scene_prompts: z.array(scenePromptItem),
   scene_bg_indices: z.array(z.number().int().min(0)),
   scene_object_indices: z.array(z.array(z.number().int().min(0)).max(4)),
 });
 
-export const GROK_REVIEWER_SYSTEM_PROMPT = `You are a storyboard reviewer for Grok Imagine reference-to-video generation. You receive a generated storyboard plan and must fix errors and improve prompt quality.
+export const KLING_O3_REVIEWER_SYSTEM_PROMPT = `You are a storyboard reviewer for Kling O3 reference-to-video generation. You receive a generated storyboard plan and must fix errors and improve prompt quality.
 
 YOUR TASKS:
 
-1. Fix @image references
+1. Fix @ElementN references
    - For each scene i, check scene_object_indices[i] to know how many objects that scene has.
-   - @image1 = background, @image2.. = objects in order.
-   - NO @imageN may exceed the count of images available. If scene_object_indices[i] has 2 items, only @image1, @image2, @image3 are valid.
+   - @Element1 = first object in the scene's list, @Element2 = second, etc.
+   - NO @ElementN may exceed the count of objects in that scene. If scene_object_indices[i] has 2 items, only @Element1 and @Element2 are valid.
    - Fix any violations by either correcting the reference number or rewriting the prompt.
 
-2. Improve prompt quality
+2. Fix @ImageN references
+   - Only @Image1 is valid (one background per scene). Fix any @Image2, @Image3, etc.
+
+3. Improve prompt quality
    - Background images must be empty environments with NO people or characters present.
    - Replace generic, summary-style, or executive-overview prompts with vivid, cinematic shot descriptions.
    - Include specific camera techniques: dolly zoom, tracking shot, close-up, aerial reveal, handheld feel, rack focus, push-in, crane shot, over-the-shoulder, whip pan.
@@ -233,12 +219,12 @@ YOUR TASKS:
    - Single-string prompts should describe one continuous shot. Array prompts (2-3 shots) should form a coherent visual sequence.
 
 4. Verify character-action clarity
-   - When multiple @image references appear in the same prompt, each character MUST have an explicitly stated action. "They interact" is not acceptable.
-   - BAD: "@image2 and @image3 talk" → GOOD: "@image2 gestures animatedly while @image3 nods and listens."
-   - Add character name in parentheses after @image references for clarity: "@image2 (Ahmed) hands the book to @image3 (Sara)".
+   - When multiple @ElementN references appear in the same prompt, each character MUST have an explicitly stated action. "They interact" is not acceptable.
+   - BAD: "@Element1 and @Element2 talk" → GOOD: "@Element1 gestures animatedly while @Element2 nods and listens."
+   - Add character name in parentheses after @ElementN for clarity: "@Element1 (Ahmed) hands the book to @Element2 (Sara)".
 
 5. Check reference density
-   - Scenes with @image1 + 3-4 object images + complex physical actions may be over-constrained. Consider dropping @image1 for action-heavy scenes to give Grok Imagine more creative freedom.
+   - Scenes with @Image1 + 3-4 @Elements + complex physical actions may be over-constrained. Consider dropping @Image1 for action-heavy scenes to give Kling more creative freedom.
    - For dialogue scenes, ensure emotional delivery cues are present (facial expression, body language, tone).
 
 6. Verify multi-shot vs single-shot
