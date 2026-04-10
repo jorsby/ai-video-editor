@@ -7,6 +7,7 @@ import {
   type KieWebhookVerificationResult,
 } from '@/lib/kieai';
 import { probeMediaDuration } from '@/lib/media-probe';
+import { transcribeSceneVideo } from '@/lib/transcribe/transcribe-url';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -782,6 +783,14 @@ async function handleGenerateSceneVideo(params: {
     })
     .eq('id', sceneId);
 
+  // Fire-and-forget: transcribe the video
+  void transcribeSceneVideo(supabase, sceneId, videoUrl).catch((err) =>
+    log.error(
+      '[handleGenerateSceneVideo] Transcription failed (non-fatal):',
+      err
+    )
+  );
+
   return okResponse({
     success: true,
     step: 'GenerateSceneVideo',
@@ -982,7 +991,6 @@ async function handleGenerateMusic(params: {
   const primaryAudioUrl = normalizeNonEmptyString(primaryTrack.audio_url);
   const primaryImageUrl = normalizeNonEmptyString(primaryTrack.image_url);
   const primaryDuration = normalizeNullableNumber(primaryTrack.duration);
-  const primaryTrackId = normalizeNonEmptyString(primaryTrack.id);
 
   if (!primaryAudioUrl) {
     await supabase
@@ -1009,7 +1017,6 @@ async function handleGenerateMusic(params: {
       audio_url: primaryAudioUrl,
       cover_image_url: primaryImageUrl,
       duration: primaryDuration,
-      suno_track_id: primaryTrackId,
       status: 'done',
       generation_metadata: payload,
     })
@@ -1053,7 +1060,6 @@ async function handleGenerateMusic(params: {
     if (altAudioUrl) {
       const altImageUrl = normalizeNonEmptyString(altTrack.image_url);
       const altDuration = normalizeNullableNumber(altTrack.duration);
-      const altSunoTrackId = normalizeNonEmptyString(altTrack.id);
       const altTitle =
         normalizeNonEmptyString(altTrack.title) ??
         normalizeNonEmptyString(updatedMusic.title) ??
@@ -1089,7 +1095,6 @@ async function handleGenerateMusic(params: {
           duration: altDuration,
           status: 'done',
           task_id: taskId,
-          suno_track_id: altSunoTrackId,
           generation_metadata: payload,
           sort_order: nextSortOrder,
         })

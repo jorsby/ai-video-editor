@@ -113,5 +113,10 @@ export async function transcribe(
 
 export { deepgramToCombo } from './deepgram-to-combo';
 export { detectLanguage } from './detect-language';
+export {
+  transcribeUrl,
+  transcribeSceneVideo,
+  type TranscriptionSummary,
+} from './transcribe-url';
 // Export types
 export * from './types';
