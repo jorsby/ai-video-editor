@@ -356,7 +356,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
     state: 'success' | 'done';
   }> {
     const trimmedTime = time + this.trim.from;
-    if (trimmedTime >= this.trim.to || trimmedTime >= this._meta.duration) {
+    if (trimmedTime > this.trim.to || trimmedTime > this._meta.duration) {
       return await this.tickInterceptor(time, {
         audio: (await this.audioFrameFinder?.find(trimmedTime)) ?? [],
         state: 'done',
@@ -413,79 +413,84 @@ export class Video extends BaseClip implements IPlaybackCapable {
 
     return new Promise<Array<{ ts: number; img: Blob }>>(
       async (resolve, reject) => {
-        const pngPromises: Array<{ ts: number; img: Promise<Blob> }> = [];
+        const results: Array<{ ts: number; img: Blob }> = [];
         const vc = this.decoderConf.video;
         if (vc == null || this.videoSamples.length === 0) {
-          resolver();
+          resolve([]);
           return;
         }
+        let localFinder: VideoFrameFinder | null = null;
+
         aborterSignal.addEventListener('abort', () => {
           reject(Error(abortMsg));
         });
 
-        async function resolver() {
-          if (aborterSignal.aborted) return;
-          resolve(
-            await Promise.all(
-              pngPromises.map(async (it) => ({
-                ts: it.ts,
-                img: await it.img,
-              }))
-            )
-          );
-        }
+        try {
+          const { start = 0, end = this._meta.duration, step } = opts ?? {};
+          if (step) {
+            let cur = start;
 
-        function pushPngPromise(vf: VideoFrame) {
-          pngPromises.push({
-            ts: vf.timestamp,
-            img: convtr(vf),
-          });
-        }
-
-        const { start = 0, end = this._meta.duration, step } = opts ?? {};
-        if (step) {
-          let cur = start;
-
-          // Cleanup previous finder if exists
-          if (this.thumbFinder) {
-            await this.thumbFinder.destroy();
-            this.thumbFinder = null;
-          }
-
-          // Create a new VideoFrameFinder instance to avoid conflicts with the tick method
-          this.thumbFinder = new VideoFrameFinder(
-            await this.localFile.createReader(),
-            this.videoSamples,
-            {
-              ...vc,
-              hardwareAcceleration: this.opts.__unsafe_hardwareAcceleration__,
+            // Clean up any previously orphaned finder on class instance
+            if (this.thumbFinder) {
+              await this.thumbFinder.destroy();
+              this.thumbFinder = null;
             }
-          );
 
-          while (cur <= end && !aborterSignal.aborted) {
-            const vf = await this.thumbFinder.find(cur);
-            if (vf) pushPngPromise(vf);
-            cur += step;
-          }
+            localFinder = new VideoFrameFinder(
+              await this.localFile.createReader(),
+              this.videoSamples,
+              {
+                ...vc,
+                hardwareAcceleration: this.opts.__unsafe_hardwareAcceleration__,
+              }
+            );
 
-          // Cleanup after use
-          await this.thumbFinder.destroy();
-          this.thumbFinder = null;
+            // Register it globally so video.destroy() can still abort it if the clip is deleted
+            this.thumbFinder = localFinder;
 
-          resolver();
-        } else {
-          await thumbnailByKeyFrame(
-            this.videoSamples,
-            this.localFile,
-            vc,
-            aborterSignal,
-            { start, end },
-            (vf, done) => {
-              if (vf != null) pushPngPromise(vf);
-              if (done) resolver();
+            while (cur <= end && !aborterSignal.aborted) {
+              const vf = await localFinder.find(cur);
+              if (vf) {
+                const blob = await convtr(vf);
+                results.push({ ts: vf.timestamp, img: blob });
+              }
+              cur += step;
             }
-          );
+
+            if (results.length === 0 && !aborterSignal.aborted) {
+              const vf = await localFinder.find(0);
+              if (vf) {
+                const blob = await convtr(vf);
+                results.push({ ts: vf.timestamp, img: blob });
+              }
+            }
+          } else {
+            await thumbnailByKeyFrame(
+              this.videoSamples,
+              this.localFile,
+              vc,
+              aborterSignal,
+              { start, end },
+              async (vf, done) => {
+                if (vf != null) {
+                  const blob = await convtr(vf);
+                  results.push({ ts: vf.timestamp, img: blob });
+                }
+              }
+            );
+          }
+        } catch (e) {
+          reject(e);
+          return;
+        } finally {
+          if (localFinder) {
+            await localFinder.destroy();
+            if (this.thumbFinder === localFinder) {
+              this.thumbFinder = null;
+            }
+          }
         }
+        resolve(results);
       }
     );
   }
@@ -695,7 +700,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
 
     const stream = await ResourceManager.getReadableStream(json.src);
     const clip = new Video(stream, options as any, json.src);
-    await clip.ready;
+    // await clip.ready; - Removed for performance
 
     // Apply properties
     clip.left = json.left;
@@ -735,9 +740,8 @@ export class Video extends BaseClip implements IPlaybackCapable {
 
     // Apply trim if present
     if (json.trim) {
-      clip.trim.from =
-        json.trim.from < 1e6 ? json.trim.from * 1e6 : json.trim.from;
-      clip.trim.to = json.trim.to < 1e6 ? json.trim.to * 1e6 : json.trim.to;
+      clip.trim.from = json.trim.from;
+      clip.trim.to = json.trim.to;
     }
 
     if (json.volume !== undefined) {
@@ -747,9 +751,12 @@ export class Video extends BaseClip implements IPlaybackCapable {
     if ((json as any).chromaKey) {
       clip.chromaKey = { ...clip.chromaKey, ...(json as any).chromaKey };
     }
-
     if ((json as any).metadata) {
       clip.metadata = { ...(json as any).metadata };
+    }
+
+    if (json.locked !== undefined) {
+      clip.locked = json.locked;
     }
 
     return clip;
@@ -1421,14 +1428,8 @@ class VideoFrameFinder {
     this.videoFrames.forEach((f) => f.close());
     this.videoFrames = [];
 
-    // Properly flush and close the decoder
+    // Properly close the decoder
     if (this.decoder && this.decoder.state !== 'closed') {
-      try {
-        // Wait for pending decode operations to complete or abort
-        await this.decoder.flush();
-      } catch {
-        // Ignore flush errors during cleanup - expected when aborting
-      }
       try {
         this.decoder.close();
       } catch {
@@ -2057,13 +2058,36 @@ function createVF2BlobConvtr(
   height: number,
   opts?: ImageEncodeOptions
 ) {
-  const cvs = new OffscreenCanvas(width, height);
-  const ctx = cvs.getContext('2d')!;
-
+  // We use fresh canvas per frame to avoid any stale state or collisions
   return async (vf: VideoFrame) => {
-    ctx.drawImage(vf, 0, 0, width, height);
-    vf.close();
-    const blob = await cvs.convertToBlob(opts);
-    return blob;
+    try {
+      const targetW = Math.max(1, Math.round(width));
+      const targetH = Math.max(1, Math.round(height));
+
+      Log.info(
+        `[Video.convtr] START: ${targetW}x${targetH}, ts: ${vf.timestamp}`
+      );
+
+      Log.info(`[Video.convtr] Creating OffscreenCanvas`);
+      const cvs = new OffscreenCanvas(targetW, targetH);
+
+      Log.info(`[Video.convtr] Getting Context`);
+      const ctx = cvs.getContext('2d')!;
+
+      Log.info(`[Video.convtr] Drawing image`);
+      ctx.drawImage(vf, 0, 0, targetW, targetH);
+
+      Log.info(`[Video.convtr] Closing VideoFrame`);
+      vf.close();
+
+      Log.info(`[Video.convtr] Calling convertToBlob`);
+      const blob = await cvs.convertToBlob(opts);
+      Log.info(`[Video.convtr] FINISHED: ${blob.size} bytes`);
+
+      return blob;
+    } catch (err: any) {
+      Log.error(`[Video.convtr] ERROR: ${err?.message || err}`);
+      throw err;
+    }
   };
 }

@@ -58,6 +58,7 @@ export interface AnimationTransform {
   blur?: number; // additive offset
   brightness?: number; // multiplier (relative to 1.0)
   mirror?: number; // 0 or 1 (boolean via number)
+  motionBlur?: number; // motion blur amount (0 = off)
 }
 
 export interface KeyframeData {

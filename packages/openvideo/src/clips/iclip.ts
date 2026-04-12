@@ -186,6 +186,11 @@ export interface IClip<T extends BaseSpriteEvents = BaseSpriteEvents>
    * Ignored by the rendering engine; survives serialization round-trips.
    */
   metadata: Record<string, unknown>;
+
+  /**
+   * Whether the clip is locked (preventing interactions)
+   */
+  locked: boolean;
 }
 
 /**

@@ -1334,8 +1334,7 @@ export class Studio extends EventEmitter<StudioEvents> {
         clip.syncPlayback(
           playbackInfo.element,
           this.isPlaying,
-          playbackRelativeTime,
-          this.transport.playbackSpeed
+          playbackRelativeTime
         );
 
         // For VideoClip, handle sprite visibility
