@@ -42,6 +42,7 @@ interface BaseClipJSON {
   };
   transition?: ITransitionInfo;
   style?: any;
+  locked?: boolean;
 
   animation?: {
     keyFrames: Record<
@@ -68,7 +69,6 @@ interface BaseClipJSON {
   }>;
   main?: boolean; // For Compositor only
   metadata?: Record<string, unknown>;
-  locked?: boolean;
 }
 
 // Video clip specific
@@ -129,14 +129,9 @@ export interface TextStyleJSON {
   letterSpacing?: number;
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'title';
   wordsPerLine?: 'single' | 'multiple';
-  verticalAlign?:
-    | 'top'
-    | 'top-quarter'
-    | 'center'
-    | 'bottom-quarter'
-    | 'bottom';
-  isRTL?: boolean;
+  verticalAlign?: 'top' | 'center' | 'bottom';
   wordAnimation?: ICaptionWordAnimation;
+  textBoxStyle?: TextBoxStyleJSON;
 }
 
 export interface ICaptionWordAnimation {
@@ -144,6 +139,15 @@ export interface ICaptionWordAnimation {
   application: 'active' | 'keyword' | 'none';
   value: number;
   mode?: 'static' | 'dynamic';
+}
+
+export interface TextBoxStyleJSON {
+  style?: 'tiktok' | 'none';
+  textAlign?: 'left' | 'center' | 'right' | '';
+  maxLines?: number;
+  borderRadius?: number;
+  horizontalPadding?: number;
+  verticalPadding?: number;
 }
 
 // Text clip specific
@@ -182,6 +186,7 @@ export interface CaptionDataJSON {
   preserveKeywordColor?: boolean;
   positioning?: CaptionPositioningJSON;
   wordAnimation?: ICaptionWordAnimation;
+  textBoxStyle?: TextBoxStyleJSON;
 }
 
 // Caption clip specific
@@ -211,6 +216,7 @@ export interface CaptionJSON extends BaseClipJSON {
   fontUrl?: string;
   mediaId?: string;
   wordsPerLine?: 'single' | 'multiple';
+  textBoxStyle?: TextBoxStyleJSON;
 }
 
 // Effect clip specific

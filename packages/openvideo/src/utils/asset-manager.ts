@@ -33,7 +33,7 @@ export class AssetManager {
           const expectedSize = parseInt(await originFile.text(), 10);
           const cachedFile = await f.getOriginFile();
           if (!cachedFile) throw new Error('no cached file');
-          if (!isNaN(expectedSize) && cachedFile.size === expectedSize) {
+          if (!Number.isNaN(expectedSize) && cachedFile.size === expectedSize) {
             return f;
           }
         } catch {

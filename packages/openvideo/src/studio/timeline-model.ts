@@ -179,7 +179,7 @@ export class TimelineModel {
           .filter((c): c is IClip => {
             if (!c || c.type !== 'Transition') return false;
             const tc = c as any;
-            return tc.fromClipId === clipA!.id && tc.toClipId === clipB!.id;
+            return tc.fromClipId === clipA?.id && tc.toClipId === clipB?.id;
           });
         // Remove existing transition clips
         for (const existingTransition of existingTransitions) {
@@ -443,7 +443,7 @@ export class TimelineModel {
   ): Promise<void> {
     const { permanent } = options;
     if (clip.locked) return;
-    const index = this.clips.findIndex((c) => c === clip);
+    const index = this.clips.indexOf(clip);
     if (index === -1) return;
 
     // Separate cleanup for Transition to remove 'transition' property from linked clips
@@ -507,7 +507,7 @@ export class TimelineModel {
         this.studio.spriteRenderers.delete(clip);
       } else {
         const root = renderer.getRoot();
-        if (root && root.parent) {
+        if (root?.parent) {
           root.parent.removeChild(root);
         }
       }
@@ -561,7 +561,7 @@ export class TimelineModel {
 
     for (const clip of clips) {
       if (clip.locked) continue;
-      const index = this.clips.findIndex((c) => c === clip);
+      const index = this.clips.indexOf(clip);
       if (index === -1) continue;
 
       // Transition cleanup
@@ -614,7 +614,7 @@ export class TimelineModel {
           this.studio.spriteRenderers.delete(clip);
         } else {
           const root = renderer.getRoot();
-          if (root && root.parent) {
+          if (root?.parent) {
             root.parent.removeChild(root);
           }
         }
@@ -1234,7 +1234,7 @@ export class TimelineModel {
 
           // B. Link Renderer
           if (typeof clip.setRenderer === 'function') {
-            clip.setRenderer(this.studio.pixiApp!.renderer);
+            clip.setRenderer(this.studio.pixiApp?.renderer);
           }
 
           // C. Wait for Ready (Safety)
@@ -1652,7 +1652,7 @@ export class TimelineModel {
       if (
         clip.display.to === 0 &&
         clip.duration !== Infinity &&
-        !isNaN(clip.duration) &&
+        !Number.isNaN(clip.duration) &&
         clip.duration > 0
       ) {
         // Fallback if to is 0?

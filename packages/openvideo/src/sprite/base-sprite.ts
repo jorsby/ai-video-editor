@@ -87,10 +87,6 @@ export abstract class BaseSprite<
     to: 0,
   };
 
-  constructor() {
-    super();
-  }
-
   // Spatial properties
   protected _left = 0;
   /**
@@ -348,7 +344,7 @@ export abstract class BaseSprite<
   setAnimation(keyFrame: TKeyFrameOpts, opts: IAnimationOpts): void {
     this.animatKeyFrame = Object.entries(keyFrame).map(([k, val]) => {
       const numK = { from: 0, to: 100 }[k] ?? Number(k.slice(0, -1));
-      if (isNaN(numK) || numK > 100 || numK < 0) {
+      if (Number.isNaN(numK) || numK > 100 || numK < 0) {
         throw Error('keyFrame must between 0~100');
       }
       return [numK / 100, val];

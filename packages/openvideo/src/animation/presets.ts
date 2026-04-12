@@ -5,7 +5,7 @@ import { GsapAnimation } from './gsap-animation';
 // Animation Presets
 
 function normalizeParams(params: any): any {
-  if (params && params.presetParams) {
+  if (params?.presetParams) {
     return { ...params.presetParams, ...params };
   }
   return params;
@@ -5210,7 +5210,6 @@ export function getPresetTemplate(type: string, params?: any): any {
           mirror: 1,
         },
       };
-    case 'custom':
     default:
       return {
         '0%': {},

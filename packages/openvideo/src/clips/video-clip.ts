@@ -471,7 +471,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
               vc,
               aborterSignal,
               { start, end },
-              async (vf, done) => {
+              async (vf, _done) => {
                 if (vf != null) {
                   const blob = await convtr(vf);
                   results.push({ ts: vf.timestamp, img: blob });
@@ -832,7 +832,7 @@ export class Video extends BaseClip implements IPlaybackCapable {
     if (video.paused) {
       try {
         await video.play();
-      } catch (err) {
+      } catch (_err) {
         // Retry once on failure
         try {
           await video.play();
@@ -1971,7 +1971,7 @@ function memoryUsageInfo() {
       percentUsed: (mem.usedJSHeapSize / mem.jsHeapSizeLimit).toFixed(3),
       percentTotal: (mem.totalJSHeapSize / mem.jsHeapSizeLimit).toFixed(3),
     };
-  } catch (err) {
+  } catch (_err) {
     return {};
   }
 }

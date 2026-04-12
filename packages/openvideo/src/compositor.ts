@@ -219,7 +219,7 @@ export class Compositor extends EventEmitter<{
       if (anyApp.ticker && typeof anyApp.ticker.stop === 'function') {
         anyApp.ticker.stop();
       }
-    } catch (e) {
+    } catch (_e) {
       // ignore if ticker doesn't exist or can't be stopped
     }
 
@@ -407,7 +407,7 @@ export class Compositor extends EventEmitter<{
         if (anyApp.ticker && typeof anyApp.ticker.stop === 'function') {
           try {
             anyApp.ticker.stop();
-          } catch (e) {
+          } catch (_e) {
             // ignore
           }
         }
@@ -415,7 +415,7 @@ export class Compositor extends EventEmitter<{
         if (anyApp.renderer != null) {
           // Check if WebGL context is lost
           const gl = anyApp.renderer.gl;
-          if (gl && gl.isContextLost()) {
+          if (gl?.isContextLost()) {
             // Context already lost, just clear reference
             this.pixiApp = null;
             return;
@@ -837,7 +837,7 @@ function createSpritesRender(opts: {
       filters.push(brightnessFilter);
     }
 
-    if (clip.chromaKey && clip.chromaKey.enabled) {
+    if (clip.chromaKey?.enabled) {
       const chromaUniforms = new UniformGroup({
         uKeyColor: { value: [0, 1, 0], type: 'vec3<f32>' },
         uSimilarity: { value: 0.1, type: 'f32' },
@@ -1330,7 +1330,7 @@ function createSpritesRender(opts: {
                   renderer: pixiApp.renderer,
                   values: effect.values,
                 });
-                if (res && res.filter) {
+                if (res?.filter) {
                   effectCached = { filter: res.filter, render: res.render };
                   effectCache.set(id, effectCached);
                 }
@@ -1341,7 +1341,7 @@ function createSpritesRender(opts: {
 
             if (effectCached) {
               const { filter, render } = effectCached;
-              if (filter.resources && filter.resources.effectUniforms) {
+              if (filter.resources?.effectUniforms) {
                 filter.resources.effectUniforms.uniforms.uTime = progress;
               }
 

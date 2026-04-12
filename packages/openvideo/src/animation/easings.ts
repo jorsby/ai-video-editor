@@ -21,18 +21,17 @@ export const easings: Record<string, EasingFunction> = {
   easeInOutExpo: (t) => {
     if (t === 0) return 0;
     if (t === 1) return 1;
-    const normalized = t / 0.5;
-    if (normalized < 1) return 0.5 * 2 ** (10 * (normalized - 1));
-    return 0.5 * (2 - 2 ** (-10 * (normalized - 1)));
+    // biome-ignore lint/suspicious/noAssignInExpressions: upstream easing math
+    if ((t /= 0.5) < 1) return 0.5 * 2 ** (10 * (t - 1));
+    return 0.5 * (2 - 2 ** (-10 * --t));
   },
 
   easeInCirc: (t) => 1 - Math.sqrt(1 - t * t),
   easeOutCirc: (t) => Math.sqrt(1 - (t - 1) * (t - 1)),
   easeInOutCirc: (t) => {
-    const normalized = t / 0.5;
-    if (normalized < 1)
-      return -0.5 * (Math.sqrt(1 - normalized * normalized) - 1);
-    return 0.5 * (Math.sqrt(1 - (normalized - 2) * normalized) + 1);
+    // biome-ignore lint/suspicious/noAssignInExpressions: upstream easing math
+    if ((t /= 0.5) < 1) return -0.5 * (Math.sqrt(1 - t * t) - 1);
+    return 0.5 * (Math.sqrt(1 - (t - 2) * t) + 1);
   },
 
   slow: createSlowMo(0.5, 0.5, false),

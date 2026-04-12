@@ -147,7 +147,7 @@ export class PixiSpriteRenderer {
         this.pixiSprite = new Sprite(frame as Texture);
         this.pixiSprite.label = 'MainSprite';
         // Add to animationContainer instead of root directly
-        this.animationContainer!.addChild(this.pixiSprite);
+        this.animationContainer?.addChild(this.pixiSprite);
         this.applySpriteTransforms();
       } else {
         this.pixiSprite.texture = frame as Texture;
@@ -212,7 +212,7 @@ export class PixiSpriteRenderer {
       if (this.pixiSprite == null) {
         this.pixiSprite = new Sprite(this.texture);
         this.pixiSprite.label = 'MainSprite';
-        this.animationContainer!.addChild(this.pixiSprite);
+        this.animationContainer?.addChild(this.pixiSprite);
         this.applySpriteTransforms();
       } else {
         this.pixiSprite.texture = this.texture;
@@ -445,7 +445,7 @@ export class PixiSpriteRenderer {
     if (borderRadius > 0) {
       if (this.maskGraphics == null) {
         this.maskGraphics = new Graphics();
-        this.animationContainer!.addChild(this.maskGraphics);
+        this.animationContainer?.addChild(this.maskGraphics);
         this.pixiSprite.mask = this.maskGraphics;
       }
       this.maskGraphics.clear();
@@ -489,7 +489,7 @@ export class PixiSpriteRenderer {
     if (stroke && stroke.width > 0) {
       if (this.strokeGraphics == null) {
         this.strokeGraphics = new Graphics();
-        this.animationContainer!.addChild(this.strokeGraphics);
+        this.animationContainer?.addChild(this.strokeGraphics);
       }
 
       this.strokeGraphics.clear();
@@ -545,7 +545,7 @@ export class PixiSpriteRenderer {
         this.shadowGraphics = new Graphics();
         this.shadowContainer.addChild(this.shadowGraphics);
         // Add shadow container to animationContainer at index 0
-        this.animationContainer!.addChildAt(this.shadowContainer, 0);
+        this.animationContainer?.addChildAt(this.shadowContainer, 0);
       }
 
       const color = parseColor(shadow.color) ?? 0x000000;
@@ -560,12 +560,12 @@ export class PixiSpriteRenderer {
       // Position the container
       this.shadowContainer.position.set(dx, dy);
 
-      this.shadowGraphics!.clear();
+      this.shadowGraphics?.clear();
       const borderRadius = style.borderRadius || 0;
 
       if (borderRadius > 0) {
         const r = Math.min(borderRadius, width / 2, height / 2);
-        this.shadowGraphics!.roundRect(
+        this.shadowGraphics?.roundRect(
           -width / 2,
           -height / 2,
           width,
@@ -573,10 +573,10 @@ export class PixiSpriteRenderer {
           r
         );
       } else {
-        this.shadowGraphics!.rect(-width / 2, -height / 2, width, height);
+        this.shadowGraphics?.rect(-width / 2, -height / 2, width, height);
       }
 
-      this.shadowGraphics!.fill({ color, alpha });
+      this.shadowGraphics?.fill({ color, alpha });
 
       // In v8, we use BlurFilter for blurring - apply to container for better bounds handling
       if (blur > 0) {
@@ -620,7 +620,7 @@ export class PixiSpriteRenderer {
     if (!this.animationContainer || this.destroyed) return;
 
     // Safety check for valid number
-    if (typeof blur !== 'number' || !isFinite(blur) || blur <= 0) {
+    if (typeof blur !== 'number' || !Number.isFinite(blur) || blur <= 0) {
       if (
         this.animationContainer.filters &&
         this.animationContainer.filters.length > 0
@@ -665,7 +665,7 @@ export class PixiSpriteRenderer {
     // Safety check for valid number
     if (
       typeof motionBlur !== 'number' ||
-      !isFinite(motionBlur) ||
+      !Number.isFinite(motionBlur) ||
       motionBlur <= 0
     ) {
       if (this.animationContainer.filters) {

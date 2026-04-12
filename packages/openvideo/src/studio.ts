@@ -482,7 +482,7 @@ export class Studio extends EventEmitter<StudioEvents> {
       if (clip.id === clipId) {
         // Remove from parent if possible (renderer.getRoot() exists)
         const root = renderer.getRoot();
-        if (root && root.parent) {
+        if (root?.parent) {
           root.parent.removeChild(root);
         }
         renderer.destroy();
@@ -1845,7 +1845,7 @@ export class Studio extends EventEmitter<StudioEvents> {
     // 1. Try explicit pairing first
     if (clip.transition?.prevClipId) {
       prevClip =
-        this.clips.find((c) => c.id === clip.transition!.prevClipId) || null;
+        this.clips.find((c) => c.id === clip.transition?.prevClipId) || null;
     }
 
     // 2. Fallback to track heuristic

@@ -88,7 +88,7 @@ export class GsapAnimation implements IAnimation {
       const tweens = this.timeline.getChildren();
       if (tweens.length === 0) {
         // No tweens? Check if we expected children and now have them
-        if (target && target.children && target.children.length > 0) {
+        if (target?.children && target.children.length > 0) {
           needsReinit = true;
         }
       } else {
@@ -132,7 +132,7 @@ export class GsapAnimation implements IAnimation {
               }
             }
           }
-        } else if (target && target.children && target.children.length > 0) {
+        } else if (target?.children && target.children.length > 0) {
           // Tweens exist but targets are empty? (Safe to check)
           needsReinit = true;
         }
@@ -207,7 +207,7 @@ export class GsapAnimation implements IAnimation {
 
     // PixiJS SplitBitmapText structure:
     // Container -> Words -> Characters
-    if (target && target.children) {
+    if (target?.children) {
       if (type === 'character') {
         // Find all characters (recursive)
         const findCharacters = (node: any, isRoot: boolean = false): any[] => {

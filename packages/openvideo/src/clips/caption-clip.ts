@@ -61,6 +61,15 @@ interface LocalTextStyleOptions
     | TextStyleOptions['stroke'];
 }
 
+export interface ITextBoxStyle {
+  style?: 'tiktok' | 'none';
+  textAlign?: 'left' | 'center' | 'right' | '';
+  maxLines?: number;
+  borderRadius?: number;
+  horizontalPadding?: number;
+  verticalPadding?: number;
+}
+
 export interface ICaptionStyle {
   fontSize?: number;
   fontFamily?: string;
@@ -80,7 +89,7 @@ export interface ICaptionStyle {
     angle: number;
   };
   wordAnimation?: ICaptionWordAnimation;
-  isRTL?: boolean;
+  textBoxStyle?: ITextBoxStyle;
 }
 
 export interface ICaptionEvents extends BaseSpriteEvents {
@@ -102,6 +111,7 @@ export interface ICaptionEvents extends BaseSpriteEvents {
     dropShadow: ICaptionOpts['dropShadow'];
     caption: ICaptionOpts['caption'];
     wordsPerLine: ICaptionOpts['wordsPerLine'];
+    textBoxStyle: ITextBoxStyle;
   }>;
 }
 
@@ -167,6 +177,7 @@ export interface ICaptionOpts {
       bottomOffset?: number;
     };
     wordAnimation?: ICaptionWordAnimation;
+    textBoxStyle?: ITextBoxStyle;
   };
   /**
    * @deprecated Use caption.words instead
@@ -251,15 +262,10 @@ export interface ICaptionOpts {
    */
   wordWrap?: boolean;
   /**
-   * Vertical alignment ('top', 'top-quarter', 'center', 'bottom-quarter', 'bottom')
+   * Vertical alignment ('top', 'center', 'bottom')
    * @default 'bottom'
    */
-  verticalAlign?:
-    | 'top'
-    | 'top-quarter'
-    | 'center'
-    | 'bottom-quarter'
-    | 'bottom';
+  verticalAlign?: 'top' | 'center' | 'bottom';
   /**
    * Line height (multiplier)
    * @default 1
@@ -289,11 +295,7 @@ export interface ICaptionOpts {
    */
   wordsPerLine?: 'single' | 'multiple';
   wordAnimation?: ICaptionWordAnimation;
-  /**
-   * Whether to render words in right-to-left order (e.g. Arabic)
-   * @default false
-   */
-  isRTL?: boolean;
+  textBoxStyle?: ITextBoxStyle;
 }
 
 /**
@@ -427,7 +429,9 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     const currentWords = this.opts?.words || [];
     const currentJoinedText = currentWords.map((w) => w.text).join(' ');
 
-    if (v.trim() === currentJoinedText.trim()) {
+    const normalizeWhitespace = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+    if (normalizeWhitespace(v) === normalizeWhitespace(currentJoinedText)) {
       // Text matches segments already, no need to redistribute or align
     } else {
       // Determine redistribution path
@@ -614,6 +618,18 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     this.updateStyle({ caption: v });
   }
 
+  get textBoxStyle(): ITextBoxStyle {
+    return (
+      this.originalOpts?.caption?.textBoxStyle ??
+      this.originalOpts?.textBoxStyle ??
+      {}
+    );
+  }
+
+  set textBoxStyle(v: ITextBoxStyle) {
+    this.updateStyle({ textBoxStyle: v });
+  }
+
   /**
    * Bottom offset from video bottom (hybrid JSON structure)
    */
@@ -728,7 +744,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     mediaId?: string;
     wordsPerLine: 'single' | 'multiple';
     wordAnimation?: ICaptionWordAnimation;
-    isRTL?: boolean;
+    textBoxStyle: ITextBoxStyle;
   };
   // Pixi rendering fields (to mirror TextClip)
   private pixiTextContainer: Container | null = null;
@@ -800,7 +816,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       mediaId: opts.mediaId,
       wordsPerLine: opts.wordsPerLine ?? 'multiple',
       wordAnimation: opts.caption?.wordAnimation ?? opts.wordAnimation,
-      isRTL: opts.isRTL ?? false,
+      textBoxStyle: opts.caption?.textBoxStyle ?? opts.textBoxStyle ?? {},
     };
 
     this._initialLayoutApplied = opts.initialLayoutApplied ?? false;
@@ -979,6 +995,8 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       this.opts.wordsPerLine = processedOpts.wordsPerLine;
     if (processedOpts.wordAnimation !== undefined)
       this.opts.wordAnimation = processedOpts.wordAnimation;
+    if (processedOpts.textBoxStyle !== undefined)
+      this.opts.textBoxStyle = processedOpts.textBoxStyle;
 
     // Handle nested colors in processedOpts.caption.colors
     if (processedOpts.caption?.colors) {
@@ -1176,7 +1194,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           wordText.tint = initialColor ?? 0xffffff;
 
           flattenedWords.push(wordText);
-          this.pixiTextContainer!.addChild(wordText);
+          // Don't add to pixiTextContainer yet, we'll add to line containers
         });
       });
 
@@ -1222,16 +1240,22 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       }
 
       // Sanity check: prevent NaN or 0 width from breaking layout
-      if (isNaN(wrapWidth) || wrapWidth <= 0) {
+      if (Number.isNaN(wrapWidth) || wrapWidth <= 0) {
         wrapWidth = videoWidth;
       }
 
-      const lines: {
+      let lines: {
         words: CaptionSplitBitmapText[];
         width: number;
         height: number;
       }[] = [];
 
+      const align = this.opts.textBoxStyle.textAlign || this.opts.align;
+      const tbs = this.opts.textBoxStyle;
+      const isTiktok = tbs.style === 'tiktok';
+      const lineRects: { x: number; y: number; w: number; h: number }[] = [];
+      const hPadding = tbs.horizontalPadding ?? 0;
+      const vPadding = tbs.verticalPadding ?? 0;
       let currentLine: CaptionSplitBitmapText[] = [];
       let currentLineWidth = 0;
       let currentLineHeight = 0;
@@ -1278,7 +1302,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
             lines.push({
               words: currentLine,
               width: currentLineWidth,
-              height: Math.max(currentLineHeight, lineHeight),
+              height: Math.max(currentLineHeight, lineHeight) + vPadding * 2,
             });
           }
           currentLine = [wordText];
@@ -1291,28 +1315,38 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
         lines.push({
           words: currentLine,
           width: currentLineWidth,
-          height: Math.max(currentLineHeight, lineHeight),
+          height: Math.max(currentLineHeight, lineHeight) + vPadding * 2,
         });
       }
 
+      // Apply maxLines constraint
+      if (
+        this.opts.textBoxStyle.maxLines &&
+        this.opts.textBoxStyle.maxLines > 0
+      ) {
+        lines = lines.slice(0, this.opts.textBoxStyle.maxLines);
+      }
+
       // 6. Dimension Calculation (Logical vs Visual)
-      let maxLineWidth = 0;
+      let maxLineWidthBase = 0;
       let totalHeight = 0;
       lines.forEach((line) => {
-        maxLineWidth = Math.max(maxLineWidth, line.width);
+        maxLineWidthBase = Math.max(maxLineWidthBase, line.width);
         totalHeight += line.height;
       });
 
       // logicalContentWidth is the tight width of the text lines
-      const logicalContentWidth = maxLineWidth;
+      const logicalContentWidth = maxLineWidthBase;
       const logicalContentHeight = totalHeight;
+
+      // Determine padded dimensions
+      const contentWidthWithPadding =
+        logicalContentWidth + Math.max(paddingX, hPadding) * 2;
+      const contentHeightWithPadding = logicalContentHeight;
 
       // Determine Target Width (Selection Box & Texture Size)
       const textChanged = this._text !== this._lastProcessedText;
       this._lastProcessedText = this._text;
-
-      const contentWidthWithPadding = logicalContentWidth + paddingX * 2;
-      const contentHeightWithPadding = logicalContentHeight + paddingY * 2;
 
       let targetWidth = contentWidthWithPadding;
       const targetHeight = contentHeightWithPadding;
@@ -1341,16 +1375,11 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       // 7. Positioning
       // Apply Vertical Alignment for the block as a whole
       let startY = 0;
+      const effectiveVOffset = Math.max(paddingY, vPadding);
       if (finalVAlign === 'top') {
-        startY = paddingY;
-      } else if (finalVAlign === 'top-quarter') {
-        startY =
-          paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.25;
-      } else if (finalVAlign === 'bottom-quarter') {
-        startY =
-          paddingY + (containerHeight - textBlockHeight - paddingY * 2) * 0.75;
+        startY = effectiveVOffset;
       } else if (finalVAlign === 'bottom') {
-        startY = containerHeight - textBlockHeight - paddingY;
+        startY = containerHeight - textBlockHeight - effectiveVOffset;
       } else {
         startY = (containerHeight - textBlockHeight) / 2;
       }
@@ -1358,22 +1387,36 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       let currentY = startY;
 
       lines.forEach((line) => {
-        // Calculate X start based on alignment within the EXACT containerWidth
-        let currentX = paddingX;
-        if (this.opts.align === 'center') {
-          currentX = (containerWidth - line.width) / 2;
-        } else if (this.opts.align === 'right') {
-          currentX = containerWidth - line.width - paddingX;
+        const lineContainer = new Container();
+        lineContainer.label = 'lineContainer';
+        this.pixiTextContainer?.addChild(lineContainer);
+
+        let currentX = 0;
+        const lineRealWidth = line.width;
+        let lineX = 0;
+
+        // Position lineContainer within pixiTextContainer
+        if (align === 'center') {
+          lineX = (containerWidth - lineRealWidth) / 2;
+        } else if (align === 'right') {
+          lineX = containerWidth - lineRealWidth - paddingX;
+        } else {
+          lineX = paddingX;
         }
 
-        // For RTL languages (e.g. Arabic), reverse word order within the line so the
-        // first spoken word appears rightmost. Shallow copy preserves segmentIndex
-        // timing used by the karaoke updateState() loop.
-        const wordsToLayout = this.opts.isRTL
-          ? [...line.words].reverse()
-          : line.words;
+        lineContainer.x = lineX;
+        lineContainer.y = currentY;
 
-        wordsToLayout.forEach((wordText, wordIndex) => {
+        if (isTiktok) {
+          lineRects.push({
+            x: lineX - hPadding,
+            y: currentY,
+            w: lineRealWidth + hPadding * 2,
+            h: line.height,
+          });
+        }
+
+        line.words.forEach((wordText, wordIndex) => {
           const bounds = wordText.getLocalBounds();
           const wordW = bounds.width || wordText.width;
           const wordH = bounds.height || wordText.height;
@@ -1381,38 +1424,56 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           // Set pivot to center for centered scaling
           wordText.pivot.set(wordW / 2, wordH / 2);
 
-          // Position word (compensating for pivot)
+          // Position word (compensating for pivot) relative to lineContainer
           wordText.x = Math.round(currentX + wordW / 2);
-          wordText.y = Math.round(currentY + wordH / 2);
+          wordText.y = Math.round(line.height / 2); // Center vertically in line
+
+          lineContainer.addChild(wordText);
 
           // Advance X (add space unless it's the last word in the line)
           currentX +=
-            wordW + (wordIndex < wordsToLayout.length - 1 ? spaceWidth : 0);
+            wordW + (wordIndex < line.words.length - 1 ? spaceWidth : 0);
         });
 
         // Advance Y
         currentY += line.height;
       });
 
-      // 8. Background Graphics
-      // Create semi-transparent background graphics for the WHOLE visual area (including bleed)
-      const bgGraphics = new Graphics();
-      bgGraphics.label = 'containerBackground';
+      if (isTiktok && lineRects.length > 0) {
+        const bg = new Graphics();
+        bg.label = 'tiktokBackground';
+        const bgColor = parseColor(this.opts.background) ?? 0x000000;
+        const borderRadius = tbs.borderRadius ?? 10;
+        this.drawRoundedTiktokPath(bg, lineRects, borderRadius, bgColor);
+        this.pixiTextContainer?.addChildAt(bg, 0);
+      }
 
-      const isTransparentBackground =
-        this.opts.background === 'transparent' || !this.opts.background;
+      // 8. Background Graphics (Full container background if not tiktok)
+      if (!isTiktok) {
+        const bgGraphics = new Graphics();
+        bgGraphics.label = 'containerBackground';
 
-      const bgColor = isTransparentBackground
-        ? 0x000000
-        : parseColor(this.opts.background);
+        const isTransparentBackground =
+          this.opts.background === 'transparent' || !this.opts.background;
 
-      const alpha = isTransparentBackground ? 0 : 1;
-      const cornerRadius = 10;
+        const bgColor = isTransparentBackground
+          ? 0x000000
+          : parseColor(this.opts.background);
 
-      bgGraphics.roundRect(0, 0, containerWidth, containerHeight, cornerRadius);
-      bgGraphics.fill({ color: bgColor, alpha });
+        const alpha = isTransparentBackground ? 0 : 1;
+        const cornerRadius = 10;
 
-      this.pixiTextContainer.addChildAt(bgGraphics, 0);
+        bgGraphics.roundRect(
+          0,
+          0,
+          containerWidth,
+          containerHeight,
+          cornerRadius
+        );
+        bgGraphics.fill({ color: bgColor, alpha });
+
+        this.pixiTextContainer.addChildAt(bgGraphics, 0);
+      }
 
       // Reuse or recreate RenderTexture with container dimensions
       if (this.renderTexture) {
@@ -1656,8 +1717,9 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
 
       // -------- BACKGROUND --------
       const existingBg = wordText.getChildByLabel('bgRect') as Graphics | null;
+      const isTiktok = this.opts.textBoxStyle.style === 'tiktok';
 
-      if (isActive) {
+      if (isActive && !isTiktok) {
         const { color: bgColor, alpha: bgAlpha } = resolveColor(
           this.opts.activeFill,
           0xffa500
@@ -1874,7 +1936,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           wordText.destroy({ children: true });
         }
       });
-    } catch (err) {
+    } catch (_err) {
       // Ignore errors during destroy
     } finally {
       this.wordTexts = [];
@@ -1889,7 +1951,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           this.pixiTextContainer.destroy({ children: true });
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore errors during destroy - object may already be destroyed
       // Swallow error to prevent crashes during cleanup
     } finally {
@@ -1903,7 +1965,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
           this.renderTexture.destroy(true);
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore errors during destroy
       // Swallow error to prevent crashes during cleanup
     } finally {
@@ -1926,7 +1988,7 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
             texture: true,
           });
         }
-      } catch (err) {
+      } catch (_err) {
         // Ignore errors during destroy
       } finally {
         this.pixiApp = null;
@@ -1958,7 +2020,8 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       if (opts.wordWrap !== undefined) style.wordWrap = opts.wordWrap;
       if (opts.wordAnimation !== undefined)
         style.wordAnimation = opts.wordAnimation;
-      if (opts.isRTL !== undefined) style.isRTL = opts.isRTL;
+      if (opts.textBoxStyle !== undefined)
+        style.textBoxStyle = opts.textBoxStyle;
 
       // Handle stroke
       if (opts.stroke) {
@@ -2058,12 +2121,21 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       caption.wordAnimation = wordAnimation;
     }
 
+    // Add textBoxStyle if defined
+    const textBoxStyle =
+      this.originalOpts?.caption?.textBoxStyle ??
+      this.originalOpts?.textBoxStyle;
+    if (textBoxStyle !== undefined) {
+      caption.textBoxStyle = textBoxStyle;
+    }
+
     return {
       ...base,
       type: 'Caption',
       text: this.text,
       style,
       caption: Object.keys(caption).length > 0 ? caption : undefined,
+      textBoxStyle: textBoxStyle,
       id: this.id,
       effects: this.effects,
       mediaId: this.mediaId,
@@ -2105,7 +2177,6 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     if (style.wordWrapWidth !== undefined)
       captionOpts.wordWrapWidth = style.wordWrapWidth;
     if (style.wordWrap !== undefined) captionOpts.wordWrap = style.wordWrap;
-    if (style.isRTL !== undefined) captionOpts.isRTL = style.isRTL;
 
     // Handle wordsPerLine from style or root
     if (style.wordsPerLine !== undefined) {
@@ -2146,11 +2217,20 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
       captionOpts.wordAnimation = style.wordAnimation;
     }
 
+    if (json.textBoxStyle !== undefined) {
+      captionOpts.textBoxStyle = json.textBoxStyle;
+    } else if (style.textBoxStyle !== undefined) {
+      captionOpts.textBoxStyle = style.textBoxStyle;
+    }
+
     // Handle new nested structure vs old flat structure
     if (json.caption) {
       captionOpts.caption = json.caption;
       if (json.caption.wordAnimation) {
         captionOpts.wordAnimation = json.caption.wordAnimation;
+      }
+      if (json.caption.textBoxStyle) {
+        captionOpts.textBoxStyle = json.caption.textBoxStyle;
       }
     } else {
       // Old flat structure (backward compatibility)
@@ -2245,5 +2325,65 @@ export class Caption extends BaseClip<ICaptionEvents> implements IClip {
     'tl' | 'tr' | 'bl' | 'br' | 'ml' | 'mr' | 'mt' | 'mb' | 'rot'
   > {
     return ['mr', 'mb', 'br', 'rot'];
+  }
+
+  private drawRoundedTiktokPath(
+    graphics: Graphics,
+    rects: { x: number; y: number; w: number; h: number }[],
+    radius: number,
+    color: number
+  ) {
+    if (rects.length === 0) return;
+
+    const points: { x: number; y: number }[] = [];
+
+    // Right side (top to bottom)
+    points.push({ x: rects[0].x, y: rects[0].y });
+    points.push({ x: rects[0].x + rects[0].w, y: rects[0].y });
+
+    for (let i = 0; i < rects.length - 1; i++) {
+      const r1 = rects[i];
+      const r2 = rects[i + 1];
+      if (Math.abs(r1.x + r1.w - (r2.x + r2.w)) > 0.1) {
+        const midY = (r1.y + r1.h + r2.y) / 2;
+        points.push({ x: r1.x + r1.w, y: midY });
+        points.push({ x: r2.x + r2.w, y: midY });
+      }
+    }
+
+    points.push({
+      x: rects[rects.length - 1].x + rects[rects.length - 1].w,
+      y: rects[rects.length - 1].y + rects[rects.length - 1].h,
+    });
+    points.push({
+      x: rects[rects.length - 1].x,
+      y: rects[rects.length - 1].y + rects[rects.length - 1].h,
+    });
+
+    // Left side (bottom to top)
+    for (let i = rects.length - 1; i > 0; i--) {
+      const r1 = rects[i];
+      const r2 = rects[i - 1];
+      if (Math.abs(r1.x - r2.x) > 0.1) {
+        const midY = (r1.y + r2.y + r2.h) / 2;
+        points.push({ x: r1.x, y: midY });
+        points.push({ x: r2.x, y: midY });
+      }
+    }
+
+    graphics.clear();
+
+    // We start at the midpoint between the last and first point to ensure the first corner is rounded
+    const pLast = points[points.length - 1];
+    const pFirst = points[0];
+    graphics.moveTo((pLast.x + pFirst.x) / 2, (pLast.y + pFirst.y) / 2);
+
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+      graphics.arcTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, radius);
+    }
+
+    graphics.fill({ color, alpha: 1 });
   }
 }

@@ -44,12 +44,6 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
   abstract clone(): Promise<this>;
   abstract split?(time: number): Promise<[this, this]>;
 
-  constructor() {
-    super();
-    // Note: ready will be set by subclasses in their constructors
-    // This default implementation is just a placeholder
-  }
-
   /**
    * Get video frame and audio at specified time without rendering to canvas
    * Useful for Pixi.js rendering where canvas context is not needed
@@ -234,7 +228,7 @@ export abstract class BaseClip<T extends BaseSpriteEvents = BaseSpriteEvents>
       height?: number;
       duration?: number;
     },
-    fps: number = 30
+    _fps: number = 30
   ): this {
     if (props.display) {
       if (props.display.from !== undefined) {

@@ -1,3 +1,4 @@
+// @ts-expect-error — upstream glsl transition imports
 import glTransitions from 'gl-transitions';
 import { RADIAL_SWIPE_FRAGMENT } from './custom-glsl';
 

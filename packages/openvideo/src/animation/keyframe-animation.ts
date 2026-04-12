@@ -48,7 +48,7 @@ export class KeyframeAnimation implements IAnimation {
         .filter(([k]) => {
           if (k === 'from' || k === 'to') return true;
           const num = Number(k.replace('%', ''));
-          return !isNaN(num) && num >= 0 && num <= 100;
+          return !Number.isNaN(num) && num >= 0 && num <= 100;
         })
         .map(([k, val]) => {
           const progress =

@@ -772,7 +772,7 @@ export class Text extends BaseClip<ITextEvents> {
         text: wordStr,
         style: this.textStyle,
       });
-      this.pixiTextContainer!.addChild(wordText);
+      this.pixiTextContainer?.addChild(wordText);
       return wordText;
     });
 
@@ -1082,7 +1082,7 @@ export class Text extends BaseClip<ITextEvents> {
           this.pixiTextContainer.destroy({ children: true });
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore errors during destroy
     } finally {
       this.pixiTextContainer = null;
@@ -1097,7 +1097,7 @@ export class Text extends BaseClip<ITextEvents> {
           this.renderTexture.destroy(true);
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Ignore errors during destroy
       // Swallow error to prevent crashes during cleanup
     } finally {
@@ -1117,7 +1117,7 @@ export class Text extends BaseClip<ITextEvents> {
             texture: true,
           });
         }
-      } catch (err) {
+      } catch (_err) {
         // Ignore errors during destroy
       } finally {
         this.pixiApp = null;

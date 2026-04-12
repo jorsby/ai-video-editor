@@ -442,14 +442,10 @@ export function mixinMP4AndAudio(
     const ds = new mp4box.DataStream();
 
     let i = sendedBoxIdx;
-    try {
-      for (; i < boxes.length; ) {
-        boxes[i].write(ds);
-        delete boxes[i];
-        i += 1;
-      }
-    } catch (err) {
-      throw err;
+    for (; i < boxes.length; ) {
+      boxes[i].write(ds);
+      delete boxes[i];
+      i += 1;
     }
 
     if (outfile.moov != null) {
@@ -540,7 +536,7 @@ export function mixinMP4AndAudio(
         if (aTrackId === 0) {
           aTrackId = outfile.addTrack(safeAudioTrackConf as any);
           sampleRate = audioTrackConf?.samplerate ?? sampleRate;
-          mp4HasAudio = audioTrackConf == null ? false : true;
+          mp4HasAudio = audioTrackConf != null;
         }
         const audioCtx = new AudioContext({ sampleRate });
         inputAudioPCM = extractPCM4AudioBuffer(

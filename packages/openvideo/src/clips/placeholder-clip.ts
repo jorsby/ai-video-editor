@@ -38,7 +38,7 @@ export class Placeholder extends BaseClip {
   private animationRafId: number | null = null;
   private renderPending = false;
 
-  async tick(time: number): Promise<{
+  async tick(_time: number): Promise<{
     video?: ImageBitmap | null;
     audio?: Float32Array[];
     state: 'done' | 'success';
