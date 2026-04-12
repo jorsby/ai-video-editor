@@ -29,6 +29,10 @@ export class SelectionManager {
   private textClipResizedSx: number | null = null;
   private textClipResizedSy: number | null = null;
 
+  // Double-click detection state
+  private lastPointerDownTime = 0;
+  private lastPointerDownClip: IClip | null = null;
+
   constructor(private studio: Studio) {}
 
   public init(app: Application, artboard: Container) {
@@ -95,6 +99,28 @@ export class SelectionManager {
       this.selectionGraphics
         .rect(x, y, width, height)
         .stroke({ width: 2, color: 0x0abde3 });
+
+      // Calculate current selection bounds for real-time preview
+      const bounds = this.selectionGraphics.getBounds();
+      const selectionRect = new Rectangle(
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height
+      );
+
+      if (selectionRect.width > 2 || selectionRect.height > 2) {
+        const intersectingClips = this.getIntersectingClips(selectionRect);
+        this.updatePreviewSelection(intersectingClips);
+      } else {
+        // If drag is too small, hide preview if we aren't shift-selecting
+        if (this.selectedClips.size === 0) {
+          this.destroyTransformer();
+        }
+      }
+
+      // Always flush the marquee rectangle to screen, even when no clips are hit
+      this.studio.pixiApp?.render();
     }
   }
 
@@ -104,13 +130,8 @@ export class SelectionManager {
       this.selectionGraphics &&
       this.studio.artboard
     ) {
-      // Calculate final selection bounds
-      const bounds = this.selectionGraphics.getBounds(); // Global bounds
-
-      // Find intersecting clips
-      const intersectingClips: IClip[] = [];
-
-      // Standardize bounds for intersection check
+      // Finalize selection
+      const bounds = this.selectionGraphics.getBounds();
       const selectionRect = new Rectangle(
         bounds.x,
         bounds.y,
@@ -118,41 +139,129 @@ export class SelectionManager {
         bounds.height
       );
 
-      // Minimum drag distance check to avoid selecting on accidental micro-drags
       if (selectionRect.width > 2 || selectionRect.height > 2) {
-        for (const clip of this.studio.clips) {
-          const renderer = this.studio.spriteRenderers.get(clip);
-          if (!renderer) continue;
-
-          const root = renderer.getRoot();
-          if (!root || !root.visible) continue;
-
-          const clipBounds = root.getBounds();
-
-          // Simple AABB intersection
-          const intersects =
-            selectionRect.x < clipBounds.x + clipBounds.width &&
-            selectionRect.x + selectionRect.width > clipBounds.x &&
-            selectionRect.y < clipBounds.y + clipBounds.height &&
-            selectionRect.y + selectionRect.height > clipBounds.y;
-
-          if (intersects) {
-            intersectingClips.push(clip);
-          }
-        }
-
+        const intersectingClips = this.getIntersectingClips(selectionRect);
         if (intersectingClips.length > 0) {
+          // Batch select and refresh once
           for (const clip of intersectingClips) {
-            this.selectClip(clip, true); // true = addToSelection
+            this.selectedClips.add(clip);
           }
+          this.recreateTransformer();
+
+          this.studio.emit('selection:created', {
+            selected: Array.from(this.selectedClips),
+          });
+        } else if (this.selectedClips.size === 0) {
+          // If we finished dragging but nothing was selected,
+          // and we aren't adding to a selection, make sure it's gone
+          this.destroyTransformer();
         }
+      } else if (this.selectedClips.size === 0) {
+        // Accidental micro-drag, ensure no stray preview remains
+        this.destroyTransformer();
       }
 
-      // Cleanup
+      // Cleanup marquee
       this.selectionGraphics.clear();
       this.selectionGraphics.visible = false;
       this.isDragSelecting = false;
+      this.studio.pixiApp?.render();
     }
+  }
+
+  /**
+   * Find clips that intersect with the given selection rectangle
+   */
+  private getIntersectingClips(selectionRect: Rectangle): IClip[] {
+    const intersectingClips: IClip[] = [];
+
+    for (const clip of this.studio.clips) {
+      const renderer = this.studio.spriteRenderers.get(clip);
+      if (!renderer) continue;
+
+      const root = renderer.getRoot();
+      if (!root || !root.visible) continue;
+
+      const clipBounds = root.getBounds();
+
+      // Simple AABB intersection
+      const intersects =
+        selectionRect.x < clipBounds.x + clipBounds.width &&
+        selectionRect.x + selectionRect.width > clipBounds.x &&
+        selectionRect.y < clipBounds.y + clipBounds.height &&
+        selectionRect.y + selectionRect.height > clipBounds.y;
+
+      if (intersects) {
+        intersectingClips.push(clip);
+      }
+    }
+
+    return intersectingClips;
+  }
+
+  /**
+   * Update the transformer to show a preview of what will be selected
+   */
+  private updatePreviewSelection(clips: IClip[]) {
+    if (clips.length === 0) {
+      // If we have an existing selection (e.g. shift-selecting), don't destroy it
+      // but if we are just drag-selecting from scratch, hide it
+      if (this.selectedClips.size === 0) {
+        this.destroyTransformer();
+      } else {
+        // Just refresh the existing selection transformer
+        this.recreateTransformer();
+      }
+      return;
+    }
+
+    // Combine preview clips with already selected clips if shift is held
+    // (though drag-selection usually starts fresh unless we want to support additive drag)
+    // For now, let's just show what IS in the marquee.
+    const previewSet = new Set(clips);
+    // If we want additive selection during drag, we could do:
+    // for (const c of this.selectedClips) previewSet.add(c);
+
+    const sprites: Container[] = [];
+    let singleClip: IClip | null = null;
+
+    for (const clip of previewSet) {
+      const renderer = this.studio.spriteRenderers.get(clip);
+      if (renderer == null) continue;
+
+      const root = renderer.getRoot();
+      if (root == null) continue;
+
+      sprites.push(root);
+      if (previewSet.size === 1) {
+        singleClip = clip;
+      }
+    }
+
+    if (sprites.length === 0) {
+      if (this.selectedClips.size === 0) this.destroyTransformer();
+      return;
+    }
+
+    if (this.activeTransformer) {
+      this.activeTransformer.group = sprites;
+      this.activeTransformer.opts.group = sprites;
+      this.activeTransformer.opts.clip = singleClip;
+      this.activeTransformer.updateBounds();
+      this.activeTransformer.showImmediate();
+    } else {
+      // Create transformer (temp group)
+      this.activeTransformer = new Transformer({
+        group: sprites,
+        clip: singleClip,
+        artboardWidth: this.studio.opts.width,
+        artboardHeight: this.studio.opts.height,
+      });
+      this.studio.artboard?.addChild(this.activeTransformer);
+      this.activeTransformer.showImmediate();
+    }
+
+    this.studio.pixiApp?.render();
   }
 
   /**
@@ -174,9 +283,22 @@ export class SelectionManager {
 
     // Add click handler that selects the topmost clip at the click position
     root.on('pointerdown', (e) => {
-      // We use the Studio's method or duplicate the logic?
-      // Let's use getTopmostClipAtPoint logic here (moved below)
+      const now = Date.now();
       const topmostClip = this.getTopmostClipAtPoint(e.global);
+
+      // Detect double-click
+      if (
+        topmostClip === clip &&
+        topmostClip === this.lastPointerDownClip &&
+        now - this.lastPointerDownTime < 350
+      ) {
+        if (topmostClip.type === 'Text' || topmostClip.type === 'Caption') {
+          this.studio.emit('clip:dblclick', { clip: topmostClip });
+        }
+      }
+
+      this.lastPointerDownTime = now;
+      this.lastPointerDownClip = topmostClip;
 
       if (topmostClip) {
         // Select the topmost clip (pass shift key for multi-selection)
@@ -250,6 +372,7 @@ export class SelectionManager {
       this.studio.emit('selection:updated', {
         selected: Array.from(this.selectedClips),
       });
+      this.studio.pixiApp?.render();
       return;
     }
 
@@ -266,6 +389,7 @@ export class SelectionManager {
         selected: Array.from(this.selectedClips),
       });
     }
+    this.studio.pixiApp?.render();
   }
 
   public selectClipsByIds(ids: string[]): void {
@@ -306,6 +430,7 @@ export class SelectionManager {
     } else {
       this.studio.emit('selection:cleared', { deselected: [] });
     }
+    this.studio.pixiApp?.render();
   }
 
   public deselectClip(): void {
@@ -323,6 +448,7 @@ export class SelectionManager {
     if (deselected.length > 0) {
       this.studio.emit('selection:cleared', { deselected });
     }
+    this.studio.pixiApp?.render();
   }
 
   public async move(dx: number, dy: number) {
@@ -352,7 +478,7 @@ export class SelectionManager {
     this.interactiveClips.clear();
   }
 
-  private recreateTransformer() {
+  public recreateTransformer() {
     this.destroyTransformer();
     if (this.selectedClips.size > 0) {
       this.createTransformer();
@@ -400,11 +526,13 @@ export class SelectionManager {
     }
 
     // Create transformer
+    const isLocked = singleClip?.locked ?? false;
     this.activeTransformer = new Transformer({
       group: sprites,
       clip: singleClip, // Only pass clip for single selection
       artboardWidth: this.studio.opts.width,
       artboardHeight: this.studio.opts.height,
+      locked: isLocked,
     });
 
     // Listen for events
@@ -414,6 +542,8 @@ export class SelectionManager {
       rafId = requestAnimationFrame(() => {
         rafId = null;
         this.syncSelectedClipsTransformsRealtime();
+        // Force render for real-time visual feedback
+        this.studio.pixiApp?.render();
       });
     });
 
@@ -433,10 +563,31 @@ export class SelectionManager {
       for (const clip of this.selectedClips) {
         this.studio.emit('clip:updated', { clip });
       }
+      this.studio.emit('transform:end', {
+        transformer: this.activeTransformer!,
+      });
     });
 
     this.activeTransformer.on('pointerdown', (e: any) => {
+      if (e.button !== 0) return;
+      this.studio.emit('transform:start', {
+        transformer: this.activeTransformer!,
+      });
       const topmostClip = this.getTopmostClipAtPoint(e.global);
+
+      const now = Date.now();
+      if (
+        topmostClip &&
+        topmostClip === this.lastPointerDownClip &&
+        now - this.lastPointerDownTime < 350
+      ) {
+        if (topmostClip.type === 'Text' || topmostClip.type === 'Caption') {
+          this.studio.emit('clip:dblclick', { clip: topmostClip });
+        }
+      }
+      this.lastPointerDownTime = now;
+      this.lastPointerDownClip = topmostClip;
+
       if (topmostClip && !this.selectedClips.has(topmostClip)) {
         this.selectClip(topmostClip, e.shiftKey);
         e.stopPropagation();
@@ -444,21 +595,19 @@ export class SelectionManager {
     });
 
     this.studio.artboard.addChild(this.activeTransformer);
+    this.activeTransformer.showImmediate();
+    this.studio.pixiApp?.render();
   }
 
   // Copied Sync Logic
   private async syncSelectedClipsTransformsRealtime(): Promise<void> {
     if (this.selectedClips.size === 0 || this.activeTransformer == null) return;
-    if (this.isUpdatingTextRealtime) return;
-    this.isUpdatingTextRealtime = true;
 
-    try {
-      const activeHandle = this.activeTransformer.activeHandle;
-      if (activeHandle !== 'mr' && activeHandle !== 'ml') return;
+    const activeHandle = this.activeTransformer.activeHandle;
 
+    // Handle standard move (dragging the whole clip)
+    if (activeHandle === null) {
       for (const clip of this.selectedClips) {
-        if (!(clip instanceof Text)) continue;
-
         const renderer = this.studio.spriteRenderers.get(clip);
         if (renderer == null) continue;
 
@@ -466,41 +615,73 @@ export class SelectionManager {
         const sprite = renderer.getSprite();
         if (root == null || sprite == null || sprite.texture == null) continue;
 
-        const currentScaleX = Math.abs(root.scale.x * sprite.scale.x);
-        if (currentScaleX === 1.0) continue;
+        // Sync clip position based on root position
+        // Since root pivot is centered, clip.left = root.x - clip.width / 2
+        // We use Math.abs because width/height might be negative if flipped (though usually handled via scale)
+        const logicalWidth =
+          Math.abs(root.scale.x * sprite.scale.x) * sprite.texture.width;
+        const logicalHeight =
+          Math.abs(root.scale.y * sprite.scale.y) * sprite.texture.height;
 
-        const preservedLeft = clip.left;
-        const preservedTop = clip.top;
-        const preservedWidth = clip.width;
-        const textureWidth = sprite.texture.width;
-        const newWidth = currentScaleX * textureWidth;
-
-        await clip.updateStyle({
-          wordWrap: true,
-          wordWrapWidth: newWidth,
-        });
-
-        const newTexture = await clip.getTexture();
-        if (newTexture) {
-          await renderer.updateFrame(newTexture);
-          sprite.scale.set(1, 1);
-          root.scale.set(1, 1);
-
-          if (activeHandle === 'ml') {
-            clip.left = preservedLeft + preservedWidth - clip.width;
-          } else {
-            clip.left = preservedLeft;
-          }
-          clip.top = preservedTop;
-
-          root.x = clip.left + clip.width / 2;
-          root.y = clip.top + clip.height / 2;
-
-          this.activeTransformer.updateBounds();
-        }
+        clip.left = root.x - logicalWidth / 2;
+        clip.top = root.y - logicalHeight / 2;
       }
-    } finally {
-      this.isUpdatingTextRealtime = false;
+      return;
+    }
+
+    // Handle side-resize for Text/Caption
+    if (activeHandle === 'mr' || activeHandle === 'ml') {
+      if (this.isUpdatingTextRealtime) return;
+      this.isUpdatingTextRealtime = true;
+
+      try {
+        for (const clip of this.selectedClips) {
+          if (!(clip instanceof Text)) continue;
+
+          const renderer = this.studio.spriteRenderers.get(clip);
+          if (renderer == null) continue;
+
+          const root = renderer.getRoot();
+          const sprite = renderer.getSprite();
+          if (root == null || sprite == null || sprite.texture == null)
+            continue;
+
+          const currentScaleX = Math.abs(root.scale.x * sprite.scale.x);
+          if (currentScaleX === 1.0) continue;
+
+          const preservedLeft = clip.left;
+          const preservedTop = clip.top;
+          const preservedWidth = clip.width;
+          const textureWidth = sprite.texture.width;
+          const newWidth = currentScaleX * textureWidth;
+
+          await clip.updateStyle({
+            wordWrap: true,
+            wordWrapWidth: newWidth,
+          });
+
+          const newTexture = await clip.getTexture();
+          if (newTexture) {
+            await renderer.updateFrame(newTexture);
+            sprite.scale.set(1, 1);
+            root.scale.set(1, 1);
+
+            if (activeHandle === 'ml') {
+              clip.left = preservedLeft + preservedWidth - clip.width;
+            } else {
+              clip.left = preservedLeft;
+            }
+            clip.top = preservedTop;
+
+            root.x = clip.left + clip.width / 2;
+            root.y = clip.top + clip.height / 2;
+
+            this.activeTransformer.updateBounds();
+          }
+        }
+      } finally {
+        this.isUpdatingTextRealtime = false;
+      }
     }
   }
 

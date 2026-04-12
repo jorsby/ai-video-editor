@@ -75,6 +75,9 @@ export interface StudioEvents {
   play: { isPlaying: boolean };
   pause: { isPlaying: boolean };
   'history:changed': { canUndo: boolean; canRedo: boolean };
+  'transform:start': { transformer: Transformer };
+  'transform:end': { transformer: Transformer };
+  'clip:dblclick': { clip: IClip };
   [key: string]: any;
   [key: symbol]: any;
 }
@@ -262,16 +265,35 @@ export class Studio extends EventEmitter<StudioEvents> {
       this.history.init(this.exportToJSON());
     });
 
+    this.on('clip:added', (data) => this.handleTimelineChange(data));
+    this.on('clips:added', (data) => this.handleTimelineChange(data));
+    this.on('clip:replaced', (data) =>
+      this.handleTimelineChange({ clip: data.newClip })
+    );
+    this.on('studio:restored', (data) => {
+      data.clips.forEach((c) => this.attachClipEvents(c));
+      this.handleTimelineChange();
+    });
     this.on('clip:removed', this.handleClipRemoved);
     this.on('clips:removed', this.handleClipsRemoved);
     this.on('clip:updated', this.handleTimelineChange);
-    this.on('clip:added', this.handleTimelineChange);
-    this.on('clips:added', this.handleTimelineChange);
-    this.on('track:removed', this.handleTimelineChange);
-    this.on('track:added', this.handleTimelineChange);
+    this.on('track:removed', () => this.handleTimelineChange());
+    this.on('track:added', () => this.handleTimelineChange());
   }
 
-  private handleTimelineChange = () => {
+  private attachClipEvents(clip: IClip) {
+    if (this.clipListeners.has(clip)) return;
+    const listener = () => {
+      this.updateFrame(this.currentTime);
+    };
+    clip.on('request-render' as any, listener);
+    this.clipListeners.set(clip, listener);
+  }
+
+  private handleTimelineChange = (data?: { clip?: IClip; clips?: IClip[] }) => {
+    if (data?.clip) this.attachClipEvents(data.clip);
+    if (data?.clips) data.clips.forEach((c) => this.attachClipEvents(c));
+
     // Force a re-render of the current frame to reflect changes
     this.updateFrame(this.currentTime);
     this.saveHistory();
@@ -379,6 +401,7 @@ export class Studio extends EventEmitter<StudioEvents> {
       if (!clip) {
         clip = await jsonToClip(clipJSON);
         this.clipCache.set(clipId, clip);
+        this.attachClipEvents(clip);
       }
 
       // Find original track ID from target state
@@ -497,10 +520,12 @@ export class Studio extends EventEmitter<StudioEvents> {
     }
 
     // 5. Cleanup Clip Listeners
-    for (const [clip] of this.clipListeners) {
-      if (clip.id === clipId) {
+    const clip = this.timeline.getClipById(clipId);
+    if (clip) {
+      const listener = this.clipListeners.get(clip);
+      if (listener) {
+        clip.off('request-render' as any, listener);
         this.clipListeners.delete(clip);
-        break;
       }
     }
   };
@@ -796,7 +821,9 @@ export class Studio extends EventEmitter<StudioEvents> {
 
     this.beginHistoryGroup();
     try {
-      return await this.timeline.addClip(clipOrClips, options);
+      const result = await this.timeline.addClip(clipOrClips, options);
+      clips.forEach((c) => this.attachClipEvents(c));
+      return result;
     } finally {
       this.endHistoryGroup();
     }
