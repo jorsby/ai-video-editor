@@ -5,7 +5,6 @@ import {
   GlProgram,
   RenderTexture,
   Sprite,
-  TilingSprite,
   Texture,
   UniformGroup,
   Graphics,
@@ -92,34 +91,6 @@ async function waitEncoderQueue(getQSize: () => number) {
  * com.output(); // => ReadableStream
  *
  */
-const VIDEO_CODEC_PROFILES = [
-  'avc1.640028', // High profile, Level 4.0
-  'avc1.4D0028', // Main profile, Level 4.0
-  'avc1.420028', // Baseline profile, Level 4.0
-];
-
-async function getBestVideoCodec(args: {
-  width?: number;
-  height?: number;
-  bitrate?: number;
-}): Promise<string> {
-  if (typeof self === 'undefined' || self.VideoEncoder == null) {
-    return VIDEO_CODEC_PROFILES[0];
-  }
-  for (const codec of VIDEO_CODEC_PROFILES) {
-    try {
-      const result = await self.VideoEncoder.isConfigSupported({
-        codec,
-        width: args.width ?? 1920,
-        height: args.height ?? 1080,
-        bitrate: args.bitrate ?? 7e6,
-      });
-      if (result.supported) return codec;
-    } catch {}
-  }
-  return VIDEO_CODEC_PROFILES[0];
-}
-
 export class Compositor extends EventEmitter<{
   OutputProgress: number;
   error: Error;
@@ -149,7 +120,7 @@ export class Compositor extends EventEmitter<{
         self.AudioData != null &&
         ((
           await self.VideoEncoder.isConfigSupported({
-            codec: args.videoCodec ?? (await getBestVideoCodec(args)),
+            codec: args.videoCodec ?? 'avc1.42E032',
             width: args.width ?? 1920,
             height: args.height ?? 1080,
             bitrate: args.bitrate ?? 7e6,
@@ -202,7 +173,7 @@ export class Compositor extends EventEmitter<{
         width: 0,
         height: 0,
         format: 'mp4',
-        videoCodec: 'avc1.640028',
+        videoCodec: 'avc1.42E032',
         audio: true,
         audioCodec: 'aac',
         audioSampleRate: 48000,
@@ -527,10 +498,10 @@ export class Compositor extends EventEmitter<{
         if (aborter.aborted) return;
 
         // Ensure canvas rendering is complete before creating VideoFrame
-        // This is critical for OffscreenCanvas to be in a valid state
+        // Use background-resilient sleep(0) which utilizes workerTimer
+        // to ensure rendering loop continues even when tab is inactive.
         if (this.hasVideoTrack) {
-          // Wait for next animation frame to ensure render is complete
-          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await sleep(0);
         }
 
         encodeFrame(timestamp, audios, true);
@@ -679,7 +650,7 @@ function createSpritesRender(opts: {
   }>;
   cleanup: () => void;
 } {
-  const { pixiApp, sprites, aborter, bgColor } = opts;
+  const { pixiApp, sprites, aborter } = opts;
   const hasVideoTrack = pixiApp != null;
 
   // if (pixiApp) {
@@ -743,24 +714,7 @@ function createSpritesRender(opts: {
     const { renderTransform } = clip;
     const isMirrored = (renderTransform?.mirror ?? 0) > 0.5;
 
-    // 1. Create temporary sprite
-    let tempSprite: Sprite | TilingSprite;
-
-    if (isMirrored) {
-      tempSprite = new TilingSprite({
-        texture: frame instanceof Texture ? frame : Texture.from(frame),
-        width: 1, // Placeholder
-        height: 1,
-      });
-      if (tempSprite.texture.source) {
-        tempSprite.texture.source.style.addressMode = 'mirror-repeat';
-        tempSprite.texture.source.update();
-      }
-    } else {
-      tempSprite = new Sprite(
-        frame instanceof Texture ? frame : Texture.from(frame)
-      );
-    }
+    const tex = frame instanceof Texture ? frame : Texture.from(frame);
 
     const xOffset = renderTransform?.x ?? 0;
     const yOffset = renderTransform?.y ?? 0;
@@ -772,12 +726,8 @@ function createSpritesRender(opts: {
     const blurOffset = renderTransform?.blur ?? 0;
     const brightnessMultiplier = renderTransform?.brightness ?? 1;
 
-    tempSprite.x = clip.center.x + xOffset;
-    tempSprite.y = clip.center.y + yOffset;
-    tempSprite.anchor.set(0.5, 0.5);
-
-    const textureWidth = tempSprite.texture.width || 1;
-    const textureHeight = tempSprite.texture.height || 1;
+    const textureWidth = tex.width || 1;
+    const textureHeight = tex.height || 1;
 
     const isCaption = (clip as any).type === 'Caption';
 
@@ -790,42 +740,86 @@ function createSpritesRender(opts: {
         ? Math.abs(clip.height) / textureHeight
         : 1;
 
-    if (isMirrored && tempSprite instanceof TilingSprite) {
-      tempSprite.width = textureWidth * 5;
-      tempSprite.height = textureHeight * 5;
+    const combinedScaleX = baseScaleX * scaleMultiplier * scaleXMultiplier;
+    const combinedScaleY = baseScaleY * scaleMultiplier * scaleYMultiplier;
 
-      tempSprite.tilePosition.set(
-        (tempSprite.width - textureWidth) / 2,
-        (tempSprite.height - textureHeight) / 2
-      );
-
-      if (clip.flip === 'horizontal') {
-        tempSprite.scale.x = -baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
-      } else if (clip.flip === 'vertical') {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = -baseScaleY * scaleMultiplier * scaleYMultiplier;
-      } else {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
-      }
-    } else {
-      if (clip.flip === 'horizontal') {
-        tempSprite.scale.x = -baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
-      } else if (clip.flip === 'vertical') {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = -baseScaleY * scaleMultiplier * scaleYMultiplier;
-      } else {
-        tempSprite.scale.x = baseScaleX * scaleMultiplier * scaleXMultiplier;
-        tempSprite.scale.y = baseScaleY * scaleMultiplier * scaleYMultiplier;
-      }
-    }
-
-    tempSprite.rotation =
+    // Create a root container that holds everything
+    const rootContainer = new Container();
+    rootContainer.x = clip.center.x + xOffset;
+    rootContainer.y = clip.center.y + yOffset;
+    rootContainer.rotation =
       ((clip.flip == null ? 1 : -1) * ((clip.angle + angleOffset) * Math.PI)) /
       180;
-    tempSprite.alpha = clip.opacity * opacityMultiplier;
+    rootContainer.alpha = clip.opacity * opacityMultiplier;
+
+    // Create the main sprite
+    const tempSprite = new Sprite(tex);
+    tempSprite.anchor.set(0.5, 0.5);
+
+    const mirrorSprites: Sprite[] = [];
+
+    if (isMirrored) {
+      // True reflection: original at normal position, mirrors on all sides
+      const sX = combinedScaleX;
+      const sY = combinedScaleY;
+      const scaledW = textureWidth * sX;
+      const scaledH = textureHeight * sY;
+
+      // Original sprite at normal position
+      tempSprite.position.set(0, 0);
+      tempSprite.scale.set(sX, sY);
+
+      // Mirror layout: [dx, dy, scaleX, scaleY]
+      const mirrors: [number, number, number, number][] = [
+        [scaledW, 0, -sX, sY], // right
+        [-scaledW, 0, -sX, sY], // left
+        [0, scaledH, sX, -sY], // bottom
+        [0, -scaledH, sX, -sY], // top
+        [scaledW, scaledH, -sX, -sY], // bottom-right
+        [-scaledW, scaledH, -sX, -sY], // bottom-left
+        [scaledW, -scaledH, -sX, -sY], // top-right
+        [-scaledW, -scaledH, -sX, -sY], // top-left
+      ];
+
+      for (const [dx, dy, sx, sy] of mirrors) {
+        const ms = new Sprite(tex);
+        ms.anchor.set(0.5, 0.5);
+        ms.position.set(dx, dy);
+        ms.scale.set(sx, sy);
+        mirrorSprites.push(ms);
+      }
+
+      // Apply flip
+      if (clip.flip === 'horizontal') {
+        tempSprite.scale.x = -sX;
+        for (let i = 0; i < 8; i++) {
+          mirrorSprites[i].scale.x = -mirrors[i][2];
+        }
+      } else if (clip.flip === 'vertical') {
+        tempSprite.scale.y = -sY;
+        for (let i = 0; i < 8; i++) {
+          mirrorSprites[i].scale.y = -mirrors[i][3];
+        }
+      }
+
+      rootContainer.addChild(tempSprite);
+      for (const ms of mirrorSprites) {
+        rootContainer.addChild(ms);
+      }
+    } else {
+      // Standard single sprite
+      if (clip.flip === 'horizontal') {
+        tempSprite.scale.x = -combinedScaleX;
+        tempSprite.scale.y = combinedScaleY;
+      } else if (clip.flip === 'vertical') {
+        tempSprite.scale.x = combinedScaleX;
+        tempSprite.scale.y = -combinedScaleY;
+      } else {
+        tempSprite.scale.x = combinedScaleX;
+        tempSprite.scale.y = combinedScaleY;
+      }
+      rootContainer.addChild(tempSprite);
+    }
 
     // Apply Filters
     const filters: any[] = [];
@@ -872,7 +866,7 @@ function createSpritesRender(opts: {
       filters.push(chromaFilter);
     }
 
-    tempSprite.filters = filters;
+    rootContainer.filters = filters;
 
     // Apply Styles (Border Radius, Stroke, Shadow)
     const borderRadius = style.borderRadius || 0;
@@ -953,11 +947,11 @@ function createSpritesRender(opts: {
         );
       }
       shadowGraphics.fill({ color, alpha });
-      tempSprite.addChildAt(shadowGraphics, 0);
+      rootContainer.addChildAt(shadowGraphics, 0);
     }
 
     pixiApp.renderer.render({
-      container: tempSprite,
+      container: rootContainer,
       target: target,
       clear: true,
     });
@@ -968,7 +962,9 @@ function createSpritesRender(opts: {
     if (strokeGraphics) strokeGraphics.destroy();
     if (maskGraphics) maskGraphics.destroy();
     if (shadowGraphics) shadowGraphics.destroy();
+    for (const ms of mirrorSprites) ms.destroy();
     tempSprite.destroy();
+    rootContainer.destroy();
   };
 
   // Containers for global effect rendering and transitions
@@ -1170,7 +1166,7 @@ function createSpritesRender(opts: {
 
       // Check if sprite is done or expired
 
-      if ((sprite.duration > 0 && relativeTime >= sprite.duration) || done) {
+      if ((sprite.duration > 0 && relativeTime > sprite.duration) || done) {
         if (sprite.main) mainSprDone = true;
 
         // Mark as expired but DON'T destroy yet

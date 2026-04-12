@@ -6,11 +6,11 @@ import {
   Graphics,
   BlurFilter,
   ColorMatrixFilter,
-  TilingSprite,
   Filter,
   GlProgram,
   UniformGroup,
 } from 'pixi.js';
+import { ZoomBlurFilter } from 'pixi-filters';
 
 import type { IClip } from '../clips/iclip';
 import { parseColor, hexToRgb } from '../utils/color';
@@ -54,7 +54,10 @@ export function updateSpriteTransform(clip: IClip, sprite: Sprite): void {
  * This matches the pattern used in other video rendering libraries
  */
 export class PixiSpriteRenderer {
-  private pixiSprite: Sprite | TilingSprite | null = null;
+  private pixiSprite: Sprite | null = null;
+  private mirrorSprites: Sprite[] = [];
+  private mirrorContainer: Container | null = null;
+  private isMirrorActive = false;
   private texture: Texture | null = null;
   private canvas: OffscreenCanvas;
   private context: OffscreenCanvasRenderingContext2D;
@@ -266,6 +269,7 @@ export class PixiSpriteRenderer {
     const scaleYMultiplier = renderTransform?.scaleY ?? 1;
     const opacityMultiplier = renderTransform?.opacity ?? 1;
     const blurOffset = renderTransform?.blur ?? 0;
+    const motionBlurOffset = renderTransform?.motionBlur ?? 0;
     const brightnessMultiplier = renderTransform?.brightness ?? 1;
     const isMirrored = (renderTransform?.mirror ?? 0) > 0.5;
 
@@ -289,59 +293,12 @@ export class PixiSpriteRenderer {
         scaleMultiplier * scaleYMultiplier
       );
       this.applyBlur(blurOffset);
+      this.applyMotionBlur(motionBlurOffset);
       this.applyBrightness(brightnessMultiplier);
       this.applyChromaKey();
     }
 
-    // 3. Handle Sprite vs TilingSprite for Mirroring
-    if (isMirrored) {
-      if (!(this.pixiSprite instanceof TilingSprite)) {
-        // Switch to TilingSprite
-        const oldSprite = this.pixiSprite;
-        this.pixiSprite = new TilingSprite({
-          texture: oldSprite.texture,
-          width: 0, // Will be set below
-          height: 0,
-        });
-        this.pixiSprite.label = 'MainSprite-Tiling';
-
-        // Replace in container
-        if (this.animationContainer) {
-          const idx = this.animationContainer.getChildIndex(oldSprite);
-          this.animationContainer.removeChild(oldSprite);
-          this.animationContainer.addChildAt(this.pixiSprite, idx);
-          oldSprite.destroy();
-        }
-
-        // Set texture wrap mode to mirror-repeat
-        if (this.pixiSprite.texture.source) {
-          this.pixiSprite.texture.source.style.addressMode = 'mirror-repeat';
-          this.pixiSprite.texture.source.update();
-        }
-      }
-    } else {
-      if (this.pixiSprite instanceof TilingSprite) {
-        // Switch back to regular Sprite
-        const oldSprite = this.pixiSprite;
-        this.pixiSprite = new Sprite(oldSprite.texture);
-        this.pixiSprite.label = 'MainSprite';
-
-        // Replace in container
-        if (this.animationContainer) {
-          const idx = this.animationContainer.getChildIndex(oldSprite);
-          this.animationContainer.removeChild(oldSprite);
-          this.animationContainer.addChildAt(this.pixiSprite, idx);
-          oldSprite.destroy();
-        }
-
-        // Reset texture wrap mode (optional, but good practice)
-        if (this.pixiSprite.texture.source) {
-          this.pixiSprite.texture.source.style.addressMode = 'clamp-to-edge';
-          this.pixiSprite.texture.source.update();
-        }
-      }
-    }
-
+    // 3. Handle true reflection mirroring
     this.pixiSprite.anchor.set(0.5, 0.5);
     this.pixiSprite.position.set(0, 0);
 
@@ -358,50 +315,103 @@ export class PixiSpriteRenderer {
         ? Math.abs(height) / textureHeight
         : 1;
 
-    if (isMirrored && this.pixiSprite instanceof TilingSprite) {
-      // For TilingSprite, we want to expand the dimensions to cover potential gaps
-      // We essentially want a 3x3 (or bigger) grid centered
-      // TilingSprite logic: width/height is the box size. tileScale is the texture scale. Is it?
-      // Actually TilingSprite inherits from Sprite.
-      // If we scale the TilingSprite, it scales the whole box.
-      // We want the box to be HUGE (to cover rotation gaps), but the texture inside to still be mapped correctly.
-      // Let's make the TilingSprite 5x the size of the original content
-      this.pixiSprite.width = textureWidth * 5;
-      this.pixiSprite.height = textureHeight * 5;
+    if (isMirrored) {
+      // Create mirror container if it doesn't exist
+      if (!this.isMirrorActive) {
+        this.isMirrorActive = true;
 
-      // Center the texture within the large box
-      // tilePosition is the offset of the texture 0,0 relative to the Sprite 0,0
-      // Since anchor is 0.5, 0.5, the Sprite 0,0 is at the center of the box.
-      // We want the texture center to be at the Sprite 0,0.
-      // Default texture 0,0 is top-left.
-      // We want texture center (w/2, h/2) to line up with Sprite center.
-      // tilePosition = -textureWidth/2 + width/2 ?
+        // Create a container to hold the original and all mirrored sprites
+        this.mirrorContainer = new Container();
+        this.mirrorContainer.label = 'MirrorContainer';
 
-      // Actually simpler: Just center the tile position
-      // Pixi TilingSprite: tilePosition (0,0) means texture top-left is at sprite top-left (before anchor).
-      // If we want texture center to be at sprite center:
-      this.pixiSprite.tilePosition.set(
-        (this.pixiSprite.width - textureWidth) / 2,
-        (this.pixiSprite.height - textureHeight) / 2
-      );
+        // Move the main sprite into the mirror container
+        if (this.animationContainer) {
+          const idx = this.animationContainer.getChildIndex(this.pixiSprite);
+          this.animationContainer.removeChild(this.pixiSprite);
+          this.mirrorContainer.addChild(this.pixiSprite);
+          this.animationContainer.addChildAt(this.mirrorContainer, idx);
+        }
 
-      // And we need to adjust scale so the 'central' tile matches the expected size
-      // We want the central tile to have size 'effectiveWidth' x 'effectiveHeight'
-      // effectively scaling the whole object by baseScale
-      // But we just set width/height to textureWidth * 5.
+        // Create 8 mirror sprites for all directions:
+        // right, left, bottom, top, bottom-right, bottom-left, top-right, top-left
+        this.mirrorSprites = [];
+        for (let i = 0; i < 8; i++) {
+          const ms = new Sprite(this.pixiSprite.texture);
+          ms.label = `MirrorSprite_${i}`;
+          ms.anchor.set(0.5, 0.5);
+          this.mirrorContainer.addChild(ms);
+          this.mirrorSprites.push(ms);
+        }
+      }
 
-      // Let's rely on standard scaling for the whole object
+      // Update mirror sprite textures to match main sprite
+      for (const ms of this.mirrorSprites) {
+        ms.texture = this.pixiSprite.texture;
+      }
+
+      const scaledW = textureWidth * baseScaleX;
+      const scaledH = textureHeight * baseScaleY;
+
+      // Original sprite stays at its normal position (0,0)
+      this.pixiSprite.position.set(0, 0);
+      this.pixiSprite.scale.set(baseScaleX, baseScaleY);
+
+      // Mirror layout: [dx, dy, scaleX, scaleY]
+      // We flip horizontally for sides, vertically for top/bottom, and both for corners
+      const mirrors: [number, number, number, number][] = [
+        [scaledW, 0, -baseScaleX, baseScaleY], // right
+        [-scaledW, 0, -baseScaleX, baseScaleY], // left
+        [0, scaledH, baseScaleX, -baseScaleY], // bottom
+        [0, -scaledH, baseScaleX, -baseScaleY], // top
+        [scaledW, scaledH, -baseScaleX, -baseScaleY], // bottom-right
+        [-scaledW, scaledH, -baseScaleX, -baseScaleY], // bottom-left
+        [scaledW, -scaledH, -baseScaleX, -baseScaleY], // top-right
+        [-scaledW, -scaledH, -baseScaleX, -baseScaleY], // top-left
+      ];
+
+      for (let i = 0; i < 8; i++) {
+        const [dx, dy, sx, sy] = mirrors[i];
+        this.mirrorSprites[i].position.set(dx, dy);
+        this.mirrorSprites[i].scale.set(sx, sy);
+      }
+
+      // Apply flip to the whole grid if needed
       if (flip === 'horizontal') {
         this.pixiSprite.scale.x = -baseScaleX;
-        this.pixiSprite.scale.y = baseScaleY;
+        for (let i = 0; i < 8; i++) {
+          // Flip the flips
+          this.mirrorSprites[i].scale.x = -mirrors[i][2];
+        }
       } else if (flip === 'vertical') {
-        this.pixiSprite.scale.x = baseScaleX;
         this.pixiSprite.scale.y = -baseScaleY;
-      } else {
-        this.pixiSprite.scale.x = baseScaleX;
-        this.pixiSprite.scale.y = baseScaleY;
+        for (let i = 0; i < 8; i++) {
+          this.mirrorSprites[i].scale.y = -mirrors[i][3];
+        }
       }
     } else {
+      // Remove mirror container if it exists
+      if (this.isMirrorActive) {
+        this.isMirrorActive = false;
+
+        if (this.mirrorContainer && this.animationContainer) {
+          const idx = this.animationContainer.getChildIndex(
+            this.mirrorContainer
+          );
+          // Move main sprite back to animationContainer
+          this.mirrorContainer.removeChild(this.pixiSprite);
+          this.animationContainer.addChildAt(this.pixiSprite, idx);
+
+          // Destroy mirror sprites and container
+          for (const ms of this.mirrorSprites) {
+            ms.destroy();
+          }
+          this.mirrorSprites = [];
+          this.animationContainer.removeChild(this.mirrorContainer);
+          this.mirrorContainer.destroy();
+          this.mirrorContainer = null;
+        }
+      }
+
       // Standard Sprite behavior
       if (flip === 'horizontal') {
         this.pixiSprite.scale.x = -baseScaleX;
@@ -649,6 +659,48 @@ export class PixiSpriteRenderer {
     (blurFilter as any).repeatEdgePixels = true;
   }
 
+  private applyMotionBlur(motionBlur: number): void {
+    if (!this.animationContainer || this.destroyed) return;
+
+    // Safety check for valid number
+    if (
+      typeof motionBlur !== 'number' ||
+      !isFinite(motionBlur) ||
+      motionBlur <= 0
+    ) {
+      if (this.animationContainer.filters) {
+        this.animationContainer.filters =
+          this.animationContainer.filters.filter(
+            (f) => !(f instanceof ZoomBlurFilter)
+          );
+      }
+      return;
+    }
+
+    let zoomBlurFilter = this.animationContainer.filters?.find(
+      (f) => f instanceof ZoomBlurFilter
+    ) as ZoomBlurFilter;
+
+    if (!zoomBlurFilter) {
+      zoomBlurFilter = new ZoomBlurFilter();
+      const currentFilters = this.animationContainer.filters || [];
+      this.animationContainer.filters = [...currentFilters, zoomBlurFilter];
+    }
+
+    zoomBlurFilter.strength = motionBlur / 200;
+
+    if (this.pixiSprite) {
+      const bounds = this.pixiSprite.getBounds();
+      zoomBlurFilter.center = {
+        x: bounds.width / 2,
+        y: bounds.height / 2,
+      };
+    }
+
+    zoomBlurFilter.innerRadius = 0;
+    zoomBlurFilter.radius = -1; // Infinite
+  }
+
   private applyBrightness(brightness: number): void {
     if (!this.animationContainer || this.destroyed) return;
 
@@ -738,7 +790,7 @@ export class PixiSpriteRenderer {
     }
   }
 
-  getSprite(): Sprite | TilingSprite | null {
+  getSprite(): Sprite | null {
     return this.pixiSprite;
   }
 

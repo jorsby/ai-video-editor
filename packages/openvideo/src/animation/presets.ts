@@ -129,6 +129,43 @@ export const blurOut: AnimationFactory = (opts, params) => {
   return new KeyframeAnimation(defaultParams, { ...opts, easing }, 'blurOut');
 };
 
+export const motionBlurIn: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeOutQuad';
+  const defaultParams = getPresetTemplate('motionBlurIn', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'motionBlurIn'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    { ...opts, easing },
+    'motionBlurIn'
+  );
+};
+
+export const motionBlurOut: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'easeInQuad';
+  const defaultParams = getPresetTemplate('motionBlurOut', params);
+
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'motionBlurOut'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    { ...opts, easing },
+    'motionBlurOut'
+  );
+};
+
 export const charFadeIn: AnimationFactory = (opts, params) => {
   const normalized = normalizeParams(params);
   return new GsapAnimation(
@@ -2627,6 +2664,252 @@ export const upLeftCaption: AnimationFactory = (opts, params) => {
   );
 };
 
+//combo animations
+
+export const comboZoom1: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboZoom1', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(normalized, { ...opts, easing }, 'comboZoom1');
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboZoom1'
+  );
+};
+
+export const comboZoom2: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboZoom2', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(normalized, { ...opts, easing }, 'comboZoom2');
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboZoom2'
+  );
+};
+
+export const comboPendulum1: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboPendulum1', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboPendulum1'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboPendulum1'
+  );
+};
+
+export const comboPendulum2: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboPendulum2', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboPendulum2'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboPendulum2'
+  );
+};
+
+export const comboRightDistort: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboRightDistort', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboRightDistort'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboRightDistort'
+  );
+};
+
+export const comboLeftDistort: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboLeftDistort', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboLeftDistort'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboLeftDistort'
+  );
+};
+
+export const comboWobble: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboWobble', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboWobble'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboWobble'
+  );
+};
+
+export const comboSpinningTop1: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboSpinningTop1', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboSpinningTop1'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboSpinningTop1'
+  );
+};
+
+export const comboSwayOut: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboSwayOut', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboSwayOut'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboSwayOut'
+  );
+};
+
+export const comboBounce1: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboBounce1', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboBounce1'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboBounce1'
+  );
+};
+
+export const comboSwayIn: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboSwayIn', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboSwayIn'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboSwayIn'
+  );
+};
+
+export const comboSpinningTop2: AnimationFactory = (opts, params) => {
+  const normalized = normalizeParams(params);
+  const easing = normalized?.easing || opts.easing || 'linear';
+  const defaultParams = getPresetTemplate('comboSpinningTop2', params);
+  if (normalized && (normalized['0%'] || normalized['100%'])) {
+    return new KeyframeAnimation(
+      normalized,
+      { ...opts, easing },
+      'comboSpinningTop2'
+    );
+  }
+  return new KeyframeAnimation(
+    defaultParams,
+    {
+      ...opts,
+      easing,
+    },
+    'comboSpinningTop2'
+  );
+};
+
 // Register them
 animationRegistry.register('fadeIn', fadeIn);
 animationRegistry.register('fadeOut', fadeOut);
@@ -2760,6 +3043,8 @@ animationRegistry.register('collapseRotateZoomIn', collapseRotateZoomIn);
 animationRegistry.register('collapseRotateZoomOut', collapseRotateZoomOut);
 animationRegistry.register('ultraCinematicIn', ultraCinematicIn);
 animationRegistry.register('ultraCinematicOut', ultraCinematicOut);
+animationRegistry.register('motionBlurIn', motionBlurIn);
+animationRegistry.register('motionBlurOut', motionBlurOut);
 
 //register animations captions
 animationRegistry.register('popCaption', popCaption);
@@ -2774,6 +3059,20 @@ animationRegistry.register('scaleMidCaption', scaleMidCaption);
 animationRegistry.register('scaleDownCaption', scaleDownCaption);
 animationRegistry.register('upDownCaption', upDownCaption);
 animationRegistry.register('upLeftCaption', upLeftCaption);
+
+//register combo animations
+animationRegistry.register('comboZoom1', comboZoom1);
+animationRegistry.register('comboZoom2', comboZoom2);
+animationRegistry.register('comboPendulum1', comboPendulum1);
+animationRegistry.register('comboPendulum2', comboPendulum2);
+animationRegistry.register('comboRightDistort', comboRightDistort);
+animationRegistry.register('comboLeftDistort', comboLeftDistort);
+animationRegistry.register('comboWobble', comboWobble);
+animationRegistry.register('comboSpinningTop1', comboSpinningTop1);
+animationRegistry.register('comboSwayOut', comboSwayOut);
+animationRegistry.register('comboBounce1', comboBounce1);
+animationRegistry.register('comboSwayIn', comboSwayIn);
+animationRegistry.register('comboSpinningTop2', comboSpinningTop2);
 
 /**
  * Get the keyframe template for a preset animation
@@ -2796,6 +3095,8 @@ export function getPresetTemplate(type: string, params?: any): any {
   const scaleEnd = normalized?.scaleEnd || null;
   const brightnessInit = normalized?.brightnessInit || null;
   const brightnessEnd = normalized?.brightnessEnd || null;
+  const motionBlurInit = normalized?.motionBlurInit || null;
+  const motionBlurEnd = normalized?.motionBlurEnd || null;
 
   switch (type) {
     case 'fadeIn':
@@ -2920,6 +3221,32 @@ export function getPresetTemplate(type: string, params?: any): any {
         },
         '100%': {
           blur: blurEnd ?? 20,
+          opacity: opacityEnd ?? 0,
+          mirror: defaultMirror,
+        },
+      };
+    case 'motionBlurIn':
+      return {
+        '0%': {
+          motionBlur: motionBlurInit ?? 40,
+          opacity: opacityInit ?? 0,
+          mirror: defaultMirror,
+        },
+        '100%': {
+          motionBlur: motionBlurEnd ?? 0,
+          opacity: opacityEnd ?? 1,
+          mirror: defaultMirror,
+        },
+      };
+    case 'motionBlurOut':
+      return {
+        '0%': {
+          motionBlur: motionBlurInit ?? 0,
+          opacity: opacityInit ?? 1,
+          mirror: defaultMirror,
+        },
+        '100%': {
+          motionBlur: motionBlurEnd ?? 40,
           opacity: opacityEnd ?? 0,
           mirror: defaultMirror,
         },
@@ -4486,6 +4813,402 @@ export function getPresetTemplate(type: string, params?: any): any {
         '0%': { x: 0, y: 0 },
         '50%': { x: -50, y: -50 },
         '100%': { x: 0, y: 0 },
+      };
+    // combo Animations
+    case 'comboZoom1':
+      return {
+        '0%': {
+          scale: scaleInit ?? 2.5,
+          motionBlur: motionBlurInit ?? 8,
+          angle: angleInit ?? 0,
+          mirror: 1,
+        },
+        '30%': {
+          scale: 1.2,
+          motionBlur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '60%': {
+          scale: 1,
+          motionBlur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '100%': {
+          scale: scaleEnd ?? 2.5,
+          motionBlur: motionBlurEnd ?? 8,
+          angle: angleEnd ?? 0,
+          mirror: 1,
+        },
+      };
+
+    case 'comboZoom2':
+      return {
+        '0%': {
+          scale: scaleInit ?? 0.7,
+          motionBlur: motionBlurInit ?? 8,
+          angle: angleInit ?? 0,
+          mirror: 1,
+        },
+        '30%': {
+          scale: 1,
+          motionBlur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '60%': {
+          scale: 1,
+          motionBlur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '100%': {
+          scale: scaleEnd ?? 0.7,
+          motionBlur: motionBlurEnd ?? 8,
+          angle: angleEnd ?? 0,
+          mirror: 1,
+        },
+      };
+
+    case 'comboPendulum1':
+      return {
+        '0%': {
+          x: -250,
+          blur: blurInit ?? 7,
+          angle: angleInit ?? 5,
+          mirror: 1,
+        },
+        '45%': {
+          x: -40,
+          blur: 1,
+          angle: 2,
+          mirror: 1,
+        },
+        '55%': {
+          x: 0,
+          blur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '60%': {
+          x: 0,
+          blur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '85%': {
+          x: -40,
+          blur: 0,
+          angle: -2,
+          mirror: 1,
+        },
+        '100%': {
+          x: -250,
+          blur: blurEnd ?? 0,
+          angle: angleEnd ?? -5,
+          mirror: 1,
+        },
+      };
+
+    case 'comboPendulum2':
+      return {
+        '0%': {
+          x: 250,
+          blur: blurInit ?? 7,
+          angle: angleInit ?? -5,
+          mirror: 1,
+        },
+        '45%': {
+          x: 40,
+          blur: 1,
+          angle: -2,
+          mirror: 1,
+        },
+        '55%': {
+          x: 0,
+          blur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '60%': {
+          x: 0,
+          blur: 0,
+          angle: 0,
+          mirror: 1,
+        },
+        '85%': {
+          x: 40,
+          blur: 0,
+          angle: 2,
+          mirror: 1,
+        },
+        '100%': {
+          x: 250,
+          blur: blurEnd ?? 0,
+          angle: angleEnd ?? 5,
+          mirror: 1,
+        },
+      };
+
+    case 'comboRightDistort':
+      return {
+        '0%': {
+          scale: scaleInit ?? 3,
+          angle: angleInit ?? -15,
+          blur: blurInit ?? 5,
+          mirror: 1,
+        },
+        '40%': {
+          blur: 1,
+          angle: -6,
+          scale: 1.5,
+          mirror: 1,
+        },
+        '60%': {
+          blur: 0,
+          angle: 0,
+          scale: 1,
+          mirror: 1,
+        },
+        '70%': {
+          blur: 0,
+          angle: 0,
+          scale: 1,
+          mirror: 1,
+        },
+        '85%': {
+          scale: 0.95,
+          mirror: 1,
+        },
+        '100%': {
+          scale: scaleEnd ?? 0.8,
+          mirror: 1,
+        },
+      };
+    case 'comboLeftDistort':
+      return {
+        '0%': {
+          scale: scaleInit ?? 2.5,
+          blur: blurInit ?? 5,
+          mirror: 1,
+          angle: 0,
+        },
+        '45%': {
+          blur: 0,
+          scale: 1,
+          mirror: 1,
+          angle: 0,
+        },
+        '50%': {
+          blur: 0,
+          scale: 1,
+          mirror: 1,
+          angle: 0,
+        },
+        '60%': {
+          blur: 0,
+          angle: -3,
+          scale: 1,
+          mirror: 1,
+        },
+        '75%': {
+          blur: 0,
+          angle: -6,
+          scale: 1,
+          mirror: 1,
+        },
+        '100%': {
+          scale: scaleEnd ?? 0.7,
+          angle: -6,
+          blur: 0,
+          mirror: 1,
+        },
+      };
+
+    case 'comboWobble':
+      return {
+        '0%': {
+          scale: scaleInit ?? 1.2,
+          angle: angleInit ?? 15,
+          x: xPositionInit ?? -400,
+          blur: blurInit ?? 5,
+          mirror: 1,
+        },
+        '6%': {
+          scale: 1,
+          mirror: 1,
+          angle: 0,
+          blur: 0,
+          x: 0,
+        },
+        '18%': {
+          scale: 1,
+          mirror: 1,
+          angle: -10,
+          x: -100,
+        },
+        '30%': {
+          angle: -10,
+          scale: 1,
+          mirror: 1,
+          x: 0,
+        },
+        '35%': {
+          angle: 0,
+          scale: 1,
+          mirror: 1,
+          x: 0,
+        },
+        '45%': {
+          angle: 5,
+          scale: 1,
+          mirror: 1,
+          x: 0,
+        },
+        '55%': {
+          angle: 0,
+          scale: 1,
+          mirror: 1,
+          x: 0,
+        },
+        '60%': {
+          angle: 0,
+          scale: 1,
+          mirror: 1,
+          blur: 0,
+          x: 0,
+        },
+        '100%': {
+          scale: scaleEnd ?? 2.5,
+          blur: blurEnd ?? 5,
+          mirror: 1,
+        },
+      };
+
+    case 'comboSpinningTop1':
+      return {
+        '0%': {
+          scale: scaleInit ?? 3,
+          blur: blurInit ?? 5,
+          mirror: 1,
+        },
+        '25%': {
+          scale: 1,
+          mirror: 1,
+          blur: 0,
+          angle: 0,
+        },
+        '55%': {
+          scale: 0.7,
+          mirror: 1,
+          angle: 8,
+        },
+
+        '100%': {
+          angle: angleEnd ?? 90,
+          scale: scaleEnd ?? 0.7,
+          mirror: 1,
+        },
+      };
+
+    case 'comboSwayOut':
+      return {
+        '0%': {
+          scale: scaleInit ?? 3,
+          blur: blurInit ?? 5,
+          mirror: 1,
+        },
+        '50%': {
+          scale: 1,
+          mirror: 1,
+          blur: 0,
+          angle: 0,
+        },
+        '100%': {
+          mirror: 1,
+          angle: angleEnd ?? 45,
+          scale: scaleEnd ?? 3,
+          blur: blurEnd ?? 5,
+        },
+      };
+
+    case 'comboBounce1':
+      return {
+        '0%': {
+          scale: scaleInit ?? 1.2,
+          blur: blurInit ?? 5,
+          mirror: 1,
+        },
+        '18%': {
+          scale: 1,
+          mirror: 1,
+          blur: 0,
+          angle: 0,
+        },
+        '50%': {
+          scale: 1.5,
+          mirror: 1,
+          blur: 0,
+          angle: -5,
+        },
+        '55%': {
+          scale: 1.5,
+          mirror: 1,
+          blur: 0,
+          angle: -5,
+        },
+        '100%': {
+          mirror: 1,
+          angle: angleEnd ?? 0,
+          scale: scaleEnd ?? 0.9,
+        },
+      };
+
+    case 'comboSwayIn':
+      return {
+        '0%': {
+          scale: scaleInit ?? 3,
+          blur: blurInit ?? 5,
+          angle: angleInit ?? -45,
+          mirror: 1,
+        },
+        '50%': {
+          scale: 1,
+          mirror: 1,
+          blur: 0,
+          angle: 0,
+        },
+        '100%': {
+          mirror: 1,
+          scale: scaleEnd ?? 3,
+          blur: blurEnd ?? 5,
+        },
+      };
+    case 'comboSpinningTop2':
+      return {
+        '0%': {
+          scale: scaleInit ?? 0.8,
+          angle: angleInit ?? -90,
+          mirror: 1,
+        },
+        '40%': {
+          scale: 0.8,
+          mirror: 1,
+          angle: -15,
+        },
+        '60%': {
+          scale: 1,
+          mirror: 1,
+          angle: 0,
+          blur: 0,
+        },
+
+        '100%': {
+          scale: scaleEnd ?? 3,
+          blur: blurEnd ?? 5,
+          mirror: 1,
+        },
       };
     case 'custom':
     default:
