@@ -386,28 +386,28 @@ export class TimelineModel {
       if (root && !root.parent) {
         container.addChild(root);
       }
-      return;
-    }
+    } else {
+      const meta = await clip.ready;
 
-    const meta = await clip.ready;
-
-    // Playback
-    await this.setupPlaybackForClip(clip, audioSource);
-
-    // Renderer (Video/Image)
-    if (meta.width > 0 && meta.height > 0) {
-      const container = this.studio.clipsNormalContainer!;
-      // Simple logic as both branches did the same thing in previous code
-      const isVideo = clip.type === 'Video' && this.isPlaybackCapable(clip);
-      if (!isVideo || (isVideo && (clip as any).tickInterceptor != null)) {
-        const renderer = new PixiSpriteRenderer(
-          this.studio.pixiApp!,
-          clip,
-          container
-        );
-        this.studio.spriteRenderers.set(clip, renderer);
+      // Renderer (Video/Image)
+      if (meta.width > 0 && meta.height > 0) {
+        const container = this.studio.clipsNormalContainer!;
+        // Simple logic as both branches did the same thing in previous code
+        const isVideo = clip.type === 'Video' && this.isPlaybackCapable(clip);
+        if (!isVideo || (isVideo && (clip as any).tickInterceptor != null)) {
+          const renderer = new PixiSpriteRenderer(
+            this.studio.pixiApp!,
+            clip,
+            container
+          );
+          this.studio.spriteRenderers.set(clip, renderer);
+        }
       }
     }
+
+    // Playback
+    // For cached clips, setupPlaybackForClip will re-register the element with transport
+    await this.setupPlaybackForClip(clip, audioSource);
 
     // Interactivity
     if (this.studio.opts.interactivity) {
@@ -515,11 +515,20 @@ export class TimelineModel {
     // Clean up playback element
     const playbackInfo = this.studio.transport.playbackElements.get(clip);
     if (playbackInfo != null) {
+      if (this.isPlaybackCapable(clip)) {
+        // Always stop playback immediately so removed clips can't keep producing audio.
+        // This is especially important for undo/redo where `permanent` can be false.
+        clip.pause(playbackInfo.element);
+      }
+
+      // Always unregister from the transport so it can't be driven by play/seek loops.
+      // For non-permanent removals (e.g. undo), we may skip full cleanup to keep media
+      // warm in memory, but it must not be audible.
+      this.studio.transport.playbackElements.delete(clip);
+
       if (permanent && this.isPlaybackCapable(clip)) {
         clip.cleanupPlayback(playbackInfo.element, playbackInfo.objectUrl);
-        this.studio.transport.playbackElements.delete(clip);
       }
-      // If NOT permanent, we don't cleanupPlayback, keeping the <video> alive.
     }
 
     // Clean up video sprite
@@ -612,9 +621,16 @@ export class TimelineModel {
       // Clean up playback element
       const playbackInfo = this.studio.transport.playbackElements.get(clip);
       if (playbackInfo != null) {
+        if (this.isPlaybackCapable(clip)) {
+          // Always stop playback immediately so removed clips can't keep producing audio.
+          clip.pause(playbackInfo.element);
+        }
+
+        // Always unregister from transport, regardless of permanence.
+        this.studio.transport.playbackElements.delete(clip);
+
         if (options.permanent && this.isPlaybackCapable(clip)) {
           clip.cleanupPlayback(playbackInfo.element, playbackInfo.objectUrl);
-          this.studio.transport.playbackElements.delete(clip);
         }
       }
 
@@ -1516,9 +1532,54 @@ export class TimelineModel {
 
   async setTracks(tracks: StudioTrack[]): Promise<void> {
     // Deep clone tracks to avoid sharing references with history or other sources
+    const previousTracks = JSON.parse(JSON.stringify(this.tracks));
     this.tracks = JSON.parse(JSON.stringify(tracks));
+    this.reconcileTracks();
+    // If incoming layout referenced only stale/dangling clipIds, reconcile drops
+    // every track while clips still exist — revert so we do not emit [] to the UI.
+    if (this.tracks.length === 0 && this.clips.length > 0) {
+      this.tracks = previousTracks;
+      this.reconcileTracks();
+    }
     await this.recalculateMaxDuration();
+    if (!this.studio.isRestoring) {
+      this.studio.emit('track:order-changed', { tracks: this.tracks });
+    }
     await this.studio.updateFrame(this.studio.currentTime);
+  }
+
+  /**
+   * Reconciles the tracks list with the available clips.
+   * 1. Filters each track's clipIds to only include IDs present in this.clips.
+   * 2. Removes any tracks that are then empty.
+   * This is used as a safety net to ensure no orphaned empty tracks or dangling references remain.
+   */
+  public reconcileTracks(): void {
+    const existingClipIds = new Set(this.clips.map((c) => c.id));
+
+    for (let i = this.tracks.length - 1; i >= 0; i--) {
+      const track = this.tracks[i];
+
+      // Filter out dangling IDs
+      const validClipIds = track.clipIds.filter((id) =>
+        existingClipIds.has(id)
+      );
+
+      if (validClipIds.length !== track.clipIds.length) {
+        track.clipIds = validClipIds;
+      }
+
+      if (track.clipIds.length === 0) {
+        this.tracks.splice(i, 1);
+        if (!this.studio.isRestoring) {
+          this.studio.emit('track:removed', { trackId: track.id });
+        }
+      }
+    }
+
+    if (this.tracks.length === 0 && !this.studio.isRestoring) {
+      this.studio.emit('track:order-changed', { tracks: this.tracks });
+    }
   }
 
   private async ensureFontsForClips(clips: any[]): Promise<void> {
