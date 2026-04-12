@@ -196,8 +196,8 @@ export function handleTrackRelocation(timeline: Timeline, options: any) {
 
           // Check for actual overlap: clips overlap if one starts before the other ends
           // and ends after the other starts
-          const otherStart = otherClip.display.from;
-          const otherEnd = otherClip.display.to;
+          const otherStart = Math.round(otherClip.display.from);
+          const otherEnd = Math.round(otherClip.display.to);
 
           // Two clips overlap if:
           // proposedStart < otherEnd AND proposedEnd > otherStart

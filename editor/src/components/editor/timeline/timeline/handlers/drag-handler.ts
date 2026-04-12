@@ -23,10 +23,9 @@ export function handleDragging(timeline: Timeline, options: any) {
   const guides = getGuides(lineGuideStops, itemBounds);
 
   if (timeline.enableGuideRedraw) {
+    // Clear old guides and draw new ones atomically to prevent flicker
     clearAuxiliaryObjects(timeline.canvas, allObjects);
-    if (guides.length > 0) {
-      drawGuides(guides, targetRect, timeline.canvas);
-    }
+    drawGuides(guides, targetRect, timeline.canvas);
     timeline.enableGuideRedraw = false;
     setTimeout(() => {
       timeline.enableGuideRedraw = true;

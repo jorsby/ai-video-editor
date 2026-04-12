@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
 import { useTimelineStore } from '@/stores/timeline-store';
@@ -24,7 +24,14 @@ import {
   Trash2,
   Scissors,
   RotateCcw,
-  AlignLeft,
+  Lock,
+  LockOpen,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  Maximize,
+  Minimize2,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import { DEFAULT_FPS } from '@/stores/project-store';
 import { formatTimeCode } from '@/lib/time';
@@ -47,7 +54,14 @@ export function TimelineToolbar({
   onDuplicate,
   onSplit,
   onReset,
-  onCollapseGaps,
+  onLockToggle,
+  isLocked,
+  onCenterH,
+  onCenterV,
+  onFitToCanvas,
+  onCoverCanvas,
+  onSnapToggle,
+  isSnapEnabled = true,
 }: {
   zoomLevel: number;
   setZoomLevel: (zoom: number) => void;
@@ -55,10 +69,45 @@ export function TimelineToolbar({
   onDuplicate?: () => void;
   onSplit?: () => void;
   onReset?: () => void;
-  onCollapseGaps?: () => void;
+  onLockToggle?: () => void;
+  isLocked?: boolean;
+  onCenterH?: () => void;
+  onCenterV?: () => void;
+  onFitToCanvas?: () => void;
+  onCoverCanvas?: () => void;
+  onSnapToggle?: () => void;
+  isSnapEnabled?: boolean;
 }) {
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
+  const { studio } = useStudioStore();
   const { selectedClipIds, clips } = useTimelineStore();
+
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  useEffect(() => {
+    if (!studio) return;
+
+    setCanUndo(studio.history.canUndo());
+    setCanRedo(studio.history.canRedo());
+
+    const handleHistoryChange = ({
+      canUndo,
+      canRedo,
+    }: {
+      canUndo: boolean;
+      canRedo: boolean;
+    }) => {
+      setCanUndo(canUndo);
+      setCanRedo(canRedo);
+    };
+
+    studio.on('history:changed', handleHistoryChange);
+
+    return () => {
+      studio.off('history:changed', handleHistoryChange);
+    };
+  }, [studio]);
 
   // Resolve sceneId from the currently selected clip (if exactly one scene-linked clip)
   const selectedSceneId =
@@ -108,13 +157,75 @@ export function TimelineToolbar({
             </TooltipTrigger>
             <TooltipContent>Delete element (Delete)</TooltipContent>
           </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" onClick={onLockToggle}>
+                {isLocked ? (
+                  <Lock className="h-4 w-4" />
+                ) : (
+                  <LockOpen className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isLocked ? 'Unlock element (Ctrl+L)' : 'Lock element (Ctrl+L)'}
+            </TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onCenterH}>
+                <AlignCenterHorizontal className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Center horizontally (Alt+H)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onCenterV}>
+                <AlignCenterVertical className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Center vertically (Alt+V)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onFitToCanvas}>
+                <Maximize className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Fit to canvas (Alt+F)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onCoverCanvas}>
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Cover canvas</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={isSnapEnabled ? 'secondary' : 'ghost'}
+                size="icon"
+                onClick={onSnapToggle}
+              >
                 <Magnet className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Auto snapping</TooltipContent>
+            <TooltipContent>
+              {isSnapEnabled ? 'Disable snapping' : 'Enable snapping'}
+            </TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border mx-1" />
@@ -130,11 +241,30 @@ export function TimelineToolbar({
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onCollapseGaps}>
-                <AlignLeft className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => studio?.undo()}
+                disabled={!canUndo}
+              >
+                <Undo2 className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Collapse gaps (Ctrl+Shift+G)</TooltipContent>
+            <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => studio?.redo()}
+                disabled={!canRedo}
+              >
+                <Redo2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
           </Tooltip>
 
           {selectedSceneId && (
@@ -223,6 +353,7 @@ export function TimelineToolbar({
 
       <div className="flex items-center gap-1">
         <VolumeMixer />
+        <SpeedSelector />
 
         <div className="w-px h-4 bg-border mx-1" />
 
@@ -244,6 +375,53 @@ export function TimelineToolbar({
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Speed Selector ───────────────────────────────────────────
+
+const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 2.75, 3] as const;
+
+function SpeedSelector() {
+  const { speed, setSpeed } = usePlaybackStore();
+
+  return (
+    <Popover>
+      <TooltipProvider delayDuration={500}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-1.5 text-xs tabular-nums min-w-[40px]"
+              >
+                {speed}x
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Playback Speed</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent className="w-36 p-1.5" side="top" align="end">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
+            Speed
+          </span>
+          {SPEED_OPTIONS.map((s) => (
+            <Button
+              key={s}
+              variant={speed === s ? 'secondary' : 'ghost'}
+              size="sm"
+              className="justify-start h-7 text-xs"
+              onClick={() => setSpeed(s)}
+            >
+              {s}x
+            </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

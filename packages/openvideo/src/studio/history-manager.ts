@@ -128,7 +128,24 @@ export class HistoryManager {
     const newObj = JSON.parse(JSON.stringify(obj));
     const patchesToApply = reverse ? [...patches].reverse() : patches;
 
-    for (const patch of patchesToApply) {
+    // Sort array splice operations by index descending so higher indices are
+    // removed first, preventing index drift when multiple items are spliced.
+    const sortedPatches = [...patchesToApply].sort((a, b) => {
+      const aIsArrayDelete =
+        (reverse && a.type === 'CREATE') || (!reverse && a.type === 'REMOVE');
+      const bIsArrayDelete =
+        (reverse && b.type === 'CREATE') || (!reverse && b.type === 'REMOVE');
+      if (aIsArrayDelete && bIsArrayDelete) {
+        const aIdx = a.path[a.path.length - 1];
+        const bIdx = b.path[b.path.length - 1];
+        if (typeof aIdx === 'number' && typeof bIdx === 'number') {
+          return bIdx - aIdx;
+        }
+      }
+      return 0;
+    });
+
+    for (const patch of sortedPatches) {
       const { type, path } = patch;
       const value = (patch as any).value;
       const oldValue = (patch as any).oldValue;

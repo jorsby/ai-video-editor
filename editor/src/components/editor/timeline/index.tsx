@@ -11,6 +11,9 @@ import {
   ArrowUp,
   ArrowDown,
   AlignLeft,
+  Trash2,
+  VolumeX,
+  Volume2,
 } from 'lucide-react';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
@@ -173,22 +176,17 @@ export function Timeline() {
         mouseX = e.clientX - rect.left;
         scrollLeft = rulerContent.scrollLeft;
       } else {
-        const tracksContent = tracksScrollRef.current;
-        if (!tracksContent) {
-          // If tracksScrollRef is gone (because we removed it), we can try to use canvas container if possible,
-          // or just rely on ruler if we assume vertical stack is aligned.
-          // But playhead seeking usually depends on ruler X.
-          // If the user clicked elsewhere?
-          // In the new layout, timeline-canvas is in a div. We didn't ref it for clicking yet.
-          // But handleTimelineContentClick is attached to...
-          // Wait, I removed the "tracksContainerRef" attachment in the previous step?
-          // "onMouseDown={handleTimelineMouseDown} ... ref={tracksContainerRef}" was on the removed div.
-          // So click seeking on the canvas tracks area MIGHT BE BROKEN unless I re-attach listeners.
+        // Use canvas container for click seeking since tracksScrollRef was removed
+        const canvasEl =
+          tracksScrollRef.current ??
+          document.getElementById('timeline-canvas')?.parentElement;
+        if (!canvasEl) {
           return;
         }
-        const rect = tracksContent.getBoundingClientRect();
+        const rect = canvasEl.getBoundingClientRect();
         mouseX = e.clientX - rect.left;
-        scrollLeft = tracksContent.scrollLeft;
+        // Use the ruler's scrollLeft as the authoritative scroll position
+        scrollLeft = rulerScrollRef.current?.scrollLeft ?? 0;
       }
 
       const rawTime = Math.max(
@@ -316,7 +314,7 @@ export function Timeline() {
       timelineCanvasRef.current.setTimeScale(zoomLevel);
       timelineCanvasRef.current.setTracks(tracks);
     }
-  }, [zoomLevel, tracks, clips]);
+  }, [zoomLevel, tracks]);
 
   const handleDelete = useCallback(() => {
     studio?.deleteSelected();
@@ -364,6 +362,51 @@ export function Timeline() {
     studio?.collapseGaps();
   }, [studio]);
 
+  const selectedClipIds = useTimelineStore((s) => s.selectedClipIds);
+
+  const isSelectedLocked = (() => {
+    if (!studio || selectedClipIds.length === 0) return false;
+    return selectedClipIds.every((id) => {
+      const clip = studio.getClipById(id);
+      return clip?.locked === true;
+    });
+  })();
+
+  const handleLockToggle = useCallback(() => {
+    if (!studio || selectedClipIds.length === 0) return;
+    const newLocked = !isSelectedLocked;
+    for (const id of selectedClipIds) {
+      studio.lockClip(id, newLocked);
+    }
+  }, [studio, selectedClipIds, isSelectedLocked]);
+
+  const handleCenterH = useCallback(() => {
+    if (!studio || selectedClipIds.length === 0) return;
+    for (const id of selectedClipIds) studio.centerClipH(id);
+  }, [studio, selectedClipIds]);
+
+  const handleCenterV = useCallback(() => {
+    if (!studio || selectedClipIds.length === 0) return;
+    for (const id of selectedClipIds) studio.centerClipV(id);
+  }, [studio, selectedClipIds]);
+
+  const handleFitToCanvas = useCallback(() => {
+    if (!studio || selectedClipIds.length === 0) return;
+    for (const id of selectedClipIds) studio.scaleToFit(id);
+  }, [studio, selectedClipIds]);
+
+  const handleCoverCanvas = useCallback(() => {
+    if (!studio || selectedClipIds.length === 0) return;
+    for (const id of selectedClipIds) studio.scaleToCover(id);
+  }, [studio, selectedClipIds]);
+
+  const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+  const handleSnapToggle = useCallback(() => {
+    const newVal = !isSnapEnabled;
+    setIsSnapEnabled(newVal);
+    studio?.setSnapping(newVal);
+  }, [studio, isSnapEnabled]);
+
   useEditorHotkeys({
     timelineCanvas: timelineCanvasRef.current,
     setZoomLevel,
@@ -384,7 +427,14 @@ export function Timeline() {
         onDuplicate={handleDuplicate}
         onSplit={handleSplit}
         onReset={handleReset}
-        onCollapseGaps={handleCollapseGaps}
+        onLockToggle={handleLockToggle}
+        isLocked={isSelectedLocked}
+        onCenterH={handleCenterH}
+        onCenterV={handleCenterV}
+        onFitToCanvas={handleFitToCanvas}
+        onCoverCanvas={handleCoverCanvas}
+        onSnapToggle={handleSnapToggle}
+        isSnapEnabled={isSnapEnabled}
       />
       <TimelineStudioSync timelineCanvas={timelineCanvasRef.current} />
 
@@ -496,7 +546,10 @@ export function Timeline() {
                     )}
 
                     <div
-                      className={cn('flex items-center px-3 group bg-input/40')}
+                      className={cn(
+                        'flex items-center px-3 group bg-input/40',
+                        track.muted && 'opacity-40'
+                      )}
                       style={{ height: getTrackHeight(track.type as any) }}
                     >
                       <div className="flex items-center justify-center flex-1 min-w-0 gap-1">
@@ -537,11 +590,47 @@ export function Timeline() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => {
+                                const { toggleTrackMute } =
+                                  useTimelineStore.getState();
+                                toggleTrackMute(track.id);
+                              }}
+                            >
+                              {track.muted ? (
+                                <>
+                                  <Volume2 className="size-4 mr-2" />
+                                  Unmute track
+                                </>
+                              ) : (
+                                <>
+                                  <VolumeX className="size-4 mr-2" />
+                                  Mute track
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
                                 studio?.collapseGaps(track.id);
                               }}
                             >
                               <AlignLeft className="size-4 mr-2" />
                               Collapse gaps
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => {
+                                if (
+                                  track.clipIds.length > 0 &&
+                                  !confirm(
+                                    `Delete track with ${track.clipIds.length} clip(s)?`
+                                  )
+                                )
+                                  return;
+                                studio?.removeTrack(track.id);
+                              }}
+                            >
+                              <Trash2 className="size-4 mr-2" />
+                              Delete track
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

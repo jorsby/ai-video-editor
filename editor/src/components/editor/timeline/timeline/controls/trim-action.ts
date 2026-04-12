@@ -49,14 +49,16 @@ export const changeObjectWidth: TransformActionHandler = (
 
     // Helper to convert pixels to microseconds for the content (respects playbackRate)
     const pixelsToContentUs = (pixels: number) => {
-      return (
+      return Math.round(
         (pixels / (pixelsPerSecond * zoom)) *
-        MICROSECONDS_PER_SECOND *
-        playbackRate
+          MICROSECONDS_PER_SECOND *
+          playbackRate
       );
     };
 
-    if (newWidth < 1) return false;
+    // Minimum clip width (~100ms at default zoom) to prevent zero-duration clips
+    const MIN_CLIP_WIDTH_PX = 5;
+    if (newWidth < MIN_CLIP_WIDTH_PX) return false;
 
     if (fromRight) {
       const diffSize = newWidth - oldWidth;

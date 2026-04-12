@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { useStudioStore } from '@/stores/studio-store';
 import { usePlaybackStore } from '@/stores/playback-store';
@@ -19,6 +19,10 @@ export const TimelineStudioSync = ({
   const { studio } = useStudioStore();
   const { setTracks, tracks, updateClip, updateClips, removeClips } =
     useTimelineStore();
+
+  // Track clip IDs currently being synced from canvas→studio to prevent
+  // the studio's clip:updated event from causing a redundant store write.
+  const syncingClipsRef = useRef<Set<string>>(new Set());
 
   // Sync Studio -> Store
   // When Studio emits events (e.g. from MediaPanel adding clips), update Store
@@ -181,6 +185,9 @@ export const TimelineStudioSync = ({
     };
 
     const handleClipUpdated = ({ clip }: { clip: IClip }) => {
+      // Skip if this update was initiated by our own canvas→studio sync
+      if (syncingClipsRef.current.has(clip.id)) return;
+
       // Sync duration on clip update
       usePlaybackStore
         .getState()
@@ -257,7 +264,7 @@ export const TimelineStudioSync = ({
 
         // Update track
         const updatedTracks = state._tracks.map((t) => {
-          if (t.id === trackId || (t.id === trackId && trackId)) {
+          if (t.id === trackId) {
             // Check which clips are not already in track
             const uniqueNewIds = clipsToAdd.filter(
               (id) => !t.clipIds.includes(id)
@@ -418,28 +425,33 @@ export const TimelineStudioSync = ({
     }) => {
       // TimelineCanvas Events are ALREADY in MICROSECONDS
 
-      // Update Store
-      updateClip(clipId, { displayFrom, duration, trim });
+      syncingClipsRef.current.add(clipId);
+      try {
+        // Update Store
+        updateClip(clipId, { displayFrom, duration, trim });
 
-      if (!studio) return;
+        if (!studio) return;
 
-      // Update Studio
-      // Calculate new display.to based on from + duration
-      const displayTo = displayFrom + duration;
-      const display = { from: displayFrom, to: displayTo };
+        // Update Studio
+        // Calculate new display.to based on from + duration
+        const displayTo = displayFrom + duration;
+        const display = { from: displayFrom, to: displayTo };
 
-      await studio.updateClip(clipId, {
-        display,
-        // We can redundant set duration for clarity, though our logic handles it
-        duration,
-        trim,
-      });
+        await studio.updateClip(clipId, {
+          display,
+          // We can redundant set duration for clarity, though our logic handles it
+          duration,
+          trim,
+        });
 
-      // Update store duration (max duration might have changed)
-      // Convert µs -> s
-      usePlaybackStore
-        .getState()
-        .setDuration(studio.getMaxDuration() / 1_000_000);
+        // Update store duration (max duration might have changed)
+        // Convert µs -> s
+        usePlaybackStore
+          .getState()
+          .setDuration(studio.getMaxDuration() / 1_000_000);
+      } finally {
+        syncingClipsRef.current.delete(clipId);
+      }
     };
 
     const handleClipsModified = async ({
@@ -454,47 +466,58 @@ export const TimelineStudioSync = ({
     }) => {
       // TimelineCanvas Events are ALREADY in MICROSECONDS
 
-      // Update Store
-      updateClips(clips);
+      const clipIds = clips.map((c) => c.clipId);
+      for (const id of clipIds) syncingClipsRef.current.add(id);
+      try {
+        // Update Store
+        updateClips(clips);
 
-      if (!studio) return;
+        if (!studio) return;
 
-      // Update Studio for each clip
-      await Promise.all(
-        clips.map(async (clip) => {
-          const updates: any = {};
+        // Group multiple clip updates into a single undo step
+        studio.beginHistoryGroup();
 
-          // Inputs are already µs
-          const displayFromUs = clip.displayFrom;
-          const durationUs = clip.duration;
+        // Update Studio for each clip
+        await Promise.all(
+          clips.map(async (clip) => {
+            const updates: any = {};
 
-          // Note regarding storeClip:
-          // We need the current state to calculate 'to'.
-          // We can get it from Studio directly to be safe, or Store.
-          // Studio is authoritative for engine state.
+            // Inputs are already µs
+            const displayFromUs = clip.displayFrom;
+            const durationUs = clip.duration;
 
-          if (displayFromUs !== undefined) {
-            // Access store instead of private studio.clips
-            const storeClip = useTimelineStore.getState().clips[clip.clipId];
-            // currentClip duration is already in µs
-            const currentDuration = durationUs ?? storeClip?.duration ?? 0;
-            const displayToUs = displayFromUs + currentDuration;
+            // Note regarding storeClip:
+            // We need the current state to calculate 'to'.
+            // We can get it from Studio directly to be safe, or Store.
+            // Studio is authoritative for engine state.
 
-            updates.display = {
-              from: displayFromUs,
-              to: displayToUs,
-            };
-          }
-          if (durationUs !== undefined) {
-            updates.duration = durationUs;
-          }
+            if (displayFromUs !== undefined) {
+              // Access store instead of private studio.clips
+              const storeClip = useTimelineStore.getState().clips[clip.clipId];
+              // currentClip duration is already in µs
+              const currentDuration = durationUs ?? storeClip?.duration ?? 0;
+              const displayToUs = displayFromUs + currentDuration;
 
-          if (clip.trim !== undefined) {
-            updates.trim = clip.trim;
-          }
-          await studio.updateClip(clip.clipId, updates);
-        })
-      );
+              updates.display = {
+                from: displayFromUs,
+                to: displayToUs,
+              };
+            }
+            if (durationUs !== undefined) {
+              updates.duration = durationUs;
+            }
+
+            if (clip.trim !== undefined) {
+              updates.trim = clip.trim;
+            }
+            await studio.updateClip(clip.clipId, updates);
+          })
+        );
+
+        studio.endHistoryGroup();
+      } finally {
+        for (const id of clipIds) syncingClipsRef.current.delete(id);
+      }
 
       // Update store duration (max duration might have changed)
       // Convert µs -> s
@@ -580,9 +603,13 @@ export const TimelineStudioSync = ({
           }))
           .filter((t) => t.clipIds.length > 0);
 
-        // 2. Insert new track at targetIndex
+        // 2. Insert new track at targetIndex (clamped to valid range)
         const updatedTracks = [...filteredTracks];
-        updatedTracks.splice(targetIndex, 0, newTrack);
+        const clampedIndex = Math.max(
+          0,
+          Math.min(targetIndex, updatedTracks.length)
+        );
+        updatedTracks.splice(clampedIndex, 0, newTrack);
 
         return {
           ...state,
