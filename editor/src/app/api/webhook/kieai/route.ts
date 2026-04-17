@@ -897,15 +897,12 @@ async function handleVideoAssetImage(params: {
     });
   }
 
-  // Guard: if the user has already retried, the variant's stored task_id will
-  // point at the new task. Ignore the old callback so its (stale) image_url
-  // can't race past the in-flight retry.
+  // Guard: drop callbacks whose task_id no longer matches the variant's stored
+  // one — this covers both retry races (stored = new task) and cancellations
+  // (stored = null), preventing stale results from overwriting current state.
   const current = await selectVariantById(supabase, variantId, 'image_task_id');
-  const storedTaskId = current?.data?.image_task_id as
-    | string
-    | null
-    | undefined;
-  if (storedTaskId && storedTaskId !== taskId) {
+  const storedTaskId = (current?.data?.image_task_id ?? null) as string | null;
+  if (storedTaskId !== taskId) {
     log.warn('Ignoring stale VideoAssetImage webhook', {
       variant_id: variantId,
       webhook_task_id: taskId,
@@ -994,7 +991,7 @@ async function handleGenerateMusic(params: {
   const primaryTrack = tracks[0];
   if (!primaryTrack) {
     await supabase
-      .from('project_music')
+      .from('musics')
       .update({
         status: 'failed',
         generation_metadata: payload,
@@ -1017,7 +1014,7 @@ async function handleGenerateMusic(params: {
 
   if (!primaryAudioUrl) {
     await supabase
-      .from('project_music')
+      .from('musics')
       .update({
         status: 'failed',
         generation_metadata: payload,
@@ -1035,7 +1032,7 @@ async function handleGenerateMusic(params: {
   }
 
   const { data: updatedMusic, error: updateError } = await supabase
-    .from('project_music')
+    .from('musics')
     .update({
       audio_url: primaryAudioUrl,
       cover_image_url: primaryImageUrl,
@@ -1046,13 +1043,11 @@ async function handleGenerateMusic(params: {
     .eq('id', musicId)
     .eq('task_id', taskId)
     .eq('status', 'generating')
-    .select(
-      'id, project_id, video_id, name, music_type, prompt, style, title, sort_order'
-    )
+    .select('id, project_id, video_id, title, structured_prompt, sort_order')
     .maybeSingle();
 
   if (updateError) {
-    log.error('Failed to update project_music from GenerateMusic webhook', {
+    log.error('Failed to update musics from GenerateMusic webhook', {
       music_id: musicId,
       task_id: taskId,
       error: updateError,
@@ -1083,13 +1078,13 @@ async function handleGenerateMusic(params: {
     if (altAudioUrl) {
       const altImageUrl = normalizeNonEmptyString(altTrack.image_url);
       const altDuration = normalizeNullableNumber(altTrack.duration);
+      const baseTitle = normalizeNonEmptyString(updatedMusic.title);
       const altTitle =
         normalizeNonEmptyString(altTrack.title) ??
-        normalizeNonEmptyString(updatedMusic.title) ??
-        null;
+        (baseTitle ? `${baseTitle} (Alt)` : null);
 
       const { data: maxSortRow } = await supabase
-        .from('project_music')
+        .from('musics')
         .select('sort_order')
         .eq('project_id', updatedMusic.project_id)
         .order('sort_order', { ascending: false })
@@ -1104,15 +1099,12 @@ async function handleGenerateMusic(params: {
             : 0;
 
       const { data: altRow, error: altInsertError } = await supabase
-        .from('project_music')
+        .from('musics')
         .insert({
           project_id: updatedMusic.project_id,
           video_id: updatedMusic.video_id,
-          name: `${updatedMusic.name} (Alt)`,
-          music_type: updatedMusic.music_type,
-          prompt: updatedMusic.prompt,
-          style: updatedMusic.style,
           title: altTitle,
+          structured_prompt: updatedMusic.structured_prompt ?? null,
           audio_url: altAudioUrl,
           cover_image_url: altImageUrl,
           duration: altDuration,
@@ -1125,7 +1117,7 @@ async function handleGenerateMusic(params: {
         .maybeSingle();
 
       if (altInsertError) {
-        log.error('Failed to insert alternate project_music row', {
+        log.error('Failed to insert alternate musics row', {
           music_id: musicId,
           task_id: taskId,
           error: altInsertError,

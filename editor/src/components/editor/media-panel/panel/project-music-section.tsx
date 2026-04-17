@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/collapsible';
 import {
   IconChevronDown,
-  IconChevronRight,
+  IconChevronUp,
   IconLoader2,
   IconMusic,
   IconPlayerPlayFilled,
@@ -250,7 +250,7 @@ export function ProjectMusicSection({
     void fetchTracks();
   }, [fetchTracks]);
 
-  // Realtime subscription for project_music changes
+  // Realtime subscription for musics changes
   useEffect(() => {
     if (!projectId) return;
 
@@ -265,7 +265,7 @@ export function ProjectMusicSection({
         {
           event: '*',
           schema: 'studio',
-          table: 'project_music',
+          table: 'musics',
           filter: filterStr,
         },
         () => {
@@ -369,59 +369,54 @@ export function ProjectMusicSection({
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="flex items-center gap-2">
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex-1 flex items-center gap-2 px-1 py-1 rounded-sm hover:bg-muted/20 transition-colors text-left"
-          >
-            {isOpen ? (
-              <IconChevronDown className="size-3.5 text-muted-foreground" />
-            ) : (
-              <IconChevronRight className="size-3.5 text-muted-foreground" />
-            )}
-            <IconMusic className="size-3.5 text-muted-foreground" />
-            <span className="text-xs font-medium">Music</span>
-            <span className="text-[10px] text-muted-foreground">
-              ({tracks.length})
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md bg-muted/15 border border-border/30 text-left hover:bg-muted/25 transition-colors"
+        >
+          <IconMusic className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[11px] font-medium flex-1">Music</span>
+          {generatingCount > 0 && (
+            <span className="text-[9px] text-amber-400 animate-pulse">
+              Generating {generatingCount}
             </span>
-            {generatingCount > 0 && (
-              <span className="text-[9px] text-amber-400 animate-pulse">
-                Generating {generatingCount}
-              </span>
-            )}
-          </button>
-        </CollapsibleTrigger>
-
-        {doneCount >= 2 && (
-          <button
-            type="button"
-            onClick={handleAddAllToTimeline}
-            disabled={addingAll}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
-            title="Add all music tracks sequentially to timeline"
-          >
-            {addingAll ? (
-              <IconLoader2 className="size-3 animate-spin" />
-            ) : (
-              <IconPlaylistAdd className="size-3.5" />
-            )}
-            Add All
-          </button>
-        )}
-      </div>
+          )}
+          <span className="text-[9px] text-muted-foreground/60">
+            {tracks.length}
+          </span>
+          {isOpen ? (
+            <IconChevronUp className="size-3 text-muted-foreground" />
+          ) : (
+            <IconChevronDown className="size-3 text-muted-foreground" />
+          )}
+        </button>
+      </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <div className="pl-5 pr-1 space-y-1.5 pt-1">
+        <div className="mt-1 px-2 py-2 rounded-md bg-muted/10 border border-border/20 space-y-1.5">
+          {doneCount >= 2 && (
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleAddAllToTimeline}
+                disabled={addingAll}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                title="Add all music tracks sequentially to timeline"
+              >
+                {addingAll ? (
+                  <IconLoader2 className="size-3 animate-spin" />
+                ) : (
+                  <IconPlaylistAdd className="size-3.5" />
+                )}
+                Add All
+              </button>
+            </div>
+          )}
           {loading && tracks.length === 0 ? (
             <p className="text-[10px] text-muted-foreground/70 animate-pulse py-2">
               Loading music tracks...
             </p>
-          ) : tracks.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground/70 py-2">
-              No music tracks yet. Generate via API or Video Showrunner.
-            </p>
-          ) : (
+          ) : tracks.length === 0 ? null : (
             tracks.map((track) => (
               <MusicTrackCard
                 key={track.id}

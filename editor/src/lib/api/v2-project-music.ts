@@ -8,7 +8,60 @@ type MusicType = 'lyrical' | 'instrumental';
 
 const MUSIC_TYPES = new Set<MusicType>(['lyrical', 'instrumental']);
 const MUSIC_SELECT =
-  'id, project_id, video_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
+  'id, project_id, video_id, title, structured_prompt, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
+
+type MusicRow = {
+  id: string;
+  project_id: string;
+  video_id: string | null;
+  title: string | null;
+  structured_prompt: unknown;
+  audio_url: string | null;
+  cover_image_url: string | null;
+  duration: number | null;
+  status: string;
+  task_id: string | null;
+  generation_metadata: unknown;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function readStructured(value: unknown): { prompt: string; extras: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { prompt: '', extras: '' };
+  }
+  const sp = value as Record<string, unknown>;
+  return {
+    prompt: typeof sp.prompt === 'string' ? sp.prompt : '',
+    extras: typeof sp.extras === 'string' ? sp.extras : '',
+  };
+}
+
+export function toApiMusic(row: MusicRow) {
+  const sp = readStructured(row.structured_prompt);
+  const isInstrumental = !sp.prompt.trim();
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    video_id: row.video_id,
+    name: row.title ?? '',
+    title: row.title,
+    music_type: (isInstrumental ? 'instrumental' : 'lyrical') as MusicType,
+    prompt: sp.prompt || null,
+    style: sp.extras || null,
+    structured_prompt: row.structured_prompt,
+    audio_url: row.audio_url,
+    cover_image_url: row.cover_image_url,
+    duration: row.duration,
+    status: row.status,
+    task_id: row.task_id,
+    generation_metadata: row.generation_metadata,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 
 type OwnedProjectLookup =
   | {
@@ -115,7 +168,7 @@ export async function listProjectMusic(
     if (owned.error) return owned.error;
 
     const { data, error } = await db
-      .from('project_music')
+      .from('musics')
       .select(MUSIC_SELECT)
       .eq('project_id', projectId)
       .order('sort_order', { ascending: true })
@@ -129,7 +182,7 @@ export async function listProjectMusic(
       );
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json(((data ?? []) as MusicRow[]).map(toApiMusic));
   } catch (error) {
     console.error(`${logPrefix} Unexpected error:`, error);
     return NextResponse.json(
@@ -156,7 +209,7 @@ export async function listVideoMusic(
     if (owned.error) return owned.error;
 
     const { data, error } = await db
-      .from('project_music')
+      .from('musics')
       .select(MUSIC_SELECT)
       .eq('project_id', projectId)
       .eq('video_id', videoId)
@@ -171,7 +224,7 @@ export async function listVideoMusic(
       );
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json(((data ?? []) as MusicRow[]).map(toApiMusic));
   } catch (error) {
     console.error(`${logPrefix} Unexpected error:`, error);
     return NextResponse.json(
@@ -198,14 +251,6 @@ export async function createProjectMusic(
     if (!isRecord(body)) {
       return NextResponse.json(
         { error: 'Body must be a JSON object' },
-        { status: 400 }
-      );
-    }
-
-    const name = normalizeText(body.name);
-    if (!name.ok) {
-      return NextResponse.json(
-        { error: 'name must be a non-empty string' },
         { status: 400 }
       );
     }
@@ -264,7 +309,7 @@ export async function createProjectMusic(
     if (owned.error) return owned.error;
 
     const { data: maxRow } = await db
-      .from('project_music')
+      .from('musics')
       .select('sort_order')
       .eq('project_id', projectId)
       .order('sort_order', { ascending: false })
@@ -274,16 +319,18 @@ export async function createProjectMusic(
     const nextSort =
       typeof maxRow?.sort_order === 'number' ? maxRow.sort_order + 1 : 0;
 
+    const structuredPrompt = {
+      prompt: musicType === 'lyrical' ? (prompt ?? '') : '',
+      extras: style.value,
+    };
+
     const { data: inserted, error: insertError } = await db
-      .from('project_music')
+      .from('musics')
       .insert({
         project_id: projectId,
         video_id: videoId ?? null,
-        name: name.value,
-        music_type: musicType,
-        prompt,
-        style: style.value,
         title: title.value,
+        structured_prompt: structuredPrompt,
         status: 'generating',
         sort_order: nextSort,
       })
@@ -301,7 +348,7 @@ export async function createProjectMusic(
     const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
       await db
-        .from('project_music')
+        .from('musics')
         .update({
           status: 'failed',
           generation_metadata: {
@@ -331,7 +378,7 @@ export async function createProjectMusic(
       });
 
       const { data: updated, error: updateError } = await db
-        .from('project_music')
+        .from('musics')
         .update({
           task_id: queued.taskId,
           generation_metadata: {
@@ -347,13 +394,15 @@ export async function createProjectMusic(
         throw new Error('Failed to save task_id for music generation');
       }
 
-      return NextResponse.json(updated, { status: 201 });
+      return NextResponse.json(toApiMusic(updated as MusicRow), {
+        status: 201,
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to queue music task';
 
       await db
-        .from('project_music')
+        .from('musics')
         .update({
           status: 'failed',
           generation_metadata: {

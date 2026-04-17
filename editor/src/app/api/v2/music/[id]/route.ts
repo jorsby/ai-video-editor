@@ -1,11 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
+import { toApiMusic } from '@/lib/api/v2-project-music';
 import { createServiceClient } from '@/lib/supabase/admin';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MUSIC_SELECT =
-  'id, project_id, video_id, name, music_type, prompt, style, title, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
+  'id, project_id, video_id, title, structured_prompt, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
 
 type OwnedMusic = {
   id: string;
@@ -64,7 +65,7 @@ async function getOwnedMusic(
   userId: string
 ): Promise<OwnedMusicLookup> {
   const { data: music, error: musicError } = await db
-    .from('project_music')
+    .from('musics')
     .select(MUSIC_SELECT)
     .eq('id', musicId)
     .maybeSingle();
@@ -112,7 +113,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const owned = await getOwnedMusic(db, id, user.id);
     if (owned.error) return owned.error;
 
-    return NextResponse.json(owned.music);
+    return NextResponse.json(toApiMusic(owned.music as never));
   } catch (error) {
     console.error('[v2/music/:id][GET] Unexpected error:', error);
     return NextResponse.json(
@@ -146,12 +147,23 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     const updates: Record<string, unknown> = {};
 
+    const currentSp =
+      owned.music.structured_prompt &&
+      typeof owned.music.structured_prompt === 'object' &&
+      !Array.isArray(owned.music.structured_prompt)
+        ? (owned.music.structured_prompt as Record<string, unknown>)
+        : {};
+    const nextSp: Record<string, unknown> = { ...currentSp };
+    let spTouched = false;
+
     if (body.name !== undefined) {
       const parsed = parseRequiredText(body.name, 'name');
       if (!parsed.ok) {
         return NextResponse.json({ error: parsed.error }, { status: 400 });
       }
-      updates.name = parsed.value;
+      if (body.title === undefined) {
+        updates.title = parsed.value;
+      }
     }
 
     if (body.prompt !== undefined) {
@@ -159,7 +171,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       if (!parsed.ok) {
         return NextResponse.json({ error: parsed.error }, { status: 400 });
       }
-      updates.prompt = parsed.value;
+      nextSp.prompt = parsed.value ?? '';
+      spTouched = true;
     }
 
     if (body.style !== undefined) {
@@ -167,7 +180,8 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       if (!parsed.ok) {
         return NextResponse.json({ error: parsed.error }, { status: 400 });
       }
-      updates.style = parsed.value;
+      nextSp.extras = parsed.value;
+      spTouched = true;
     }
 
     if (body.title !== undefined) {
@@ -176,6 +190,10 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: parsed.error }, { status: 400 });
       }
       updates.title = parsed.value;
+    }
+
+    if (spTouched) {
+      updates.structured_prompt = nextSp;
     }
 
     if (body.video_id !== undefined) {
@@ -211,7 +229,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const { data: updated, error: updateError } = await db
-      .from('project_music')
+      .from('musics')
       .update(updates)
       .eq('id', id)
       .select(MUSIC_SELECT)
@@ -228,7 +246,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       );
     }
 
-    return NextResponse.json(updated);
+    return NextResponse.json(toApiMusic(updated as never));
   } catch (error) {
     console.error('[v2/music/:id][PATCH] Unexpected error:', error);
     return NextResponse.json(
@@ -251,7 +269,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const owned = await getOwnedMusic(db, id, user.id);
     if (owned.error) return owned.error;
 
-    const { error } = await db.from('project_music').delete().eq('id', id);
+    const { error } = await db.from('musics').delete().eq('id', id);
 
     if (error) {
       console.error('[v2/music/:id][DELETE] Failed to delete track:', error);
