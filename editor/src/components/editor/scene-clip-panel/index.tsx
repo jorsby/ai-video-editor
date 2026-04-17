@@ -959,10 +959,18 @@ function GenerateButton({
 
   if (genStatus === 'generating') {
     return (
-      <span className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 animate-pulse font-medium">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 animate-pulse font-medium hover:bg-yellow-500/25 transition-colors cursor-pointer"
+        title={`Generating ${label}… click to retry if stuck`}
+      >
         <IconLoader2 className="size-3 animate-spin" />
         Generating {label}...
-      </span>
+      </button>
     );
   }
 

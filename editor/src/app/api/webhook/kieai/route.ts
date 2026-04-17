@@ -8,7 +8,10 @@ import {
 } from '@/lib/kieai';
 import { probeMediaDuration } from '@/lib/media-probe';
 import { transcribeSceneVideo } from '@/lib/transcribe/transcribe-url';
-import { updateVariantByIdSafe } from '@/lib/api/variant-table-resolver';
+import {
+  selectVariantById,
+  updateVariantByIdSafe,
+} from '@/lib/api/variant-table-resolver';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -890,6 +893,28 @@ async function handleVideoAssetImage(params: {
     return okResponse({
       success: true,
       pending: true,
+      step: 'VideoAssetImage',
+    });
+  }
+
+  // Guard: if the user has already retried, the variant's stored task_id will
+  // point at the new task. Ignore the old callback so its (stale) image_url
+  // can't race past the in-flight retry.
+  const current = await selectVariantById(supabase, variantId, 'image_task_id');
+  const storedTaskId = current?.data?.image_task_id as
+    | string
+    | null
+    | undefined;
+  if (storedTaskId && storedTaskId !== taskId) {
+    log.warn('Ignoring stale VideoAssetImage webhook', {
+      variant_id: variantId,
+      webhook_task_id: taskId,
+      stored_task_id: storedTaskId,
+    });
+    return okResponse({
+      success: true,
+      ignored: true,
+      reason: 'task_id_mismatch',
       step: 'VideoAssetImage',
     });
   }
