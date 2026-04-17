@@ -637,26 +637,35 @@ function SceneVariantTile({
   const info = imageMap.get(slug);
   const url = info?.image_url;
   const variantId = info?.id;
+  const isGenerating = info?.image_gen_status === 'generating';
   const [isRetrying, setIsRetrying] = useState(false);
   const label = slugToLabel(slug);
+  const { confirm } = useDeleteConfirmation();
 
-  const handleRetry = async () => {
+  const handleRetry = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!variantId || isRetrying) return;
+    const ok = await confirm({
+      title: `Regenerate ${label}?`,
+      description: isGenerating
+        ? `This asset is currently generating. Starting a new generation will replace the in-flight request.`
+        : `This will replace the current image with a new one. Continue?`,
+      confirmLabel: 'Regenerate',
+    });
+    if (!ok) return;
     setIsRetrying(true);
     try {
       const res = await fetch(`/api/v2/variants/${variantId}/generate-image`, {
         method: 'POST',
       });
       if (res.ok) {
-        (await import('sonner')).toast.success(`Image regenerating: ${label}`);
+        toast.success(`Image regenerating: ${label}`);
       } else {
         const data = await res.json().catch(() => ({}));
-        (await import('sonner')).toast.error(
-          data.error ?? 'Failed to retry image'
-        );
+        toast.error(data.error ?? 'Failed to retry image');
       }
     } catch {
-      (await import('sonner')).toast.error('Network error');
+      toast.error('Network error');
     } finally {
       setIsRetrying(false);
     }
@@ -673,22 +682,38 @@ function SceneVariantTile({
           />
         ) : (
           <div className="size-12 rounded-md bg-muted/40 border border-border/30 flex items-center justify-center">
-            <span className="text-[8px] text-muted-foreground">?</span>
+            {isGenerating ? (
+              <IconLoader2 className="size-3.5 text-yellow-400 animate-spin" />
+            ) : (
+              <span className="text-[8px] text-muted-foreground">?</span>
+            )}
           </div>
         )}
-        {/* Retry overlay */}
+        {isGenerating && url && (
+          <div
+            className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-md pointer-events-none"
+            title={`Generating ${label}…`}
+          >
+            <IconLoader2 className="size-3.5 text-yellow-300 animate-spin" />
+          </div>
+        )}
+        {/* Regenerate icon (top-right corner, hover-only, small hit area) */}
         {variantId && (
           <button
             type="button"
-            onClick={() => void handleRetry()}
+            onClick={(e) => void handleRetry(e)}
             disabled={isRetrying}
-            className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
-            title={`Regenerate ${label}`}
+            className="absolute -top-1 -right-1 size-4 inline-flex items-center justify-center rounded-full bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+            title={
+              isGenerating
+                ? `Regenerate ${label} (replaces in-flight request)`
+                : `Regenerate ${label}`
+            }
           >
             {isRetrying ? (
-              <IconLoader2 className="size-3.5 text-white animate-spin" />
+              <IconLoader2 className="size-2.5 animate-spin" />
             ) : (
-              <IconRefresh className="size-3.5 text-white" />
+              <IconRefresh className="size-2.5" />
             )}
           </button>
         )}
