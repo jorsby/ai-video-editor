@@ -383,10 +383,12 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const audio = element as HTMLAudioElement;
-    // Set time if needed
-    if (Math.abs(audio.currentTime - timeSeconds) > 0.1) {
-      audio.currentTime = timeSeconds;
+    // timeSeconds is timeline-relative; source position = timeline * playbackRate + trim.from
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
+    if (Math.abs(audio.currentTime - sourceTime) > 0.1) {
+      audio.currentTime = sourceTime;
     }
+    audio.playbackRate = this.playbackRate;
 
     if (audio.paused) {
       try {
@@ -412,12 +414,14 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const audio = element as HTMLAudioElement;
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
     audio.pause();
-    audio.currentTime = timeSeconds;
+    audio.currentTime = sourceTime;
+    audio.playbackRate = this.playbackRate;
 
     // Wait for seek to complete
     return new Promise<void>((resolve) => {
-      if (Math.abs(audio.currentTime - timeSeconds) < 0.01) {
+      if (Math.abs(audio.currentTime - sourceTime) < 0.01) {
         resolve();
         return;
       }
@@ -443,11 +447,17 @@ export class Audio extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): void {
     const audio = element as HTMLAudioElement;
-    const clipDuration = this.meta.duration / 1e6; // Convert to seconds
+    // Timeline duration (authoritative) — falls back to derived length when unset
+    const clipDuration =
+      (this.duration || this.meta.duration / this.playbackRate) / 1e6;
     const isWithinClip = timeSeconds >= 0 && timeSeconds < clipDuration;
 
-    // Sync volume
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
+    // Sync volume + rate
     audio.volume = this.volume;
+    if (audio.playbackRate !== this.playbackRate) {
+      audio.playbackRate = this.playbackRate;
+    }
 
     if (isPlaying && isWithinClip) {
       // Should be playing
@@ -461,8 +471,8 @@ export class Audio extends BaseClip implements IPlaybackCapable {
       }
 
       // Update time when paused
-      if (isWithinClip && Math.abs(audio.currentTime - timeSeconds) > 0.1) {
-        audio.currentTime = timeSeconds;
+      if (isWithinClip && Math.abs(audio.currentTime - sourceTime) > 0.1) {
+        audio.currentTime = sourceTime;
       }
     }
   }

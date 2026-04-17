@@ -7,6 +7,12 @@ import {
   updateVideoAsset,
 } from '@/lib/supabase/video-service';
 import { type NextRequest, NextResponse } from 'next/server';
+import {
+  ASSET_FK_BY_TYPE,
+  VARIANT_TABLE_BY_TYPE,
+  resolveAssetTable,
+  assetTypeFromAssetTable,
+} from '@/lib/api/variant-table-resolver';
 
 type RouteContext = { params: Promise<{ id: string; assetId: string }> };
 
@@ -43,15 +49,21 @@ function normalizeMap(value: unknown): AssetVariantMap {
 }
 
 async function assetHasChapterUsage(
-  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
   dbClient: any,
   videoId: string,
   assetId: string
 ): Promise<boolean> {
+  const assetTable = await resolveAssetTable(dbClient, assetId);
+  if (!assetTable) return false;
+
+  const type = assetTypeFromAssetTable(assetTable);
+  const variantTable = VARIANT_TABLE_BY_TYPE[type];
+  const parentFk = ASSET_FK_BY_TYPE[type];
+
   const { data: variants, error: variantsError } = await dbClient
-    .from('project_asset_variants')
+    .from(variantTable)
     .select('slug')
-    .eq('asset_id', assetId);
+    .eq(parentFk, assetId);
 
   if (variantsError) {
     throw new Error(`Failed to load asset variants: ${variantsError.message}`);

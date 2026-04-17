@@ -34,7 +34,8 @@
   "scripts": {
     "test": "vitest",
     "test:browser": "vitest run --project unit-chromium",
-    "build": "vite build"
+    "build": "vite build",
+    "dev": "vite build --watch"
   },
   "devDependencies": {
     "@types/dom-webcodecs": "^0.1.17",

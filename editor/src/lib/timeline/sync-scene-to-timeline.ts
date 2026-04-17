@@ -53,6 +53,9 @@ export async function syncSceneToTimeline(params: {
 
   if (scene.audio_url) {
     newAudioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
+    // Audio.fromUrl skips `await clip.ready` for perf; we need the real
+    // duration for matching, so wait for the PCM decode here.
+    await newAudioClip.ready;
   }
 
   // Calculate timing

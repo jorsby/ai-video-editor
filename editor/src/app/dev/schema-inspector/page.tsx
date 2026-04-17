@@ -4,6 +4,15 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/server';
 
+// TODO(schema-drift 2026-04-13): This inspector page still queries the dropped
+// `project_assets` / `project_asset_variants` tables and the dropped
+// `scenes.prompt`/`content_mode`/`visual_direction`, `videos.video_model`/
+// `aspect_ratio` columns. It is not linked from the main app and is
+// deliberately deferred. Rewrite to fan out across `characters|locations|props`
+// + variant tables and pull video settings from `projects.generation_settings`
+// when the inspector is next touched. See
+// /Users/serhatcamici/.claude/plans/do-both-elegant-raccoon.md.
+
 type ParamValue = string | string[] | undefined;
 
 type ContentMode = 'narrative' | 'cinematic' | 'hybrid';

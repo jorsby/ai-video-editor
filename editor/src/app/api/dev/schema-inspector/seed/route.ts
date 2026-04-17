@@ -2,6 +2,12 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+// TODO(schema-drift 2026-04-13): This dev seed inserts into `project_assets` /
+// `project_asset_variants` and writes `scenes.content_mode|visual_direction|
+// prompt` — all dropped. It is explicitly deferred by the schema-drift sweep
+// plan. Rewrite to use typed tables + `structured_prompt` when touching the
+// inspector. See /Users/serhatcamici/.claude/plans/do-both-elegant-raccoon.md.
+
 export const dynamic = 'force-dynamic';
 
 const SAMPLE_PROJECT_NAME = 'Schema Inspector Review: Neon Backroads';

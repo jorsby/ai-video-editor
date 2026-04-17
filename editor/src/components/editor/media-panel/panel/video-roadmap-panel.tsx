@@ -3,15 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 import { useProjectId } from '@/contexts/project-context';
 import { createClient } from '@/lib/supabase/client';
 import {
-  IconBook,
   IconChevronDown,
   IconChevronRight,
   IconClock,
@@ -42,14 +36,7 @@ type AssetType = 'character' | 'location' | 'prop';
 interface CanonicalVideo {
   id: string;
   name: string;
-  bible: string | null;
-  creative_brief: Record<string, unknown> | null;
-  content_mode: string | null;
-  plan_status: string | null;
-  language: string | null;
-  aspect_ratio: string | null;
-  voice_id: string | null;
-  tts_speed: number | null;
+  synopsis: string | null;
 }
 
 interface ChapterAssetVariantMap {
@@ -611,9 +598,7 @@ export default function VideoRoadmapPanel() {
     try {
       const { data: videoRow, error: videoError } = await supabase
         .from('videos')
-        .select(
-          'id, name, bible, creative_brief, content_mode, plan_status, language, aspect_ratio, voice_id, tts_speed'
-        )
+        .select('id, name, synopsis')
         .eq('id', resolvedVideoId)
         .maybeSingle();
 
@@ -621,44 +606,65 @@ export default function VideoRoadmapPanel() {
         throw new Error(videoError?.message ?? 'Failed to load video');
       }
 
-      const { data: assetRows, error: assetError } = await supabase
-        .from('project_assets')
-        .select(
-          'id, name, type, project_asset_variants(id, slug, name, image_url)'
-        )
-        .eq('project_id', projectId)
-        .order('sort_order', { ascending: true });
+      const typedTables = [
+        {
+          type: 'character' as AssetType,
+          table: 'characters' as const,
+          variantTable: 'character_variants' as const,
+        },
+        {
+          type: 'location' as AssetType,
+          table: 'locations' as const,
+          variantTable: 'location_variants' as const,
+        },
+        {
+          type: 'prop' as AssetType,
+          table: 'props' as const,
+          variantTable: 'prop_variants' as const,
+        },
+      ] as const;
 
-      if (assetError) {
-        throw new Error(assetError.message);
-      }
+      const assetResults = await Promise.all(
+        typedTables.map(async ({ type, table, variantTable }) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select(`id, name, ${variantTable}(id, slug, name, image_url)`)
+            .eq('project_id', projectId)
+            .order('sort_order', { ascending: true });
+          if (error) throw new Error(error.message);
+          return (data ?? []).map((row: any) => ({
+            ...row,
+            type,
+            variants: row[variantTable] ?? [],
+          }));
+        })
+      );
 
       const nextVariantBySlug = new Map<string, VariantMeta>();
       const nextAssetIds = new Set<string>();
 
-      for (const asset of assetRows ?? []) {
+      for (const asset of assetResults.flat()) {
         nextAssetIds.add(asset.id);
-        const assetType = asset.type as AssetType;
         const icon =
-          assetType === 'character'
-            ? '👤'
-            : assetType === 'location'
-              ? '📍'
-              : '📦';
+          asset.type === 'character'
+            ? '\u{1F464}'
+            : asset.type === 'location'
+              ? '\u{1F4CD}'
+              : '\u{1F4E6}';
 
-        for (const variant of asset.project_asset_variants ?? []) {
+        for (const variant of asset.variants ?? []) {
           if (typeof variant.slug !== 'string' || !variant.slug.trim()) {
             continue;
           }
 
           const variantLabel =
             typeof variant.name === 'string' && variant.name.trim()
-              ? `${icon} ${asset.name} — ${variant.name.trim()}`
-              : `${icon} ${asset.name} — ${variant.slug}`;
+              ? `${icon} ${asset.name} \u2014 ${variant.name.trim()}`
+              : `${icon} ${asset.name} \u2014 ${variant.slug}`;
 
           nextVariantBySlug.set(variant.slug, {
             slug: variant.slug,
-            type: assetType,
+            type: asset.type,
             label: variantLabel,
             imageUrl: resolveStoredUrl(supabase, variant.image_url),
           });
@@ -687,7 +693,7 @@ export default function VideoRoadmapPanel() {
         const { data: sceneRows, error: sceneError } = await supabase
           .from('scenes')
           .select(
-            'id, chapter_id, order, title, prompt, audio_text, audio_url, video_url, tts_status, video_status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
+            'id, chapter_id, order, title, structured_prompt, audio_text, audio_url, video_url, tts_status, video_status, location_variant_slug, character_variant_slugs, prop_variant_slugs'
           )
           .in('chapter_id', chapterIds)
           .order('order', { ascending: true });
@@ -705,7 +711,15 @@ export default function VideoRoadmapPanel() {
             id: scene.id,
             order: Number(scene.order ?? 0),
             title: scene.title ?? null,
-            prompt: scene.prompt ?? null,
+            prompt: Array.isArray(scene.structured_prompt)
+              ? (scene.structured_prompt as Record<string, unknown>[])
+                  .map((s: Record<string, unknown>) =>
+                    Object.values(s)
+                      .filter((v) => typeof v === 'string' && v.trim())
+                      .join(', ')
+                  )
+                  .join('\n')
+              : null,
             audio_text: scene.audio_text ?? null,
             audio_url: scene.audio_url ?? null,
             video_url: scene.video_url ?? null,
@@ -742,17 +756,7 @@ export default function VideoRoadmapPanel() {
       setVideo({
         id: videoRow.id,
         name: videoRow.name ?? 'Untitled video',
-        bible: videoRow.bible ?? null,
-        creative_brief: isRecord(videoRow.creative_brief)
-          ? videoRow.creative_brief
-          : null,
-        content_mode: videoRow.content_mode ?? null,
-        plan_status: videoRow.plan_status ?? null,
-        language: videoRow.language ?? null,
-        aspect_ratio: videoRow.aspect_ratio ?? null,
-        voice_id: videoRow.voice_id ?? null,
-        tts_speed:
-          typeof videoRow.tts_speed === 'number' ? videoRow.tts_speed : null,
+        synopsis: videoRow.synopsis ?? null,
       });
       setVariantBySlug(nextVariantBySlug);
       setChapters(nextChapters);
@@ -797,7 +801,7 @@ export default function VideoRoadmapPanel() {
         {
           event: '*',
           schema: 'studio',
-          table: 'video',
+          table: 'videos',
           filter: `id=eq.${videoId}`,
         },
         () => {
@@ -806,32 +810,22 @@ export default function VideoRoadmapPanel() {
       )
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'studio',
-          table: 'project_assets',
-          filter: `project_id=eq.${projectId}`,
-        },
+        { event: '*', schema: 'studio', table: 'character_variants' },
         () => {
           scheduleReload();
         }
       )
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'studio',
-          table: 'project_asset_variants',
-        },
-        (payload) => {
-          const assetId =
-            (payload.new as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            (payload.old as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            null;
-
-          if (!assetId || !assetIdsRef.current.has(assetId)) return;
+        { event: '*', schema: 'studio', table: 'location_variants' },
+        () => {
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'studio', table: 'prop_variants' },
+        () => {
           scheduleReload();
         }
       )
@@ -895,17 +889,7 @@ export default function VideoRoadmapPanel() {
 
   const reviewBadges = useMemo(() => {
     if (!video) return [];
-
-    const badges: string[] = [];
-    if (video.content_mode) badges.push(video.content_mode);
-    if (video.plan_status) badges.push(video.plan_status);
-    if (video.aspect_ratio) badges.push(video.aspect_ratio);
-    if (video.language) badges.push(video.language);
-    if (video.voice_id) badges.push(`voice:${video.voice_id}`);
-    if (typeof video.tts_speed === 'number')
-      badges.push(`speed:${video.tts_speed}`);
-
-    return badges;
+    return [];
   }, [video]);
 
   if (loading) {
@@ -1025,48 +1009,10 @@ export default function VideoRoadmapPanel() {
           </div>
         ) : null}
 
-        {video.creative_brief ? (
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
-              >
-                <IconBook className="size-3 text-muted-foreground shrink-0" />
-                <span className="text-[10px] font-medium flex-1">
-                  Creative Brief
-                </span>
-                <IconChevronDown className="size-3 text-muted-foreground" />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <pre className="text-[10px] text-muted-foreground leading-relaxed px-2 pt-1.5 pb-1 whitespace-pre-wrap break-words">
-                {JSON.stringify(video.creative_brief, null, 2)}
-              </pre>
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
-
-        {video.bible ? (
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded bg-muted/20 border border-border/30 text-left hover:bg-muted/30 transition-colors"
-              >
-                <IconBook className="size-3 text-muted-foreground shrink-0" />
-                <span className="text-[10px] font-medium flex-1">
-                  Video Bible
-                </span>
-                <IconChevronDown className="size-3 text-muted-foreground" />
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <p className="text-[10px] text-muted-foreground leading-relaxed px-2 pt-1.5 pb-1 whitespace-pre-wrap">
-                {video.bible}
-              </p>
-            </CollapsibleContent>
-          </Collapsible>
+        {video.synopsis ? (
+          <p className="text-[10px] text-muted-foreground leading-relaxed px-2 py-1.5 italic">
+            {video.synopsis}
+          </p>
         ) : null}
 
         <div className="space-y-1.5">

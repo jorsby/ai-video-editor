@@ -821,12 +821,13 @@ export class Video extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const video = element as HTMLVideoElement;
-    const trimmedTime = timeSeconds + this.trim.from / 1e6;
-    // Set time if needed
-    if (Math.abs(video.currentTime - trimmedTime) > 0.1) {
-      video.currentTime = trimmedTime;
+    // timeSeconds is timeline-relative; source position = timeline * playbackRate + trim.from
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
+    if (Math.abs(video.currentTime - sourceTime) > 0.1) {
+      video.currentTime = sourceTime;
     }
 
+    video.playbackRate = this.playbackRate;
     video.muted = false;
 
     if (video.paused) {
@@ -854,13 +855,14 @@ export class Video extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): Promise<void> {
     const video = element as HTMLVideoElement;
-    const trimmedTime = timeSeconds + this.trim.from / 1e6;
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
     video.pause();
-    video.currentTime = trimmedTime;
+    video.currentTime = sourceTime;
+    video.playbackRate = this.playbackRate;
 
     // Wait for seek to complete
     return new Promise<void>((resolve) => {
-      if (Math.abs(video.currentTime - timeSeconds) < 0.01) {
+      if (Math.abs(video.currentTime - sourceTime) < 0.01) {
         resolve();
         return;
       }
@@ -886,12 +888,18 @@ export class Video extends BaseClip implements IPlaybackCapable {
     timeSeconds: number
   ): void {
     const video = element as HTMLVideoElement;
-    const clipDuration = (this.trim.to - this.trim.from) / 1e6;
+    // Timeline duration (authoritative) — falls back to derived length when unset
+    const clipDuration =
+      (this.duration || (this.trim.to - this.trim.from) / this.playbackRate) /
+      1e6;
     const isWithinClip = timeSeconds >= 0 && timeSeconds < clipDuration;
 
-    const trimmedTime = timeSeconds + this.trim.from / 1e6;
-    // Sync volume
+    const sourceTime = timeSeconds * this.playbackRate + this.trim.from / 1e6;
+    // Sync volume + rate
     video.volume = this.volume;
+    if (video.playbackRate !== this.playbackRate) {
+      video.playbackRate = this.playbackRate;
+    }
 
     if (isPlaying && isWithinClip) {
       // Should be playing
@@ -902,9 +910,9 @@ export class Video extends BaseClip implements IPlaybackCapable {
         if (video.muted) {
           video.muted = false;
         }
-        // Restart if ended
+        // Restart if ended or past source trim end
         if (video.ended || video.currentTime >= this.trim.to / 1e6) {
-          video.currentTime = trimmedTime;
+          video.currentTime = sourceTime;
           video.play().catch(console.warn);
         }
       }
@@ -916,8 +924,8 @@ export class Video extends BaseClip implements IPlaybackCapable {
       video.muted = true;
 
       // Update time when paused
-      if (isWithinClip && Math.abs(video.currentTime - trimmedTime) > 0.1) {
-        video.currentTime = trimmedTime;
+      if (isWithinClip && Math.abs(video.currentTime - sourceTime) > 0.1) {
+        video.currentTime = sourceTime;
       }
     }
   }

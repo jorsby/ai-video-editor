@@ -9,21 +9,58 @@ import {
   getImageResolution,
 } from '@/lib/image-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
+import {
+  ASSET_FK_BY_TYPE,
+  ASSET_TABLE_BY_TYPE,
+  assetTypeFromVariantTable,
+  getProjectVideoSettings,
+  resolveVariantTable,
+  updateVariantByIdSafe,
+  type AssetType,
+  type VariantTableName,
+} from '@/lib/api/variant-table-resolver';
 
 type Ctx = { params: Promise<{ id: string }> };
+
+type LoadedVariant = {
+  id: string;
+  table: VariantTableName;
+  type: AssetType;
+  parentId: string;
+  slug: string;
+  is_main: boolean;
+  image_gen_status: string | null;
+  structured_prompt: Record<string, unknown> | null;
+  asset: {
+    id: string;
+    name: string;
+    description: string | null;
+    project_id: string;
+  };
+};
+
+function flattenPrompt(
+  sp: Record<string, unknown> | null | undefined
+): string | null {
+  if (!sp || typeof sp !== 'object') return null;
+  const direct = sp.prompt;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const parts = Object.values(sp)
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim());
+  return parts.length > 0 ? parts.join('. ') : null;
+}
 
 /**
  * POST /api/v2/projects/{id}/generate-images/batch
  *
- * Queue image generation for multiple variants in a single call.
- * Uses per-model aspect ratio and resolution from image_models settings.
+ * Queue image generation for multiple variants across the three typed tables
+ * (character_variants / location_variants / prop_variants) in a single call.
  *
  * Body:
  * {
- *   "variant_ids": ["uuid1", "uuid2", ...],   // required, max 100
- *   "prompt_overrides": {                       // optional, per-variant prompt override
- *     "uuid1": "custom prompt for this variant"
- *   }
+ *   "variant_ids": ["uuid1", "uuid2", ...],
+ *   "prompt_overrides": { "uuid1": "custom prompt" }
  * }
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
@@ -37,7 +74,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
     const db = createServiceClient('studio');
 
-    // Verify project ownership
     const { data: project } = await db
       .from('projects')
       .select('id, user_id')
@@ -78,43 +114,66 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         ? body.prompt_overrides
         : {};
 
-    // Load video settings (aspect ratio)
-    const { data: video } = await db
-      .from('videos')
-      .select('id, genre, tone, aspect_ratio, image_models')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    const settings = await getProjectVideoSettings(db, projectId);
+    const globalAspectRatio = settings.aspectRatio;
+    const imageModels = settings.imageModels;
 
-    if (!video) {
-      return NextResponse.json(
-        { error: 'No video found for this project' },
-        { status: 404 }
-      );
-    }
+    // Resolve each variant to its typed table (parallel), then load the
+    // variant + parent asset (scoped by project) from that typed pair.
+    const resolvedVariants = await Promise.all(
+      variantIds.map(async (id) => {
+        const table = await resolveVariantTable(db, id);
+        if (!table) return null;
+        const type = assetTypeFromVariantTable(table);
+        const parentTable = ASSET_TABLE_BY_TYPE[type];
+        const parentFk = ASSET_FK_BY_TYPE[type];
 
-    // Load all requested variants with their asset info
-    const { data: variants, error: variantsError } = await db
-      .from('project_asset_variants')
-      .select(
-        'id, asset_id, slug, prompt, is_main, image_gen_status, asset:project_assets!inner(id, project_id, name, type, description)'
-      )
-      .in('id', variantIds)
-      .eq('project_assets.project_id', projectId);
+        const { data } = await db
+          .from(table)
+          .select(
+            `id, ${parentFk}, slug, structured_prompt, is_main, image_gen_status, asset:${parentTable}!inner(id, project_id, name, use_case)`
+          )
+          .eq('id', id)
+          .eq(`${parentTable}.project_id`, projectId)
+          .maybeSingle();
 
-    if (variantsError) {
-      return NextResponse.json(
-        { error: 'Failed to load variants' },
-        { status: 500 }
-      );
-    }
+        if (!data) return null;
 
-    const variantMap = new Map(
-      (variants ?? []).map((v: Record<string, unknown>) => [v.id, v])
+        const asset = data.asset as unknown as {
+          id: string;
+          project_id: string;
+          name: string;
+          use_case: string | null;
+        } | null;
+
+        if (!asset) return null;
+
+        return {
+          id: data.id as string,
+          table,
+          type,
+          parentId: (data[parentFk] as string) ?? asset.id,
+          slug: data.slug as string,
+          is_main: !!data.is_main,
+          image_gen_status: (data.image_gen_status as string | null) ?? null,
+          structured_prompt:
+            (data.structured_prompt as Record<string, unknown> | null) ?? null,
+          asset: {
+            id: asset.id,
+            name: asset.name,
+            description: asset.use_case ?? null,
+            project_id: asset.project_id,
+          },
+        } satisfies LoadedVariant;
+      })
     );
 
-    // Resolve webhook
+    const variantMap = new Map<string, LoadedVariant>();
+    for (const v of resolvedVariants) {
+      if (v) variantMap.set(v.id, v);
+    }
+
+    // Resolve webhook base
     const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
       return NextResponse.json(
@@ -123,29 +182,36 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       );
     }
 
-    const globalAspectRatio = video.aspect_ratio ?? '9:16';
-    const imageModels = video.image_models as Record<string, string> | null;
+    // Pre-fetch main variant image URLs for i2i lookups, grouped by (table, parentId).
+    type MainKey = `${VariantTableName}:${string}`;
+    const mainImageMap = new Map<MainKey, string>();
 
-    // Pre-fetch main variant image URLs for i2i lookups (grouped by asset_id)
-    const allAssetIds = [
-      ...new Set(
-        (variants ?? [])
-          .filter((v: Record<string, unknown>) => !v.is_main)
-          .map((v: Record<string, unknown>) => v.asset_id as string)
-      ),
-    ];
-    const mainImageMap = new Map<string, string>();
-    if (allAssetIds.length > 0) {
-      const { data: mainVariants } = await db
-        .from('project_asset_variants')
-        .select('asset_id, image_url')
-        .in('asset_id', allAssetIds)
-        .eq('is_main', true);
-      for (const mv of mainVariants ?? []) {
-        if (mv.image_url)
-          mainImageMap.set(mv.asset_id as string, mv.image_url as string);
+    const nonMainByTable = new Map<VariantTableName, Set<string>>();
+    for (const v of variantMap.values()) {
+      if (!v.is_main) {
+        const set = nonMainByTable.get(v.table) ?? new Set<string>();
+        set.add(v.parentId);
+        nonMainByTable.set(v.table, set);
       }
     }
+
+    await Promise.all(
+      Array.from(nonMainByTable.entries()).map(async ([table, parentIds]) => {
+        if (parentIds.size === 0) return;
+        const type = assetTypeFromVariantTable(table);
+        const parentFk = ASSET_FK_BY_TYPE[type];
+        const { data: mains } = await db
+          .from(table)
+          .select(`${parentFk}, image_url`)
+          .in(parentFk, Array.from(parentIds))
+          .eq('is_main', true);
+        for (const m of (mains ?? []) as Array<Record<string, unknown>>) {
+          const pid = m[parentFk] as string | undefined;
+          const url = m.image_url as string | null;
+          if (pid && url) mainImageMap.set(`${table}:${pid}`, url);
+        }
+      })
+    );
 
     type BatchResult = {
       variant_id: string;
@@ -160,9 +226,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     let skipped = 0;
 
     for (const variantId of variantIds) {
-      const variant = variantMap.get(variantId) as
-        | Record<string, unknown>
-        | undefined;
+      const variant = variantMap.get(variantId);
 
       if (!variant) {
         results.push({
@@ -184,16 +248,14 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         continue;
       }
 
-      // Build prompt
-      const asset = variant.asset as Record<string, unknown>;
-      let prompt: string;
-      const assetType = asset.type as string;
+      const assetType = variant.type;
+      const variantPrompt = flattenPrompt(variant.structured_prompt);
 
+      let prompt: string;
       if (promptOverrides[variantId]) {
         prompt = promptOverrides[variantId];
       } else {
         const parts: string[] = [];
-
         if (assetType === 'character') {
           parts.push(
             'Single character portrait, front-facing, well-lit, neutral background'
@@ -202,37 +264,35 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           parts.push(
             'Wide establishing shot, cinematic composition, atmospheric lighting, no people'
           );
-          if (video.genre) parts.push(`${video.genre} genre`);
-          if (video.tone) parts.push(`${video.tone} tone`);
         } else {
           parts.push(
             'Clean product shot, centered, neutral background, studio lighting'
           );
         }
 
-        const desc = [asset.description, variant.prompt]
+        const desc = [variant.asset.description, variantPrompt]
           .filter(Boolean)
           .join('. ');
-        if (desc) parts.push(desc as string);
+        if (desc) parts.push(desc);
         parts.push(
           'Absolutely no text, no words, no letters, no writing, no labels'
         );
         prompt = parts.join('. ');
       }
 
-      // Resolve model: main → t2i, non-main → i2i (if main image available)
       let model = getT2iModel(imageModels, assetType);
       let inputUrls: string[] | undefined;
 
       if (!variant.is_main) {
-        const mainImageUrl = mainImageMap.get(variant.asset_id as string);
+        const mainImageUrl = mainImageMap.get(
+          `${variant.table}:${variant.parentId}`
+        );
         if (mainImageUrl) {
           model = getI2iModel(imageModels, assetType);
           inputUrls = [mainImageUrl];
         }
       }
 
-      // Queue image generation
       try {
         const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
         webhookUrl.searchParams.set('step', 'VideoAssetImage');
@@ -256,14 +316,16 @@ export async function POST(req: NextRequest, ctx: Ctx) {
           resolution,
         });
 
-        // Mark variant as generating
-        await db
-          .from('project_asset_variants')
-          .update({
-            image_gen_status: 'generating',
-            image_task_id: taskResult.requestId,
-          })
-          .eq('id', variantId);
+        const update = await updateVariantByIdSafe(db, variantId, {
+          image_gen_status: 'generating',
+          image_task_id: taskResult.requestId,
+        });
+        if (!update.ok) {
+          console.warn(
+            '[v2/projects/:id/generate-images/batch] variant status update failed:',
+            update.error
+          );
+        }
 
         results.push({
           variant_id: variantId,

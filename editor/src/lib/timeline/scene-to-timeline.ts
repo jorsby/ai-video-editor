@@ -49,18 +49,20 @@ export interface SceneClipResult {
 /**
  * Calculate the effective duration and playback rate for a scene.
  *
- * When matchVideoToAudio is true (narrative scenes):
+ * When matchVideoToAudio is true and both media exist:
  *   - playbackRate = videoDuration / audioDuration
  *   - video stretches/compresses to exactly match audio length
  *   - trim.to on the video source = full source duration (no trimming)
  *
- * The only "trim" is a micro-trim on the video source end to ensure
- * exact frame alignment (handled in buildSceneClips, not here).
+ * The isNarrative flag is accepted for backward compatibility but no longer
+ * gates the match — the toggle is the single source of truth. Callers that
+ * only want to match narrative scenes should set matchVideoToAudio based on
+ * audio_text presence instead.
  */
 export function calculateSceneTiming(
   audioDurationSec: number,
   videoDurationSec: number,
-  isNarrative: boolean,
+  _isNarrative: boolean,
   settings: SceneTimelineSettings
 ): {
   audioDuration: number; // seconds — full audio
@@ -71,10 +73,8 @@ export function calculateSceneTiming(
   let videoDuration = videoDurationSec;
   let videoPlaybackRate = 1;
 
-  // For narrative scenes: match video speed to audio
   if (
     settings.matchVideoToAudio &&
-    isNarrative &&
     audioDurationSec > 0 &&
     videoDurationSec > 0
   ) {
@@ -115,13 +115,21 @@ export async function buildSceneClips(params: {
   canvasWidth: number;
   canvasHeight: number;
   onProgress?: (done: number, total: number) => void;
+  startOffset?: number; // microseconds; where the first clip should land on the timeline
 }): Promise<SceneClipResult[]> {
-  const { scenes, settings, canvasWidth, canvasHeight, onProgress } = params;
+  const {
+    scenes,
+    settings,
+    canvasWidth,
+    canvasHeight,
+    onProgress,
+    startOffset = 0,
+  } = params;
   const results: SceneClipResult[] = [];
 
   // Scenes arrive pre-sorted by the caller (chapter order → scene order).
   // Do NOT re-sort globally — that would interleave scenes across chapters.
-  let currentOffset = 0; // microseconds
+  let currentOffset = startOffset; // microseconds
 
   for (const [idx, scene] of scenes.entries()) {
     const sceneSettings = settings.find((s) => s.sceneId === scene.id);
@@ -147,6 +155,10 @@ export async function buildSceneClips(params: {
 
     if (scene.audio_url) {
       audioClip = await Audio.fromUrl(proxyUrl(scene.audio_url));
+      // Audio.fromUrl skips `await clip.ready` for perf, so duration is 0
+      // until the PCM decode finishes. We need the real duration to match
+      // video speed, so await it explicitly here.
+      await audioClip.ready;
       const voLabel = scene.title
         ? `VO – S${idx + 1} – ${scene.title}`
         : `VO – Scene ${idx + 1}`;

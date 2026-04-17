@@ -10,35 +10,56 @@ interface VariantRow {
   id: string;
   name: string | null;
   slug: string;
-  prompt: string | null;
+  structured_prompt: Record<string, unknown> | null;
+  use_case: string | null;
   image_url: string | null;
   is_main: boolean;
-  reasoning: string | null;
   image_gen_status?: string | null;
-  // Legacy compatibility flag; canonical schema does not require lock state.
-  is_finalized?: boolean | null;
 }
 
 interface AssetRow {
   id: string;
   name: string;
   slug: string | null;
-  type: string;
-  description: string | null;
+  type: AssetType;
+  structured_prompt: Record<string, unknown> | null;
+  use_case: string | null;
   sort_order: number | null;
-  project_asset_variants: VariantRow[] | null;
+  video_id: string | null;
+  variants: VariantRow[];
 }
+
+const TYPED_TABLES = [
+  {
+    type: 'character' as const,
+    table: 'characters' as const,
+    variantTable: 'character_variants' as const,
+    fk: 'character_id' as const,
+  },
+  {
+    type: 'location' as const,
+    table: 'locations' as const,
+    variantTable: 'location_variants' as const,
+    fk: 'location_id' as const,
+  },
+  {
+    type: 'prop' as const,
+    table: 'props' as const,
+    variantTable: 'prop_variants' as const,
+    fk: 'prop_id' as const,
+  },
+] as const;
 
 export interface ProjectAssetVariant {
   id: string;
   label: string;
   slug: string;
-  prompt: string | null;
+  structuredPrompt: Record<string, unknown> | null;
+  useCase: string | null;
   isMain: boolean;
   isFinalized: boolean;
   imageUrl: string | null;
   imageGenStatus: string | null;
-  reasoning: string | null;
 }
 
 export interface ProjectAsset {
@@ -46,7 +67,9 @@ export interface ProjectAsset {
   name: string;
   slug: string | null;
   type: AssetType;
-  description: string | null;
+  videoId: string | null;
+  structuredPrompt: Record<string, unknown> | null;
+  useCase: string | null;
   sortOrder: number | null;
   thumbnailUrl: string | null;
   variants: ProjectAssetVariant[];
@@ -114,10 +137,6 @@ interface UseProjectAssetsResult {
   saveGridPrompt: (type: AssetType) => Promise<ActionResult>;
   generateGrid: (type: AssetType) => Promise<ActionResult>;
   refresh: () => void;
-}
-
-function isAssetType(value: string): value is AssetType {
-  return value === 'character' || value === 'location' || value === 'prop';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -237,8 +256,6 @@ export function useProjectAssets(
       }
 
       if (!cancelled) {
-        // Only show loading spinner on initial load, not on Realtime-triggered refreshes.
-        // Realtime refreshes should silently update data without tearing down the UI tree.
         if (!initialLoadDoneRef.current) {
           setIsLoading(true);
         }
@@ -248,9 +265,10 @@ export function useProjectAssets(
       const supabase = createClient('studio');
 
       try {
+        // Load video id for linking
         const { data: videoData, error: videoLoadError } = await supabase
           .from('videos')
-          .select('id, creative_brief')
+          .select('id')
           .eq('project_id', projectId)
           .order('created_at', { ascending: true })
           .limit(1)
@@ -262,64 +280,90 @@ export function useProjectAssets(
 
         const linkedVideoId =
           typeof videoData?.id === 'string' ? videoData.id : null;
-        const metadata = isRecord(videoData?.creative_brief)
-          ? videoData.creative_brief
+
+        // Load grid prompts from projects.generation_settings
+        const { data: projectData } = await supabase
+          .from('projects')
+          .select('generation_settings')
+          .eq('id', projectId)
+          .maybeSingle();
+
+        const genSettings = isRecord(projectData?.generation_settings)
+          ? projectData.generation_settings
+          : {};
+        const metadata = isRecord(genSettings.creative_brief)
+          ? genSettings.creative_brief
           : {};
 
-        const { data: assetsData, error: assetsError } = await supabase
-          .from('project_assets')
-          .select(
-            'id, name, slug, type, description, sort_order, project_asset_variants(id, name, slug, prompt, image_url, is_main, reasoning, image_gen_status)'
-          )
-          .eq('project_id', projectId)
-          .order('type', { ascending: true })
-          .order('sort_order', { ascending: true });
+        // Load assets from all 3 typed tables in parallel
+        const variantFields =
+          'id, name, slug, structured_prompt, use_case, image_url, is_main, image_gen_status';
+        const assetResults = await Promise.all(
+          TYPED_TABLES.map(async ({ type, table, variantTable }) => {
+            const { data, error: queryError } = await supabase
+              .from(table)
+              .select(
+                `id, name, slug, structured_prompt, use_case, sort_order, video_id, ${variantTable}(${variantFields})`
+              )
+              .eq('project_id', projectId)
+              .order('sort_order', { ascending: true });
 
-        if (assetsError) {
-          throw new Error(assetsError.message);
-        }
+            if (queryError) throw new Error(queryError.message);
 
-        const assetsRows = (assetsData ?? []) as AssetRow[];
+            return (data ?? []).map((row: Record<string, unknown>) => ({
+              id: row.id as string,
+              name: row.name as string,
+              slug: (row.slug as string | null) ?? null,
+              type,
+              structured_prompt: row.structured_prompt as Record<
+                string,
+                unknown
+              > | null,
+              use_case: row.use_case as string | null,
+              sort_order: row.sort_order as number | null,
+              video_id: (row.video_id as string | null) ?? null,
+              variants: (row[variantTable] ?? []) as VariantRow[],
+            }));
+          })
+        );
 
-        const parsedAssets: ProjectAsset[] = assetsRows.flatMap((asset) => {
-          if (!isAssetType(asset.type)) {
-            return [];
-          }
+        const assetsRows: AssetRow[] = assetResults.flat();
 
-          const variants = (asset.project_asset_variants ?? []).map(
-            (variant) => ({
-              id: variant.id,
-              label:
-                (typeof variant.name === 'string' && variant.name.trim()) ||
-                variant.slug,
-              slug: variant.slug,
-              prompt: variant.prompt ?? null,
-              isMain: variant.is_main,
-              isFinalized: Boolean(variant.is_finalized),
-              imageUrl: resolveStoredUrl(supabase, variant.image_url),
-              imageGenStatus: variant.image_gen_status ?? null,
-              reasoning: variant.reasoning ?? null,
-            })
-          );
+        const parsedAssets: ProjectAsset[] = assetsRows.map((asset) => {
+          const variants = asset.variants.map((variant) => ({
+            id: variant.id,
+            label:
+              (typeof variant.name === 'string' && variant.name.trim()) ||
+              variant.slug,
+            slug: variant.slug,
+            structuredPrompt: isRecord(variant.structured_prompt)
+              ? variant.structured_prompt
+              : null,
+            useCase:
+              typeof variant.use_case === 'string' ? variant.use_case : null,
+            isMain: variant.is_main,
+            isFinalized: false,
+            imageUrl: resolveStoredUrl(supabase, variant.image_url),
+            imageGenStatus: variant.image_gen_status ?? null,
+          }));
 
-          return [
-            {
-              id: asset.id,
-              name: asset.name,
-              slug: asset.slug ?? null,
-              type: asset.type,
-              description: asset.description,
-              sortOrder: asset.sort_order,
-              thumbnailUrl: pickThumbnailUrl(
-                supabase,
-                asset.project_asset_variants ?? []
-              ),
-              variants,
-            },
-          ];
+          return {
+            id: asset.id,
+            name: asset.name,
+            slug: asset.slug ?? null,
+            type: asset.type,
+            videoId: asset.video_id,
+            structuredPrompt: isRecord(asset.structured_prompt)
+              ? asset.structured_prompt
+              : null,
+            useCase: typeof asset.use_case === 'string' ? asset.use_case : null,
+            sortOrder: asset.sort_order,
+            thumbnailUrl: pickThumbnailUrl(supabase, asset.variants),
+            variants,
+          };
         });
 
-        // Derive generation status from variant image_gen_status (V2 pattern)
+        // Derive generation status from variant image_gen_status
         const nextGenerationStatus: Record<AssetType, AssetGenerationStatus> = {
           character: { ...EMPTY_GENERATION_STATUS },
           location: { ...EMPTY_GENERATION_STATUS },
@@ -374,8 +418,8 @@ export function useProjectAssets(
 
   const saveGridPrompt = useCallback(
     async (type: AssetType): Promise<ActionResult> => {
-      if (!videoId) {
-        return { ok: false, error: 'Video is not linked to this project' };
+      if (!projectId) {
+        return { ok: false, error: 'Project is required' };
       }
 
       const metadataKey = GRID_PROMPT_KEY_BY_TYPE[type];
@@ -397,10 +441,15 @@ export function useProjectAssets(
           },
         };
 
-        const response = await fetch(`/api/videos/${videoId}`, {
+        const response = await fetch(`/api/v2/projects/${projectId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ creative_brief: nextMetadata }),
+          body: JSON.stringify({
+            generation_settings: {
+              ...(isRecord(videoMetadata) ? {} : {}),
+              creative_brief: nextMetadata,
+            },
+          }),
         });
 
         if (!response.ok) {
@@ -408,15 +457,8 @@ export function useProjectAssets(
           throw new Error(data.error || 'Failed to save grid prompt');
         }
 
-        const data = await response.json().catch(() => ({}));
-        const returnedMetadata = isRecord(data?.video?.creative_brief)
-          ? data.video.creative_brief
-          : isRecord(data?.video?.metadata)
-            ? data.video.metadata
-            : nextMetadata;
-
-        setVideoMetadata(returnedMetadata);
-        setGridPrompts(resolveGridPrompts(returnedMetadata));
+        setVideoMetadata(nextMetadata);
+        setGridPrompts(resolveGridPrompts(nextMetadata));
 
         return { ok: true };
       } catch (err) {
@@ -429,7 +471,7 @@ export function useProjectAssets(
         setIsSavingPrompt((prev) => ({ ...prev, [type]: false }));
       }
     },
-    [gridPrompts, videoId, videoMetadata]
+    [gridPrompts, projectId, videoMetadata]
   );
 
   const generateGrid = useCallback(
@@ -460,9 +502,8 @@ export function useProjectAssets(
             asset.variants.find((variant) => variant.isMain)?.id ??
             asset.variants[0]?.id ??
             null,
-          isFinalized: asset.variants.some((variant) => variant.isFinalized),
         }))
-        .filter((item) => !!item.variant_id && !item.isFinalized)
+        .filter((item) => !!item.variant_id)
         .map((item) => ({
           asset_id: item.asset_id,
           variant_id: item.variant_id as string,
@@ -471,14 +512,13 @@ export function useProjectAssets(
       if (generationTargets.length === 0) {
         return {
           ok: false,
-          error: 'All assets are finalized or missing variants',
+          error: 'No variants available for generation',
         };
       }
 
       setIsGeneratingGrid((prev) => ({ ...prev, [type]: true }));
 
       try {
-        // Serialize requests to avoid burst rate-limit and keep order predictable
         for (const target of generationTargets) {
           const res = await fetch(
             `/api/v2/variants/${target.variant_id}/generate-image`,
@@ -512,6 +552,7 @@ export function useProjectAssets(
     [assets, projectId, refresh]
   );
 
+  // Realtime subscriptions for typed variant tables
   useEffect(() => {
     if (!projectId) return;
 
@@ -523,8 +564,7 @@ export function useProjectAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'video',
-          filter: `project_id=eq.${projectId}`,
+          table: 'character_variants',
         },
         () => {
           refresh();
@@ -535,8 +575,7 @@ export function useProjectAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'project_assets',
-          filter: `project_id=eq.${projectId}`,
+          table: 'location_variants',
         },
         () => {
           refresh();
@@ -547,17 +586,9 @@ export function useProjectAssets(
         {
           event: '*',
           schema: 'studio',
-          table: 'project_asset_variants',
+          table: 'prop_variants',
         },
-        (payload) => {
-          const assetId =
-            (payload.new as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            (payload.old as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            null;
-
-          if (!assetId || !assetIdsRef.current.has(assetId)) return;
+        () => {
           refresh();
         }
       )

@@ -23,7 +23,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
-  IconFilter,
   IconFilterOff,
   IconLayoutGrid,
   IconList,
@@ -42,7 +41,6 @@ import { ProjectMusicSection } from './project-music-section';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { ExpandableText } from '../shared/expandable-text';
-import { CopyButton } from '../shared/copy-button';
 import { CopyIdBadge } from '../shared/copy-id-badge';
 
 type AssetType = 'character' | 'location' | 'prop';
@@ -212,7 +210,7 @@ function VariantCard({
                   Main
                 </Badge>
               )}
-              {variant.isFinalized && (
+              {false /* isFinalized removed */ && (
                 <Badge
                   variant="outline"
                   className="text-[7px] px-1 py-0 h-3 border-emerald-500/40"
@@ -271,26 +269,15 @@ function VariantCard({
           ) : null}
         </div>
 
-        {(variant.prompt || variant.reasoning) && (
+        {variant.useCase && (
           <div className="px-2.5 py-1.5 space-y-1 border-t border-border/20">
-            {variant.prompt && (
-              <DetailRow label="Prompt">
-                <ExpandableText
-                  text={variant.prompt}
-                  label="Prompt"
-                  clampLines={3}
-                />
-              </DetailRow>
-            )}
-            {variant.reasoning && (
-              <DetailRow label="Notes">
-                <ExpandableText
-                  text={variant.reasoning}
-                  label="Notes"
-                  clampLines={2}
-                />
-              </DetailRow>
-            )}
+            <DetailRow label="Use Case">
+              <ExpandableText
+                text={variant.useCase}
+                label="Use Case"
+                clampLines={3}
+              />
+            </DetailRow>
           </div>
         )}
       </div>
@@ -339,7 +326,7 @@ function AssetCard({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const description = asset.description?.trim() || 'No description yet';
+  const description = asset.useCase?.trim() || 'No description yet';
   const imageUrl =
     asset.thumbnailUrl ||
     asset.variants.find((v) => v.imageUrl)?.imageUrl ||
@@ -423,7 +410,7 @@ function AssetCard({
                   </div>
                 )}
 
-                {variant.isFinalized && (
+                {false /* isFinalized removed */ && (
                   <div className="absolute top-1 left-6">
                     <Badge
                       variant="outline"
@@ -993,14 +980,27 @@ export default function ProjectAssetsPanel() {
     }
 
     const supabase = createClient('studio');
-    const { data, error: loadError } = await supabase
-      .from('project_asset_variants')
-      .select('id, asset_id, image_url, image_gen_status')
-      .in('asset_id', assetIds);
+    const variantFields = 'id, image_url, image_gen_status';
+    const [charResult, locResult, propResult] = await Promise.all([
+      supabase
+        .from('character_variants')
+        .select(variantFields)
+        .in('character_id', assetIds),
+      supabase
+        .from('location_variants')
+        .select(variantFields)
+        .in('location_id', assetIds),
+      supabase
+        .from('prop_variants')
+        .select(variantFields)
+        .in('prop_id', assetIds),
+    ]);
 
-    if (loadError) {
-      return;
-    }
+    const data = [
+      ...(charResult.data ?? []),
+      ...(locResult.data ?? []),
+      ...(propResult.data ?? []),
+    ];
 
     const next = new Map<
       string,
@@ -1043,20 +1043,22 @@ export default function ProjectAssetsPanel() {
       .channel(`project-assets-variants-status-${projectId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'studio',
-          table: 'project_asset_variants',
-        },
-        (payload) => {
-          const assetId =
-            (payload.new as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            (payload.old as { asset_id?: string } | null | undefined)
-              ?.asset_id ??
-            null;
-
-          if (!assetId || !trackedAssetIds.has(assetId)) return;
+        { event: '*', schema: 'studio', table: 'character_variants' },
+        () => {
+          void refreshVariantDisplay();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'studio', table: 'location_variants' },
+        () => {
+          void refreshVariantDisplay();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'studio', table: 'prop_variants' },
+        () => {
           void refreshVariantDisplay();
         }
       )

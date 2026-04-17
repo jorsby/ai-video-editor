@@ -4,45 +4,36 @@ import { createServiceClient } from '@/lib/supabase/admin';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
-type PlanStatus = 'draft' | 'finalized';
+const VIDEO_SELECT =
+  'id, project_id, user_id, name, synopsis, created_at, updated_at';
 
-const CONTENT_MODES: ContentMode[] = ['narrative', 'cinematic', 'hybrid'];
-const PLAN_STATUSES: PlanStatus[] = ['draft', 'finalized'];
-const SERIES_SELECT =
-  'id, project_id, user_id, name, genre, tone, bible, content_mode, language, aspect_ratio, video_model, video_resolution, voice_id, tts_speed, visual_style, creative_brief, image_models, plan_status, created_at, updated_at';
+// Keys in `projects.generation_settings` that callers address through this route.
+const GENERATION_SETTINGS_KEYS = [
+  'language',
+  'voice_id',
+  'tts_speed',
+  'video_model',
+  'video_resolution',
+  'aspect_ratio',
+  'image_models',
+  'creative_brief',
+  'visual_style',
+  'genre',
+  'tone',
+  'content_mode',
+  'plan_status',
+  'bible',
+] as const;
 
 type OwnedVideoLookup =
   | {
-      video: {
-        id: string;
-        user_id: string;
-      };
+      video: { id: string; user_id: string; project_id: string };
       error?: undefined;
     }
-  | {
-      video?: undefined;
-      error: NextResponse;
-    };
+  | { video?: undefined; error: NextResponse };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function parseNullableText(
-  value: unknown,
-  fieldName: string
-): { ok: true; value: string | null } | { ok: false; error: string } {
-  if (value === null) {
-    return { ok: true, value: null };
-  }
-
-  if (typeof value !== 'string') {
-    return { ok: false, error: `${fieldName} must be a string or null` };
-  }
-
-  const trimmed = value.trim();
-  return { ok: true, value: trimmed.length > 0 ? trimmed : null };
 }
 
 async function getOwnedVideo(
@@ -52,7 +43,7 @@ async function getOwnedVideo(
 ): Promise<OwnedVideoLookup> {
   const { data: video, error } = await db
     .from('videos')
-    .select('id, user_id')
+    .select('id, user_id, project_id')
     .eq('id', videoId)
     .maybeSingle();
 
@@ -71,6 +62,29 @@ async function getOwnedVideo(
   return { video };
 }
 
+async function loadGenerationSettings(
+  db: ReturnType<typeof createServiceClient>,
+  projectId: string
+): Promise<Record<string, unknown>> {
+  const { data } = await db
+    .from('projects')
+    .select('generation_settings')
+    .eq('id', projectId)
+    .maybeSingle();
+  return isRecord(data?.generation_settings) ? data.generation_settings : {};
+}
+
+function mergeVideoWithSettings(
+  video: Record<string, unknown>,
+  settings: Record<string, unknown>
+) {
+  const flat: Record<string, unknown> = { ...video };
+  for (const key of GENERATION_SETTINGS_KEYS) {
+    if (settings[key] !== undefined) flat[key] = settings[key];
+  }
+  return flat;
+}
+
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
@@ -86,7 +100,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     const { data: video, error } = await db
       .from('videos')
-      .select(SERIES_SELECT)
+      .select(VIDEO_SELECT)
       .eq('id', id)
       .single();
 
@@ -94,7 +108,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
-    return NextResponse.json(video);
+    const settings = await loadGenerationSettings(db, owned.video.project_id);
+    return NextResponse.json(
+      mergeVideoWithSettings(video as Record<string, unknown>, settings)
+    );
   } catch (error) {
     console.error('[v2/video/:id][GET] Unexpected error:', error);
     return NextResponse.json(
@@ -114,7 +131,10 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const updates: Record<string, unknown> = {};
+
+    // Split incoming fields: video columns vs. project.generation_settings keys.
+    const videoUpdates: Record<string, unknown> = {};
+    const settingsPatch: Record<string, unknown> = {};
 
     if (body?.project_id !== undefined) {
       if (
@@ -126,7 +146,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
-      updates.project_id = body.project_id.trim();
+      videoUpdates.project_id = body.project_id.trim();
     }
 
     if (body?.name !== undefined) {
@@ -136,94 +156,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
-      updates.name = body.name.trim();
+      videoUpdates.name = body.name.trim();
     }
 
-    const nullableTextFields = [
-      'genre',
-      'tone',
-      'bible',
-      'language',
-      'aspect_ratio',
-      'video_model',
-      'video_resolution',
-      'voice_id',
-      'visual_style',
-    ] as const;
-
-    for (const field of nullableTextFields) {
-      if (body?.[field] !== undefined) {
-        const parsed = parseNullableText(body[field], field);
-        if (!parsed.ok) {
-          return NextResponse.json({ error: parsed.error }, { status: 400 });
-        }
-        updates[field] = parsed.value;
-      }
-    }
-
-    if (body?.content_mode !== undefined) {
-      if (
-        typeof body.content_mode !== 'string' ||
-        !CONTENT_MODES.includes(body.content_mode as ContentMode)
-      ) {
+    if (body?.synopsis !== undefined) {
+      if (body.synopsis !== null && typeof body.synopsis !== 'string') {
         return NextResponse.json(
-          {
-            error:
-              "content_mode must be one of 'narrative', 'cinematic', or 'hybrid'",
-          },
+          { error: 'synopsis must be a string or null' },
           { status: 400 }
         );
       }
-      updates.content_mode = body.content_mode;
+      videoUpdates.synopsis =
+        typeof body.synopsis === 'string' ? body.synopsis.trim() : null;
     }
 
-    if (body?.plan_status !== undefined) {
-      if (
-        typeof body.plan_status !== 'string' ||
-        !PLAN_STATUSES.includes(body.plan_status as PlanStatus)
-      ) {
-        return NextResponse.json(
-          { error: "plan_status must be one of 'draft' or 'finalized'" },
-          { status: 400 }
-        );
-      }
-      updates.plan_status = body.plan_status;
+    // Everything else that matches a generation_settings key goes into
+    // projects.generation_settings (merge semantics, null deletes).
+    for (const key of GENERATION_SETTINGS_KEYS) {
+      if (body?.[key] === undefined) continue;
+      settingsPatch[key] = body[key];
     }
 
-    if (body?.tts_speed !== undefined) {
-      if (
-        body.tts_speed !== null &&
-        (typeof body.tts_speed !== 'number' || !Number.isFinite(body.tts_speed))
-      ) {
-        return NextResponse.json(
-          { error: 'tts_speed must be a finite number or null' },
-          { status: 400 }
-        );
-      }
-      updates.tts_speed = body.tts_speed;
-    }
-
-    if (body?.image_models !== undefined) {
-      if (body.image_models !== null && !isRecord(body.image_models)) {
-        return NextResponse.json(
-          { error: 'image_models must be an object or null' },
-          { status: 400 }
-        );
-      }
-      updates.image_models = body.image_models;
-    }
-
-    if (body?.creative_brief !== undefined) {
-      if (body.creative_brief !== null && !isRecord(body.creative_brief)) {
-        return NextResponse.json(
-          { error: 'creative_brief must be an object or null' },
-          { status: 400 }
-        );
-      }
-      updates.creative_brief = body.creative_brief;
-    }
-
-    if (Object.keys(updates).length === 0) {
+    if (
+      Object.keys(videoUpdates).length === 0 &&
+      Object.keys(settingsPatch).length === 0
+    ) {
       return NextResponse.json(
         { error: 'No fields to update' },
         { status: 400 }
@@ -234,11 +191,11 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const owned = await getOwnedVideo(db, id, user.id);
     if (owned.error) return owned.error;
 
-    if (updates.project_id) {
+    if (videoUpdates.project_id) {
       const { data: project, error: projectError } = await db
         .from('projects')
         .select('id')
-        .eq('id', updates.project_id)
+        .eq('id', videoUpdates.project_id)
         .eq('user_id', user.id)
         .maybeSingle();
 
@@ -250,22 +207,61 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
     }
 
-    const { data: video, error } = await db
-      .from('videos')
-      .update(updates)
-      .eq('id', id)
-      .select(SERIES_SELECT)
-      .single();
-
-    if (error || !video) {
-      console.error('[v2/video/:id][PATCH] Failed to update video:', error);
-      return NextResponse.json(
-        { error: 'Failed to update video' },
-        { status: 500 }
-      );
+    if (Object.keys(settingsPatch).length > 0) {
+      const targetProjectId =
+        (videoUpdates.project_id as string | undefined) ??
+        owned.video.project_id;
+      const current = await loadGenerationSettings(db, targetProjectId);
+      const next: Record<string, unknown> = { ...current };
+      for (const [k, v] of Object.entries(settingsPatch)) {
+        if (v === null) delete next[k];
+        else next[k] = v;
+      }
+      const { error: settingsErr } = await db
+        .from('projects')
+        .update({ generation_settings: next })
+        .eq('id', targetProjectId);
+      if (settingsErr) {
+        console.error(
+          '[v2/video/:id][PATCH] Failed to update generation_settings:',
+          settingsErr
+        );
+        return NextResponse.json(
+          { error: 'Failed to update project settings' },
+          { status: 500 }
+        );
+      }
     }
 
-    return NextResponse.json(video);
+    if (Object.keys(videoUpdates).length > 0) {
+      const { error } = await db
+        .from('videos')
+        .update(videoUpdates)
+        .eq('id', id);
+
+      if (error) {
+        console.error('[v2/video/:id][PATCH] Failed to update video:', error);
+        return NextResponse.json(
+          { error: 'Failed to update video' },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Return the merged shape (old clients expect the legacy fields).
+    const { data: video } = await db
+      .from('videos')
+      .select(VIDEO_SELECT)
+      .eq('id', id)
+      .single();
+
+    const projectIdForSettings =
+      (video?.project_id as string | undefined) ?? owned.video.project_id;
+    const settings = await loadGenerationSettings(db, projectIdForSettings);
+
+    return NextResponse.json(
+      mergeVideoWithSettings((video ?? {}) as Record<string, unknown>, settings)
+    );
   } catch (error) {
     console.error('[v2/video/:id][PATCH] Unexpected error:', error);
     return NextResponse.json(
@@ -275,8 +271,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   }
 }
 
-// DELETE /api/v2/videos/{id}
-// Hard-deletes a video and everything under it (cascade: assets → variants → chapters → scenes).
+// DELETE /api/v2/videos/{id} — hard-deletes a video (cascade handles chapters/scenes).
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;

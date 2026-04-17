@@ -7,6 +7,11 @@ import {
   updateAssetVariant,
 } from '@/lib/supabase/video-service';
 import { type NextRequest, NextResponse } from 'next/server';
+import {
+  ASSET_FK_BY_TYPE,
+  resolveVariantTable,
+  assetTypeFromVariantTable,
+} from '@/lib/api/variant-table-resolver';
 
 type RouteContext = {
   params: Promise<{ id: string; assetId: string; variantId: string }>;
@@ -45,7 +50,6 @@ function normalizeMap(value: unknown): AssetVariantMap {
 }
 
 async function variantUsedInChapterMap(
-  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
   dbClient: any,
   videoId: string,
   variantSlug: string
@@ -181,11 +185,18 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
+    const variantTable = await resolveVariantTable(dbClient, variantId);
+    if (!variantTable) {
+      return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
+    }
+    const variantType = assetTypeFromVariantTable(variantTable);
+    const parentFk = ASSET_FK_BY_TYPE[variantType];
+
     const { data: variant, error: variantError } = await dbClient
-      .from('project_asset_variants')
+      .from(variantTable)
       .select('id, slug')
       .eq('id', variantId)
-      .eq('asset_id', assetId)
+      .eq(parentFk, assetId)
       .single();
 
     if (variantError || !variant) {

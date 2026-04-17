@@ -1,4 +1,3 @@
-// @ts-expect-error — upstream glsl shader imports
 import {
   BAD_SIGNAL_FRAGMENT,
   BAD_SIGNAL_UNIFORMS,

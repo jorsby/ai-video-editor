@@ -4,6 +4,13 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
+// TODO(schema-drift 2026-04-13): The `storyboards` table and its embedded
+// `scenes(prompt, order)` select were dropped in migration sync_schema_with_docs.
+// Scenes now live in `studio.scenes` with a `structured_prompt` jsonb array and
+// hang off `chapters → videos → projects`, not `storyboards`. This route needs
+// to be rewritten (or deleted if dead) to pull scenes through the chapters
+// chain. See /Users/serhatcamici/.claude/plans/do-both-elegant-raccoon.md.
+
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });

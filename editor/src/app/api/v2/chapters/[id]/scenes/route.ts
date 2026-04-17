@@ -5,7 +5,6 @@ import { createServiceClient } from '@/lib/supabase/admin';
 type RouteContext = { params: Promise<{ id: string }> };
 
 type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
-type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
 
 type SceneInsert = Record<string, unknown> & {
   chapter_id: string;
@@ -19,7 +18,7 @@ type SceneWarning = {
 };
 
 const SCENE_SELECT =
-  'id, chapter_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
+  'id, chapter_id, order, title, structured_prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -27,12 +26,6 @@ const SCENE_STATUSES = new Set<SceneStatus>([
   'in_progress',
   'done',
   'failed',
-]);
-
-const CONTENT_MODES = new Set<ContentMode>([
-  'narrative',
-  'cinematic',
-  'hybrid',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -187,21 +180,6 @@ function parseSceneCreateInput(
   if (videoDuration.value !== undefined)
     scene.video_duration = videoDuration.value;
 
-  if (input.content_mode !== undefined) {
-    if (input.content_mode === null) {
-      scene.content_mode = null;
-    } else if (
-      typeof input.content_mode === 'string' &&
-      CONTENT_MODES.has(input.content_mode as ContentMode)
-    ) {
-      scene.content_mode = input.content_mode as ContentMode;
-    } else {
-      return {
-        error: `scenes[${index}].content_mode must be one of: narrative, cinematic, hybrid`,
-      };
-    }
-  }
-
   if (input.status !== undefined) {
     if (
       typeof input.status !== 'string' ||
@@ -218,20 +196,26 @@ function parseSceneCreateInput(
   if (title.error) return { error: `scenes[${index}].${title.error}` };
   if (title.value !== undefined) scene.title = title.value;
 
-  const visualDirection = toNullableString(
-    input.visual_direction,
-    'visual_direction'
-  );
-  if (visualDirection.error) {
-    return { error: `scenes[${index}].${visualDirection.error}` };
+  if (input.structured_prompt !== undefined) {
+    if (input.structured_prompt === null) {
+      scene.structured_prompt = null;
+    } else if (Array.isArray(input.structured_prompt)) {
+      if (
+        input.structured_prompt.some(
+          (seg) => !seg || typeof seg !== 'object' || Array.isArray(seg)
+        )
+      ) {
+        return {
+          error: `scenes[${index}].structured_prompt must be an array of objects or null`,
+        };
+      }
+      scene.structured_prompt = input.structured_prompt;
+    } else {
+      return {
+        error: `scenes[${index}].structured_prompt must be an array of objects or null`,
+      };
+    }
   }
-  if (visualDirection.value !== undefined) {
-    scene.visual_direction = visualDirection.value;
-  }
-
-  const prompt = toNullableString(input.prompt, 'prompt');
-  if (prompt.error) return { error: `scenes[${index}].${prompt.error}` };
-  if (prompt.value !== undefined) scene.prompt = prompt.value;
 
   if (input.location_variant_slug === undefined) {
     return {

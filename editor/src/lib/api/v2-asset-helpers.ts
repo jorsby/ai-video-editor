@@ -11,14 +11,148 @@ import {
 } from '@/lib/image-provider';
 import type { ImageModelId } from '@/lib/kie-image';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
+import {
+  ASSET_FK_BY_TYPE,
+  ASSET_TABLE_BY_TYPE,
+  VARIANT_TABLE_BY_TYPE,
+  getProjectVideoSettings,
+  resolveAssetTable,
+  resolveVariantTable,
+  assetTypeFromAssetTable,
+  assetTypeFromVariantTable,
+  updateVariantByIdSafe,
+} from '@/lib/api/variant-table-resolver';
 
 export type AssetType = 'character' | 'location' | 'prop';
 export type AssetRouteScope = 'project' | 'video';
 
-const ASSET_SELECT =
-  'id, project_id, type, name, slug, description, sort_order, created_at, updated_at';
-const VARIANT_SELECT =
-  'id, asset_id, name, slug, prompt, image_url, is_main, reasoning, image_task_id, image_gen_status, created_at, updated_at';
+/* ── Shape shims (backward-compat with callers expecting v1 columns) ── */
+
+type TypedVariantRow = {
+  id: string;
+  name: string | null;
+  slug: string;
+  structured_prompt: Record<string, unknown> | null;
+  use_case: string | null;
+  image_url: string | null;
+  is_main: boolean | null;
+  image_task_id: string | null;
+  image_gen_status: string | null;
+  generation_metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  [fk: string]: unknown;
+};
+
+type TypedAssetRow = {
+  id: string;
+  project_id: string;
+  video_id: string | null;
+  name: string;
+  slug: string;
+  structured_prompt: Record<string, unknown> | null;
+  use_case: string | null;
+  sort_order: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type LegacyVariant = {
+  id: string;
+  asset_id: string;
+  name: string | null;
+  slug: string;
+  prompt: string | null;
+  image_url: string | null;
+  is_main: boolean;
+  reasoning: string;
+  image_task_id: string | null;
+  image_gen_status: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type LegacyAsset = {
+  id: string;
+  project_id: string;
+  type: AssetType;
+  name: string;
+  slug: string;
+  description: string | null;
+  sort_order: number | null;
+  created_at: string;
+  updated_at: string;
+  project_asset_variants?: LegacyVariant[];
+};
+
+function flattenPromptFromStructured(
+  sp: Record<string, unknown> | null | undefined
+): string | null {
+  if (!sp || typeof sp !== 'object') return null;
+  const directPrompt = sp.prompt;
+  if (typeof directPrompt === 'string' && directPrompt.trim()) {
+    return directPrompt.trim();
+  }
+  const parts = Object.values(sp)
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim());
+  return parts.length > 0 ? parts.join('. ') : null;
+}
+
+function toLegacyVariant(
+  row: TypedVariantRow,
+  _type: AssetType,
+  assetId: string
+): LegacyVariant {
+  const sp = row.structured_prompt;
+  const reasoning =
+    sp && typeof sp === 'object' && typeof sp.reasoning === 'string'
+      ? (sp.reasoning as string)
+      : '';
+  return {
+    id: row.id,
+    asset_id: assetId,
+    name: row.name,
+    slug: row.slug,
+    prompt: flattenPromptFromStructured(row.structured_prompt),
+    image_url: row.image_url,
+    is_main: !!row.is_main,
+    reasoning,
+    image_task_id: row.image_task_id,
+    image_gen_status: row.image_gen_status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function toLegacyAsset(
+  row: TypedAssetRow,
+  type: AssetType,
+  variants: TypedVariantRow[] | null | undefined
+): LegacyAsset {
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    type,
+    name: row.name,
+    slug: row.slug,
+    description: row.use_case ?? null,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    project_asset_variants: (variants ?? []).map((v) =>
+      toLegacyVariant(v, type, row.id)
+    ),
+  };
+}
+
+const TYPED_ASSET_SELECT =
+  'id, project_id, video_id, name, slug, structured_prompt, use_case, sort_order, created_at, updated_at';
+
+const TYPED_VARIANT_SELECT =
+  'id, name, slug, structured_prompt, use_case, image_url, is_main, image_task_id, image_gen_status, generation_metadata, created_at, updated_at';
+
+/* ── Utility ─────────────────────────────────────────────────────────── */
 
 function toNullableString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -27,14 +161,8 @@ function toNullableString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: Supabase client type
 type DB = any;
 
-/**
- * Fire-and-forget image generation for a list of variants.
- * Marks each variant as 'generating' and queues a task via Kie.ai.
- * Errors are swallowed per-variant so one failure doesn't block others.
- */
 async function autoGenerateImages(
   db: DB,
   variants: Array<{ id: string; prompt: string }>,
@@ -45,7 +173,7 @@ async function autoGenerateImages(
   resolution = '2K'
 ): Promise<void> {
   const webhookBase = resolveWebhookBaseUrl(req);
-  if (!webhookBase) return; // Can't generate without webhook URL
+  if (!webhookBase) return;
 
   for (const variant of variants) {
     if (!variant.prompt) continue;
@@ -63,13 +191,10 @@ async function autoGenerateImages(
         resolution,
       });
 
-      await db
-        .from('project_asset_variants')
-        .update({
-          image_gen_status: 'generating',
-          image_task_id: queued.requestId,
-        })
-        .eq('id', variant.id);
+      await updateVariantByIdSafe(db, variant.id, {
+        image_gen_status: 'generating',
+        image_task_id: queued.requestId,
+      });
     } catch (err) {
       console.error(
         `[auto-generate] Failed for variant ${variant.id}:`,
@@ -80,14 +205,8 @@ async function autoGenerateImages(
 }
 
 type ScopeResolution =
-  | {
-      projectId: string;
-      error?: undefined;
-    }
-  | {
-      projectId?: undefined;
-      error: NextResponse;
-    };
+  | { projectId: string; videoId: string | null; error?: undefined }
+  | { projectId?: undefined; videoId?: undefined; error: NextResponse };
 
 async function resolveOwnedProjectId(
   db: DB,
@@ -117,7 +236,7 @@ async function resolveOwnedProjectId(
       };
     }
 
-    return { projectId: project.id as string };
+    return { projectId: project.id as string, videoId: null };
   }
 
   const { data: video, error: videoError } = await db
@@ -156,7 +275,10 @@ async function resolveOwnedProjectId(
     };
   }
 
-  return { projectId: project.id as string };
+  return {
+    projectId: project.id as string,
+    videoId: video.id as string,
+  };
 }
 
 async function getOwnedAsset(
@@ -164,40 +286,73 @@ async function getOwnedAsset(
   userId: string,
   assetId: string,
   expectedType?: AssetType
-) {
-  const { data: asset, error } = await db
-    .from('project_assets')
-    .select(ASSET_SELECT)
+): Promise<{ asset: LegacyAsset; type: AssetType; row: TypedAssetRow } | null> {
+  const table = expectedType
+    ? ASSET_TABLE_BY_TYPE[expectedType]
+    : await resolveAssetTable(db, assetId);
+  if (!table) return null;
+
+  const { data: row, error } = await db
+    .from(table)
+    .select(TYPED_ASSET_SELECT)
     .eq('id', assetId)
     .maybeSingle();
-
-  if (error || !asset) return null;
-  if (expectedType && asset.type !== expectedType) return null;
+  if (error || !row) return null;
 
   const { data: project } = await db
     .from('projects')
     .select('id')
-    .eq('id', asset.project_id)
+    .eq('id', row.project_id)
     .eq('user_id', userId)
     .maybeSingle();
 
   if (!project) return null;
-  return asset;
+
+  const type = assetTypeFromAssetTable(table);
+  return {
+    asset: toLegacyAsset(row as TypedAssetRow, type, []),
+    type,
+    row: row as TypedAssetRow,
+  };
 }
 
-async function getOwnedVariant(db: DB, userId: string, variantId: string) {
-  const { data: variant, error } = await db
-    .from('project_asset_variants')
-    .select(VARIANT_SELECT)
+async function getOwnedVariant(
+  db: DB,
+  userId: string,
+  variantId: string
+): Promise<{
+  variant: LegacyVariant;
+  asset: LegacyAsset;
+  type: AssetType;
+  variantTable: string;
+  parentFk: string;
+} | null> {
+  const variantTable = await resolveVariantTable(db, variantId);
+  if (!variantTable) return null;
+
+  const type = assetTypeFromVariantTable(variantTable);
+  const parentFk = ASSET_FK_BY_TYPE[type];
+
+  const { data: variantRow, error: variantError } = await db
+    .from(variantTable)
+    .select(`${TYPED_VARIANT_SELECT}, ${parentFk}`)
     .eq('id', variantId)
     .maybeSingle();
+  if (variantError || !variantRow) return null;
 
-  if (error || !variant) return null;
+  const parentId = variantRow[parentFk] as string | null;
+  if (!parentId) return null;
 
-  const asset = await getOwnedAsset(db, userId, variant.asset_id);
-  if (!asset) return null;
+  const owned = await getOwnedAsset(db, userId, parentId, type);
+  if (!owned) return null;
 
-  return { variant, asset };
+  return {
+    variant: toLegacyVariant(variantRow as TypedVariantRow, type, parentId),
+    asset: owned.asset,
+    type,
+    variantTable,
+    parentFk,
+  };
 }
 
 /* ── Asset list ─────────────────────────────────────────────────────── */
@@ -224,11 +379,13 @@ export async function getAssetsByType(
 
   if (resolved.error) return resolved.error;
 
+  const parentTable = ASSET_TABLE_BY_TYPE[type];
+  const variantTable = VARIANT_TABLE_BY_TYPE[type];
+
   const { data, error } = await db
-    .from('project_assets')
-    .select(`${ASSET_SELECT}, project_asset_variants(${VARIANT_SELECT})`)
+    .from(parentTable)
+    .select(`${TYPED_ASSET_SELECT}, ${variantTable}(${TYPED_VARIANT_SELECT})`)
     .eq('project_id', resolved.projectId)
-    .eq('type', type)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
 
@@ -239,7 +396,11 @@ export async function getAssetsByType(
     );
   }
 
-  return NextResponse.json(data ?? []);
+  const legacy = (data ?? []).map(
+    (row: TypedAssetRow & Record<string, unknown>) =>
+      toLegacyAsset(row, type, row[variantTable] as TypedVariantRow[] | null)
+  );
+  return NextResponse.json(legacy);
 }
 
 /* ── Asset batch create ─────────────────────────────────────────────── */
@@ -274,10 +435,13 @@ export async function postAssetsByType(
 
   if (resolved.error) return resolved.error;
 
+  const parentTable = ASSET_TABLE_BY_TYPE[type];
+  const variantTable = VARIANT_TABLE_BY_TYPE[type];
+  const parentFk = ASSET_FK_BY_TYPE[type];
   const projectId = resolved.projectId;
 
   const { data: maxRow } = await db
-    .from('project_assets')
+    .from(parentTable)
     .select('sort_order')
     .eq('project_id', projectId)
     .order('sort_order', { ascending: false })
@@ -289,10 +453,10 @@ export async function postAssetsByType(
 
   const rows: Array<{
     project_id: string;
-    type: AssetType;
+    video_id: string | null;
     name: string;
     slug: string;
-    description: string | null;
+    use_case: string | null;
     sort_order: number;
     _variant_prompt: string;
     _variant_reasoning: string;
@@ -330,10 +494,10 @@ export async function postAssetsByType(
 
     rows.push({
       project_id: projectId,
-      type,
+      video_id: resolved.videoId,
       name,
       slug,
-      description: toNullableString(item?.description),
+      use_case: toNullableString(item?.description),
       sort_order: nextSort++,
       _variant_prompt: prompt,
       _variant_reasoning: toNullableString(item?.reasoning) ?? '',
@@ -345,9 +509,9 @@ export async function postAssetsByType(
   );
 
   const { data: assets, error: insertErr } = await db
-    .from('project_assets')
+    .from(parentTable)
     .insert(dbRows)
-    .select(ASSET_SELECT);
+    .select(TYPED_ASSET_SELECT);
 
   if (insertErr) {
     if (insertErr.code === '23505') {
@@ -364,16 +528,20 @@ export async function postAssetsByType(
   }
 
   const mainVariants = (assets ?? []).map(
-    (asset: { id: string; slug: string }, index: number) => {
+    (asset: TypedAssetRow, index: number) => {
       const inputRow = rows[index] as Record<string, unknown>;
+      const prompt = (inputRow._variant_prompt as string) ?? '';
+      const reasoning = (inputRow._variant_reasoning as string) ?? '';
 
       return {
-        asset_id: asset.id,
+        [parentFk]: asset.id,
         name: 'Main',
         slug: `${asset.slug}-main`,
         is_main: true,
-        prompt: (inputRow._variant_prompt as string) ?? '',
-        reasoning: (inputRow._variant_reasoning as string) ?? '',
+        structured_prompt: {
+          prompt,
+          ...(reasoning ? { reasoning } : {}),
+        },
       };
     }
   );
@@ -381,32 +549,24 @@ export async function postAssetsByType(
   let insertedVariants: Array<{ id: string; prompt: string }> = [];
   if (mainVariants.length > 0) {
     const { data: variantRows } = await db
-      .from('project_asset_variants')
+      .from(variantTable)
       .insert(mainVariants)
-      .select('id, prompt');
-    insertedVariants = (variantRows ?? []) as Array<{
-      id: string;
-      prompt: string;
-    }>;
+      .select('id, structured_prompt');
+    insertedVariants = ((variantRows ?? []) as TypedVariantRow[]).map((v) => ({
+      id: v.id,
+      prompt: flattenPromptFromStructured(v.structured_prompt) ?? '',
+    }));
   }
 
-  // Auto-generate images for all created main variants (fire-and-forget, t2i)
   if (insertedVariants.length > 0) {
-    const { data: video } = await db
-      .from('videos')
-      .select('aspect_ratio, image_models')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    const imgModels = video?.image_models as Record<string, string> | null;
+    const settings = await getProjectVideoSettings(db, projectId);
+    const imgModels = settings.imageModels;
     const t2iModel = getT2iModel(imgModels, type);
     const arForType = getImageAspectRatio(
       imgModels,
       type,
       false,
-      video?.aspect_ratio ?? '9:16'
+      settings.aspectRatio
     );
     const resForType = getImageResolution(imgModels, type, false);
 
@@ -418,17 +578,23 @@ export async function postAssetsByType(
       t2iModel,
       undefined,
       resForType
-    ).catch(() => {}); // fire-and-forget
+    ).catch(() => {});
   }
 
   const ids = (assets ?? []).map((asset: { id: string }) => asset.id);
   const { data: full } = await db
-    .from('project_assets')
-    .select(`${ASSET_SELECT}, project_asset_variants(${VARIANT_SELECT})`)
+    .from(parentTable)
+    .select(`${TYPED_ASSET_SELECT}, ${variantTable}(${TYPED_VARIANT_SELECT})`)
     .in('id', ids)
     .order('sort_order', { ascending: true });
 
-  return NextResponse.json(full ?? assets ?? [], { status: 201 });
+  const legacy = (
+    (full ?? assets ?? []) as Array<TypedAssetRow & Record<string, unknown>>
+  ).map((row) =>
+    toLegacyAsset(row, type, row[variantTable] as TypedVariantRow[] | null)
+  );
+
+  return NextResponse.json(legacy, { status: 201 });
 }
 
 /* ── Asset PATCH ────────────────────────────────────────────────────── */
@@ -473,7 +639,7 @@ export async function patchAssetByType(
   }
 
   if (body?.description !== undefined) {
-    updates.description = toNullableString(body.description);
+    updates.use_case = toNullableString(body.description);
   }
 
   if (body?.sort_order !== undefined) {
@@ -492,16 +658,17 @@ export async function patchAssetByType(
   }
 
   const db = createServiceClient('studio');
-  const asset = await getOwnedAsset(db, user.id, id, type);
-  if (!asset) {
+  const owned = await getOwnedAsset(db, user.id, id, type);
+  if (!owned) {
     return NextResponse.json({ error: `${type} not found` }, { status: 404 });
   }
 
+  const parentTable = ASSET_TABLE_BY_TYPE[type];
   const { data, error } = await db
-    .from('project_assets')
+    .from(parentTable)
     .update(updates)
     .eq('id', id)
-    .select(ASSET_SELECT)
+    .select(TYPED_ASSET_SELECT)
     .single();
 
   if (error) {
@@ -518,7 +685,7 @@ export async function patchAssetByType(
     );
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json(toLegacyAsset(data as TypedAssetRow, type, []));
 }
 
 /* ── Asset DELETE ────────────────────────────────────────────────────── */
@@ -535,13 +702,14 @@ export async function deleteAssetByType(
 
   const { id } = await context.params;
   const db = createServiceClient('studio');
-  const asset = await getOwnedAsset(db, user.id, id, type);
+  const owned = await getOwnedAsset(db, user.id, id, type);
 
-  if (!asset) {
+  if (!owned) {
     return NextResponse.json({ error: `${type} not found` }, { status: 404 });
   }
 
-  const { error } = await db.from('project_assets').delete().eq('id', id);
+  const parentTable = ASSET_TABLE_BY_TYPE[type];
+  const { error } = await db.from(parentTable).delete().eq('id', id);
   if (error) {
     return NextResponse.json(
       { error: `Failed to delete ${type}` },
@@ -565,16 +733,19 @@ export async function getVariantsByAsset(
 
   const { assetId } = await context.params;
   const db = createServiceClient('studio');
-  const asset = await getOwnedAsset(db, user.id, assetId);
+  const owned = await getOwnedAsset(db, user.id, assetId);
 
-  if (!asset) {
+  if (!owned) {
     return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
   }
 
+  const variantTable = VARIANT_TABLE_BY_TYPE[owned.type];
+  const parentFk = ASSET_FK_BY_TYPE[owned.type];
+
   const { data, error } = await db
-    .from('project_asset_variants')
-    .select(VARIANT_SELECT)
-    .eq('asset_id', assetId)
+    .from(variantTable)
+    .select(TYPED_VARIANT_SELECT)
+    .eq(parentFk, assetId)
     .order('created_at', { ascending: true });
 
   if (error) {
@@ -584,7 +755,10 @@ export async function getVariantsByAsset(
     );
   }
 
-  return NextResponse.json(data ?? []);
+  const legacy = ((data ?? []) as TypedVariantRow[]).map((v) =>
+    toLegacyVariant(v, owned.type, assetId)
+  );
+  return NextResponse.json(legacy);
 }
 
 /* ── Variant batch create ───────────────────────────────────────────── */
@@ -610,11 +784,14 @@ export async function postVariantsByAsset(
   }
 
   const db = createServiceClient('studio');
-  const asset = await getOwnedAsset(db, user.id, assetId);
+  const owned = await getOwnedAsset(db, user.id, assetId);
 
-  if (!asset) {
+  if (!owned) {
     return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
   }
+
+  const variantTable = VARIANT_TABLE_BY_TYPE[owned.type];
+  const parentFk = ASSET_FK_BY_TYPE[owned.type];
 
   const rows: Array<Record<string, unknown>> = [];
   for (const item of items) {
@@ -640,21 +817,25 @@ export async function postVariantsByAsset(
       );
     }
 
+    const reasoning =
+      typeof item?.reasoning === 'string' ? item.reasoning.trim() : '';
+
     rows.push({
-      asset_id: assetId,
+      [parentFk]: assetId,
       name,
       slug,
-      prompt,
       is_main: false,
-      reasoning:
-        typeof item?.reasoning === 'string' ? item.reasoning.trim() : '',
+      structured_prompt: {
+        prompt,
+        ...(reasoning ? { reasoning } : {}),
+      },
     });
   }
 
   const { data, error } = await db
-    .from('project_asset_variants')
+    .from(variantTable)
     .insert(rows)
-    .select(VARIANT_SELECT);
+    .select(TYPED_VARIANT_SELECT);
 
   if (error) {
     if (error.code === '23505') {
@@ -670,32 +851,26 @@ export async function postVariantsByAsset(
     );
   }
 
-  // Auto-generate images for all created variants (fire-and-forget)
-  // Non-main variants use i2i with main variant's image if available
-  const created = (data ?? []) as Array<{ id: string; prompt: string }>;
-  if (created.length > 0) {
-    const { data: video } = await db
-      .from('videos')
-      .select('aspect_ratio, image_models')
-      .eq('project_id', asset.project_id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+  const created = ((data ?? []) as TypedVariantRow[]).map((v) => ({
+    id: v.id,
+    prompt: flattenPromptFromStructured(v.structured_prompt) ?? '',
+  }));
 
-    const assetType = asset.type as string;
-    const imageModels = video?.image_models as Record<string, string> | null;
+  if (created.length > 0) {
+    const settings = await getProjectVideoSettings(db, owned.asset.project_id);
+    const imageModels = settings.imageModels;
+    const assetType = owned.type;
 
     // Check if main variant has an image for i2i
     const { data: mainVariant } = await db
-      .from('project_asset_variants')
+      .from(variantTable)
       .select('image_url')
-      .eq('asset_id', assetId)
+      .eq(parentFk, assetId)
       .eq('is_main', true)
       .maybeSingle();
 
     let model: ImageModelId;
     let inputUrls: string[] | undefined;
-
     let isI2i = false;
     if (mainVariant?.image_url) {
       model = getI2iModel(imageModels, assetType);
@@ -709,7 +884,7 @@ export async function postVariantsByAsset(
       imageModels,
       assetType,
       isI2i,
-      video?.aspect_ratio ?? '9:16'
+      settings.aspectRatio
     );
     const variantRes = getImageResolution(imageModels, assetType, isI2i);
 
@@ -724,7 +899,10 @@ export async function postVariantsByAsset(
     ).catch(() => {});
   }
 
-  return NextResponse.json(data ?? [], { status: 201 });
+  const legacy = ((data ?? []) as TypedVariantRow[]).map((v) =>
+    toLegacyVariant(v, owned.type, assetId)
+  );
+  return NextResponse.json(legacy, { status: 201 });
 }
 
 /* ── Variant PATCH ──────────────────────────────────────────────────── */
@@ -742,6 +920,26 @@ export async function patchVariantById(
   const body = await req.json().catch(() => ({}));
   const updates: Record<string, unknown> = {};
 
+  const db = createServiceClient('studio');
+  const owned = await getOwnedVariant(db, user.id, id);
+  if (!owned) {
+    return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
+  }
+
+  // Pull existing structured_prompt so prompt/reasoning patches merge in
+  const { data: existingRow } = await db
+    .from(owned.variantTable)
+    .select('structured_prompt')
+    .eq('id', id)
+    .maybeSingle();
+
+  const existingSP: Record<string, unknown> =
+    existingRow &&
+    typeof existingRow.structured_prompt === 'object' &&
+    existingRow.structured_prompt
+      ? { ...(existingRow.structured_prompt as Record<string, unknown>) }
+      : {};
+
   if (body?.name !== undefined) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) {
@@ -750,7 +948,6 @@ export async function patchVariantById(
         { status: 400 }
       );
     }
-
     updates.name = name;
     if (body?.slug === undefined) updates.slug = toSlug(name);
   }
@@ -759,12 +956,28 @@ export async function patchVariantById(
     updates.slug = typeof body.slug === 'string' ? body.slug.trim() : '';
   }
 
-  if (body?.prompt !== undefined)
-    updates.prompt = toNullableString(body.prompt);
-  if (body?.image_url !== undefined)
+  let structuredPromptDirty = false;
+  if (body?.prompt !== undefined) {
+    const v = toNullableString(body.prompt);
+    if (v === null) delete existingSP.prompt;
+    else existingSP.prompt = v;
+    structuredPromptDirty = true;
+  }
+  if (body?.reasoning !== undefined) {
+    const v = toNullableString(body.reasoning);
+    if (v === null) delete existingSP.reasoning;
+    else existingSP.reasoning = v;
+    structuredPromptDirty = true;
+  }
+  if (structuredPromptDirty) {
+    updates.structured_prompt = Object.keys(existingSP).length
+      ? existingSP
+      : null;
+  }
+
+  if (body?.image_url !== undefined) {
     updates.image_url = toNullableString(body.image_url);
-  if (body?.reasoning !== undefined)
-    updates.reasoning = toNullableString(body.reasoning);
+  }
 
   if (body?.is_main !== undefined) {
     if (typeof body.is_main !== 'boolean') {
@@ -781,27 +994,20 @@ export async function patchVariantById(
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
-  const db = createServiceClient('studio');
-  const owned = await getOwnedVariant(db, user.id, id);
-
-  if (!owned) {
-    return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
-  }
-
   if (updates.is_main === true) {
     await db
-      .from('project_asset_variants')
+      .from(owned.variantTable)
       .update({ is_main: false })
-      .eq('asset_id', owned.asset.id)
+      .eq(owned.parentFk, owned.variant.asset_id)
       .eq('is_main', true)
       .neq('id', id);
   }
 
   const { data, error } = await db
-    .from('project_asset_variants')
+    .from(owned.variantTable)
     .update(updates)
     .eq('id', id)
-    .select(VARIANT_SELECT)
+    .select(TYPED_VARIANT_SELECT)
     .single();
 
   if (error) {
@@ -818,7 +1024,9 @@ export async function patchVariantById(
     );
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json(
+    toLegacyVariant(data as TypedVariantRow, owned.type, owned.variant.asset_id)
+  );
 }
 
 /* ── Variant DELETE ─────────────────────────────────────────────────── */
@@ -840,10 +1048,7 @@ export async function deleteVariantById(
     return NextResponse.json({ error: 'Variant not found' }, { status: 404 });
   }
 
-  const { error } = await db
-    .from('project_asset_variants')
-    .delete()
-    .eq('id', id);
+  const { error } = await db.from(owned.variantTable).delete().eq('id', id);
 
   if (error) {
     return NextResponse.json(

@@ -9,7 +9,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { Button } from '@/components/ui/button';
 import {
   IconChevronDown,
   IconChevronRight,
@@ -19,6 +18,7 @@ import {
   IconPlayerStopFilled,
   IconPlaylistAdd,
   IconPlus,
+  IconRefresh,
   IconTrash,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
@@ -55,7 +55,35 @@ function MusicTrackCard({
   onDelete: (trackId: string) => void;
 }) {
   const [playing, setPlaying] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const handleRetry = async () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    try {
+      const res = await fetch(`/api/v2/music/${track.id}/generate`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        toast.success(`Music regenerating: ${track.name}`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setIsRetrying(false);
+        toast.error(data.error ?? 'Failed to regenerate music');
+      }
+    } catch {
+      setIsRetrying(false);
+      toast.error('Network error');
+    }
+  };
+
+  // Reset retry state when track status changes via realtime
+  useEffect(() => {
+    if (isRetrying && track.status !== 'generating') {
+      setIsRetrying(false);
+    }
+  }, [track.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const togglePlay = () => {
     if (!track.audio_url) return;
@@ -129,6 +157,24 @@ function MusicTrackCard({
 
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0">
+        {/* Retry / Regenerate — also shown for stuck 'generating' tracks */}
+        {(isFailed || isDone || track.status === 'generating') && (
+          <button
+            type="button"
+            onClick={() => void handleRetry()}
+            disabled={isRetrying}
+            className="p-1 rounded hover:bg-blue-500/20 text-blue-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              isFailed
+                ? 'Retry'
+                : track.status === 'generating'
+                  ? 'Stuck? Force retry'
+                  : 'Regenerate'
+            }
+          >
+            <IconRefresh className="size-3.5" />
+          </button>
+        )}
         {isDone && (
           <>
             <button

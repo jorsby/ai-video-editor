@@ -39,7 +39,7 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
       const { data: row, error: scErr } = await supabase
         .from('scenes')
         .select(
-          'id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+          'id, "order", title, structured_prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status, tts_generation_metadata, video_generation_metadata'
         )
         .eq('id', sceneId)
         .single();
@@ -51,7 +51,20 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
         return;
       }
 
-      const sceneRow = row as unknown as SceneData;
+      // Map structured_prompt → prompt for backward compat
+      const rawRow = row as any;
+      const sceneRow: SceneData = {
+        ...rawRow,
+        prompt: Array.isArray(rawRow.structured_prompt)
+          ? (rawRow.structured_prompt as Record<string, unknown>[])
+              .map((s: Record<string, unknown>) =>
+                Object.values(s)
+                  .filter((v) => typeof v === 'string' && v.trim())
+                  .join(', ')
+              )
+              .join('\n')
+          : null,
+      };
 
       // Collect variant slugs
       const slugSet = new Set<string>();
@@ -62,14 +75,30 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
 
       const newImageMap = new Map<string, VariantInfo>();
       if (slugSet.size > 0) {
-        const { data: variantRows } = await supabase
-          .from('project_asset_variants')
-          .select('id, slug, image_url, image_gen_status')
-          .in('slug', [...slugSet]);
+        const variantFields = 'id, slug, image_url, image_gen_status';
+        const slugArr = [...slugSet];
+        const [charResult, locResult, propResult] = await Promise.all([
+          supabase
+            .from('character_variants')
+            .select(variantFields)
+            .in('slug', slugArr),
+          supabase
+            .from('location_variants')
+            .select(variantFields)
+            .in('slug', slugArr),
+          supabase
+            .from('prop_variants')
+            .select(variantFields)
+            .in('slug', slugArr),
+        ]);
 
         if (cancelled) return;
 
-        for (const v of variantRows ?? []) {
+        for (const v of [
+          ...(charResult.data ?? []),
+          ...(locResult.data ?? []),
+          ...(propResult.data ?? []),
+        ]) {
           if (v.slug) {
             newImageMap.set(v.slug, {
               id: v.id,
@@ -104,11 +133,21 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
       )
       .on(
         'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'studio',
-          table: 'project_asset_variants',
-        },
+        { event: 'UPDATE', schema: 'studio', table: 'character_variants' },
+        () => {
+          if (!cancelled) load();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'location_variants' },
+        () => {
+          if (!cancelled) load();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'prop_variants' },
         () => {
           if (!cancelled) load();
         }

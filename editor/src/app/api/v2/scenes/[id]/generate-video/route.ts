@@ -5,6 +5,10 @@ import { createTask } from '@/lib/kieai';
 import { submitFalVideoJob, FAL_MAX_DURATION } from '@/lib/fal-provider';
 import { compileForGrok } from '@/lib/storyboard/prompt-compiler';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
+import {
+  getProjectVideoSettings,
+  listVariantsBySlugs,
+} from '@/lib/api/variant-table-resolver';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const { data: scene, error: sceneError } = await supabase
       .from('scenes')
       .select(
-        'id, chapter_id, prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
+        'id, chapter_id, structured_prompt, video_duration, audio_text, audio_url, audio_duration, location_variant_slug, character_variant_slugs, prop_variant_slugs, status'
       )
       .eq('id', sceneId)
       .maybeSingle();
@@ -72,7 +76,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
     }
 
-    if (!scene.prompt?.trim()) {
+    // Flatten structured_prompt jsonb into a plain string for the compiler.
+    // Matches the shape produced in storyboard-panel.tsx and video-roadmap-panel.tsx.
+    const scenePrompt = Array.isArray(scene.structured_prompt)
+      ? (scene.structured_prompt as Record<string, unknown>[])
+          .map((s) =>
+            Object.values(s)
+              .filter((v) => typeof v === 'string' && v.trim())
+              .join(', ')
+          )
+          .join('\n')
+      : null;
+
+    if (!scenePrompt?.trim()) {
       return NextResponse.json(
         { error: 'Scene has no visual prompt.' },
         { status: 400 }
@@ -107,7 +123,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: video } = await supabase
       .from('videos')
-      .select('id, project_id, video_model, video_resolution, aspect_ratio')
+      .select('id, project_id')
       .eq('id', chapter.video_id)
       .maybeSingle();
 
@@ -128,6 +144,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (project.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+
+    // Video generation settings moved from videos → projects.generation_settings
+    const settings = await getProjectVideoSettings(
+      supabase,
+      video.project_id as string
+    );
+    const settingsVideoModel = settings.videoModel;
+    const settingsVideoResolution = settings.videoResolution.toLowerCase();
+    const settingsAspectRatio = settings.aspectRatio;
 
     // ── Parse body ──────────────────────────────────────────────────────
 
@@ -166,11 +191,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       typeof body.resolution === 'string'
         ? body.resolution.trim().toLowerCase()
         : '';
-    const videoDefault = video.video_resolution ?? '480p';
     const resolution = VALID_RESOLUTIONS.has(requestedRes)
       ? requestedRes
-      : VALID_RESOLUTIONS.has(videoDefault)
-        ? videoDefault
+      : VALID_RESOLUTIONS.has(settingsVideoResolution)
+        ? settingsVideoResolution
         : '480p';
 
     let compiledPrompt: string;
@@ -181,29 +205,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
       compiledPrompt = body.prompt_override;
       imageUrls = body.image_urls_override;
     } else {
-      // ── Resolve variant slugs → image URLs from DB ────────────────────
+      // Resolve variant slugs → image URLs from typed variant tables.
+      const locationSlug = scene.location_variant_slug;
+      const characterSlugs = scene.character_variant_slugs ?? [];
+      const propSlugs = scene.prop_variant_slugs ?? [];
 
-      const allSlugs = [
-        scene.location_variant_slug,
-        ...(scene.character_variant_slugs ?? []),
-        ...(scene.prop_variant_slugs ?? []),
-      ].filter(Boolean) as string[];
+      const allSlugs = [locationSlug, ...characterSlugs, ...propSlugs].filter(
+        (s): s is string => typeof s === 'string' && s.length > 0
+      );
 
+      const variantMap = await listVariantsBySlugs(
+        supabase,
+        video.project_id as string,
+        { locationSlug, characterSlugs, propSlugs }
+      );
       const slugToImageUrl = new Map<string, string>();
-
-      if (allSlugs.length > 0) {
-        // Scope to this project's assets to avoid cross-project slug collisions
-        const { data: variants } = await supabase
-          .from('project_asset_variants')
-          .select('slug, image_url, asset:project_assets!inner(project_id)')
-          .in('slug', allSlugs)
-          .eq('project_assets.project_id', video.project_id);
-
-        for (const v of variants ?? []) {
-          if (v.image_url) {
-            slugToImageUrl.set(v.slug, v.image_url);
-          }
-        }
+      for (const [slug, v] of variantMap) {
+        if (v.image_url) slugToImageUrl.set(slug, v.image_url);
       }
 
       // Check all refs have images
@@ -222,7 +240,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       // ── Compile prompt ────────────────────────────────────────────────
 
       const compiled = compileForGrok({
-        prompt: scene.prompt,
+        prompt: scenePrompt,
         locationVariantSlug: scene.location_variant_slug,
         characterVariantSlugs: scene.character_variant_slugs ?? [],
         propVariantSlugs: scene.prop_variant_slugs ?? [],
@@ -244,10 +262,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const videoModel =
-      typeof video.video_model === 'string' && video.video_model.trim().length > 0
-        ? video.video_model.trim()
-        : DEFAULT_VIDEO_MODEL;
-    const aspectRatio = video.aspect_ratio ?? '9:16';
+      settingsVideoModel.length > 0 ? settingsVideoModel : DEFAULT_VIDEO_MODEL;
+    const aspectRatio =
+      settingsAspectRatio.length > 0 ? settingsAspectRatio : '9:16';
 
     let taskId: string;
 

@@ -358,7 +358,7 @@ export function Timeline() {
     setIsPlaying,
   ]);
 
-  const handleCollapseGaps = useCallback(() => {
+  const _handleCollapseGaps = useCallback(() => {
     studio?.collapseGaps();
   }, [studio]);
 
@@ -402,10 +402,8 @@ export function Timeline() {
 
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const handleSnapToggle = useCallback(() => {
-    const newVal = !isSnapEnabled;
-    setIsSnapEnabled(newVal);
-    studio?.setSnapping(newVal);
-  }, [studio, isSnapEnabled]);
+    setIsSnapEnabled((prev) => !prev);
+  }, []);
 
   useEditorHotkeys({
     timelineCanvas: timelineCanvasRef.current,

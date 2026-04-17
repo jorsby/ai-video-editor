@@ -5,6 +5,7 @@ export interface SceneData {
   order: number;
   title: string | null;
   prompt: string | null;
+  structured_prompt: Record<string, unknown>[] | null;
   audio_text: string | null;
   audio_url: string | null;
   audio_duration: number | null;
@@ -16,12 +17,17 @@ export interface SceneData {
   prop_variant_slugs: string[];
   tts_status: string;
   video_status: string;
+  tts_generation_metadata?: Record<string, unknown> | null;
+  video_generation_metadata?: Record<string, unknown> | null;
 }
 
 export interface VariantInfo {
   image_url: string | null;
   id: string;
   image_gen_status: string;
+  structured_prompt?: Record<string, unknown> | null;
+  is_main?: boolean;
+  generation_metadata?: Record<string, unknown> | null;
 }
 
 export type VariantImageMap = Map<string, VariantInfo>;
@@ -74,10 +80,25 @@ export function formatDuration(seconds: number): string {
   return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
 }
 
+export function flattenStructuredPrompt(
+  sp: Record<string, unknown> | null | undefined
+): string {
+  if (!sp) return '';
+  return Object.values(sp)
+    .filter((v) => v != null && String(v).trim() !== '')
+    .map(String)
+    .join(', ');
+}
+
 export async function callGenerateApi(
   path: string,
   body: Record<string, unknown> = {}
-): Promise<{ ok: boolean; task_id?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  task_id?: string;
+  error?: string;
+  missing_slugs?: string[];
+}> {
   try {
     const res = await fetch(path, {
       method: 'POST',
@@ -86,7 +107,13 @@ export async function callGenerateApi(
     });
     const data = await res.json();
     if (!res.ok)
-      return { ok: false, error: data.error ?? `HTTP ${res.status}` };
+      return {
+        ok: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        missing_slugs: Array.isArray(data.missing_slugs)
+          ? data.missing_slugs
+          : undefined,
+      };
     return { ok: true, task_id: data.task_id };
   } catch (err) {
     return {

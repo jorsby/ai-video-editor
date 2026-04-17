@@ -3,6 +3,12 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { getVideo } from '@/lib/supabase/video-service';
 import { type NextRequest, NextResponse } from 'next/server';
+import {
+  ASSET_FK_BY_TYPE,
+  ASSET_TABLE_BY_TYPE,
+  VARIANT_TABLE_BY_TYPE,
+  type AssetType,
+} from '@/lib/api/variant-table-resolver';
 
 type RouteContext = {
   params: Promise<{ id: string; chapterId: string }>;
@@ -30,7 +36,6 @@ type VariantRecord = {
 };
 
 type AuthContext = {
-  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
   dbClient: any;
   videoId: string;
   chapterId: string;
@@ -129,11 +134,7 @@ async function authorizeAndValidateVideoChapter(
   return { dbClient, videoId, chapterId };
 }
 
-async function loadVideoAssetAndVariantMaps(
-  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
-  dbClient: any,
-  videoId: string
-) {
+async function loadVideoAssetAndVariantMaps(dbClient: any, videoId: string) {
   // Resolve video → project_id for project-scoped asset lookup
   const { data: videoRow } = await dbClient
     .from('videos')
@@ -146,21 +147,48 @@ async function loadVideoAssetAndVariantMaps(
     throw new Error(`Could not resolve project_id for video ${videoId}`);
   }
 
-  const { data: assetsData, error: assetsError } = await dbClient
-    .from('project_assets')
-    .select(
-      'id, name, slug, type, project_asset_variants(id, asset_id, slug, name, is_main)'
-    )
-    .eq('project_id', projectId)
-    .order('sort_order', { ascending: true });
+  // Fan out across the three typed pairs and merge into the legacy shape.
+  const types: AssetType[] = ['character', 'location', 'prop'];
+  const parts = await Promise.all(
+    types.map(async (t) => {
+      const parentTable = ASSET_TABLE_BY_TYPE[t];
+      const variantTable = VARIANT_TABLE_BY_TYPE[t];
+      const parentFk = ASSET_FK_BY_TYPE[t];
+      const { data, error } = await dbClient
+        .from(parentTable)
+        .select(
+          `id, name, slug, sort_order, ${variantTable}(id, ${parentFk}, slug, name, is_main)`
+        )
+        .eq('project_id', projectId)
+        .order('sort_order', { ascending: true });
+      if (error || !data) return [];
+      return (data as Array<Record<string, unknown>>).map((row) => ({
+        id: row.id as string,
+        name: row.name as string,
+        slug: row.slug as string,
+        type: t,
+        variants: (
+          (row[variantTable] ?? []) as Array<Record<string, unknown>>
+        ).map((v) => ({
+          id: v.id as string,
+          asset_id: (v[parentFk] as string) ?? (row.id as string),
+          slug: v.slug as string,
+          name: v.name as string,
+          is_main: !!v.is_main,
+        })),
+      }));
+    })
+  );
 
-  if (assetsError) {
-    throw new Error(`Failed to load video assets: ${assetsError.message}`);
-  }
-
-  const assets = (assetsData ?? []) as Array<
-    AssetRecord & { project_asset_variants: VariantRecord[] | null }
-  >;
+  const assets: Array<
+    AssetRecord & { project_asset_variants: VariantRecord[] }
+  > = parts.flat().map((a) => ({
+    id: a.id,
+    name: a.name,
+    slug: a.slug,
+    type: a.type,
+    project_asset_variants: a.variants,
+  }));
 
   const assetById = new Map<string, AssetRecord>();
   const variantBySlug = new Map<
@@ -208,9 +236,7 @@ function uniqueAssetIdsFromMap(
 
 function mapFromLegacyAssetIds(
   assetIds: string[],
-  assets: Array<
-    AssetRecord & { project_asset_variants: VariantRecord[] | null }
-  >
+  assets: Array<AssetRecord & { project_asset_variants: VariantRecord[] }>
 ): AssetVariantMap | null {
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
 
@@ -246,7 +272,6 @@ function mapFromLegacyAssetIds(
 }
 
 async function loadChapterMap(
-  // biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
   dbClient: any,
   chapterId: string
 ): Promise<AssetVariantMap> {

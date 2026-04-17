@@ -112,26 +112,94 @@ function pickBestVariantImage(
   return null;
 }
 
+type AssetType = 'character' | 'location' | 'prop';
+
+const TYPED_SOURCES: Array<{
+  type: AssetType;
+  parent: 'characters' | 'locations' | 'props';
+  variants: 'character_variants' | 'location_variants' | 'prop_variants';
+}> = [
+  {
+    type: 'character',
+    parent: 'characters',
+    variants: 'character_variants',
+  },
+  { type: 'location', parent: 'locations', variants: 'location_variants' },
+  { type: 'prop', parent: 'props', variants: 'prop_variants' },
+];
+
+type RawAssetRow = {
+  id: string;
+  name: string;
+  structured_prompt?: Record<string, unknown> | null;
+  use_case?: string | null;
+  [variantKey: string]:
+    | string
+    | Record<string, unknown>
+    | null
+    | undefined
+    | Array<{ id: string; is_main: boolean; image_url: string | null }>;
+};
+
+function flattenDescription(
+  structured: Record<string, unknown> | null | undefined,
+  useCase: string | null | undefined
+): string | null {
+  const bits: string[] = [];
+  if (structured && typeof structured === 'object') {
+    for (const v of Object.values(structured)) {
+      if (typeof v === 'string' && v.trim()) bits.push(v.trim());
+    }
+  }
+  if (typeof useCase === 'string' && useCase.trim()) bits.push(useCase.trim());
+  return bits.length > 0 ? bits.join('. ') : null;
+}
+
+async function fetchTypedAssetsForProject(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Array<RawAssetRow & { type: AssetType }> | null> {
+  const results = await Promise.all(
+    TYPED_SOURCES.map(async ({ type, parent, variants }) => {
+      const { data, error } = await supabase
+        .from(parent)
+        .select(
+          `id, name, structured_prompt, use_case, ${variants}(id, is_main, image_url)`
+        )
+        .eq('project_id', projectId);
+      if (error) {
+        console.warn(
+          `[project-asset-resolver] Failed to load ${parent}:`,
+          error.message
+        );
+        return [] as Array<RawAssetRow & { type: AssetType }>;
+      }
+      return (data ?? []).map((row: RawAssetRow) => ({ ...row, type }));
+    })
+  );
+  const merged = results.flat();
+  return merged.length > 0 ? merged : null;
+}
+
+function extractVariants(
+  row: RawAssetRow,
+  variantKey: string
+): Array<{ id: string; is_main: boolean; image_url: string | null }> {
+  const raw = row[variantKey];
+  if (!Array.isArray(raw)) return [];
+  return raw as Array<{
+    id: string;
+    is_main: boolean;
+    image_url: string | null;
+  }>;
+}
+
 export async function resolveProjectAssetCandidatesForProject(
   supabase: SupabaseClient,
   projectId: string
 ): Promise<ProjectAssetCandidateSet | null> {
-  const { data: assets, error: assetsError } = await supabase
-    .from('project_assets')
-    .select(
-      'id, name, type, description, project_asset_variants (id, is_main, image_url)'
-    )
-    .eq('project_id', projectId);
-
-  if (assetsError) {
-    console.warn(
-      '[project-asset-resolver] Failed to load project assets for candidates:',
-      assetsError.message
-    );
-    return null;
-  }
-
-  if (!assets || assets.length === 0) return null;
+  const assets = await fetchTypedAssetsForProject(supabase, projectId);
+  if (!assets) return null;
 
   const candidateSet: ProjectAssetCandidateSet = {
     characters: [],
@@ -140,34 +208,25 @@ export async function resolveProjectAssetCandidatesForProject(
   };
 
   for (const asset of assets) {
-    const bestVariantImage = pickBestVariantImage(
-      supabase,
-      asset.project_asset_variants ?? []
-    );
+    const source = TYPED_SOURCES.find((s) => s.type === asset.type);
+    if (!source) continue;
+
+    const variants = extractVariants(asset, source.variants);
+    const bestVariantImage = pickBestVariantImage(supabase, variants);
     if (!bestVariantImage) continue;
 
     const candidate: ProjectAssetCandidate = {
       assetId: String(asset.id),
       variantId: bestVariantImage.variantId,
       assetName: String(asset.name),
-      description:
-        typeof asset.description === 'string' ? asset.description : null,
-      type:
-        asset.type === 'character'
-          ? 'character'
-          : asset.type === 'location'
-            ? 'location'
-            : 'prop',
+      description: flattenDescription(asset.structured_prompt, asset.use_case),
+      type: asset.type,
       url: bestVariantImage.url,
     };
 
-    if (candidate.type === 'character') {
-      candidateSet.characters.push(candidate);
-    } else if (candidate.type === 'location') {
-      candidateSet.locations.push(candidate);
-    } else {
-      candidateSet.props.push(candidate);
-    }
+    candidateSet[`${asset.type}s` as keyof ProjectAssetCandidateSet].push(
+      candidate
+    );
   }
 
   return candidateSet;
@@ -177,30 +236,19 @@ export async function resolveProjectAssetsForProject(
   supabase: SupabaseClient,
   projectId: string
 ): Promise<ProjectAssetMap | null> {
-  const { data: assets, error: assetsError } = await supabase
-    .from('project_assets')
-    .select('id, name, type, project_asset_variants (id, is_main, image_url)')
-    .eq('project_id', projectId);
-
-  if (assetsError) {
-    console.warn(
-      '[project-asset-resolver] Failed to load project assets:',
-      assetsError.message
-    );
-    return null;
-  }
-
-  if (!assets || assets.length === 0) return null;
+  const assets = await fetchTypedAssetsForProject(supabase, projectId);
+  if (!assets) return null;
 
   const characters = new Map<string, ProjectAssetEntry>();
   const locations = new Map<string, ProjectAssetEntry>();
   const props = new Map<string, ProjectAssetEntry>();
 
   for (const asset of assets) {
-    const bestVariantImage = pickBestVariantImage(
-      supabase,
-      asset.project_asset_variants ?? []
-    );
+    const source = TYPED_SOURCES.find((s) => s.type === asset.type);
+    if (!source) continue;
+
+    const variants = extractVariants(asset, source.variants);
+    const bestVariantImage = pickBestVariantImage(supabase, variants);
     if (!bestVariantImage) continue;
 
     const normalizedName = normalizeName(asset.name as string);

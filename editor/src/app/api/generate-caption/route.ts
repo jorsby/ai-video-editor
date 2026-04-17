@@ -4,6 +4,11 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
+// TODO(schema-drift 2026-04-13): Same issue as generate-hook — this route
+// queries `storyboards` and `scenes(prompt, ...)` which were dropped by
+// migration sync_schema_with_docs. Rewrite or delete if dead.
+// See /Users/serhatcamici/.claude/plans/do-both-elegant-raccoon.md.
+
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });

@@ -51,7 +51,6 @@ import {
   IconSparkles,
   IconRefresh,
   IconSend,
-  IconSelectAll,
   IconFileText,
   IconPencil,
   IconDeviceFloppy,
@@ -62,6 +61,7 @@ import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { useSceneFocusStore } from '@/stores/scene-focus-store';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { syncSceneToTimeline } from '@/lib/timeline/sync-scene-to-timeline';
+import { appendSceneToTimeline } from '@/lib/timeline/append-scene-to-timeline';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { useVideoSelectorStore } from '@/stores/video-selector-store';
 import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
@@ -444,9 +444,9 @@ function HighlightedPrompt({
   const pattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  let match: RegExpExecArray | null = pattern.exec(prompt);
 
-  while ((match = pattern.exec(prompt)) !== null) {
+  while (match !== null) {
     if (match.index > lastIndex) {
       parts.push(prompt.slice(lastIndex, match.index));
     }
@@ -472,6 +472,7 @@ function HighlightedPrompt({
       );
     }
     lastIndex = match.index + match[0].length;
+    match = pattern.exec(prompt);
   }
   if (lastIndex < prompt.length) {
     parts.push(prompt.slice(lastIndex));
@@ -719,6 +720,7 @@ function SceneCard({
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isAppending, setIsAppending] = useState(false);
   const { confirm } = useDeleteConfirmation();
   const { studio } = useStudioStore();
   const { canvasSize } = useProjectStore();
@@ -1044,7 +1046,11 @@ function SceneCard({
                         ).createClient('studio');
                         const { error } = await supabase
                           .from('scenes')
-                          .update({ prompt: editPromptText.trim() })
+                          .update({
+                            structured_prompt: [
+                              { prompt: editPromptText.trim() },
+                            ],
+                          })
                           .eq('id', scene.id);
                         if (error) throw new Error(error.message);
                         scene.prompt = editPromptText.trim();
@@ -1090,7 +1096,6 @@ function SceneCard({
               onChange={(e) => setEditPromptText(e.target.value)}
               className="w-full text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-primary/30 focus:border-primary/50 outline-none resize-y min-h-[80px]"
               rows={6}
-              autoFocus
             />
           ) : (
             <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
@@ -1125,6 +1130,53 @@ function SceneCard({
               <SceneVariantTile key={slug} slug={slug} imageMap={imageMap} />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Expanded: Add to Timeline (scene not yet in timeline) */}
+      {isExpanded && !isInTimeline && (hasAudio || hasVideo) && (
+        <div className="px-3 pb-2 pt-1 border-t border-border/20 flex items-center justify-end">
+          <button
+            type="button"
+            disabled={isAppending || !studio}
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (!studio) return;
+              setIsAppending(true);
+              try {
+                const result = await appendSceneToTimeline({
+                  scene: {
+                    id: scene.id,
+                    order: scene.order,
+                    title: scene.title,
+                    audio_url: scene.audio_url,
+                    video_url: scene.video_url,
+                    audio_text: scene.audio_text,
+                    audio_duration: scene.audio_duration,
+                    video_duration: scene.video_duration,
+                  },
+                  studio,
+                  canvasWidth: canvasSize.width,
+                  canvasHeight: canvasSize.height,
+                });
+                toast.success(
+                  `Added ${result.added} clip${result.added !== 1 ? 's' : ''} to timeline`
+                );
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Add failed');
+              } finally {
+                setIsAppending(false);
+              }
+            }}
+            className="inline-flex items-center gap-1 text-[9px] px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isAppending ? (
+              <IconLoader2 className="size-2.5 animate-spin" />
+            ) : (
+              <IconSend className="size-2.5" />
+            )}
+            {isAppending ? 'Adding...' : 'Add to Timeline'}
+          </button>
         </div>
       )}
 
@@ -1328,17 +1380,9 @@ function VideoAssetsSection({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-2 py-2 mt-1 bg-muted/10 rounded-md border border-border/20 space-y-3">
-          <AssetGallery
-            slugs={locationSlugs}
-            role="location"
-            imageMap={imageMap}
-          />
-          <AssetGallery
-            slugs={characterSlugs}
-            role="character"
-            imageMap={imageMap}
-          />
-          <AssetGallery slugs={propSlugs} role="prop" imageMap={imageMap} />
+          <AssetGallery slugs={locationSlugs} imageMap={imageMap} />
+          <AssetGallery slugs={characterSlugs} imageMap={imageMap} />
+          <AssetGallery slugs={propSlugs} imageMap={imageMap} />
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -1407,17 +1451,16 @@ function SendToTimelineModal({
   const [settings, setSettings] = useState<SceneTimelineSettings[]>(() =>
     scenes.map((s) => ({
       sceneId: s.id,
-      matchVideoToAudio: !!s.audio_text, // default ON for narrative
+      matchVideoToAudio: !!(s.audio_text || s.audio_url),
     }))
   );
   const [isSending, setIsSending] = useState(false);
 
-  // Reset settings when scenes change
   useEffect(() => {
     setSettings(
       scenes.map((s) => ({
         sceneId: s.id,
-        matchVideoToAudio: !!s.audio_text,
+        matchVideoToAudio: !!(s.audio_text || s.audio_url),
       }))
     );
   }, [scenes]);
@@ -1578,7 +1621,6 @@ function SendToTimelineModal({
               const s = settings.find((x) => x.sceneId === scene.id);
               if (!s) return null;
 
-              const isNarrative = !!scene.audio_text;
               const timing = calculateSceneTiming(
                 scene.audio_duration ?? 0,
                 scene.video_duration ?? 0,
@@ -1629,8 +1671,8 @@ function SendToTimelineModal({
                     )}
                   </div>
 
-                  {/* Speed match toggle (narrative only) */}
-                  {isNarrative && hasAudio && hasVideo && (
+                  {/* Speed match toggle — any scene with both audio and video */}
+                  {hasAudio && hasVideo && (
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1865,10 +1907,14 @@ function ChapterAccordion({
     selectedScenes.has(scene.id)
   );
   const selectedTtsCount = selectedSceneList.filter(
-    (scene) => !!scene.audio_text && !scene.audio_url
+    (scene) =>
+      !!scene.audio_text &&
+      !scene.audio_url &&
+      scene.tts_status !== 'generating'
   ).length;
   const selectedVideoCount = selectedSceneList.filter((scene) => {
-    if (!scene.prompt || scene.video_url) return false;
+    if (!scene.prompt || scene.video_url || scene.video_status === 'generating')
+      return false;
     // Don't count narrative scenes that need TTS first
     if (scene.audio_text && !scene.audio_url) return false;
     return true;
@@ -1949,7 +1995,10 @@ function ChapterAccordion({
   const runBatchTts = async () => {
     const targets = chapter.scenes.filter(
       (scene) =>
-        selectedScenes.has(scene.id) && !!scene.audio_text && !scene.audio_url
+        selectedScenes.has(scene.id) &&
+        !!scene.audio_text &&
+        !scene.audio_url &&
+        scene.tts_status !== 'generating'
     );
     if (targets.length < 1) return;
 
@@ -1966,7 +2015,12 @@ function ChapterAccordion({
 
   const runBatchVideo = async () => {
     const targets = chapter.scenes.filter((scene) => {
-      if (!selectedScenes.has(scene.id) || !scene.prompt || scene.video_url)
+      if (
+        !selectedScenes.has(scene.id) ||
+        !scene.prompt ||
+        scene.video_url ||
+        scene.video_status === 'generating'
+      )
         return false;
       // Skip narrative scenes that still need TTS
       const isNarrative = !!scene.audio_text;
@@ -2304,21 +2358,9 @@ function ChapterAccordion({
             {/* Asset Gallery (toggle) */}
             {showAssets && (
               <div className="px-2 py-2 bg-muted/10 rounded-md border border-border/20 space-y-3">
-                <AssetGallery
-                  slugs={locationSlugs}
-                  role="location"
-                  imageMap={imageMap}
-                />
-                <AssetGallery
-                  slugs={characterSlugs}
-                  role="character"
-                  imageMap={imageMap}
-                />
-                <AssetGallery
-                  slugs={propSlugs}
-                  role="prop"
-                  imageMap={imageMap}
-                />
+                <AssetGallery slugs={locationSlugs} imageMap={imageMap} />
+                <AssetGallery slugs={characterSlugs} imageMap={imageMap} />
+                <AssetGallery slugs={propSlugs} imageMap={imageMap} />
               </div>
             )}
 
@@ -2368,6 +2410,11 @@ export default function StoryboardPanel() {
   const [videoId, setVideoIdLocal] = useState<string | null>(null);
   const [chapters, setChapters] = useState<ChapterData[]>([]);
   const [imageMap, setImageMap] = useState<VariantImageMap>(new Map());
+  const [videoAssetSlugs, setVideoAssetSlugs] = useState<{
+    characters: string[];
+    locations: string[];
+    props: string[];
+  }>({ characters: [], locations: [], props: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
@@ -2377,7 +2424,14 @@ export default function StoryboardPanel() {
   );
   const [isSendingChapters, setIsSendingChapters] = useState(false);
   const [videoLevelBatch, setVideoLevelBatch] = useState<{
-    type: 'retry' | 'retry-fal' | 'tts' | 'retry-tts' | 'retry-tts-fal' | null;
+    type:
+      | 'retry'
+      | 'retry-fal'
+      | 'tts'
+      | 'retry-tts'
+      | 'retry-tts-fal'
+      | 'generate-missing'
+      | null;
     done: number;
     total: number;
   } | null>(null);
@@ -2462,15 +2516,25 @@ export default function StoryboardPanel() {
           const { data: sceneRows, error: scError } = await supabase
             .from('scenes')
             .select(
-              'id, chapter_id, "order", title, prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status'
+              'id, chapter_id, "order", title, structured_prompt, audio_text, audio_url, audio_duration, video_url, video_duration, status, location_variant_slug, character_variant_slugs, prop_variant_slugs, tts_status, video_status, tts_generation_metadata, video_generation_metadata'
             )
             .in('chapter_id', epIds)
             .order('"order"', { ascending: true });
 
           if (scError) throw new Error(scError.message);
-          allScenes = (sceneRows ?? []) as unknown as (SceneData & {
-            chapter_id: string;
-          })[];
+          // Map structured_prompt → prompt for backward compat with SceneCard rendering
+          allScenes = (sceneRows ?? []).map((row: any) => ({
+            ...row,
+            prompt: row.structured_prompt
+              ? (row.structured_prompt as Record<string, unknown>[])
+                  .map((s: Record<string, unknown>) =>
+                    Object.values(s)
+                      .filter((v) => typeof v === 'string' && v.trim())
+                      .join(', ')
+                  )
+                  .join('\n')
+              : null,
+          })) as unknown as (SceneData & { chapter_id: string })[];
         }
 
         // Collect all unique variant slugs across scenes
@@ -2481,15 +2545,81 @@ export default function StoryboardPanel() {
           for (const p of s.prop_variant_slugs ?? []) slugSet.add(p);
         }
 
-        // Fetch variant info for all referenced slugs
+        // Fetch variant info: scene-referenced slugs + all video-level asset variants
         const newImageMap = new Map<string, VariantInfo>();
-        if (slugSet.size > 0) {
-          const { data: variantRows } = await supabase
-            .from('project_asset_variants')
-            .select('id, slug, image_url, image_gen_status')
-            .in('slug', [...slugSet]);
+        const variantFields = 'id, slug, image_url, image_gen_status';
 
-          for (const v of variantRows ?? []) {
+        // Fetch all variants for assets belonging to this video (shows assets even without scenes)
+        const [vidCharResult, vidLocResult, vidPropResult] = await Promise.all([
+          supabase
+            .from('character_variants')
+            .select(`${variantFields}, characters!inner(video_id)`)
+            .eq('characters.video_id', videoId),
+          supabase
+            .from('location_variants')
+            .select(`${variantFields}, locations!inner(video_id)`)
+            .eq('locations.video_id', videoId),
+          supabase
+            .from('prop_variants')
+            .select(`${variantFields}, props!inner(video_id)`)
+            .eq('props.video_id', videoId),
+        ]);
+
+        const vidCharSlugs: string[] = [];
+        const vidLocSlugs: string[] = [];
+        const vidPropSlugs: string[] = [];
+
+        const addToMap = (v: {
+          id: string;
+          slug: string;
+          image_url: string | null;
+          image_gen_status: string | null;
+        }) => {
+          if (!v.slug) return;
+          slugSet.add(v.slug);
+          newImageMap.set(v.slug, {
+            id: v.id,
+            image_url: v.image_url,
+            image_gen_status: v.image_gen_status ?? 'idle',
+          });
+        };
+
+        for (const v of vidCharResult.data ?? []) {
+          addToMap(v);
+          if (v.slug) vidCharSlugs.push(v.slug);
+        }
+        for (const v of vidLocResult.data ?? []) {
+          addToMap(v);
+          if (v.slug) vidLocSlugs.push(v.slug);
+        }
+        for (const v of vidPropResult.data ?? []) {
+          addToMap(v);
+          if (v.slug) vidPropSlugs.push(v.slug);
+        }
+
+        // Also fetch any scene-referenced slugs not yet in the map (e.g. project-level assets)
+        const missingSlugs = [...slugSet].filter((s) => !newImageMap.has(s));
+        if (missingSlugs.length > 0) {
+          const [charResult, locResult, propResult] = await Promise.all([
+            supabase
+              .from('character_variants')
+              .select(variantFields)
+              .in('slug', missingSlugs),
+            supabase
+              .from('location_variants')
+              .select(variantFields)
+              .in('slug', missingSlugs),
+            supabase
+              .from('prop_variants')
+              .select(variantFields)
+              .in('slug', missingSlugs),
+          ]);
+
+          for (const v of [
+            ...(charResult.data ?? []),
+            ...(locResult.data ?? []),
+            ...(propResult.data ?? []),
+          ]) {
             if (v.slug) {
               newImageMap.set(v.slug, {
                 id: v.id,
@@ -2523,6 +2653,11 @@ export default function StoryboardPanel() {
         if (!cancelled) {
           setChapters(parsed);
           setImageMap(newImageMap);
+          setVideoAssetSlugs({
+            characters: vidCharSlugs,
+            locations: vidLocSlugs,
+            props: vidPropSlugs,
+          });
           setIsLoading(false);
           hasLoadedOnce.current = true;
         }
@@ -2561,7 +2696,21 @@ export default function StoryboardPanel() {
       .channel('storyboard-variants')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'studio', table: 'project_asset_variants' },
+        { event: 'UPDATE', schema: 'studio', table: 'character_variants' },
+        () => {
+          if (!cancelled) load();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'location_variants' },
+        () => {
+          if (!cancelled) load();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'studio', table: 'prop_variants' },
         () => {
           if (!cancelled) load();
         }
@@ -2866,11 +3015,10 @@ export default function StoryboardPanel() {
                       return;
                     }
 
-                    // Build clips with matchVideoToAudio for all narrative scenes
                     const settings: SceneTimelineSettings[] = allScenes.map(
                       (s) => ({
                         sceneId: s.id,
-                        matchVideoToAudio: !!s.audio_text,
+                        matchVideoToAudio: !!(s.audio_text || s.audio_url),
                       })
                     );
                     const results = await buildSceneClips({
@@ -2955,17 +3103,33 @@ export default function StoryboardPanel() {
             const failedVideoScenes = allScenes.filter(
               (s) => s.video_status === 'failed' && !s.video_url
             );
+            // Scenes whose video generation was never submitted at all —
+            // idle state, no URL, prompt ready, and (for narrative scenes)
+            // TTS already present.
+            const untriedVideoScenes = allScenes.filter((s) => {
+              if (
+                !s.prompt ||
+                s.video_url ||
+                s.video_status === 'generating' ||
+                s.video_status === 'failed' ||
+                s.video_status === 'done'
+              )
+                return false;
+              if (s.audio_text && !s.audio_url) return false;
+              return true;
+            });
             const failedTtsScenes = allScenes.filter(
-              (s) =>
-                s.tts_status === 'failed' && !s.audio_url && !!s.audio_text
+              (s) => s.tts_status === 'failed' && !s.audio_url && !!s.audio_text
             );
             const pendingTtsScenes = allScenes.filter(
-              (s) => !!s.audio_text && !s.audio_url
+              (s) =>
+                !!s.audio_text && !s.audio_url && s.tts_status !== 'generating'
             );
             const isRunning = videoLevelBatch !== null;
 
             if (
               failedVideoScenes.length === 0 &&
+              untriedVideoScenes.length === 0 &&
               failedTtsScenes.length === 0 &&
               pendingTtsScenes.length === 0
             )
@@ -2976,6 +3140,65 @@ export default function StoryboardPanel() {
                 <span className="text-[9px] text-muted-foreground/60 mr-1">
                   Video Actions:
                 </span>
+
+                {untriedVideoScenes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setVideoLevelBatch({
+                        type: 'generate-missing',
+                        done: 0,
+                        total: untriedVideoScenes.length,
+                      });
+                      let failures = 0;
+                      const missingSlugs = new Set<string>();
+                      let firstError: string | undefined;
+                      try {
+                        for (const [i, scene] of untriedVideoScenes.entries()) {
+                          const result = await callGenerateApi(
+                            `/api/v2/scenes/${scene.id}/generate-video`
+                          );
+                          if (!result.ok) {
+                            failures++;
+                            if (!firstError && result.error)
+                              firstError = result.error;
+                            for (const s of result.missing_slugs ?? [])
+                              missingSlugs.add(s);
+                          }
+                          setVideoLevelBatch({
+                            type: 'generate-missing',
+                            done: i + 1,
+                            total: untriedVideoScenes.length,
+                          });
+                        }
+                        if (failures === 0) {
+                          toast.success(
+                            `Started generation for ${untriedVideoScenes.length} scene(s)`
+                          );
+                        } else if (missingSlugs.size > 0) {
+                          const slugList = Array.from(missingSlugs).join(', ');
+                          toast.error(
+                            `Missing variant images — generate these first: ${slugList}`
+                          );
+                        } else {
+                          toast.error(
+                            `Failed to start ${failures}/${untriedVideoScenes.length} scene(s)${
+                              firstError ? `: ${firstError}` : ''
+                            }`
+                          );
+                        }
+                      } finally {
+                        setVideoLevelBatch(null);
+                      }
+                    }}
+                    disabled={isRunning}
+                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Scenes that were never submitted to the video generator"
+                  >
+                    <IconSparkles className="size-2.5" />
+                    Generate Missing ({untriedVideoScenes.length})
+                  </button>
+                )}
 
                 {failedVideoScenes.length > 0 && (
                   <button
@@ -3174,7 +3397,9 @@ export default function StoryboardPanel() {
                           ? 'Retrying TTS'
                           : videoLevelBatch.type === 'retry-tts-fal'
                             ? 'Retrying TTS (fal.ai)'
-                            : 'Generating TTS'}{' '}
+                            : videoLevelBatch.type === 'generate-missing'
+                              ? 'Generating missing'
+                              : 'Generating TTS'}{' '}
                     {videoLevelBatch.done}/{videoLevelBatch.total}...
                   </span>
                 )}
@@ -3187,31 +3412,35 @@ export default function StoryboardPanel() {
           <FullScriptSection chapters={chapters} />
         )}
 
-        {/* Video-level Assets */}
+        {/* Video-level Assets — includes video-owned assets + scene-referenced */}
         {imageMap.size > 0 &&
           (() => {
+            // Merge video-level asset slugs with scene-referenced slugs
             const allLocationSlugs = [
-              ...new Set(
-                chapters.flatMap((ch) =>
+              ...new Set([
+                ...videoAssetSlugs.locations,
+                ...chapters.flatMap((ch) =>
                   ch.scenes
                     .map((s) => s.location_variant_slug)
                     .filter((s): s is string => !!s)
-                )
-              ),
+                ),
+              ]),
             ];
             const allCharacterSlugs = [
-              ...new Set(
-                chapters.flatMap((ch) =>
+              ...new Set([
+                ...videoAssetSlugs.characters,
+                ...chapters.flatMap((ch) =>
                   ch.scenes.flatMap((s) => s.character_variant_slugs ?? [])
-                )
-              ),
+                ),
+              ]),
             ];
             const allPropSlugs = [
-              ...new Set(
-                chapters.flatMap((ch) =>
+              ...new Set([
+                ...videoAssetSlugs.props,
+                ...chapters.flatMap((ch) =>
                   ch.scenes.flatMap((s) => s.prop_variant_slugs ?? [])
-                )
-              ),
+                ),
+              ]),
             ];
             const totalAssets =
               allLocationSlugs.length +

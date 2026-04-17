@@ -8,6 +8,7 @@ import {
 } from '@/lib/kieai';
 import { probeMediaDuration } from '@/lib/media-probe';
 import { transcribeSceneVideo } from '@/lib/transcribe/transcribe-url';
+import { updateVariantByIdSafe } from '@/lib/api/variant-table-resolver';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -452,7 +453,7 @@ async function handleGenerateVideo(params: {
   sceneId: string;
   log: Logger;
 }): Promise<Response> {
-  const { supabase, payload, taskId, sceneId, log } = params;
+  const { supabase, payload, sceneId } = params;
 
   const state = payload.data?.state ?? null;
   if (isInProgressState(state)) {
@@ -894,10 +895,10 @@ async function handleVideoAssetImage(params: {
   }
 
   if (isFailureState(state)) {
-    await supabase
-      .from('project_asset_variants')
-      .update({ image_gen_status: 'failed', image_task_id: null })
-      .eq('id', variantId);
+    await updateVariantByIdSafe(supabase, variantId, {
+      image_gen_status: 'failed',
+      image_task_id: null,
+    });
 
     return okResponse({
       success: true,
@@ -910,10 +911,10 @@ async function handleVideoAssetImage(params: {
   const imageUrl = extractImageUrl(result);
 
   if (!imageUrl) {
-    await supabase
-      .from('project_asset_variants')
-      .update({ image_gen_status: 'failed', image_task_id: null })
-      .eq('id', variantId);
+    await updateVariantByIdSafe(supabase, variantId, {
+      image_gen_status: 'failed',
+      image_task_id: null,
+    });
 
     return okResponse({
       success: true,
@@ -924,14 +925,11 @@ async function handleVideoAssetImage(params: {
   }
 
   // Use kie.ai URL directly — no download/upload to Storage
-  await supabase
-    .from('project_asset_variants')
-    .update({
-      image_url: imageUrl,
-      image_gen_status: 'done',
-      image_task_id: null,
-    })
-    .eq('id', variantId);
+  await updateVariantByIdSafe(supabase, variantId, {
+    image_url: imageUrl,
+    image_gen_status: 'done',
+    image_task_id: null,
+  });
 
   log.info('Project asset image URL saved from kie webhook', {
     variant_id: variantId,

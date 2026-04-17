@@ -2,11 +2,23 @@
  * Video Production Engine service — CRUD for video, assets, variants,
  * chapters, and chapter asset maps.
  *
- * Phase 1 schema-rewire notes:
- * - Canonical tables: video, series_assets, series_asset_variants, chapters.
- * - Canonical refs: variant slug in chapters.asset_variant_map and scene refs.
- * - Legacy compatibility fields are still exposed in API payloads where needed
- *   (for incremental UI migration).
+ * SCHEMA DRIFT (migration sync_schema_with_docs, 2026-04-13):
+ * - `project_assets` / `project_asset_variants` were split into the typed tables
+ *   `characters|locations|props` and `character_variants|location_variants|prop_variants`.
+ * - `videos` lost its `video_model`, `video_resolution`, `aspect_ratio`, `genre`,
+ *   `tone`, `bible`, `content_mode`, `language`, `visual_style`, `creative_brief`,
+ *   `plan_status` columns — video generation settings moved to
+ *   `projects.generation_settings` jsonb.
+ *
+ * Hot paths (updateVideoAsset/deleteVideoAsset/updateAssetVariant/deleteAssetVariant)
+ * have been rewired to the typed tables via `lib/api/variant-table-resolver`.
+ *
+ * The remaining functions below (listVideo, getVideo, getVideoWithAssets,
+ * createVideo, listVideoAssets, createVideoAsset, listAssetVariants,
+ * createAssetVariant, toVariantWithCompatibility, and the Video/VideoAsset/
+ * VideoAssetVariant types) still reference dropped columns/tables and will
+ * fail at runtime. They back the `/api/videos/...` legacy routes which are
+ * not on the user-facing v2 flow. See plan file for migration order.
  */
 
 // Character image types (inlined after character-service removal)
@@ -163,7 +175,6 @@ export interface VideoChapterWithVariants extends VideoChapter {
 
 // ── Client type alias ─────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: supabase route clients are untyped across this codebase
 export type SupabaseClient = any;
 
 const SERIES_ASSETS_BUCKET = 'video-assets';
@@ -719,23 +730,48 @@ export async function updateVideoAsset(
     sort_order?: number;
   }
 ): Promise<VideoAsset> {
-  const updates: Record<string, unknown> = { ...input };
+  const { ASSET_TABLE_BY_TYPE, resolveAssetTable, assetTypeFromAssetTable } =
+    await import('@/lib/api/variant-table-resolver');
 
+  // Allow caller to specify type for a single-query update; otherwise resolve it.
+  const table = input.type
+    ? ASSET_TABLE_BY_TYPE[input.type]
+    : await resolveAssetTable(supabase, assetId);
+  if (!table) {
+    throw new Error(`Asset ${assetId} not found in any typed asset table`);
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (input.name !== undefined) updates.name = input.name;
+  if (input.slug !== undefined) updates.slug = input.slug;
+  if (input.description !== undefined) updates.use_case = input.description;
+  if (input.sort_order !== undefined) updates.sort_order = input.sort_order;
   if (input.name && input.slug === undefined) {
     updates.slug = slugify(input.name);
   }
 
   const { data, error } = await supabase
-    .from('project_assets')
+    .from(table)
     .update(updates)
     .eq('id', assetId)
-    .select()
+    .select(
+      'id, project_id, video_id, name, slug, use_case, sort_order, created_at, updated_at'
+    )
     .single();
 
   if (error) throw new Error(`Failed to update video asset: ${error.message}`);
 
+  const row = data as Record<string, unknown>;
   return {
-    ...(data as VideoAsset),
+    id: row.id as string,
+    video_id: (row.video_id as string | null) ?? '',
+    type: assetTypeFromAssetTable(table),
+    name: row.name as string,
+    slug: row.slug as string,
+    description: (row.use_case as string | null) ?? null,
+    sort_order: (row.sort_order as number) ?? 0,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
     tags: [],
     character_id: null,
   };
@@ -745,11 +781,14 @@ export async function deleteVideoAsset(
   supabase: SupabaseClient,
   assetId: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from('project_assets')
-    .delete()
-    .eq('id', assetId);
-
+  const { resolveAssetTable } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const table = await resolveAssetTable(supabase, assetId);
+  if (!table) {
+    throw new Error(`Asset ${assetId} not found in any typed asset table`);
+  }
+  const { error } = await supabase.from(table).delete().eq('id', assetId);
   if (error) throw new Error(`Failed to delete video asset: ${error.message}`);
 }
 
@@ -842,6 +881,27 @@ export async function updateAssetVariant(
     reasoning?: string | null;
   }
 ): Promise<VideoAssetVariant> {
+  const { ASSET_FK_BY_TYPE, resolveVariantTable, assetTypeFromVariantTable } =
+    await import('@/lib/api/variant-table-resolver');
+
+  const variantTable = await resolveVariantTable(supabase, variantId);
+  if (!variantTable) throw new Error('Variant not found');
+  const parentFk = ASSET_FK_BY_TYPE[assetTypeFromVariantTable(variantTable)];
+
+  // Load existing structured_prompt so prompt/reasoning patches merge in.
+  const { data: existing } = await supabase
+    .from(variantTable)
+    .select(`structured_prompt, ${parentFk}`)
+    .eq('id', variantId)
+    .single();
+
+  if (!existing) throw new Error('Variant not found');
+
+  const existingSP: Record<string, unknown> =
+    existing.structured_prompt && typeof existing.structured_prompt === 'object'
+      ? { ...(existing.structured_prompt as Record<string, unknown>) }
+      : {};
+
   const updates: Record<string, unknown> = {};
 
   if (input.name !== undefined || input.label !== undefined) {
@@ -859,27 +919,36 @@ export async function updateAssetVariant(
     updates.slug = nextSlug;
   }
 
-  if (input.prompt !== undefined) updates.prompt = asNullableText(input.prompt);
+  let structuredPromptDirty = false;
+  if (input.prompt !== undefined) {
+    const v = asNullableText(input.prompt);
+    if (v === null) delete existingSP.prompt;
+    else existingSP.prompt = v;
+    structuredPromptDirty = true;
+  }
+  if (input.reasoning !== undefined) {
+    const v = asNullableText(input.reasoning);
+    if (v === null) delete existingSP.reasoning;
+    else existingSP.reasoning = v;
+    structuredPromptDirty = true;
+  }
+  if (structuredPromptDirty) {
+    updates.structured_prompt = Object.keys(existingSP).length
+      ? existingSP
+      : null;
+  }
+
   if (input.image_url !== undefined)
     updates.image_url = asNullableText(input.image_url);
-  if (input.reasoning !== undefined)
-    updates.reasoning = asNullableText(input.reasoning);
 
   if (input.is_main === true) {
-    const { data: variantData, error: variantError } = await supabase
-      .from('project_asset_variants')
-      .select('asset_id')
-      .eq('id', variantId)
-      .single();
-
-    if (variantError || !variantData?.asset_id) {
-      throw new Error('Variant not found');
-    }
+    const parentId = existing[parentFk] as string | null | undefined;
+    if (!parentId) throw new Error('Variant not found');
 
     const { error: resetError } = await supabase
-      .from('project_asset_variants')
+      .from(variantTable)
       .update({ is_main: false })
-      .eq('asset_id', variantData.asset_id)
+      .eq(parentFk, parentId)
       .eq('is_main', true)
       .neq('id', variantId);
 
@@ -895,7 +964,7 @@ export async function updateAssetVariant(
   }
 
   const { data, error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .update(updates)
     .eq('id', variantId)
     .select()
@@ -914,8 +983,13 @@ export async function deleteAssetVariant(
   supabase: SupabaseClient,
   variantId: string
 ): Promise<void> {
+  const { resolveVariantTable } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const variantTable = await resolveVariantTable(supabase, variantId);
+  if (!variantTable) throw new Error('Variant not found');
   const { error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .delete()
     .eq('id', variantId);
 

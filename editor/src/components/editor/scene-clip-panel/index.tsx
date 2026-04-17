@@ -19,10 +19,7 @@ import { ExpandableText } from '@/components/editor/media-panel/shared/expandabl
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
-import {
-  InputGroup,
-  InputGroupAddon,
-} from '@/components/ui/input-group';
+import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { NumberInput } from '@/components/ui/number-input';
 import {
   IconVolume,
@@ -480,7 +477,11 @@ function SceneSection({
                         const supabase = createClient('studio');
                         const { error } = await supabase
                           .from('scenes')
-                          .update({ prompt: editPromptText.trim() })
+                          .update({
+                            structured_prompt: [
+                              { prompt: editPromptText.trim() },
+                            ],
+                          })
                           .eq('id', sceneId);
                         if (error) throw new Error(error.message);
                         setIsEditingPrompt(false);
@@ -525,7 +526,6 @@ function SceneSection({
               onChange={(e) => setEditPromptText(e.target.value)}
               className="w-full text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-primary/30 focus:border-primary/50 outline-none resize-y min-h-[80px]"
               rows={6}
-              autoFocus
             />
           ) : (
             <p className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">

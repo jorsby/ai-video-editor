@@ -36,7 +36,7 @@ export function resolveAssetImageUrl(
 
 /**
  * Given a set of variant IDs from scene objects/backgrounds,
- * loads the latest image URL for each from project_asset_variants.
+ * loads the latest image URL for each from the typed variant tables.
  * Returns a map: variantId -> imageUrl
  */
 export function useAssetImageResolver(variantIds: string[]): AssetImageMap {
@@ -59,15 +59,27 @@ export function useAssetImageResolver(variantIds: string[]): AssetImageMap {
     const supabase = createClient('studio');
 
     async function resolve() {
-      const { data } = await supabase
-        .from('project_asset_variants')
-        .select('id, image_url')
-        .in('id', uniqueVariantIds);
+      const fields = 'id, image_url';
+      const [charResult, locResult, propResult] = await Promise.all([
+        supabase
+          .from('character_variants')
+          .select(fields)
+          .in('id', uniqueVariantIds),
+        supabase
+          .from('location_variants')
+          .select(fields)
+          .in('id', uniqueVariantIds),
+        supabase
+          .from('prop_variants')
+          .select(fields)
+          .in('id', uniqueVariantIds),
+      ]);
 
-      if (!data) {
-        setImageMap({});
-        return;
-      }
+      const data = [
+        ...(charResult.data ?? []),
+        ...(locResult.data ?? []),
+        ...(propResult.data ?? []),
+      ];
 
       const map: AssetImageMap = {};
 

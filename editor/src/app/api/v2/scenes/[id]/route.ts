@@ -5,7 +5,6 @@ import { createServiceClient } from '@/lib/supabase/admin';
 type RouteContext = { params: Promise<{ id: string }> };
 
 type SceneStatus = 'draft' | 'ready' | 'in_progress' | 'done' | 'failed';
-type ContentMode = 'narrative' | 'cinematic' | 'hybrid';
 
 type SceneRecord = {
   id: string;
@@ -14,9 +13,7 @@ type SceneRecord = {
   title: string | null;
   audio_duration: number | null;
   video_duration: number | null;
-  content_mode: ContentMode | null;
-  visual_direction: string | null;
-  prompt: string | null;
+  structured_prompt: Record<string, unknown>[] | null;
   location_variant_slug: string | null;
   character_variant_slugs: string[];
   prop_variant_slugs: string[];
@@ -29,7 +26,7 @@ type SceneRecord = {
 };
 
 const SCENE_SELECT =
-  'id, chapter_id, order, title, content_mode, visual_direction, prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
+  'id, chapter_id, order, title, structured_prompt, location_variant_slug, character_variant_slugs, prop_variant_slugs, audio_text, audio_url, audio_duration, video_url, video_duration, status, created_at, updated_at';
 
 const SCENE_STATUSES = new Set<SceneStatus>([
   'draft',
@@ -37,12 +34,6 @@ const SCENE_STATUSES = new Set<SceneStatus>([
   'in_progress',
   'done',
   'failed',
-]);
-
-const CONTENT_MODES = new Set<ContentMode>([
-  'narrative',
-  'cinematic',
-  'hybrid',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -190,22 +181,6 @@ function parseScenePatch(body: Record<string, unknown>): {
   if (videoDuration.value !== undefined)
     updates.video_duration = videoDuration.value;
 
-  if (body.content_mode !== undefined) {
-    if (body.content_mode === null) {
-      updates.content_mode = null;
-    } else if (
-      typeof body.content_mode === 'string' &&
-      CONTENT_MODES.has(body.content_mode as ContentMode)
-    ) {
-      updates.content_mode = body.content_mode as ContentMode;
-    } else {
-      return {
-        updates,
-        error: 'content_mode must be one of: narrative, cinematic, hybrid',
-      };
-    }
-  }
-
   if (body.status !== undefined) {
     if (
       typeof body.status !== 'string' ||
@@ -223,18 +198,28 @@ function parseScenePatch(body: Record<string, unknown>): {
   if (title.error) return { updates, error: title.error };
   if (title.value !== undefined) updates.title = title.value;
 
-  const visualDirection = toNullableString(
-    body.visual_direction,
-    'visual_direction'
-  );
-  if (visualDirection.error) return { updates, error: visualDirection.error };
-  if (visualDirection.value !== undefined) {
-    updates.visual_direction = visualDirection.value;
+  if (body.structured_prompt !== undefined) {
+    if (body.structured_prompt === null) {
+      updates.structured_prompt = null;
+    } else if (Array.isArray(body.structured_prompt)) {
+      if (
+        body.structured_prompt.some(
+          (seg) => !seg || typeof seg !== 'object' || Array.isArray(seg)
+        )
+      ) {
+        return {
+          updates,
+          error: 'structured_prompt must be an array of objects or null',
+        };
+      }
+      updates.structured_prompt = body.structured_prompt;
+    } else {
+      return {
+        updates,
+        error: 'structured_prompt must be an array of objects or null',
+      };
+    }
   }
-
-  const prompt = toNullableString(body.prompt, 'prompt');
-  if (prompt.error) return { updates, error: prompt.error };
-  if (prompt.value !== undefined) updates.prompt = prompt.value;
 
   const locationVariantSlug = toNullableString(
     body.location_variant_slug,
