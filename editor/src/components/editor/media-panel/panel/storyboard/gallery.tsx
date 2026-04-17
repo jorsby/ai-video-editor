@@ -333,9 +333,21 @@ export function VideoAssetsSection({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-2 py-2 mt-1 bg-muted/10 rounded-md border border-border/20 space-y-3">
-          <AssetGallery slugs={locationSlugs} imageMap={imageMap} />
-          <AssetGallery slugs={characterSlugs} imageMap={imageMap} />
-          <AssetGallery slugs={propSlugs} imageMap={imageMap} />
+          <AssetGallery
+            slugs={locationSlugs}
+            assetRole="location"
+            imageMap={imageMap}
+          />
+          <AssetGallery
+            slugs={characterSlugs}
+            assetRole="character"
+            imageMap={imageMap}
+          />
+          <AssetGallery
+            slugs={propSlugs}
+            assetRole="prop"
+            imageMap={imageMap}
+          />
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -346,11 +358,11 @@ export function VideoAssetsSection({
 
 export function AssetGallery({
   slugs,
-  role,
+  assetRole,
   imageMap,
 }: {
   slugs: string[];
-  role: 'character' | 'location' | 'prop';
+  assetRole: 'character' | 'location' | 'prop';
   imageMap: VariantImageMap;
 }) {
   if (slugs.length === 0) return null;
@@ -359,7 +371,7 @@ export function AssetGallery({
     character: { icon: IconUser, color: 'blue', label: 'Characters' },
     location: { icon: IconMapPin, color: 'emerald', label: 'Locations' },
     prop: { icon: IconBox, color: 'amber', label: 'Props' },
-  }[role];
+  }[assetRole];
 
   const Icon = roleConfig.icon;
 

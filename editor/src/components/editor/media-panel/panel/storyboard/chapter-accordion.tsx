@@ -635,9 +635,21 @@ export function ChapterAccordion({
             {/* Asset Gallery (toggle) */}
             {showAssets && (
               <div className="px-2 py-2 bg-muted/10 rounded-md border border-border/20 space-y-3">
-                <AssetGallery slugs={locationSlugs} imageMap={imageMap} />
-                <AssetGallery slugs={characterSlugs} imageMap={imageMap} />
-                <AssetGallery slugs={propSlugs} imageMap={imageMap} />
+                <AssetGallery
+                  slugs={locationSlugs}
+                  assetRole="location"
+                  imageMap={imageMap}
+                />
+                <AssetGallery
+                  slugs={characterSlugs}
+                  assetRole="character"
+                  imageMap={imageMap}
+                />
+                <AssetGallery
+                  slugs={propSlugs}
+                  assetRole="prop"
+                  imageMap={imageMap}
+                />
               </div>
             )}
 
