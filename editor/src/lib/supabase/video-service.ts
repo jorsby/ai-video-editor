@@ -2,23 +2,18 @@
  * Video Production Engine service — CRUD for video, assets, variants,
  * chapters, and chapter asset maps.
  *
- * SCHEMA DRIFT (migration sync_schema_with_docs, 2026-04-13):
- * - `project_assets` / `project_asset_variants` were split into the typed tables
- *   `characters|locations|props` and `character_variants|location_variants|prop_variants`.
- * - `videos` lost its `video_model`, `video_resolution`, `aspect_ratio`, `genre`,
- *   `tone`, `bible`, `content_mode`, `language`, `visual_style`, `creative_brief`,
- *   `plan_status` columns — video generation settings moved to
+ * SCHEMA (post-migration sync_schema_with_docs, 2026-04-13):
+ * - Assets live in the typed pairs `characters|locations|props` +
+ *   `character_variants|location_variants|prop_variants`.
+ * - `videos` has only `id, user_id, project_id, name, synopsis, created_at,
+ *   updated_at`. All other generation settings (voice_id, tts_speed, language,
+ *   video_model, video_resolution, aspect_ratio, image_models, genre, tone,
+ *   bible, content_mode, visual_style, creative_brief, plan_status) live in
  *   `projects.generation_settings` jsonb.
  *
- * Hot paths (updateVideoAsset/deleteVideoAsset/updateAssetVariant/deleteAssetVariant)
- * have been rewired to the typed tables via `lib/api/variant-table-resolver`.
- *
- * The remaining functions below (listVideo, getVideo, getVideoWithAssets,
- * createVideo, listVideoAssets, createVideoAsset, listAssetVariants,
- * createAssetVariant, toVariantWithCompatibility, and the Video/VideoAsset/
- * VideoAssetVariant types) still reference dropped columns/tables and will
- * fail at runtime. They back the `/api/videos/...` legacy routes which are
- * not on the user-facing v2 flow. See plan file for migration order.
+ * The Video / VideoAsset / VideoAssetVariant shapes exposed here flatten the
+ * settings back onto the video for legacy compatibility with clients of the
+ * non-v2 `/api/videos/...` routes.
  */
 
 // Character image types (inlined after character-service removal)
@@ -256,15 +251,59 @@ function normalizeChapterAssetVariantMap(
   };
 }
 
-function toLegacyVideoRow(row: Record<string, unknown>): Video {
-  const creativeBrief = asJsonRecordOrNull(row.creative_brief);
+function toLegacyVideoRow(
+  row: Record<string, unknown>,
+  settings: Record<string, unknown> = {}
+): Video {
+  const creativeBrief = asJsonRecordOrNull(settings.creative_brief);
+  const contentMode =
+    typeof settings.content_mode === 'string'
+      ? (settings.content_mode as VideoContentMode)
+      : 'narrative';
+  const planStatus =
+    typeof settings.plan_status === 'string'
+      ? (settings.plan_status as VideoPlanStatus)
+      : 'draft';
+  const ttsSpeed =
+    typeof settings.tts_speed === 'number' &&
+    Number.isFinite(settings.tts_speed)
+      ? (settings.tts_speed as number)
+      : null;
 
   return {
-    ...(row as unknown as Video),
-    visual_style: parseVisualStyle(row.visual_style),
+    id: row.id as string,
+    user_id: row.user_id as string,
+    project_id: row.project_id as string,
+    name: (row.name as string) ?? '',
+    genre: asNullableText(settings.genre),
+    tone: asNullableText(settings.tone),
+    bible: asNullableText(settings.bible),
+    content_mode: contentMode,
+    language: asNullableText(settings.language),
+    aspect_ratio: asNullableText(settings.aspect_ratio),
+    video_model: asNullableText(settings.video_model),
+    voice_id: asNullableText(settings.voice_id),
+    tts_speed: ttsSpeed,
+    visual_style: parseVisualStyle(settings.visual_style),
     creative_brief: creativeBrief,
+    plan_status: planStatus,
+    created_at: (row.created_at as string) ?? new Date().toISOString(),
+    updated_at: (row.updated_at as string) ?? new Date().toISOString(),
     metadata: creativeBrief ?? {},
   };
+}
+
+async function fetchProjectGenerationSettings(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Record<string, unknown>> {
+  const { data } = await supabase
+    .from('projects')
+    .select('generation_settings')
+    .eq('id', projectId)
+    .maybeSingle();
+  const gs = data?.generation_settings;
+  return gs && typeof gs === 'object' ? (gs as Record<string, unknown>) : {};
 }
 
 function resolveVariantImageUrl(
@@ -433,31 +472,44 @@ async function buildChapterLegacyAssetRows(
   if (slugs.length === 0) return [];
   const projectId = await resolveProjectIdForVideo(supabase, videoId);
 
-  const { data: assetsData, error } = await supabase
-    .from('project_assets')
-    .select('id, type, series_asset_variants:project_asset_variants(slug)')
-    .eq('project_id', projectId);
+  const { ASSET_TABLE_BY_TYPE, VARIANT_TABLE_BY_TYPE } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
 
-  if (error) {
-    throw new Error(`Failed to resolve chapter asset map: ${error.message}`);
-  }
-
+  const types: VideoAssetType[] = ['character', 'location', 'prop'];
   const slugToAsset = new Map<
     string,
     { assetId: string; type: VideoAssetType }
   >();
 
-  for (const asset of (assetsData ?? []) as Array<{
-    id: string;
-    type: VideoAssetType;
-    series_asset_variants: Array<{ slug: string }> | null;
-  }>) {
-    for (const variant of asset.series_asset_variants ?? []) {
-      if (typeof variant.slug === 'string' && variant.slug.trim()) {
-        slugToAsset.set(variant.slug, { assetId: asset.id, type: asset.type });
+  await Promise.all(
+    types.map(async (t) => {
+      const parent = ASSET_TABLE_BY_TYPE[t];
+      const variantTable = VARIANT_TABLE_BY_TYPE[t];
+      const { data, error } = await supabase
+        .from(parent)
+        .select(`id, ${variantTable}(slug)`)
+        .eq('project_id', projectId);
+      if (error) {
+        throw new Error(
+          `Failed to resolve chapter asset map (${t}): ${error.message}`
+        );
       }
-    }
-  }
+      for (const asset of (data ?? []) as Array<Record<string, unknown>>) {
+        const variants = Array.isArray(asset[variantTable])
+          ? (asset[variantTable] as Array<{ slug: string | null }>)
+          : [];
+        for (const variant of variants) {
+          if (typeof variant.slug === 'string' && variant.slug.trim()) {
+            slugToAsset.set(variant.slug, {
+              assetId: asset.id as string,
+              type: t,
+            });
+          }
+        }
+      }
+    })
+  );
 
   const rows: ChapterAssetMap[] = [];
   for (const slug of slugs) {
@@ -489,8 +541,40 @@ export async function listVideo(
     .order('updated_at', { ascending: false });
 
   if (error) throw new Error(`Failed to list video: ${error.message}`);
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
-    toLegacyVideoRow(row)
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) return [];
+
+  // Batch-fetch each project's generation_settings to merge back into Video shape.
+  const projectIds = Array.from(
+    new Set(
+      rows
+        .map((r) => (typeof r.project_id === 'string' ? r.project_id : null))
+        .filter((v): v is string => !!v)
+    )
+  );
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id, generation_settings')
+    .in('id', projectIds);
+
+  const settingsByProject = new Map<string, Record<string, unknown>>();
+  for (const p of (projects ?? []) as Array<{
+    id: string;
+    generation_settings: unknown;
+  }>) {
+    settingsByProject.set(
+      p.id,
+      p.generation_settings && typeof p.generation_settings === 'object'
+        ? (p.generation_settings as Record<string, unknown>)
+        : {}
+    );
+  }
+
+  return rows.map((row) =>
+    toLegacyVideoRow(
+      row,
+      settingsByProject.get(String(row.project_id ?? '')) ?? {}
+    )
   );
 }
 
@@ -511,7 +595,12 @@ export async function getVideo(
     throw new Error(`Failed to get video: ${error.message}`);
   }
 
-  return toLegacyVideoRow((data ?? {}) as Record<string, unknown>);
+  const row = (data ?? {}) as Record<string, unknown>;
+  const settings = await fetchProjectGenerationSettings(
+    supabase,
+    String(row.project_id ?? '')
+  );
+  return toLegacyVideoRow(row, settings);
 }
 
 export async function getVideoWithAssets(
@@ -521,9 +610,7 @@ export async function getVideoWithAssets(
 ): Promise<VideoWithAssets | null> {
   const { data, error } = await supabase
     .from('videos')
-    .select(
-      '*, series_assets:project_assets(*, series_asset_variants:project_asset_variants(*))'
-    )
+    .select('*')
     .eq('id', videoId)
     .eq('user_id', userId)
     .single();
@@ -536,15 +623,66 @@ export async function getVideoWithAssets(
   if (!data) return null;
 
   const row = data as Record<string, unknown>;
-  const assetsRaw = Array.isArray(row.series_assets)
-    ? (row.series_assets as Record<string, unknown>[])
-    : [];
+  const projectId = String(row.project_id ?? '');
+
+  // Parallel: generation_settings + typed assets with their variants.
+  const { ASSET_TABLE_BY_TYPE, VARIANT_TABLE_BY_TYPE } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const types: Array<'character' | 'location' | 'prop'> = [
+    'character',
+    'location',
+    'prop',
+  ];
+  const [settings, ...typedResults] = await Promise.all([
+    fetchProjectGenerationSettings(supabase, projectId),
+    ...types.map(async (t) => {
+      const parent = ASSET_TABLE_BY_TYPE[t];
+      const variantTable = VARIANT_TABLE_BY_TYPE[t];
+      const { data: assets } = await supabase
+        .from(parent)
+        .select(`*, ${variantTable}(*)`)
+        .eq('project_id', projectId)
+        .order('sort_order', { ascending: true });
+      return { type: t, variantTable, assets: assets ?? [] };
+    }),
+  ]);
+
+  const assetsFlat: VideoAssetWithVariants[] = [];
+  for (const bucket of typedResults as Array<{
+    type: 'character' | 'location' | 'prop';
+    variantTable: string;
+    assets: Record<string, unknown>[];
+  }>) {
+    for (const asset of bucket.assets) {
+      const variants = Array.isArray(asset[bucket.variantTable])
+        ? (asset[bucket.variantTable] as Record<string, unknown>[])
+        : [];
+      assetsFlat.push(
+        toAssetWithCompatibility(supabase, {
+          ...asset,
+          type: bucket.type,
+          video_id: videoId,
+          description: (asset.use_case as string | null | undefined) ?? null,
+          series_asset_variants: variants.map((v) => ({
+            ...v,
+            asset_id: asset.id,
+            prompt:
+              v.structured_prompt &&
+              typeof v.structured_prompt === 'object' &&
+              typeof (v.structured_prompt as Record<string, unknown>).prompt ===
+                'string'
+                ? (v.structured_prompt as Record<string, string>).prompt
+                : null,
+          })),
+        })
+      );
+    }
+  }
 
   return {
-    ...toLegacyVideoRow(row),
-    series_assets: assetsRaw.map((asset) =>
-      toAssetWithCompatibility(supabase, asset)
-    ),
+    ...toLegacyVideoRow(row, settings),
+    series_assets: assetsFlat,
   };
 }
 
@@ -575,33 +713,66 @@ export async function createVideo(
     videoName: input.name,
   });
 
+  // Settings live in projects.generation_settings; only id/name/user stay on videos.
+  const existing = await fetchProjectGenerationSettings(supabase, projectId);
+  const settingsPatch: Record<string, unknown> = {
+    ...existing,
+    ...(asNullableText(input.genre) !== null
+      ? { genre: asNullableText(input.genre) }
+      : {}),
+    ...(asNullableText(input.tone) !== null
+      ? { tone: asNullableText(input.tone) }
+      : {}),
+    ...(asNullableText(input.bible) !== null
+      ? { bible: asNullableText(input.bible) }
+      : {}),
+    content_mode: input.content_mode ?? 'narrative',
+    ...(asNullableText(input.language) !== null
+      ? { language: asNullableText(input.language) }
+      : {}),
+    ...(asNullableText(input.aspect_ratio) !== null
+      ? { aspect_ratio: asNullableText(input.aspect_ratio) }
+      : {}),
+    ...(asNullableText(input.video_model) !== null
+      ? { video_model: asNullableText(input.video_model) }
+      : {}),
+    ...(asNullableText(input.voice_id) !== null
+      ? { voice_id: asNullableText(input.voice_id) }
+      : {}),
+    ...(typeof input.tts_speed === 'number' && Number.isFinite(input.tts_speed)
+      ? { tts_speed: input.tts_speed }
+      : {}),
+    ...(toDbVisualStyle(input.visual_style) !== null
+      ? { visual_style: toDbVisualStyle(input.visual_style) }
+      : {}),
+    ...(input.creative_brief ? { creative_brief: input.creative_brief } : {}),
+    plan_status: input.plan_status ?? 'draft',
+  };
+
+  const { error: settingsError } = await supabase
+    .from('projects')
+    .update({ generation_settings: settingsPatch })
+    .eq('id', projectId);
+  if (settingsError)
+    throw new Error(
+      `Failed to persist generation settings: ${settingsError.message}`
+    );
+
   const { data, error } = await supabase
     .from('videos')
     .insert({
       user_id: userId,
       project_id: projectId,
       name: input.name,
-      genre: asNullableText(input.genre),
-      tone: asNullableText(input.tone),
-      bible: asNullableText(input.bible),
-      content_mode: input.content_mode ?? 'narrative',
-      language: asNullableText(input.language),
-      aspect_ratio: asNullableText(input.aspect_ratio),
-      video_model: asNullableText(input.video_model),
-      voice_id: asNullableText(input.voice_id),
-      tts_speed:
-        typeof input.tts_speed === 'number' && Number.isFinite(input.tts_speed)
-          ? input.tts_speed
-          : null,
-      visual_style: toDbVisualStyle(input.visual_style),
-      creative_brief: input.creative_brief ?? null,
-      plan_status: input.plan_status ?? 'draft',
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create video: ${error.message}`);
-  return toLegacyVideoRow((data ?? {}) as Record<string, unknown>);
+  return toLegacyVideoRow(
+    (data ?? {}) as Record<string, unknown>,
+    settingsPatch
+  );
 }
 
 export async function updateVideo(
@@ -624,22 +795,77 @@ export async function updateVideo(
     plan_status?: VideoPlanStatus;
   }
 ): Promise<Video> {
-  const updates: Record<string, unknown> = { ...input };
+  // Only `name` is still a real column on videos; everything else is
+  // `projects.generation_settings`.
+  const videoUpdates: Record<string, unknown> = {};
+  if (typeof input.name === 'string') videoUpdates.name = input.name;
 
-  if ('visual_style' in input) {
-    updates.visual_style = toDbVisualStyle(input.visual_style);
-  }
+  const settingsPatch: Record<string, unknown> = {};
+  if (input.genre !== undefined) settingsPatch.genre = input.genre;
+  if (input.tone !== undefined) settingsPatch.tone = input.tone;
+  if (input.bible !== undefined) settingsPatch.bible = input.bible;
+  if (input.content_mode !== undefined)
+    settingsPatch.content_mode = input.content_mode;
+  if (input.language !== undefined) settingsPatch.language = input.language;
+  if (input.aspect_ratio !== undefined)
+    settingsPatch.aspect_ratio = input.aspect_ratio;
+  if (input.video_model !== undefined)
+    settingsPatch.video_model = input.video_model;
+  if (input.voice_id !== undefined) settingsPatch.voice_id = input.voice_id;
+  if (input.tts_speed !== undefined) settingsPatch.tts_speed = input.tts_speed;
+  if (input.creative_brief !== undefined)
+    settingsPatch.creative_brief = input.creative_brief;
+  if (input.plan_status !== undefined)
+    settingsPatch.plan_status = input.plan_status;
+  if ('visual_style' in input)
+    settingsPatch.visual_style = toDbVisualStyle(input.visual_style);
 
-  const { data, error } = await supabase
+  // Look up videos row for project_id + ownership.
+  const { data: videoRow } = await supabase
     .from('videos')
-    .update(updates)
+    .select('id, user_id, project_id')
     .eq('id', videoId)
     .eq('user_id', userId)
-    .select()
-    .single();
+    .maybeSingle();
+  if (!videoRow)
+    throw new Error(`Video ${videoId} not found for user ${userId}`);
+  const projectId = videoRow.project_id as string;
 
-  if (error) throw new Error(`Failed to update video: ${error.message}`);
-  return toLegacyVideoRow((data ?? {}) as Record<string, unknown>);
+  if (Object.keys(settingsPatch).length > 0) {
+    const existing = await fetchProjectGenerationSettings(supabase, projectId);
+    const merged = { ...existing, ...settingsPatch };
+    const { error: settingsError } = await supabase
+      .from('projects')
+      .update({ generation_settings: merged })
+      .eq('id', projectId);
+    if (settingsError)
+      throw new Error(
+        `Failed to update generation settings: ${settingsError.message}`
+      );
+  }
+
+  if (Object.keys(videoUpdates).length > 0) {
+    const { error } = await supabase
+      .from('videos')
+      .update(videoUpdates)
+      .eq('id', videoId)
+      .eq('user_id', userId);
+    if (error) throw new Error(`Failed to update video: ${error.message}`);
+  }
+
+  const { data } = await supabase
+    .from('videos')
+    .select('*')
+    .eq('id', videoId)
+    .single();
+  const mergedSettings = await fetchProjectGenerationSettings(
+    supabase,
+    projectId
+  );
+  return toLegacyVideoRow(
+    (data ?? {}) as Record<string, unknown>,
+    mergedSettings
+  );
 }
 
 export async function deleteVideo(
@@ -663,18 +889,51 @@ export async function listVideoAssets(
   videoId: string
 ): Promise<VideoAssetWithVariants[]> {
   const projectId = await resolveProjectIdForVideo(supabase, videoId);
-  const { data, error } = await supabase
-    .from('project_assets')
-    .select('*, series_asset_variants:project_asset_variants(*)')
-    .eq('project_id', projectId)
-    .order('sort_order', { ascending: true });
+  const { ASSET_TABLE_BY_TYPE, VARIANT_TABLE_BY_TYPE } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const types: VideoAssetType[] = ['character', 'location', 'prop'];
 
-  if (error) throw new Error(`Failed to list video assets: ${error.message}`);
+  const bundles = await Promise.all(
+    types.map(async (t) => {
+      const parent = ASSET_TABLE_BY_TYPE[t];
+      const variantTable = VARIANT_TABLE_BY_TYPE[t];
+      const { data } = await supabase
+        .from(parent)
+        .select(`*, ${variantTable}(*)`)
+        .eq('project_id', projectId)
+        .order('sort_order', { ascending: true });
+      return { type: t, variantTable, rows: data ?? [] };
+    })
+  );
 
-  return ((data ?? []) as Record<string, unknown>[]).map((asset) => {
-    const legacyAsset = toAssetWithCompatibility(supabase, asset);
-    return { ...legacyAsset, video_id: videoId };
-  });
+  const result: VideoAssetWithVariants[] = [];
+  for (const bundle of bundles) {
+    for (const row of bundle.rows as Record<string, unknown>[]) {
+      const variants = Array.isArray(row[bundle.variantTable])
+        ? (row[bundle.variantTable] as Record<string, unknown>[])
+        : [];
+      const legacyAsset = toAssetWithCompatibility(supabase, {
+        ...row,
+        type: bundle.type,
+        video_id: videoId,
+        description: (row.use_case as string | null | undefined) ?? null,
+        series_asset_variants: variants.map((v) => ({
+          ...v,
+          asset_id: row.id,
+          prompt:
+            v.structured_prompt &&
+            typeof v.structured_prompt === 'object' &&
+            typeof (v.structured_prompt as Record<string, unknown>).prompt ===
+              'string'
+              ? (v.structured_prompt as Record<string, string>).prompt
+              : null,
+        })),
+      });
+      result.push({ ...legacyAsset, video_id: videoId });
+    }
+  }
+  return result;
 }
 
 export async function createVideoAsset(
@@ -691,15 +950,19 @@ export async function createVideoAsset(
   const finalSlug =
     asNullableText(input.slug) ?? slugify(input.name) ?? `asset-${Date.now()}`;
   const projectId = await resolveProjectIdForVideo(supabase, videoId);
+  const { ASSET_TABLE_BY_TYPE } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const parent = ASSET_TABLE_BY_TYPE[input.type];
 
   const { data, error } = await supabase
-    .from('project_assets')
+    .from(parent)
     .insert({
       project_id: projectId,
-      type: input.type,
+      video_id: videoId,
       name: input.name,
       slug: finalSlug,
-      description: asNullableText(input.description),
+      use_case: asNullableText(input.description),
       sort_order:
         typeof input.sort_order === 'number' &&
         Number.isFinite(input.sort_order)
@@ -711,9 +974,17 @@ export async function createVideoAsset(
 
   if (error) throw new Error(`Failed to create video asset: ${error.message}`);
 
+  const row = data as Record<string, unknown>;
   return {
-    ...(data as VideoAsset),
+    id: row.id as string,
     video_id: videoId,
+    type: input.type,
+    name: row.name as string,
+    slug: row.slug as string,
+    description: (row.use_case as string | null) ?? null,
+    sort_order: (row.sort_order as number) ?? 0,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
     tags: [],
     character_id: null,
   };
@@ -798,17 +1069,43 @@ export async function listAssetVariants(
   supabase: SupabaseClient,
   assetId: string
 ): Promise<VideoAssetVariantWithImages[]> {
+  const {
+    ASSET_FK_BY_TYPE,
+    VARIANT_TABLE_BY_TYPE,
+    resolveAssetTable,
+    assetTypeFromAssetTable,
+  } = await import('@/lib/api/variant-table-resolver');
+
+  const parent = await resolveAssetTable(supabase, assetId);
+  if (!parent) {
+    throw new Error(`Asset ${assetId} not found in any typed asset table`);
+  }
+  const type = assetTypeFromAssetTable(parent);
+  const variantTable = VARIANT_TABLE_BY_TYPE[type];
+  const fk = ASSET_FK_BY_TYPE[type];
+
   const { data, error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .select('*')
-    .eq('asset_id', assetId)
+    .eq(fk, assetId)
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(`Failed to list asset variants: ${error.message}`);
 
-  return ((data ?? []) as Record<string, unknown>[]).map((variant) =>
-    toVariantWithCompatibility(supabase, variant)
-  );
+  return ((data ?? []) as Record<string, unknown>[]).map((variant) => {
+    const prompt =
+      variant.structured_prompt &&
+      typeof variant.structured_prompt === 'object' &&
+      typeof (variant.structured_prompt as Record<string, unknown>).prompt ===
+        'string'
+        ? (variant.structured_prompt as Record<string, string>).prompt
+        : null;
+    return toVariantWithCompatibility(supabase, {
+      ...variant,
+      asset_id: assetId,
+      prompt,
+    });
+  });
 }
 
 export async function createAssetVariant(
@@ -831,11 +1128,24 @@ export async function createAssetVariant(
 
   const resolvedSlug = asNullableText(input.slug) ?? slugify(resolvedName);
 
+  const {
+    ASSET_FK_BY_TYPE,
+    VARIANT_TABLE_BY_TYPE,
+    resolveAssetTable,
+    assetTypeFromAssetTable,
+  } = await import('@/lib/api/variant-table-resolver');
+
+  const parent = await resolveAssetTable(supabase, assetId);
+  if (!parent) throw new Error(`Asset ${assetId} not found`);
+  const type = assetTypeFromAssetTable(parent);
+  const variantTable = VARIANT_TABLE_BY_TYPE[type];
+  const fk = ASSET_FK_BY_TYPE[type];
+
   if (input.is_main) {
     const { error: resetError } = await supabase
-      .from('project_asset_variants')
+      .from(variantTable)
       .update({ is_main: false })
-      .eq('asset_id', assetId)
+      .eq(fk, assetId)
       .eq('is_main', true);
 
     if (resetError) {
@@ -845,16 +1155,22 @@ export async function createAssetVariant(
     }
   }
 
+  const promptText = asNullableText(input.prompt);
+  const reasoningText = asNullableText(input.reasoning);
+  const structuredPrompt: Record<string, unknown> = {};
+  if (promptText) structuredPrompt.prompt = promptText;
+  if (reasoningText) structuredPrompt.reasoning = reasoningText;
+
   const { data, error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .insert({
-      asset_id: assetId,
+      [fk]: assetId,
       name: resolvedName,
       slug: resolvedSlug,
-      prompt: asNullableText(input.prompt),
+      structured_prompt:
+        Object.keys(structuredPrompt).length > 0 ? structuredPrompt : null,
       image_url: asNullableText(input.image_url),
       is_main: Boolean(input.is_main),
-      reasoning: asNullableText(input.reasoning),
     })
     .select()
     .single();
@@ -862,10 +1178,11 @@ export async function createAssetVariant(
   if (error)
     throw new Error(`Failed to create asset variant: ${error.message}`);
 
-  return toVariantWithCompatibility(
-    supabase,
-    (data ?? {}) as Record<string, unknown>
-  );
+  return toVariantWithCompatibility(supabase, {
+    ...((data ?? {}) as Record<string, unknown>),
+    asset_id: assetId,
+    prompt: promptText,
+  });
 }
 
 export async function updateAssetVariant(
@@ -1017,8 +1334,14 @@ export async function addVariantImage(
     metadata?: Record<string, unknown>;
   }
 ): Promise<VideoAssetVariantImage> {
+  const { resolveVariantTable } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const variantTable = await resolveVariantTable(supabase, input.variant_id);
+  if (!variantTable) throw new Error('Variant not found');
+
   const { data, error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .update({ image_url: input.url })
     .eq('id', input.variant_id)
     .select('id, created_at, updated_at')
@@ -1046,15 +1369,20 @@ export async function addVariantImage(
 
 /**
  * Legacy compatibility adapter.
- * Deletes canonical image_url from series_asset_variants row.
+ * Deletes canonical image_url from the typed variant row.
  */
 export async function deleteVariantImage(
   supabase: SupabaseClient,
   _imageId: string,
   variantId: string
 ): Promise<void> {
+  const { resolveVariantTable } = await import(
+    '@/lib/api/variant-table-resolver'
+  );
+  const variantTable = await resolveVariantTable(supabase, variantId);
+  if (!variantTable) throw new Error('Variant not found');
   const { error } = await supabase
-    .from('project_asset_variants')
+    .from(variantTable)
     .update({ image_url: null })
     .eq('id', variantId);
 

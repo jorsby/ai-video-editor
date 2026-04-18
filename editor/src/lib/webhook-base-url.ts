@@ -51,3 +51,14 @@ export function requireWebhookBaseUrl(req?: NextRequest): string {
   }
   return resolved;
 }
+
+export function isWebhookBasePubliclyReachable(base: string): boolean {
+  const allowLocal =
+    process.env.ALLOW_LOCAL_WEBHOOK_BASE === '1' ||
+    process.env.ALLOW_LOCAL_WEBHOOK_BASE === 'true';
+  if (allowLocal) return true;
+  return !isLocalOrigin(base);
+}
+
+export const LOCAL_WEBHOOK_BASE_ERROR =
+  'Webhook callback resolves to localhost; external providers (KIE, Suno, etc.) cannot reach it. Set WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL to a publicly reachable URL (ngrok, cloudflared, production domain). Set ALLOW_LOCAL_WEBHOOK_BASE=1 to bypass for local testing without external callbacks.';

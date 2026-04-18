@@ -164,8 +164,8 @@ const SETTINGS_DEFAULTS: Required<ProjectSettings> = {
   language: '',
 };
 
-// Fields that live on the video row (not in projects.settings)
-const VIDEO_LEVEL_FIELDS = [
+// Fields routed through projects.generation_settings (all of them, post-migration).
+const SETTINGS_FIELDS = [
   'voice_id',
   'tts_speed',
   'video_model',
@@ -195,9 +195,10 @@ export default function VideoSettingsPanel() {
 
     const supabase = createClient('studio');
 
+    // Project name + raw generation_settings (fallback source if no video yet).
     const { data: project, error: fetchError } = await supabase
       .from('projects')
-      .select('name, settings')
+      .select('name, generation_settings')
       .eq('id', projectId)
       .maybeSingle();
 
@@ -208,28 +209,27 @@ export default function VideoSettingsPanel() {
     }
 
     setProjectName(project.name ?? 'Untitled');
-    const saved = (project.settings ?? {}) as ProjectSettings;
 
-    // Also load video-level fields from the first video
+    const gs =
+      (project.generation_settings as Record<string, unknown> | null) ?? {};
+    const saved: ProjectSettings = {};
+    for (const field of SETTINGS_FIELDS) {
+      if (gs[field] != null) {
+        (saved as Record<string, unknown>)[field] = gs[field];
+      }
+    }
+
+    // Discover the first video (for PATCH target) — the server-side route
+    // merges settings for us, but we already have them from projects above.
     const { data: video } = await supabase
       .from('videos')
-      .select(
-        'id, voice_id, tts_speed, video_model, video_resolution, image_models, aspect_ratio, genre, tone, language, visual_style'
-      )
+      .select('id')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    if (video) {
-      setVideoId(video.id);
-      // Video-level fields override project.settings when present
-      for (const field of VIDEO_LEVEL_FIELDS) {
-        if (video[field] != null) {
-          (saved as Record<string, unknown>)[field] = video[field];
-        }
-      }
-    }
+    if (video) setVideoId(video.id);
 
     setSettings(saved);
     setDraft({});
@@ -251,38 +251,41 @@ export default function VideoSettingsPanel() {
 
     setIsSaving(true);
     try {
-      const supabase = createClient('studio');
-      const newSettings = { ...settings, ...draft };
-
-      // Save project-level settings
-      const { error: updateError } = await supabase
-        .from('projects')
-        .update({ settings: newSettings })
-        .eq('id', projectId);
-
-      if (updateError) {
-        toast.error('Failed to save settings');
-        return;
-      }
-
-      // Also sync video-level fields to the active video
       if (videoId) {
-        const videoUpdates: Record<string, unknown> = {};
-        for (const field of VIDEO_LEVEL_FIELDS) {
-          if (field in draft) {
-            videoUpdates[field] = (draft as Record<string, unknown>)[field];
-          }
+        // Route through the videos PATCH endpoint — the server merges these
+        // keys into projects.generation_settings.
+        const res = await fetch(`/api/v2/videos/${videoId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft),
+        });
+        if (!res.ok) {
+          toast.error('Failed to save settings');
+          return;
         }
-        if (Object.keys(videoUpdates).length > 0) {
-          await supabase
-            .from('videos')
-            .update(videoUpdates)
-            .eq('id', videoId);
+      } else {
+        // No video yet — write directly into projects.generation_settings so
+        // newly created videos inherit these defaults.
+        const supabase = createClient('studio');
+        const { data: current } = await supabase
+          .from('projects')
+          .select('generation_settings')
+          .eq('id', projectId)
+          .maybeSingle();
+        const existing =
+          (current?.generation_settings as Record<string, unknown>) ?? {};
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update({ generation_settings: { ...existing, ...draft } })
+          .eq('id', projectId);
+        if (updateError) {
+          toast.error('Failed to save settings');
+          return;
         }
       }
 
       toast.success('Project settings saved');
-      setSettings(newSettings);
+      setSettings({ ...settings, ...draft });
       setDraft({});
     } catch {
       toast.error('Network error');

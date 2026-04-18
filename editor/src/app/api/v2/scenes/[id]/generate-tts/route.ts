@@ -4,11 +4,20 @@ import { createServiceClient } from '@/lib/supabase/admin';
 import { createTask } from '@/lib/kieai';
 import { submitFalTtsJob } from '@/lib/fal-provider';
 import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
+import { getProjectTtsSettings } from '@/lib/api/variant-table-resolver';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const TTS_MODEL = 'elevenlabs/text-to-speech-turbo-2-5';
-const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam
+// kie.ai's ElevenLabs model accepts only curated voice NAMES (e.g. "Adam",
+// "Rachel"), not raw 20-char ElevenLabs IDs. fal.ai accepts raw IDs — so we
+// auto-route raw IDs to fal below.
+const DEFAULT_VOICE_ID = 'Adam';
+const RAW_ELEVENLABS_ID_RE = /^[A-Za-z0-9]{20}$/;
+
+function isRawElevenLabsId(voice: string): boolean {
+  return RAW_ELEVENLABS_ID_RE.test(voice);
+}
 
 interface TtsParams {
   text: string;
@@ -134,7 +143,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: video } = await supabase
       .from('videos')
-      .select('id, voice_id, tts_speed, language, user_id')
+      .select('id, project_id, user_id')
       .eq('id', chapter.video_id)
       .maybeSingle();
 
@@ -148,14 +157,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    // ── TTS defaults now live in projects.generation_settings jsonb ────
+    const ttsDefaults = await getProjectTtsSettings(supabase, video.project_id);
+
     // ── Parse body ──────────────────────────────────────────────────────
 
     const body = await req.json().catch(() => ({}));
 
-    const provider =
-      typeof body.provider === 'string' && body.provider.toLowerCase() === 'fal'
+    const resolvedVoiceId = resolveVoiceId(body.voice_id, ttsDefaults.voiceId);
+
+    // kie.ai rejects raw ElevenLabs voice IDs ("Unsupported voiceId: ..."),
+    // but fal.ai accepts them. Auto-route raw IDs to fal so custom voices
+    // (e.g. cloned / non-preset) work without manual provider selection.
+    const explicitProvider =
+      typeof body.provider === 'string'
+        ? body.provider.toLowerCase()
+        : undefined;
+    const provider: 'fal' | 'kie' =
+      explicitProvider === 'fal'
         ? 'fal'
-        : 'kie';
+        : explicitProvider === 'kie'
+          ? 'kie'
+          : isRawElevenLabsId(resolvedVoiceId)
+            ? 'fal'
+            : 'kie';
 
     const webhookBase = resolveWebhookBaseUrl(req);
     if (!webhookBase) {
@@ -167,12 +192,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const ttsParams: TtsParams = {
       text: scene.audio_text.trim(),
-      voiceId: resolveVoiceId(body.voice_id, video.voice_id),
-      speed: clampSpeed(body.speed ?? video.tts_speed),
+      voiceId: resolvedVoiceId,
+      speed: clampSpeed(body.speed ?? ttsDefaults.ttsSpeed),
       previousText: body.previous_text ?? '',
       nextText: body.next_text ?? '',
-      languageCode: body.language_code ?? video.language ?? '',
+      languageCode: body.language_code ?? ttsDefaults.language ?? '',
     };
+
+    console.log('[v2/scenes/:id/generate-tts] submitting', {
+      sceneId,
+      provider,
+      voiceId: ttsParams.voiceId,
+      speed: ttsParams.speed,
+      textLength: ttsParams.text.length,
+    });
 
     // ── Submit to provider ──────────────────────────────────────────────
 

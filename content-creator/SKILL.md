@@ -295,6 +295,37 @@ If not, fix the scene spec or asset coverage first.
 
 Only after the final scene pass should you move into TTS and video generation.
 
+## Step 17 — Background Music
+
+After scene video generation, create background music through the app/API when the video needs a supporting score.
+
+Default for short moral videos:
+- generate **one instrumental background track** unless the user explicitly wants no music
+- keep it supportive, low-mix, narration-safe, emotionally warm, and restrained
+- no vocals unless explicitly requested
+- avoid heavy percussion, hype energy, or youth-oriented styling unless the project canon specifically asks for it
+
+Music prompt should reflect:
+- emotional arc of the story
+- pacing / restraint level
+- cultural fit for the channel and audience
+- that the track must sit **under narration**, not compete with it
+
+Verification rule for music (mandatory):
+- do **not** treat provider submit success or a returned `task_id` as completed music generation
+- after creating music, verify the app row itself updates to a completed state
+- confirm the music record has at minimum:
+  - `status: done` (or equivalent completed state in live app state)
+  - `audio_url` populated
+  - `duration` populated when available
+- if the row remains stuck in `generating`, treat it as a completion/webhook/app-state problem, not a finished music step
+- if the provider dashboard shows success but the app row does not update, escalate as a webhook / task-id-to-row reconciliation issue
+
+Before finalizing a production run, verify music was considered explicitly:
+- generated and confirmed in app state,
+- intentionally skipped by user request,
+- or blocked by a confirmed app/API issue.
+
 ---
 
 # Asset Prompt Standards
@@ -637,3 +668,10 @@ Use the active API cookbook for routes, payloads, and examples.
 
 Use fresh runtime/app state through the app/API flow.
 Never treat old notes or old IDs as authoritative when the current app/API can answer it.
+
+### Auth / verification fallback
+
+- Agent/server auth for v2 editor routes is validated by `Authorization: Bearer <OCTUPOST_API_KEY>` together with a configured `OCTUPOST_API_USER_ID`; do **not** assume `x-api-key` works for these editor routes just because other Octupost clients use it.
+- If deployed app/API routes still return `401 Unauthorized` for agent calls, do **not** guess completion state from submit responses.
+- Fall back to live Supabase REST reads with the service-role key to verify production state directly (`videos`, `chapters`, `scenes`, `musics`, asset tables/variants) and treat DB rows as the source of truth for whether scenes/music actually finished.
+- When querying live tables directly, expect ordering columns to be named `order` (not `sort_order`) on `chapters` and `scenes`.

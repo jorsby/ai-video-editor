@@ -105,16 +105,31 @@ export async function callGenerateApi(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const raw = await res.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      const snippet = raw.slice(0, 120).replace(/\s+/g, ' ').trim();
+      return {
+        ok: false,
+        error: `HTTP ${res.status}${snippet ? `: ${snippet}` : ''}`,
+      };
+    }
     if (!res.ok)
       return {
         ok: false,
-        error: data.error ?? `HTTP ${res.status}`,
+        error:
+          (typeof data.error === 'string' ? data.error : undefined) ??
+          `HTTP ${res.status}`,
         missing_slugs: Array.isArray(data.missing_slugs)
-          ? data.missing_slugs
+          ? (data.missing_slugs as string[])
           : undefined,
       };
-    return { ok: true, task_id: data.task_id };
+    return {
+      ok: true,
+      task_id: typeof data.task_id === 'string' ? data.task_id : undefined,
+    };
   } catch (err) {
     return {
       ok: false,

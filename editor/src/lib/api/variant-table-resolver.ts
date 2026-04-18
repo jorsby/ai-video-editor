@@ -472,3 +472,132 @@ export async function getVideoVideoSettings(
   if (!data?.project_id) return null;
   return getProjectVideoSettings(db, data.project_id as string);
 }
+
+export type ProjectTtsSettings = {
+  voiceId: string;
+  ttsSpeed: number;
+  language: string;
+};
+
+const DEFAULT_TTS_SETTINGS: ProjectTtsSettings = {
+  voiceId: '',
+  ttsSpeed: 1.0,
+  language: '',
+};
+
+/**
+ * Read `projects.generation_settings` (jsonb) and extract the TTS fields
+ * that used to live as columns on `videos` (voice_id, tts_speed, language).
+ */
+export async function getProjectTtsSettings(
+  db: DB,
+  projectId: string
+): Promise<ProjectTtsSettings> {
+  const { data } = await db
+    .from('projects')
+    .select('generation_settings')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  const settings =
+    data?.generation_settings && typeof data.generation_settings === 'object'
+      ? (data.generation_settings as Record<string, unknown>)
+      : {};
+
+  const speedRaw = settings.tts_speed;
+  const ttsSpeed =
+    typeof speedRaw === 'number' && Number.isFinite(speedRaw)
+      ? speedRaw
+      : DEFAULT_TTS_SETTINGS.ttsSpeed;
+
+  return {
+    voiceId:
+      stringFromSettings(settings, 'voice_id') || DEFAULT_TTS_SETTINGS.voiceId,
+    ttsSpeed,
+    language:
+      stringFromSettings(settings, 'language') || DEFAULT_TTS_SETTINGS.language,
+  };
+}
+
+export type ProjectCreativeSettings = {
+  genre: string;
+  tone: string;
+  bible: string;
+  contentMode: string;
+  visualStyle: string;
+  creativeBrief: string;
+  metadata: Record<string, unknown> | null;
+};
+
+const DEFAULT_CREATIVE_SETTINGS: ProjectCreativeSettings = {
+  genre: '',
+  tone: '',
+  bible: '',
+  contentMode: '',
+  visualStyle: '',
+  creativeBrief: '',
+  metadata: null,
+};
+
+/**
+ * Read `projects.generation_settings` (jsonb) and extract the creative/writing
+ * fields that used to live as columns on `videos` (genre, tone, bible,
+ * content_mode, visual_style, creative_brief, metadata).
+ */
+export async function getProjectCreativeSettings(
+  db: DB,
+  projectId: string
+): Promise<ProjectCreativeSettings> {
+  const { data } = await db
+    .from('projects')
+    .select('generation_settings')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  const settings =
+    data?.generation_settings && typeof data.generation_settings === 'object'
+      ? (data.generation_settings as Record<string, unknown>)
+      : {};
+
+  return {
+    genre:
+      stringFromSettings(settings, 'genre') || DEFAULT_CREATIVE_SETTINGS.genre,
+    tone:
+      stringFromSettings(settings, 'tone') || DEFAULT_CREATIVE_SETTINGS.tone,
+    bible:
+      stringFromSettings(settings, 'bible') || DEFAULT_CREATIVE_SETTINGS.bible,
+    contentMode:
+      stringFromSettings(settings, 'content_mode') ||
+      DEFAULT_CREATIVE_SETTINGS.contentMode,
+    visualStyle:
+      stringFromSettings(settings, 'visual_style') ||
+      DEFAULT_CREATIVE_SETTINGS.visualStyle,
+    creativeBrief:
+      stringFromSettings(settings, 'creative_brief') ||
+      DEFAULT_CREATIVE_SETTINGS.creativeBrief,
+    metadata:
+      settings.metadata && typeof settings.metadata === 'object'
+        ? (settings.metadata as Record<string, unknown>)
+        : null,
+  };
+}
+
+/**
+ * Helper for flattening `scenes.structured_prompt` jsonb[] → string.
+ * Collects all string values from each jsonb object, comma-joined per shot,
+ * newline-joined across shots. Empty/null-safe.
+ */
+export function flattenStructuredPrompt(structuredPrompt: unknown): string {
+  if (!Array.isArray(structuredPrompt)) return '';
+  return structuredPrompt
+    .map((shot) => {
+      if (!shot || typeof shot !== 'object') return '';
+      return Object.values(shot as Record<string, unknown>)
+        .filter(
+          (v): v is string => typeof v === 'string' && v.trim().length > 0
+        )
+        .join(', ');
+    })
+    .filter((line) => line.length > 0)
+    .join('\n');
+}

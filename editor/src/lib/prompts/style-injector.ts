@@ -75,42 +75,48 @@ export async function getVideoStyleForProject(
   supabase: SupabaseClient,
   projectId: string
 ): Promise<string | null> {
-  const { data: video, error } = await supabase
-    .from('videos')
-    .select('metadata, visual_style')
-    .eq('project_id', projectId)
+  const { data: project, error } = await supabase
+    .from('projects')
+    .select('generation_settings')
+    .eq('id', projectId)
     .maybeSingle();
 
   if (error) {
     console.warn(
-      '[style-injector] Failed to load video metadata for project:',
+      '[style-injector] Failed to load project generation_settings:',
       error.message
     );
     return null;
   }
 
-  if (!video) return null;
+  if (!project) return null;
 
-  // Try metadata.style first, then fall back to visual_style column
-  const styleSource =
-    isRecord(video.metadata) && isRecord(video.metadata.style)
-      ? video.metadata.style
-      : isRecord(video.visual_style)
-        ? video.visual_style
-        : null;
+  const settings = isRecord(project.generation_settings)
+    ? project.generation_settings
+    : null;
+  if (!settings) return null;
 
-  if (!styleSource) return null;
+  // Structured style block (preferred): settings.metadata.style or settings.style
+  const structuredStyle =
+    (isRecord(settings.metadata) && isRecord(settings.metadata.style)
+      ? settings.metadata.style
+      : null) ?? (isRecord(settings.style) ? settings.style : null);
 
-  const styleEntries = Object.entries(styleSource)
-    .filter(([, value]) => typeof value === 'string')
-    .map(([key, value]) => [key, value as string]);
-
-  if (styleEntries.length === 0) {
-    return null;
+  if (structuredStyle) {
+    const styleEntries = Object.entries(structuredStyle)
+      .filter(([, value]) => typeof value === 'string')
+      .map(([key, value]) => [key, value as string]);
+    if (styleEntries.length > 0) {
+      const serialized = serializeStyleToPromptSuffix(
+        Object.fromEntries(styleEntries)
+      );
+      if (serialized) return serialized;
+    }
   }
 
-  const style = Object.fromEntries(styleEntries);
-  const serialized = serializeStyleToPromptSuffix(style);
-
-  return serialized || null;
+  // Fallback: flat `visual_style` string.
+  const flat = toNonEmptyString(settings.visual_style);
+  return flat
+    ? serializeStyleToPromptSuffix({ visual_style: flat }) || null
+    : null;
 }

@@ -2,7 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { generateMusic } from '@/lib/suno';
-import { resolveWebhookBaseUrl } from '@/lib/webhook-base-url';
+import {
+  isWebhookBasePubliclyReachable,
+  LOCAL_WEBHOOK_BASE_ERROR,
+  resolveWebhookBaseUrl,
+} from '@/lib/webhook-base-url';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -104,6 +108,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       return NextResponse.json(
         { error: 'Missing WEBHOOK_BASE_URL or NEXT_PUBLIC_APP_URL' },
+        { status: 500 }
+      );
+    }
+
+    if (!isWebhookBasePubliclyReachable(webhookBase)) {
+      await db
+        .from('musics')
+        .update({
+          status: 'failed',
+          generation_metadata: { error: LOCAL_WEBHOOK_BASE_ERROR },
+        })
+        .eq('id', musicId)
+        .eq('status', 'generating');
+
+      return NextResponse.json(
+        { error: LOCAL_WEBHOOK_BASE_ERROR },
         { status: 500 }
       );
     }

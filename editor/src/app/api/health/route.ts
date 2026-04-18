@@ -48,7 +48,7 @@ export async function GET() {
   let dbError: string | undefined;
   try {
     const supabase = createServiceClient('studio');
-    const { error } = await supabase.from('storyboards').select('id').limit(0);
+    const { error } = await supabase.from('projects').select('id').limit(0);
     if (error) {
       dbError = error.message;
     } else {

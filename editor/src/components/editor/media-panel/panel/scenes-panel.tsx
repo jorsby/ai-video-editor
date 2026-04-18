@@ -43,7 +43,7 @@ export default function ScenesPanel() {
     (chapter) => chapter.status === 'planned'
   ).length;
 
-  const handleOpenChapter = (_chapterId: string | null) => {
+  const handleOpenChapter = () => {
     setActiveTab('storyboard');
   };
 
@@ -163,8 +163,7 @@ export default function ScenesPanel() {
                     size="sm"
                     variant="secondary"
                     className="h-7 text-[10px]"
-                    disabled={!chapter.storyboardId}
-                    onClick={() => handleOpenChapter(chapter.storyboardId)}
+                    onClick={handleOpenChapter}
                   >
                     Open
                   </Button>

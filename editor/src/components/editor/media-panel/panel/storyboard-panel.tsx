@@ -639,6 +639,7 @@ function SceneVariantTile({
   const variantId = info?.id;
   const isGenerating = info?.image_gen_status === 'generating';
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const label = slugToLabel(slug);
   const { confirm } = useDeleteConfirmation();
 
@@ -647,9 +648,7 @@ function SceneVariantTile({
     if (!variantId || isRetrying) return;
     const ok = await confirm({
       title: `Regenerate ${label}?`,
-      description: isGenerating
-        ? `This asset is currently generating. Starting a new generation will replace the in-flight request.`
-        : `This will replace the current image with a new one. Continue?`,
+      description: `This will replace the current image with a new one. Continue?`,
       confirmLabel: 'Regenerate',
     });
     if (!ok) return;
@@ -668,6 +667,35 @@ function SceneVariantTile({
       toast.error('Network error');
     } finally {
       setIsRetrying(false);
+    }
+  };
+
+  const handleCancel = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!variantId || isCancelling) return;
+    const ok = await confirm({
+      title: `Cancel generation of ${label}?`,
+      description:
+        'Heads up: credits for this request are already spent — the upstream provider has no cancel API. Cancelling only stops us from saving the result when it arrives. Continue?',
+      confirmLabel: 'Cancel generation',
+    });
+    if (!ok) return;
+    setIsCancelling(true);
+    try {
+      const res = await fetch(
+        `/api/v2/variants/${variantId}/cancel-generation`,
+        { method: 'POST' }
+      );
+      if (res.ok) {
+        toast.success(`Cancelled: ${label}`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? 'Failed to cancel');
+      }
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -697,26 +725,37 @@ function SceneVariantTile({
             <IconLoader2 className="size-3.5 text-yellow-300 animate-spin" />
           </div>
         )}
-        {/* Regenerate icon (top-right corner, hover-only, small hit area) */}
-        {variantId && (
-          <button
-            type="button"
-            onClick={(e) => void handleRetry(e)}
-            disabled={isRetrying}
-            className="absolute -top-1 -right-1 size-4 inline-flex items-center justify-center rounded-full bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
-            title={
-              isGenerating
-                ? `Regenerate ${label} (replaces in-flight request)`
-                : `Regenerate ${label}`
-            }
-          >
-            {isRetrying ? (
-              <IconLoader2 className="size-2.5 animate-spin" />
-            ) : (
-              <IconRefresh className="size-2.5" />
-            )}
-          </button>
-        )}
+        {/* Corner action (hover-only, small hit area): cancel while generating, else regenerate */}
+        {variantId &&
+          (isGenerating ? (
+            <button
+              type="button"
+              onClick={(e) => void handleCancel(e)}
+              disabled={isCancelling}
+              className="absolute -top-1 -right-1 size-4 inline-flex items-center justify-center rounded-full bg-background border border-red-500/40 shadow-sm text-red-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+              title={`Cancel generation of ${label} (credits are already spent)`}
+            >
+              {isCancelling ? (
+                <IconLoader2 className="size-2.5 animate-spin" />
+              ) : (
+                <IconX className="size-2.5" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => void handleRetry(e)}
+              disabled={isRetrying}
+              className="absolute -top-1 -right-1 size-4 inline-flex items-center justify-center rounded-full bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+              title={`Regenerate ${label}`}
+            >
+              {isRetrying ? (
+                <IconLoader2 className="size-2.5 animate-spin" />
+              ) : (
+                <IconRefresh className="size-2.5" />
+              )}
+            </button>
+          ))}
       </div>
       <span className="text-[8px] text-muted-foreground truncate max-w-[52px] text-center">
         {label}
@@ -2048,13 +2087,24 @@ function ChapterAccordion({
     if (targets.length < 1) return;
 
     setTtsBatchProgress({ done: 0, total: targets.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of targets.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-tts`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setTtsBatchProgress({ done: index + 1, total: targets.length });
       }
     } finally {
       setTtsBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `TTS failed for ${failures.length}/${targets.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`TTS started for ${targets.length} scenes`);
     }
   };
 
@@ -2075,13 +2125,24 @@ function ChapterAccordion({
     if (targets.length < 1) return;
 
     setVideoBatchProgress({ done: 0, total: targets.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of targets.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-video`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setVideoBatchProgress({ done: index + 1, total: targets.length });
       }
     } finally {
       setVideoBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `Video failed for ${failures.length}/${targets.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`Video started for ${targets.length} scenes`);
     }
   };
 
@@ -2089,9 +2150,13 @@ function ChapterAccordion({
     if (failedVideoScenes.length < 1) return;
 
     setRetryBatchProgress({ done: 0, total: failedVideoScenes.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of failedVideoScenes.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-video`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setRetryBatchProgress({
           done: index + 1,
           total: failedVideoScenes.length,
@@ -2099,6 +2164,13 @@ function ChapterAccordion({
       }
     } finally {
       setRetryBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `Retry failed for ${failures.length}/${failedVideoScenes.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`Retry started for ${failedVideoScenes.length} scenes`);
     }
   };
 
@@ -2181,6 +2253,25 @@ function ChapterAccordion({
               <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
                 <IconVideo className="size-3 inline" /> Video
               </span>
+              {(() => {
+                const genVideo = chapter.scenes.filter(
+                  (s) => s.video_status === 'generating'
+                ).length;
+                const genTts = chapter.scenes.filter(
+                  (s) => s.tts_status === 'generating'
+                ).length;
+                if (genVideo === 0 && genTts === 0) return null;
+                const parts: string[] = [];
+                if (genVideo > 0)
+                  parts.push(`${genVideo} video${genVideo > 1 ? 's' : ''}`);
+                if (genTts > 0) parts.push(`${genTts} TTS`);
+                return (
+                  <span className="inline-flex items-center gap-1 text-yellow-400 font-medium">
+                    <IconLoader2 className="size-3 animate-spin" />
+                    Generating {parts.join(' + ')}…
+                  </span>
+                );
+              })()}
               <button
                 type="button"
                 onClick={toggleSelectAll}
@@ -2497,6 +2588,7 @@ export default function StoryboardPanel() {
   const { toggleAll, getForceOpen } = usePanelCollapseStore();
   const storyboardForceOpen = getForceOpen('storyboard');
   const { focusedSceneId } = useSceneFocusStore();
+  const [chaptersOpen, setChaptersOpen] = useState(true);
 
   // Helper to set video both locally and in persistent store
   const setVideoId = useCallback(
@@ -3153,6 +3245,31 @@ export default function StoryboardPanel() {
           </div>
         )}
 
+        {/* ── Live generation status (persists during realtime work) ── */}
+        {chapters.length > 0 &&
+          (() => {
+            const allScenes = chapters.flatMap((ch) => ch.scenes);
+            const genVideo = allScenes.filter(
+              (s) => s.video_status === 'generating'
+            ).length;
+            const genTts = allScenes.filter(
+              (s) => s.tts_status === 'generating'
+            ).length;
+            if (genVideo === 0 && genTts === 0) return null;
+            const parts: string[] = [];
+            if (genVideo > 0)
+              parts.push(`${genVideo} video${genVideo > 1 ? 's' : ''}`);
+            if (genTts > 0) parts.push(`${genTts} TTS`);
+            return (
+              <div className="flex items-center gap-1.5 px-1 py-1.5 border-b border-border/20 mb-1">
+                <IconLoader2 className="size-3 text-yellow-400 animate-spin shrink-0" />
+                <span className="text-[10px] text-yellow-400 font-medium">
+                  Generating {parts.join(' + ')}…
+                </span>
+              </div>
+            );
+          })()}
+
         {/* ── Video-level bulk actions ───────────────────────────────── */}
         {chapters.length > 0 &&
           (() => {
@@ -3253,7 +3370,7 @@ export default function StoryboardPanel() {
                     title="Scenes that were never submitted to the video generator"
                   >
                     <IconSparkles className="size-2.5" />
-                    Generate Missing ({untriedVideoScenes.length})
+                    Generate Missing Video ({untriedVideoScenes.length})
                   </button>
                 )}
 
@@ -3520,39 +3637,66 @@ export default function StoryboardPanel() {
         <ProjectMusicSection projectId={projectId} videoId={videoId} />
 
         {/* Chapter list */}
-        {chapters.map((ep) => (
-          <ChapterAccordion
-            key={ep.id}
-            chapter={ep}
-            imageMap={imageMap}
-            isChapterSelected={selectedChapterIds.has(ep.id)}
-            onToggleChapterSelected={() => {
-              setSelectedChapterIds((prev) => {
-                const next = new Set(prev);
-                if (next.has(ep.id)) {
-                  next.delete(ep.id);
-                } else {
-                  next.add(ep.id);
-                }
-                return next;
-              });
-            }}
-            forceOpen={storyboardForceOpen}
-            focusedSceneId={focusedSceneId}
-            onSceneDeleted={(sceneId) => {
-              setChapters((prev) =>
-                prev.map((ch) =>
-                  ch.id === ep.id
-                    ? {
-                        ...ch,
-                        scenes: ch.scenes.filter((s) => s.id !== sceneId),
-                      }
-                    : ch
-                )
-              );
-            }}
-          />
-        ))}
+        {chapters.length > 0 && (
+          <Collapsible open={chaptersOpen} onOpenChange={setChaptersOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md bg-muted/15 border border-border/30 text-left hover:bg-muted/25 transition-colors"
+              >
+                <IconMovie className="size-3.5 text-muted-foreground shrink-0" />
+                <span className="text-[11px] font-medium flex-1">Chapters</span>
+                <span className="text-[9px] text-muted-foreground/60">
+                  {chapters.length}
+                </span>
+                {chaptersOpen ? (
+                  <IconChevronUp className="size-3 text-muted-foreground" />
+                ) : (
+                  <IconChevronDown className="size-3 text-muted-foreground" />
+                )}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-1 space-y-2">
+                {chapters.map((ep) => (
+                  <ChapterAccordion
+                    key={ep.id}
+                    chapter={ep}
+                    imageMap={imageMap}
+                    isChapterSelected={selectedChapterIds.has(ep.id)}
+                    onToggleChapterSelected={() => {
+                      setSelectedChapterIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(ep.id)) {
+                          next.delete(ep.id);
+                        } else {
+                          next.add(ep.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    forceOpen={storyboardForceOpen}
+                    focusedSceneId={focusedSceneId}
+                    onSceneDeleted={(sceneId) => {
+                      setChapters((prev) =>
+                        prev.map((ch) =>
+                          ch.id === ep.id
+                            ? {
+                                ...ch,
+                                scenes: ch.scenes.filter(
+                                  (s) => s.id !== sceneId
+                                ),
+                              }
+                            : ch
+                        )
+                      );
+                    }}
+                  />
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
     </ScrollArea>
   );

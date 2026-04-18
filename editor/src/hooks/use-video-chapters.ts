@@ -16,8 +16,6 @@ export interface VideoChapterItem {
   chapterNumber: number;
   title: string | null;
   synopsis: string | null;
-  storyboardId: string | null;
-  storyboardPlanStatus: string | null;
   status: ChapterStatus;
 }
 
@@ -33,27 +31,21 @@ interface ChapterRow {
   order: number;
   title: string | null;
   synopsis: string | null;
-  storyboard_id: string | null;
+  status: string | null;
 }
 
-interface StoryboardStatusRow {
-  id: string;
-  plan_status: string | null;
+function resolveChapterStatus(rawStatus: string | null): ChapterStatus {
+  if (rawStatus === 'ready') return 'ready';
+  if (rawStatus === 'draft' || rawStatus === 'in_progress') return 'draft';
+  return 'planned';
 }
 
-function resolveChapterStatus(
-  storyboardId: string | null,
-  storyboardPlanStatus: string | null
-): ChapterStatus {
-  if (!storyboardId) {
-    return 'planned';
-  }
-
-  if (storyboardPlanStatus === 'approved') {
-    return 'ready';
-  }
-
-  return 'draft';
+function stringFromSettings(
+  settings: Record<string, unknown>,
+  key: string
+): string | null {
+  const v = settings[key];
+  return typeof v === 'string' && v.trim().length > 0 ? v : null;
 }
 
 export function useVideoChapters(
@@ -88,8 +80,9 @@ export function useVideoChapters(
       try {
         const { data: linkedVideo, error: videoLookupError } = await supabase
           .from('videos')
-          .select('id')
+          .select('id, name')
           .eq('project_id', projectId)
+          .order('created_at', { ascending: true })
           .limit(1)
           .maybeSingle();
 
@@ -108,19 +101,24 @@ export function useVideoChapters(
           return;
         }
 
-        const { data: videoData, error: videoError } = await supabase
-          .from('videos')
-          .select('id, name, bible, genre, tone')
-          .eq('id', foundVideoId)
+        // Creative fields (bible/genre/tone) live in projects.generation_settings
+        // post-migration, not on the videos row.
+        const { data: projectRow, error: projectError } = await supabase
+          .from('projects')
+          .select('generation_settings')
+          .eq('id', projectId)
           .maybeSingle();
 
-        if (videoError) {
-          throw new Error(videoError.message);
+        if (projectError) {
+          throw new Error(projectError.message);
         }
+
+        const gs =
+          (projectRow?.generation_settings as Record<string, unknown>) ?? {};
 
         const { data: chaptersData, error: chaptersError } = await supabase
           .from('chapters')
-          .select('id, order, title, synopsis, storyboard_id')
+          .select('id, order, title, synopsis, status')
           .eq('video_id', foundVideoId)
           .order('order', { ascending: true });
 
@@ -128,66 +126,24 @@ export function useVideoChapters(
           throw new Error(chaptersError.message);
         }
 
-        const storyboardIds = Array.from(
-          new Set(
-            ((chaptersData ?? []) as ChapterRow[])
-              .map((chapter) => chapter.storyboard_id)
-              .filter((id): id is string => !!id)
-          )
-        );
-
-        const storyboardStatusById = new Map<string, string | null>();
-
-        if (storyboardIds.length > 0) {
-          const { data: storyboardData, error: storyboardError } =
-            await supabase
-              .from('storyboards')
-              .select('id, plan_status')
-              .in('id', storyboardIds);
-
-          if (storyboardError) {
-            throw new Error(storyboardError.message);
-          }
-
-          for (const storyboard of (storyboardData ??
-            []) as StoryboardStatusRow[]) {
-            storyboardStatusById.set(storyboard.id, storyboard.plan_status);
-          }
-        }
-
         const parsedChapters: VideoChapterItem[] = (
           (chaptersData ?? []) as ChapterRow[]
-        ).map((chapter) => {
-          const storyboardPlanStatus = chapter.storyboard_id
-            ? (storyboardStatusById.get(chapter.storyboard_id) ?? null)
-            : null;
-
-          return {
-            id: chapter.id,
-            chapterNumber: chapter.order,
-            title: chapter.title,
-            synopsis: chapter.synopsis,
-            storyboardId: chapter.storyboard_id,
-            storyboardPlanStatus,
-            status: resolveChapterStatus(
-              chapter.storyboard_id,
-              storyboardPlanStatus
-            ),
-          };
-        });
+        ).map((chapter) => ({
+          id: chapter.id,
+          chapterNumber: chapter.order,
+          title: chapter.title,
+          synopsis: chapter.synopsis,
+          status: resolveChapterStatus(chapter.status),
+        }));
 
         if (!cancelled) {
-          setVideo(
-            videoData
-              ? {
-                  id: videoData.id,
-                  name: videoData.name,
-                  bible: videoData.bible,
-                  genre: videoData.genre,
-                  tone: videoData.tone,
-                }
-              : null
-          );
+          setVideo({
+            id: foundVideoId,
+            name: linkedVideo?.name ?? null,
+            bible: stringFromSettings(gs, 'bible'),
+            genre: stringFromSettings(gs, 'genre'),
+            tone: stringFromSettings(gs, 'tone'),
+          });
           setChapters(parsedChapters);
           setIsLoading(false);
         }

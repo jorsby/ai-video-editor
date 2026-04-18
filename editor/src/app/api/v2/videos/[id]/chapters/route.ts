@@ -332,12 +332,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
     });
 
     const orderValues = rowsToInsert.map((row) => row.order);
-    const orderFilter = `(${orderValues.join(',')})`;
     const { data: conflictingOrders, error: conflictCheckError } = await db
       .from('chapters')
-      .select('"order"')
+      .select('order')
       .eq('video_id', id)
-      .filter('"order"', 'in', orderFilter);
+      .in('order', orderValues);
 
     if (conflictCheckError) {
       console.error(

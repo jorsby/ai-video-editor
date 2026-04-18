@@ -4,12 +4,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 
-// TODO(schema-drift 2026-04-13): The `storyboards` table and its embedded
-// `scenes(prompt, order)` select were dropped in migration sync_schema_with_docs.
-// Scenes now live in `studio.scenes` with a `structured_prompt` jsonb array and
-// hang off `chapters → videos → projects`, not `storyboards`. This route needs
-// to be rewritten (or deleted if dead) to pull scenes through the chapters
-// chain. See /Users/serhatcamici/.claude/plans/do-both-elegant-raccoon.md.
+import { flattenStructuredPrompt } from '@/lib/api/variant-table-resolver';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -91,27 +86,53 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id)
       .single();
 
-    // Fetch latest storyboard with voiceover and scenes
-    const { data: storyboard } = await supabase
-      .from('storyboards')
-      .select('voiceover, plan, scenes(prompt, order)')
+    // Fetch the project's first video and its chapters/scenes.
+    // (Was: single `storyboards` row with embedded scenes. Post-migration the
+    // chain is projects → videos → chapters → scenes.)
+    const { data: video } = await supabase
+      .from('videos')
+      .select('id, synopsis')
       .eq('project_id', project_id)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: true })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const projectName = project?.name || 'Untitled';
-    const voiceoverText = storyboard?.voiceover || '';
-    const plan = storyboard?.plan as Record<string, unknown> | null;
-    const visualFlow = Array.isArray(plan?.visual_flow)
-      ? (plan.visual_flow as string[])
-      : [];
+    const voiceoverText = video?.synopsis || '';
+    const visualFlow: string[] = [];
 
-    const scenes =
-      (storyboard?.scenes as Array<{ prompt: string; order: number }> | null)
-        ?.sort((a, b) => a.order - b.order)
-        .map((s) => s.prompt)
-        .filter(Boolean) || [];
+    let scenes: string[] = [];
+    if (video?.id) {
+      const { data: chapters } = await supabase
+        .from('chapters')
+        .select('id, order')
+        .eq('video_id', video.id)
+        .order('order', { ascending: true });
+
+      const chapterIds = ((chapters ?? []) as Array<{ id: string }>).map(
+        (c) => c.id
+      );
+
+      if (chapterIds.length > 0) {
+        const { data: sceneRows } = await supabase
+          .from('scenes')
+          .select('structured_prompt, order, audio_text, chapter_id')
+          .in('chapter_id', chapterIds)
+          .order('order', { ascending: true });
+
+        scenes = (
+          (sceneRows ?? []) as Array<{
+            structured_prompt: unknown;
+            audio_text: string | null;
+          }>
+        )
+          .map((s) => {
+            const flat = flattenStructuredPrompt(s.structured_prompt);
+            return flat || s.audio_text || '';
+          })
+          .filter(Boolean);
+      }
+    }
 
     const languageLabel = LANGUAGE_LABELS[lang] || 'English';
 

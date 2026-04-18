@@ -28,6 +28,7 @@ import {
   IconSparkles,
   IconRefresh,
   IconSend,
+  IconLoader2,
 } from '@tabler/icons-react';
 import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
@@ -233,13 +234,24 @@ export function ChapterAccordion({
     if (targets.length < 1) return;
 
     setTtsBatchProgress({ done: 0, total: targets.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of targets.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-tts`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-tts`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setTtsBatchProgress({ done: index + 1, total: targets.length });
       }
     } finally {
       setTtsBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `TTS failed for ${failures.length}/${targets.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`TTS started for ${targets.length} scenes`);
     }
   };
 
@@ -260,13 +272,24 @@ export function ChapterAccordion({
     if (targets.length < 1) return;
 
     setVideoBatchProgress({ done: 0, total: targets.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of targets.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-video`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setVideoBatchProgress({ done: index + 1, total: targets.length });
       }
     } finally {
       setVideoBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `Video failed for ${failures.length}/${targets.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`Video started for ${targets.length} scenes`);
     }
   };
 
@@ -274,9 +297,13 @@ export function ChapterAccordion({
     if (failedVideoScenes.length < 1) return;
 
     setRetryBatchProgress({ done: 0, total: failedVideoScenes.length });
+    const failures: string[] = [];
     try {
       for (const [index, scene] of failedVideoScenes.entries()) {
-        await callGenerateApi(`/api/v2/scenes/${scene.id}/generate-video`);
+        const result = await callGenerateApi(
+          `/api/v2/scenes/${scene.id}/generate-video`
+        );
+        if (!result.ok) failures.push(result.error ?? 'unknown error');
         setRetryBatchProgress({
           done: index + 1,
           total: failedVideoScenes.length,
@@ -284,6 +311,13 @@ export function ChapterAccordion({
       }
     } finally {
       setRetryBatchProgress(null);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `Retry failed for ${failures.length}/${failedVideoScenes.length} scenes: ${failures[0]}`
+      );
+    } else {
+      toast.success(`Retry started for ${failedVideoScenes.length} scenes`);
     }
   };
 
@@ -427,6 +461,25 @@ export function ChapterAccordion({
               <span className={hasAnyVideo ? 'text-green-400' : 'opacity-30'}>
                 <IconVideo className="size-3 inline" /> Video
               </span>
+              {(() => {
+                const genVideo = chapter.scenes.filter(
+                  (s) => s.video_status === 'generating'
+                ).length;
+                const genTts = chapter.scenes.filter(
+                  (s) => s.tts_status === 'generating'
+                ).length;
+                if (genVideo === 0 && genTts === 0) return null;
+                const parts: string[] = [];
+                if (genVideo > 0)
+                  parts.push(`${genVideo} video${genVideo > 1 ? 's' : ''}`);
+                if (genTts > 0) parts.push(`${genTts} TTS`);
+                return (
+                  <span className="inline-flex items-center gap-1 text-yellow-400 font-medium">
+                    <IconLoader2 className="size-3 animate-spin" />
+                    Generating {parts.join(' + ')}…
+                  </span>
+                );
+              })()}
               <div className="flex flex-col">
                 <button
                   type="button"
@@ -477,7 +530,7 @@ export function ChapterAccordion({
                     title="Scenes that were never submitted to the video generator"
                   >
                     <IconSparkles className="size-2.5" />
-                    Generate Missing ({untriedVideoCount})
+                    Generate Missing Video ({untriedVideoCount})
                   </button>
                   {generateMissingProgress && (
                     <span className="text-[9px] text-yellow-400 mt-0.5">
@@ -517,11 +570,14 @@ export function ChapterAccordion({
                         done: 0,
                         total: failedTtsScenes.length,
                       });
+                      const retryFailures: string[] = [];
                       try {
                         for (const [i, scene] of failedTtsScenes.entries()) {
-                          await callGenerateApi(
+                          const result = await callGenerateApi(
                             `/api/v2/scenes/${scene.id}/generate-tts`
                           );
+                          if (!result.ok)
+                            retryFailures.push(result.error ?? 'unknown error');
                           setRetryTtsBatchProgress({
                             done: i + 1,
                             total: failedTtsScenes.length,
@@ -529,6 +585,15 @@ export function ChapterAccordion({
                         }
                       } finally {
                         setRetryTtsBatchProgress(null);
+                      }
+                      if (retryFailures.length > 0) {
+                        toast.error(
+                          `Retry TTS failed for ${retryFailures.length}/${failedTtsScenes.length} scenes: ${retryFailures[0]}`
+                        );
+                      } else {
+                        toast.success(
+                          `Retry TTS started for ${failedTtsScenes.length} scenes`
+                        );
                       }
                     }}
                     disabled={isBatchRunning}
