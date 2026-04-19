@@ -42,6 +42,14 @@ import { useChapterFocusStore } from '@/stores/chapter-focus-store';
 import { usePanelCollapseStore } from '@/stores/panel-collapse-store';
 import { ExpandableText } from '../shared/expandable-text';
 import { CopyIdBadge } from '../shared/copy-id-badge';
+import {
+  CharacterFields,
+  type CharacterSPValue,
+  LocationFields,
+  type LocationSPValue,
+  PropFields,
+  type PropSPValue,
+} from '../fields';
 
 type AssetType = 'character' | 'location' | 'prop';
 type ViewMode = 'list' | 'grid';
@@ -302,6 +310,111 @@ function VariantCard({
   );
 }
 
+function assetTypeToApiSegment(
+  type: AssetType
+): 'characters' | 'locations' | 'props' {
+  return type === 'character'
+    ? 'characters'
+    : type === 'location'
+      ? 'locations'
+      : 'props';
+}
+
+function readTypedValue<T extends Record<string, unknown>>(
+  raw: Record<string, unknown> | null | undefined
+): T {
+  return (raw ?? {}) as T;
+}
+
+function AssetFieldsEditor({
+  asset,
+  onSaved,
+}: {
+  asset: ProjectAsset;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState<Record<string, unknown>>(
+    () => asset.structuredPrompt ?? {}
+  );
+  const [saving, setSaving] = useState(false);
+
+  // Reset local edits if the asset underlying changes (e.g. refresh landed).
+  useEffect(() => {
+    setValue(asset.structuredPrompt ?? {});
+  }, [asset.structuredPrompt]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const segment = assetTypeToApiSegment(asset.type);
+      const res = await fetch(`/api/v2/${segment}/${asset.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(value),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const path = typeof body.path === 'string' ? ` (${body.path})` : '';
+        const reason =
+          typeof body.reason === 'string' ? body.reason : 'Validation failed';
+        toast.error(`${reason}${path}`);
+        return;
+      }
+      toast.success(`${asset.name} updated`);
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  let fields: React.ReactNode;
+  if (asset.type === 'character') {
+    fields = (
+      <CharacterFields
+        value={readTypedValue<CharacterSPValue>(value)}
+        onChange={(next) => setValue(next)}
+      />
+    );
+  } else if (asset.type === 'location') {
+    fields = (
+      <LocationFields
+        value={readTypedValue<LocationSPValue>(value)}
+        onChange={(next) => setValue(next)}
+      />
+    );
+  } else {
+    fields = (
+      <PropFields
+        value={readTypedValue<PropSPValue>(value)}
+        onChange={(next) => setValue(next)}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-border/30 bg-muted/10 p-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70">
+          Fields
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="h-6 text-[10px] px-2"
+          onClick={save}
+          disabled={saving}
+        >
+          {saving ? <IconLoader2 className="size-3 animate-spin" /> : <>Save</>}
+        </Button>
+      </div>
+      {fields}
+    </div>
+  );
+}
+
 function AssetCard({
   asset,
   viewMode,
@@ -310,6 +423,7 @@ function AssetCard({
   onGenerateVariant,
   variantDisplayById,
   isBatchGenerating,
+  onAssetSaved,
   thumbSize = 40,
 }: {
   asset: ProjectAsset;
@@ -322,6 +436,7 @@ function AssetCard({
     { imageUrl: string | null; imageGenStatus: VariantGenerationDisplayStatus }
   >;
   isBatchGenerating: boolean;
+  onAssetSaved: () => void;
   thumbSize?: number;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -569,6 +684,9 @@ function AssetCard({
             {description}
           </p>
 
+          {/* Typed fields editor (char/loc/prop) */}
+          <AssetFieldsEditor asset={asset} onSaved={onAssetSaved} />
+
           {/* Variants */}
           {asset.variants.length > 0 && (
             <div className="space-y-1.5">
@@ -642,6 +760,7 @@ function AssetSection({
   isBatchGenerating,
   batchProgress,
   forceOpen,
+  onAssetSaved,
 }: {
   type: AssetType;
   assets: ProjectAsset[];
@@ -669,6 +788,7 @@ function AssetSection({
   isBatchGenerating: boolean;
   batchProgress: { done: number; total: number } | null;
   forceOpen?: boolean | null;
+  onAssetSaved: () => void;
 }) {
   const config = SECTION_CONFIG[type];
   const [isOpen, setIsOpen] = useState(true);
@@ -848,6 +968,7 @@ function AssetSection({
                   onGenerateVariant={onGenerateVariant}
                   variantDisplayById={variantDisplayById}
                   isBatchGenerating={isBatchGenerating}
+                  onAssetSaved={onAssetSaved}
                   thumbSize={cardMinWidth}
                 />
               ))}
@@ -863,6 +984,7 @@ function AssetSection({
                 onGenerateVariant={onGenerateVariant}
                 variantDisplayById={variantDisplayById}
                 isBatchGenerating={isBatchGenerating}
+                onAssetSaved={onAssetSaved}
                 thumbSize={cardMinWidth}
               />
             ))
@@ -886,6 +1008,7 @@ export default function ProjectAssetsPanel() {
     setGridPrompt,
     saveGridPrompt,
     generateGrid,
+    refresh,
   } = useProjectAssets(projectId);
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -1336,6 +1459,7 @@ export default function ProjectAssetsPanel() {
                 : null
             }
             forceOpen={forceOpen}
+            onAssetSaved={refresh}
           />
         ))}
 

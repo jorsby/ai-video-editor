@@ -22,6 +22,12 @@ import {
   IconTrash,
 } from '@tabler/icons-react';
 import { toast } from 'sonner';
+import {
+  MusicFields,
+  type MusicSPValue,
+  musicSPFromRow,
+  toMusicSPPayload,
+} from '../fields';
 
 interface MusicTrack {
   id: string;
@@ -36,6 +42,14 @@ interface MusicTrack {
   cover_image_url: string | null;
   duration: number | null;
   status: 'draft' | 'generating' | 'done' | 'failed';
+  // Typed fields (new shape)
+  is_instrumental?: boolean;
+  genre?: string | null;
+  mood?: string | null;
+  instrumentation?: string | null;
+  tempo_bpm?: number | null;
+  lyrics?: string | null;
+  structured_prompt?: unknown;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -58,15 +72,15 @@ function MusicTrackCard({
   const [isRetrying, setIsRetrying] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [localTitle, setLocalTitle] = useState(track.title ?? track.name ?? '');
-  const [localStyle, setLocalStyle] = useState(track.style ?? '');
-  const [localPrompt, setLocalPrompt] = useState(track.prompt ?? '');
+  const [musicValue, setMusicValue] = useState<MusicSPValue>(() =>
+    musicSPFromRow(track.structured_prompt)
+  );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const patchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setLocalTitle(track.title ?? track.name ?? '');
-    setLocalStyle(track.style ?? '');
-    setLocalPrompt(track.prompt ?? '');
+    setMusicValue(musicSPFromRow(track.structured_prompt));
   }, [track.id]);
 
   const schedulePatch = useCallback(
@@ -81,7 +95,11 @@ function MusicTrackCard({
           });
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
-            toast.error(data.error ?? 'Failed to save changes');
+            const detail =
+              typeof data.path === 'string' ? ` (${data.path})` : '';
+            toast.error(
+              (data.reason ?? data.error ?? 'Failed to save changes') + detail
+            );
           }
         } catch {
           toast.error('Failed to save changes');
@@ -96,15 +114,20 @@ function MusicTrackCard({
     const trimmed = val.trim();
     if (trimmed) schedulePatch({ title: trimmed });
   };
-  const handleStyleChange = (val: string) => {
-    setLocalStyle(val);
-    const trimmed = val.trim();
-    if (trimmed) schedulePatch({ style: trimmed });
-  };
-  const handlePromptChange = (val: string) => {
-    setLocalPrompt(val);
-    const trimmed = val.trim();
-    schedulePatch({ prompt: trimmed.length > 0 ? trimmed : null });
+
+  const handleMusicValueChange = (next: MusicSPValue) => {
+    setMusicValue(next);
+    // Only schedule a patch when the merged object is valid enough for the
+    // server to accept; otherwise typing one letter at a time would spam 400s.
+    // Server re-validates with the full strict schema on PATCH.
+    if (
+      next.genre?.trim() &&
+      next.mood?.trim() &&
+      next.instrumentation?.trim() &&
+      (next.is_instrumental || next.lyrics?.trim())
+    ) {
+      schedulePatch(toMusicSPPayload(next));
+    }
   };
 
   const handleRetry = async () => {
@@ -297,6 +320,7 @@ function MusicTrackCard({
       </div>
       {expanded && (
         <div className="px-2.5 pb-2.5 pt-2 space-y-2 border-t border-border/30">
+          {/* biome-ignore lint/a11y/noLabelWithoutControl: control is the input below */}
           <label className="block">
             <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
               Title
@@ -308,30 +332,7 @@ function MusicTrackCard({
               placeholder="Track title"
             />
           </label>
-          <label className="block">
-            <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
-              Style
-            </span>
-            <textarea
-              value={localStyle}
-              onChange={(e) => handleStyleChange(e.target.value)}
-              rows={2}
-              className="w-full mt-0.5 px-1.5 py-1 text-[11px] rounded bg-background/40 border border-border/30 focus:border-primary/50 outline-none resize-none"
-              placeholder="Musical style, mood, instruments..."
-            />
-          </label>
-          <label className="block">
-            <span className="text-[9px] uppercase tracking-wide text-muted-foreground/60">
-              Prompt (lyrics)
-            </span>
-            <textarea
-              value={localPrompt}
-              onChange={(e) => handlePromptChange(e.target.value)}
-              rows={3}
-              className="w-full mt-0.5 px-1.5 py-1 text-[11px] rounded bg-background/40 border border-border/30 focus:border-primary/50 outline-none resize-none"
-              placeholder="Leave empty for instrumental"
-            />
-          </label>
+          <MusicFields value={musicValue} onChange={handleMusicValueChange} />
         </div>
       )}
     </div>

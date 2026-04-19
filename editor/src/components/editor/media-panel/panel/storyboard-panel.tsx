@@ -79,6 +79,10 @@ import {
   callGenerateApi,
 } from '../shared/scene-types';
 import { ProjectMusicSection } from './project-music-section';
+import { DeleteVideoDialog } from './storyboard/delete-video-dialog';
+import { SceneShotFields } from '../fields';
+import type { SceneSP } from '@/lib/api/structured-prompt-schemas';
+import { VideoAssetsSection, AssetGallery } from './storyboard/gallery';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -788,7 +792,7 @@ function SceneCard({
   const [localTtsStatus, setLocalTtsStatus] = useState<string | null>(null);
   const [localVideoStatus, setLocalVideoStatus] = useState<string | null>(null);
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [editPromptText, setEditPromptText] = useState('');
+  const [editShots, setEditShots] = useState<SceneSP>([]);
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1106,30 +1110,44 @@ function SceneCard({
                   </button>
                   <button
                     type="button"
-                    disabled={
-                      isSavingPrompt ||
-                      editPromptText.trim() === (scene.prompt ?? '')
-                    }
+                    disabled={isSavingPrompt || editShots.length === 0}
                     onClick={async () => {
                       setIsSavingPrompt(true);
                       try {
-                        const supabase = (
-                          await import('@/lib/supabase/client')
-                        ).createClient('studio');
-                        const { error } = await supabase
-                          .from('scenes')
-                          .update({
-                            structured_prompt: [
-                              { prompt: editPromptText.trim() },
-                            ],
-                          })
-                          .eq('id', scene.id);
-                        if (error) throw new Error(error.message);
-                        scene.prompt = editPromptText.trim();
+                        const res = await fetch(`/api/v2/scenes/${scene.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            structured_prompt: editShots,
+                          }),
+                        });
+                        if (!res.ok) {
+                          const body = await res.json().catch(() => ({}));
+                          const path =
+                            typeof body.path === 'string'
+                              ? ` (${body.path})`
+                              : '';
+                          throw new Error(
+                            (body.reason ?? body.error ?? 'Save failed') + path
+                          );
+                        }
+                        scene.prompt = editShots
+                          .map((s) =>
+                            [
+                              s.shot_type,
+                              s.camera_movement,
+                              s.action,
+                              s.lighting,
+                              s.mood,
+                            ]
+                              .filter(Boolean)
+                              .join(', ')
+                          )
+                          .join('\n');
                         setIsEditingPrompt(false);
-                        (await import('sonner')).toast.success('Prompt saved');
+                        toast.success('Scene shots saved');
                       } catch (err) {
-                        (await import('sonner')).toast.error(
+                        toast.error(
                           err instanceof Error ? err.message : 'Failed to save'
                         );
                       } finally {
@@ -1150,11 +1168,14 @@ function SceneCard({
                 <button
                   type="button"
                   onClick={() => {
-                    setEditPromptText(scene.prompt ?? '');
+                    const sp = Array.isArray(scene.structured_prompt)
+                      ? (scene.structured_prompt as SceneSP)
+                      : [];
+                    setEditShots(sp);
                     setIsEditingPrompt(true);
                   }}
                   className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                  title="Edit prompt"
+                  title="Edit shots"
                 >
                   <IconPencil className="size-2.5" />
                   Edit
@@ -1163,12 +1184,12 @@ function SceneCard({
             </div>
           </div>
           {isEditingPrompt ? (
-            <textarea
-              value={editPromptText}
-              onChange={(e) => setEditPromptText(e.target.value)}
-              className="w-full text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-primary/30 focus:border-primary/50 outline-none resize-y min-h-[80px]"
-              rows={6}
-            />
+            <div className="rounded-md border border-primary/30 bg-muted/20 p-2.5">
+              <SceneShotFields
+                value={editShots}
+                onChange={(next) => setEditShots(next)}
+              />
+            </div>
           ) : (
             <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
               <HighlightedPrompt
@@ -1350,170 +1371,7 @@ function SceneCard({
   );
 }
 
-// ── Gallery Card (expandable) ──────────────────────────────────────────────────
-
-function GalleryCard({
-  slug,
-  imageMap,
-  fallbackIcon: FallbackIcon,
-}: {
-  slug: string;
-  imageMap: VariantImageMap;
-  fallbackIcon: React.FC<{ className?: string }>;
-}) {
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const info = imageMap.get(slug);
-  const url = info?.image_url;
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      {url ? (
-        <>
-          <button
-            type="button"
-            onClick={() => setLightboxOpen(true)}
-            className="w-full aspect-[9/16] rounded-md overflow-hidden border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 hover:brightness-110 transition-all relative group"
-          >
-            <img
-              src={url}
-              alt={slugToLabel(slug)}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-              <IconEye className="size-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
-            </div>
-          </button>
-          {lightboxOpen && (
-            <ImageLightbox
-              url={url}
-              label={slugToLabel(slug)}
-              onClose={() => setLightboxOpen(false)}
-            />
-          )}
-        </>
-      ) : (
-        <div className="w-full aspect-[9/16] rounded-md bg-muted/30 border border-border/30 flex items-center justify-center">
-          <FallbackIcon className="size-4 text-muted-foreground/30" />
-        </div>
-      )}
-      <span className="text-[8px] text-muted-foreground text-center leading-tight truncate w-full">
-        {slugToLabel(slug)}
-      </span>
-      {info && (
-        <GenerateButton
-          label="Image"
-          genStatus={info.image_gen_status}
-          hasResult={!!url}
-          size="md"
-          onClick={() => {
-            callGenerateApi(`/api/v2/variants/${info.id}/generate-image`);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Video-level Assets Section ────────────────────────────────────────────────
-
-function VideoAssetsSection({
-  locationSlugs,
-  characterSlugs,
-  propSlugs,
-  imageMap,
-  totalAssets,
-}: {
-  locationSlugs: string[];
-  characterSlugs: string[];
-  propSlugs: string[];
-  imageMap: VariantImageMap;
-  totalAssets: number;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md bg-muted/15 border border-border/30 text-left hover:bg-muted/25 transition-colors"
-        >
-          <IconPhoto className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="text-[11px] font-medium flex-1">Video Assets</span>
-          <span className="text-[9px] text-muted-foreground/60">
-            {totalAssets}
-          </span>
-          {open ? (
-            <IconChevronUp className="size-3 text-muted-foreground" />
-          ) : (
-            <IconChevronDown className="size-3 text-muted-foreground" />
-          )}
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="px-2 py-2 mt-1 bg-muted/10 rounded-md border border-border/20 space-y-3">
-          <AssetGallery
-            slugs={locationSlugs}
-            assetRole="location"
-            imageMap={imageMap}
-          />
-          <AssetGallery
-            slugs={characterSlugs}
-            assetRole="character"
-            imageMap={imageMap}
-          />
-          <AssetGallery
-            slugs={propSlugs}
-            assetRole="prop"
-            imageMap={imageMap}
-          />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-// ── Asset Gallery ──────────────────────────────────────────────────────────────
-
-function AssetGallery({
-  slugs,
-  assetRole,
-  imageMap,
-}: {
-  slugs: string[];
-  assetRole: 'character' | 'location' | 'prop';
-  imageMap: VariantImageMap;
-}) {
-  if (slugs.length === 0) return null;
-
-  const roleConfig = {
-    character: { icon: IconUser, color: 'blue', label: 'Characters' },
-    location: { icon: IconMapPin, color: 'emerald', label: 'Locations' },
-    prop: { icon: IconBox, color: 'amber', label: 'Props' },
-  }[assetRole];
-
-  const Icon = roleConfig.icon;
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <Icon className="size-3" />
-        <span className="font-medium">{roleConfig.label}</span>
-        <span className="opacity-50">({slugs.length})</span>
-      </div>
-      <div className="grid grid-cols-3 gap-1.5">
-        {slugs.map((slug) => (
-          <GalleryCard
-            key={slug}
-            slug={slug}
-            imageMap={imageMap}
-            fallbackIcon={Icon}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+// GalleryCard, VideoAssetsSection, AssetGallery are imported from ./storyboard/gallery
 
 // ── Send to Timeline Modal ──────────────────────────────────────────────────────
 
@@ -2589,6 +2447,7 @@ export default function StoryboardPanel() {
   const storyboardForceOpen = getForceOpen('storyboard');
   const { focusedSceneId } = useSceneFocusStore();
   const [chaptersOpen, setChaptersOpen] = useState(true);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Helper to set video both locally and in persistent store
   const setVideoId = useCallback(
@@ -2598,6 +2457,25 @@ export default function StoryboardPanel() {
     },
     [projectId, persistVideoId]
   );
+
+  const handleDeleteVideo = useCallback(async () => {
+    if (!videoId) return;
+    const res = await fetch(`/api/v2/videos/${videoId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const { error: err } = await res
+        .json()
+        .catch(() => ({ error: 'Delete failed' }));
+      toast.error(err || 'Failed to delete video');
+      throw new Error(err || 'Delete failed');
+    }
+    const idx = allVideo.findIndex((v) => v.id === videoId);
+    const remaining = allVideo.filter((v) => v.id !== videoId);
+    setAllVideo(remaining);
+    const next = remaining[idx] ?? remaining[idx - 1] ?? null;
+    if (next) setVideoId(next.id);
+    else setVideoIdLocal(null);
+    toast.success('Video deleted');
+  }, [videoId, allVideo, setVideoId]);
 
   // Load all video for this project (for the dropdown)
   useEffect(() => {
@@ -2696,7 +2574,8 @@ export default function StoryboardPanel() {
 
         // Fetch variant info: scene-referenced slugs + all video-level asset variants
         const newImageMap = new Map<string, VariantInfo>();
-        const variantFields = 'id, slug, image_url, image_gen_status';
+        const variantFields =
+          'id, slug, image_url, image_gen_status, structured_prompt, generation_metadata';
 
         // Fetch all variants for assets belonging to this video (shows assets even without scenes)
         const [vidCharResult, vidLocResult, vidPropResult] = await Promise.all([
@@ -2723,6 +2602,8 @@ export default function StoryboardPanel() {
           slug: string;
           image_url: string | null;
           image_gen_status: string | null;
+          structured_prompt?: Record<string, unknown> | null;
+          generation_metadata?: Record<string, unknown> | null;
         }) => {
           if (!v.slug) return;
           slugSet.add(v.slug);
@@ -2730,6 +2611,8 @@ export default function StoryboardPanel() {
             id: v.id,
             image_url: v.image_url,
             image_gen_status: v.image_gen_status ?? 'idle',
+            structured_prompt: v.structured_prompt ?? null,
+            generation_metadata: v.generation_metadata ?? null,
           });
         };
 
@@ -2774,6 +2657,15 @@ export default function StoryboardPanel() {
                 id: v.id,
                 image_url: v.image_url,
                 image_gen_status: v.image_gen_status ?? 'idle',
+                structured_prompt:
+                  (v as { structured_prompt?: Record<string, unknown> | null })
+                    .structured_prompt ?? null,
+                generation_metadata:
+                  (
+                    v as {
+                      generation_metadata?: Record<string, unknown> | null;
+                    }
+                  ).generation_metadata ?? null,
               });
             }
           }
@@ -2992,7 +2884,7 @@ export default function StoryboardPanel() {
     return (
       <div className="h-full flex flex-col">
         {/* Video selector even when no chapters */}
-        <div className="p-3 border-b border-border/20">
+        <div className="p-3 border-b border-border/20 flex items-center gap-1">
           {allVideo.length > 1 ? (
             <select
               value={videoId ?? ''}
@@ -3010,6 +2902,16 @@ export default function StoryboardPanel() {
               {allVideo.find((s) => s.id === videoId)?.name || 'Storyboard'}
             </p>
           )}
+          {videoId && allVideo.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setDeleteDialogOpen(true)}
+              className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+              title="Delete video"
+            >
+              <IconTrash className="size-3.5" />
+            </button>
+          )}
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-4 text-center gap-2">
           <IconMovie className="size-8 text-muted-foreground/30" />
@@ -3018,6 +2920,12 @@ export default function StoryboardPanel() {
             Create chapters via API to see the storyboard.
           </p>
         </div>
+        <DeleteVideoDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          videoName={allVideo.find((v) => v.id === videoId)?.name ?? ''}
+          onConfirm={handleDeleteVideo}
+        />
       </div>
     );
   }
@@ -3049,23 +2957,35 @@ export default function StoryboardPanel() {
         {/* Header with video selector */}
         <div className="flex items-center justify-between mb-2">
           <div>
-            {allVideo.length > 1 ? (
-              <select
-                value={videoId ?? ''}
-                onChange={(e) => setVideoId(e.target.value || null)}
-                className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
-              >
-                {allVideo.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <h3 className="text-sm font-semibold">
-                {videoName || 'Storyboard'}
-              </h3>
-            )}
+            <div className="flex items-center gap-1">
+              {allVideo.length > 1 ? (
+                <select
+                  value={videoId ?? ''}
+                  onChange={(e) => setVideoId(e.target.value || null)}
+                  className="text-sm font-medium bg-transparent border border-border/40 rounded px-1.5 py-0.5 outline-none focus:border-primary/50 truncate max-w-[200px] cursor-pointer"
+                >
+                  {allVideo.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <h3 className="text-sm font-semibold">
+                  {videoName || 'Storyboard'}
+                </h3>
+              )}
+              {videoId && allVideo.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+                  title="Delete video"
+                >
+                  <IconTrash className="size-3.5" />
+                </button>
+              )}
+            </div>
             <p className="text-[10px] text-muted-foreground">
               {chapters.length} chapters · {totalScenes} scenes
               {totalDuration > 0 && ` · ${formatDuration(totalDuration)}`}
@@ -3697,6 +3617,12 @@ export default function StoryboardPanel() {
             </CollapsibleContent>
           </Collapsible>
         )}
+        <DeleteVideoDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          videoName={allVideo.find((v) => v.id === videoId)?.name ?? ''}
+          onConfirm={handleDeleteVideo}
+        />
       </div>
     </ScrollArea>
   );
