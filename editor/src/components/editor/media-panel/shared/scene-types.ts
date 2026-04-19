@@ -1,11 +1,25 @@
 // Shared scene types and helpers used by storyboard-panel and scene-clip-panel
 
+import type {
+  CharacterSP,
+  LocationSP,
+  PropSP,
+  SceneSP,
+} from '@/lib/api/structured-prompt-schemas';
+
+/** A variant's overlay on its parent asset — all fields optional. */
+export type AssetVariantOverlay =
+  | Partial<CharacterSP>
+  | Partial<LocationSP>
+  | Partial<PropSP>;
+
 export interface SceneData {
   id: string;
   order: number;
   title: string | null;
+  /** Derived from `structured_prompt` (joined shot text) for legacy renderers. */
   prompt: string | null;
-  structured_prompt: Record<string, unknown>[] | null;
+  structured_prompt: SceneSP | null;
   audio_text: string | null;
   audio_url: string | null;
   audio_duration: number | null;
@@ -25,7 +39,7 @@ export interface VariantInfo {
   image_url: string | null;
   id: string;
   image_gen_status: string;
-  structured_prompt?: Record<string, unknown> | null;
+  structured_prompt?: AssetVariantOverlay | null;
   is_main?: boolean;
   generation_metadata?: Record<string, unknown> | null;
 }

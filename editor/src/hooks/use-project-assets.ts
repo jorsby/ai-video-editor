@@ -1,16 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type {
+  CharacterSP,
+  LocationSP,
+  PropSP,
+} from '@/lib/api/structured-prompt-schemas';
 
 const SERIES_ASSETS_BUCKET = 'video-assets';
 
 type AssetType = 'character' | 'location' | 'prop';
 type GridPromptKey = 'characters' | 'locations' | 'props';
 
+/**
+ * Asset `structured_prompt` is one of three typed shapes, distinguished by
+ * the asset's `type` discriminant. Keeping the union wide lets the hook
+ * return raw JSONB without per-type narrowing at the fetch layer —
+ * consumers narrow via `type` when they read fields.
+ */
+export type AssetStructuredPrompt = CharacterSP | LocationSP | PropSP;
+
+/** Variant overlay — all fields optional (`variant[k] ?? parent[k]` at compose). */
+export type AssetVariantStructuredPrompt =
+  | Partial<CharacterSP>
+  | Partial<LocationSP>
+  | Partial<PropSP>;
+
 interface VariantRow {
   id: string;
   name: string | null;
   slug: string;
-  structured_prompt: Record<string, unknown> | null;
+  structured_prompt: AssetVariantStructuredPrompt | null;
   use_case: string | null;
   image_url: string | null;
   is_main: boolean;
@@ -22,7 +41,7 @@ interface AssetRow {
   name: string;
   slug: string | null;
   type: AssetType;
-  structured_prompt: Record<string, unknown> | null;
+  structured_prompt: AssetStructuredPrompt | null;
   use_case: string | null;
   sort_order: number | null;
   video_id: string | null;
@@ -54,7 +73,7 @@ export interface ProjectAssetVariant {
   id: string;
   label: string;
   slug: string;
-  structuredPrompt: Record<string, unknown> | null;
+  structuredPrompt: AssetVariantStructuredPrompt | null;
   useCase: string | null;
   isMain: boolean;
   isFinalized: boolean;
@@ -68,7 +87,7 @@ export interface ProjectAsset {
   slug: string | null;
   type: AssetType;
   videoId: string | null;
-  structuredPrompt: Record<string, unknown> | null;
+  structuredPrompt: AssetStructuredPrompt | null;
   useCase: string | null;
   sortOrder: number | null;
   thumbnailUrl: string | null;
@@ -315,10 +334,8 @@ export function useProjectAssets(
               name: row.name as string,
               slug: (row.slug as string | null) ?? null,
               type,
-              structured_prompt: row.structured_prompt as Record<
-                string,
-                unknown
-              > | null,
+              structured_prompt:
+                (row.structured_prompt as AssetStructuredPrompt | null) ?? null,
               use_case: row.use_case as string | null,
               sort_order: row.sort_order as number | null,
               video_id: (row.video_id as string | null) ?? null,

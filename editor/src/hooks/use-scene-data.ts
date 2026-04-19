@@ -1,10 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type {
   SceneData,
-  VariantInfo,
   VariantImageMap,
+  VariantInfo,
 } from '@/components/editor/media-panel/shared/scene-types';
+import type { SceneSP } from '@/lib/api/structured-prompt-schemas';
 
 interface UseSceneDataResult {
   scene: SceneData | null;
@@ -51,13 +52,18 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
         return;
       }
 
-      // Map structured_prompt → prompt for backward compat
-      const rawRow = row as any;
+      // Pass structured_prompt through typed; derive a flattened `prompt`
+      // string for legacy renderers that still expect it.
+      const rawRow = row as Record<string, unknown>;
+      const structuredPrompt = Array.isArray(rawRow.structured_prompt)
+        ? (rawRow.structured_prompt as SceneSP)
+        : null;
       const sceneRow: SceneData = {
-        ...rawRow,
-        prompt: Array.isArray(rawRow.structured_prompt)
-          ? (rawRow.structured_prompt as Record<string, unknown>[])
-              .map((s: Record<string, unknown>) =>
+        ...(rawRow as unknown as SceneData),
+        structured_prompt: structuredPrompt,
+        prompt: structuredPrompt
+          ? structuredPrompt
+              .map((s) =>
                 Object.values(s)
                   .filter((v) => typeof v === 'string' && v.trim())
                   .join(', ')
