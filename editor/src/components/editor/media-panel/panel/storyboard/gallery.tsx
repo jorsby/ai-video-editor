@@ -21,53 +21,11 @@ import {
   IconUser,
   IconBox,
   IconEye,
-  IconPencil,
 } from '@tabler/icons-react';
 import { CopyButton } from '../../shared/copy-button';
 import { ImageLightbox } from './lightbox';
 import { GenerateButton } from './generation-controls';
 import { AssetInspector, type AssetRole } from '../../fields';
-
-function humanizeKey(key: string): string {
-  const map: Record<string, string> = {
-    race_ethnicity: 'Race',
-    body_type: 'Build',
-    time_of_day: 'Time',
-    time_of_year: 'Season',
-    use_case: 'Use Case',
-  };
-  if (map[key]) return map[key];
-  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function StructuredPromptGrid({
-  data,
-}: {
-  data: Record<string, unknown> | null | undefined;
-}) {
-  const entries = data
-    ? Object.entries(data).filter(
-        ([, v]) => v != null && String(v).trim() !== ''
-      )
-    : [];
-
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-      {entries.map(([key, value]) => (
-        <div key={key} className="min-w-0" title={String(value)}>
-          <p className="text-[7px] text-muted-foreground/60 uppercase tracking-wider leading-none mb-0.5">
-            {humanizeKey(key)}
-          </p>
-          <p className="text-[9px] text-foreground/70 leading-tight line-clamp-2">
-            {String(value)}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Gallery Card (expandable) ──────────────────────────────────────────────────
 
@@ -84,7 +42,6 @@ export function GalleryCard({
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [optimisticGenStatus, setOptimisticGenStatus] = useState('');
   const info = imageMap.get(slug);
   const url = info?.image_url;
@@ -171,59 +128,30 @@ export function GalleryCard({
 
       {/* Expandable prompt section */}
       {isPromptOpen && (
-        <div className="w-full rounded-md bg-muted/20 border border-border/20 p-2 text-left">
-          {isEditing && info ? (
-            <div className="space-y-1.5">
-              <AssetInspector
-                id={info.id}
-                role={assetRole}
-                mode="variant"
-                initialValue={
-                  (info.structured_prompt as Record<string, unknown>) ?? {}
-                }
-                onSaved={(next) => {
-                  info.structured_prompt = next;
-                  setIsEditing(false);
-                }}
-                onRegenerate={handleRegenerate}
-                compact
-              />
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+        <div className="w-full rounded-md bg-muted/20 border border-border/20 p-2 text-left space-y-1.5">
+          {info ? (
+            <AssetInspector
+              id={info.id}
+              role={assetRole}
+              mode="variant"
+              initialValue={
+                (info.structured_prompt as Record<string, unknown>) ?? {}
+              }
+              onSaved={(next) => {
+                info.structured_prompt = next;
+              }}
+              onRegenerate={handleRegenerate}
+              compact
+            />
           ) : (
-            <>
-              {info?.structured_prompt &&
-              Object.keys(info.structured_prompt).length > 0 ? (
-                <StructuredPromptGrid data={info.structured_prompt} />
-              ) : (
-                <p className="text-[9px] italic text-muted-foreground/50">
-                  No prompt
-                </p>
-              )}
-              <div className="flex items-center gap-1 mt-1.5">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  disabled={!info}
-                  className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors disabled:opacity-40"
-                  title="Edit prompt"
-                >
-                  <IconPencil className="size-2" />
-                  Edit
-                </button>
-                {flattenStructuredPrompt(info?.structured_prompt) && (
-                  <CopyButton
-                    text={flattenStructuredPrompt(info?.structured_prompt)}
-                  />
-                )}
-              </div>
-            </>
+            <p className="text-[9px] italic text-muted-foreground/50">
+              No prompt
+            </p>
+          )}
+          {flattenStructuredPrompt(info?.structured_prompt) && (
+            <CopyButton
+              text={flattenStructuredPrompt(info?.structured_prompt)}
+            />
           )}
         </div>
       )}
