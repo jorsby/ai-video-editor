@@ -1,8 +1,17 @@
 import type { SceneSP, SceneShot } from '@/lib/api/structured-prompt-schemas';
 import { Button } from '@/components/ui/button';
+import { HighlightedPrompt } from '../panel/storyboard/highlighted-prompt';
+import type { VariantImageMap } from '../shared/scene-types';
 import { NumberField, SelectField, TextField, TextareaField } from './shared';
 
 export type SceneShotsValue = SceneSP | null;
+
+export type ShotSlugContext = {
+  locationSlug: string | null;
+  characterSlugs: string[];
+  propSlugs: string[];
+  imageMap: VariantImageMap;
+};
 
 const SHOT_TYPE_OPTIONS = [
   { value: 'close-up', label: 'Close-up' },
@@ -11,6 +20,23 @@ const SHOT_TYPE_OPTIONS = [
   { value: 'establishing', label: 'Establishing' },
   { value: 'over-the-shoulder', label: 'Over-the-shoulder' },
   { value: 'pov', label: 'POV' },
+];
+
+const CAMERA_MOVEMENT_OPTIONS = [
+  { value: 'static', label: 'Static' },
+  { value: 'pan-left', label: 'Pan left' },
+  { value: 'pan-right', label: 'Pan right' },
+  { value: 'tilt-up', label: 'Tilt up' },
+  { value: 'tilt-down', label: 'Tilt down' },
+  { value: 'zoom-in', label: 'Zoom in' },
+  { value: 'zoom-out', label: 'Zoom out' },
+  { value: 'dolly-in', label: 'Dolly in' },
+  { value: 'dolly-out', label: 'Dolly out' },
+  { value: 'tracking', label: 'Tracking' },
+  { value: 'orbit', label: 'Orbit' },
+  { value: 'handheld', label: 'Handheld' },
+  { value: 'crane-up', label: 'Crane up' },
+  { value: 'crane-down', label: 'Crane down' },
 ];
 
 function blankShot(order: number): SceneShot {
@@ -31,9 +57,11 @@ function blankShot(order: number): SceneShot {
 export function SceneShotFields({
   value,
   onChange,
+  slugContext,
 }: {
   value: SceneShotsValue;
   onChange: (next: SceneSP) => void;
+  slugContext?: ShotSlugContext;
 }) {
   const shots: SceneShot[] = Array.isArray(value) ? (value as SceneShot[]) : [];
 
@@ -70,6 +98,7 @@ export function SceneShotFields({
           onChange={(next) => update(i, next)}
           onRemove={() => remove(i)}
           canRemove={shots.length > 1}
+          slugContext={slugContext}
         />
       ))}
 
@@ -92,12 +121,14 @@ function ShotCard({
   onChange,
   onRemove,
   canRemove,
+  slugContext,
 }: {
   index: number;
   shot: SceneShot;
   onChange: (next: SceneShot) => void;
   onRemove: () => void;
   canRemove: boolean;
+  slugContext?: ShotSlugContext;
 }) {
   const set = <K extends keyof SceneShot>(key: K, v: SceneShot[K]) => {
     onChange({ ...shot, [key]: v });
@@ -128,12 +159,12 @@ function ShotCard({
           onChange={(v) => set('shot_type', v)}
           options={SHOT_TYPE_OPTIONS}
         />
-        <TextField
+        <SelectField
           label="Camera movement"
           required
           value={shot.camera_movement}
           onChange={(v) => set('camera_movement', v)}
-          placeholder="slow pan left / static / dolly in"
+          options={CAMERA_MOVEMENT_OPTIONS}
         />
       </div>
 
@@ -142,9 +173,20 @@ function ShotCard({
         required
         value={shot.action}
         onChange={(v) => set('action', v)}
-        placeholder="what happens in this shot"
+        placeholder="what happens in this shot — use @slug to tag characters, locations, props"
         rows={2}
       />
+      {slugContext && shot.action && shot.action.includes('@') ? (
+        <div className="text-[10px] leading-relaxed text-foreground/70 bg-background/30 rounded px-1.5 py-1 border border-border/20">
+          <HighlightedPrompt
+            prompt={shot.action}
+            locationSlug={slugContext.locationSlug}
+            characterSlugs={slugContext.characterSlugs}
+            propSlugs={slugContext.propSlugs}
+            imageMap={slugContext.imageMap}
+          />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2">
         <TextField
@@ -171,15 +213,26 @@ function ShotCard({
         rows={2}
       />
 
-      <NumberField
-        label="Duration hint"
-        hint="seconds, optional"
-        step={0.5}
-        min={0.5}
-        value={shot.duration_hint}
-        onChange={(n) => set('duration_hint', n)}
-        placeholder="3.5"
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Duration from"
+          hint="seconds, optional"
+          step={0.5}
+          min={0}
+          value={shot.duration_from}
+          onChange={(n) => set('duration_from', n)}
+          placeholder="2"
+        />
+        <NumberField
+          label="Duration to"
+          hint="seconds, optional"
+          step={0.5}
+          min={0}
+          value={shot.duration_to}
+          onChange={(n) => set('duration_to', n)}
+          placeholder="5"
+        />
+      </div>
     </div>
   );
 }

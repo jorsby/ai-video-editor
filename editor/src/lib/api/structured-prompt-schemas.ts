@@ -41,9 +41,20 @@ export const SceneShotSchema = z
     lighting: z.string().min(1),
     mood: z.string().min(1),
     setting_notes: z.string().min(1).optional(),
-    duration_hint: z.number().positive().optional(),
+    duration_from: z.number().positive().optional(),
+    duration_to: z.number().positive().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (s) =>
+      s.duration_from == null ||
+      s.duration_to == null ||
+      s.duration_to >= s.duration_from,
+    {
+      message: 'duration_to must be >= duration_from',
+      path: ['duration_to'],
+    }
+  );
 
 export const SceneSPSchema = z.array(SceneShotSchema).min(1);
 
@@ -113,7 +124,8 @@ export const EXPECTED_SCENE_SHOT: Record<string, string> = {
   lighting: 'string',
   mood: 'string',
   setting_notes: 'string (optional)',
-  duration_hint: 'number (optional)',
+  duration_from: 'number (optional, seconds)',
+  duration_to: 'number (optional, seconds — must be >= duration_from)',
 };
 
 export const EXPECTED_SCENE_SP: Record<string, string> = {

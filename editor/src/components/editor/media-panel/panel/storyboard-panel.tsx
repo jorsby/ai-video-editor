@@ -80,7 +80,7 @@ import {
 } from '../shared/scene-types';
 import { ProjectMusicSection } from './project-music-section';
 import { DeleteVideoDialog } from './storyboard/delete-video-dialog';
-import { SceneShotFields } from '../fields';
+import { SceneShotsInspector } from '../fields';
 import type { SceneSP } from '@/lib/api/structured-prompt-schemas';
 import { VideoAssetsSection, AssetGallery } from './storyboard/gallery';
 
@@ -425,66 +425,6 @@ function VideoThumbnail({
 
 // ── Prompt Highlighter ─────────────────────────────────────────────────────────
 
-function HighlightedPrompt({
-  prompt,
-  locationSlug,
-  characterSlugs,
-  propSlugs,
-  imageMap,
-}: {
-  prompt: string;
-  locationSlug: string | null;
-  characterSlugs: string[];
-  propSlugs: string[];
-  imageMap: VariantImageMap;
-}) {
-  const colorMap = new Map<string, string>();
-  if (locationSlug)
-    colorMap.set(locationSlug, 'text-emerald-400 bg-emerald-500/15');
-  for (const s of characterSlugs)
-    colorMap.set(s, 'text-blue-400 bg-blue-500/15');
-  for (const s of propSlugs) colorMap.set(s, 'text-amber-400 bg-amber-500/15');
-
-  const pattern = /@([a-z0-9]+(?:-[a-z0-9]+)*)/g;
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null = pattern.exec(prompt);
-
-  while (match !== null) {
-    if (match.index > lastIndex) {
-      parts.push(prompt.slice(lastIndex, match.index));
-    }
-    const slug = match[1];
-    const color = colorMap.get(slug);
-    if (color) {
-      parts.push(
-        <span
-          key={match.index}
-          className={`${color} rounded px-0.5 font-medium inline-flex items-center gap-0.5`}
-        >
-          <VariantAvatar slug={slug} imageMap={imageMap} />@{slugToLabel(slug)}
-        </span>
-      );
-    } else {
-      parts.push(
-        <span
-          key={match.index}
-          className="text-purple-400 bg-purple-500/15 rounded px-0.5 font-medium"
-        >
-          @{slug}
-        </span>
-      );
-    }
-    lastIndex = match.index + match[0].length;
-    match = pattern.exec(prompt);
-  }
-  if (lastIndex < prompt.length) {
-    parts.push(prompt.slice(lastIndex));
-  }
-
-  return <>{parts}</>;
-}
-
 // ── Generate Button ────────────────────────────────────────────────────────────
 
 function GenerateButton({
@@ -791,9 +731,6 @@ function SceneCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [localTtsStatus, setLocalTtsStatus] = useState<string | null>(null);
   const [localVideoStatus, setLocalVideoStatus] = useState<string | null>(null);
-  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [editShots, setEditShots] = useState<SceneSP>([]);
-  const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAppending, setIsAppending] = useState(false);
@@ -1088,127 +1025,42 @@ function SceneCard({
         </div>
       </div>
 
-      {/* Expanded: Full prompt with highlighted slugs + avatars + copy + edit */}
-      {isExpanded && (hasPrompt || isEditingPrompt) && (
+      {/* Expanded: Per-shot typed editor (always in edit mode) */}
+      {isExpanded && (
         <div className="px-3 pb-3 pt-1 border-t border-border/20">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
               Visual Prompt
             </p>
-            <div className="flex items-center gap-1">
-              {!isEditingPrompt && hasPrompt && (
-                <CopyButton text={scene.prompt!} />
-              )}
-              {isEditingPrompt ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingPrompt(false)}
-                    className="text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSavingPrompt || editShots.length === 0}
-                    onClick={async () => {
-                      setIsSavingPrompt(true);
-                      try {
-                        const res = await fetch(`/api/v2/scenes/${scene.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            structured_prompt: editShots,
-                          }),
-                        });
-                        if (!res.ok) {
-                          const body = await res.json().catch(() => ({}));
-                          const path =
-                            typeof body.path === 'string'
-                              ? ` (${body.path})`
-                              : '';
-                          throw new Error(
-                            (body.reason ?? body.error ?? 'Save failed') + path
-                          );
-                        }
-                        scene.prompt = editShots
-                          .map((s) =>
-                            [
-                              s.shot_type,
-                              s.camera_movement,
-                              s.action,
-                              s.lighting,
-                              s.mood,
-                            ]
-                              .filter(Boolean)
-                              .join(', ')
-                          )
-                          .join('\n');
-                        setIsEditingPrompt(false);
-                        toast.success('Scene shots saved');
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : 'Failed to save'
-                        );
-                      } finally {
-                        setIsSavingPrompt(false);
-                      }
-                    }}
-                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isSavingPrompt ? (
-                      <IconLoader2 className="size-2.5 animate-spin" />
-                    ) : (
-                      <IconDeviceFloppy className="size-2.5" />
-                    )}
-                    Save
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const sp = Array.isArray(scene.structured_prompt)
-                      ? (scene.structured_prompt as SceneSP)
-                      : [];
-                    setEditShots(sp);
-                    setIsEditingPrompt(true);
-                  }}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                  title="Edit shots"
-                >
-                  <IconPencil className="size-2.5" />
-                  Edit
-                </button>
-              )}
-            </div>
+            {hasPrompt && scene.prompt ? (
+              <CopyButton text={scene.prompt} />
+            ) : null}
           </div>
-          {isEditingPrompt ? (
-            <div className="rounded-md border border-primary/30 bg-muted/20 p-2.5">
-              <SceneShotFields
-                value={editShots}
-                onChange={(next) => setEditShots(next)}
-              />
-            </div>
-          ) : (
-            <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
-              <HighlightedPrompt
-                prompt={scene.prompt!}
-                locationSlug={scene.location_variant_slug}
-                characterSlugs={scene.character_variant_slugs ?? []}
-                propSlugs={scene.prop_variant_slugs ?? []}
-                imageMap={imageMap}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {isExpanded && !hasPrompt && !isEditingPrompt && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/20">
-          <p className="text-[10px] text-muted-foreground/50 italic">
-            No visual prompt written yet.
-          </p>
+          <SceneShotsInspector
+            sceneId={scene.id}
+            initialValue={
+              Array.isArray(scene.structured_prompt)
+                ? (scene.structured_prompt as SceneSP)
+                : null
+            }
+            slugContext={{
+              locationSlug: scene.location_variant_slug,
+              characterSlugs: scene.character_variant_slugs ?? [],
+              propSlugs: scene.prop_variant_slugs ?? [],
+              imageMap,
+            }}
+            onSaved={(next) => {
+              scene.structured_prompt = next;
+              scene.prompt = next
+                .map((s) =>
+                  [s.shot_type, s.camera_movement, s.action, s.lighting, s.mood]
+                    .filter(Boolean)
+                    .join(', ')
+                )
+                .join('\n');
+            }}
+            compact
+          />
         </div>
       )}
 

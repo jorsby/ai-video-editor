@@ -43,9 +43,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { getSceneThumbnailUrl } from './helpers';
 import { VariantAvatar } from './lightbox';
 import { MiniAudioPlayer, VideoThumbnail } from './audio-player';
-import { HighlightedPrompt } from './highlighted-prompt';
 import { GenerateButton, GenMetadataTooltip } from './generation-controls';
 import { SceneVariantTile } from './scene-variant-tile';
+import { SceneShotsInspector } from '../../fields';
 
 // ── Scene Card ─────────────────────────────────────────────────────────────────
 
@@ -83,9 +83,6 @@ export function SceneCard({
   };
   const [localTtsStatus, setLocalTtsStatus] = useState<string | null>(null);
   const [localVideoStatus, setLocalVideoStatus] = useState<string | null>(null);
-  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [editPromptText, setEditPromptText] = useState('');
-  const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleText, setEditTitleText] = useState('');
   const [isEditingAudioText, setIsEditingAudioText] = useState(false);
@@ -678,110 +675,26 @@ export function SceneCard({
         </div>
       </div>
 
-      {/* Expanded: Full prompt with highlighted slugs + avatars + copy + edit */}
-      {isExpanded && (hasPrompt || isEditingPrompt) && (
+      {/* Expanded: Per-shot typed editor (always in edit mode, matches asset inspector) */}
+      {isExpanded && (
         <div className="px-3 pb-3 pt-1 border-t border-border/20">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
               Visual Prompt
             </p>
-            <div className="flex items-center gap-1">
-              {!isEditingPrompt && hasPrompt && (
-                <CopyButton text={scenePromptText} />
-              )}
-              {isEditingPrompt ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingPrompt(false)}
-                    className="text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      isSavingPrompt ||
-                      editPromptText.trim() === scenePromptText
-                    }
-                    onClick={async () => {
-                      setIsSavingPrompt(true);
-                      try {
-                        const res = await fetch(`/api/v2/scenes/${scene.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            structured_prompt: editPromptText.trim()
-                              ? [{ text: editPromptText.trim() }]
-                              : null,
-                          }),
-                        });
-                        if (!res.ok) {
-                          const data = await res.json().catch(() => ({}));
-                          throw new Error(data.error ?? 'Failed to save');
-                        }
-                        setIsEditingPrompt(false);
-                        toast.success('Prompt saved');
-                      } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : 'Failed to save'
-                        );
-                      } finally {
-                        setIsSavingPrompt(false);
-                      }
-                    }}
-                    className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isSavingPrompt ? (
-                      <IconLoader2 className="size-2.5 animate-spin" />
-                    ) : (
-                      <IconDeviceFloppy className="size-2.5" />
-                    )}
-                    Save
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditPromptText(scenePromptText);
-                    setIsEditingPrompt(true);
-                  }}
-                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                  title="Edit prompt"
-                >
-                  <IconPencil className="size-2.5" />
-                  Edit
-                </button>
-              )}
-            </div>
+            {hasPrompt ? <CopyButton text={scenePromptText} /> : null}
           </div>
-          {isEditingPrompt ? (
-            <textarea
-              value={editPromptText}
-              onChange={(e) => setEditPromptText(e.target.value)}
-              className="w-full text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-primary/30 focus:border-primary/50 outline-none resize-y min-h-[80px]"
-              rows={6}
-            />
-          ) : (
-            <div className="text-[11px] leading-relaxed text-foreground/80 bg-muted/20 rounded-md p-2.5 border border-border/20">
-              <HighlightedPrompt
-                prompt={scenePromptText}
-                locationSlug={scene.location_variant_slug}
-                characterSlugs={scene.character_variant_slugs ?? []}
-                propSlugs={scene.prop_variant_slugs ?? []}
-                imageMap={imageMap}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {isExpanded && !hasPrompt && !isEditingPrompt && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/20">
-          <p className="text-[10px] text-muted-foreground/50 italic">
-            No visual prompt written yet.
-          </p>
+          <SceneShotsInspector
+            sceneId={scene.id}
+            initialValue={scene.structured_prompt ?? null}
+            slugContext={{
+              locationSlug: scene.location_variant_slug,
+              characterSlugs: scene.character_variant_slugs ?? [],
+              propSlugs: scene.prop_variant_slugs ?? [],
+              imageMap,
+            }}
+            compact
+          />
         </div>
       )}
 
