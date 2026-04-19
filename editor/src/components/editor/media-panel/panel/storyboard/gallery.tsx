@@ -21,14 +21,12 @@ import {
   IconUser,
   IconBox,
   IconEye,
-  IconLoader2,
-  IconRefresh,
   IconPencil,
-  IconDeviceFloppy,
 } from '@tabler/icons-react';
 import { CopyButton } from '../../shared/copy-button';
 import { ImageLightbox } from './lightbox';
 import { GenerateButton } from './generation-controls';
+import { AssetInspector, type AssetRole } from '../../fields';
 
 function humanizeKey(key: string): string {
   const map: Record<string, string> = {
@@ -77,16 +75,16 @@ export function GalleryCard({
   slug,
   imageMap,
   fallbackIcon: FallbackIcon,
+  assetRole,
 }: {
   slug: string;
   imageMap: VariantImageMap;
   fallbackIcon: React.FC<{ className?: string }>;
+  assetRole: AssetRole;
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [optimisticGenStatus, setOptimisticGenStatus] = useState('');
   const info = imageMap.get(slug);
   const url = info?.image_url;
@@ -111,40 +109,6 @@ export function GalleryCard({
     if (!result.ok) {
       setOptimisticGenStatus('');
       toast.error(result.error ?? 'Failed to regenerate image');
-    }
-  };
-
-  const handleSavePrompt = async (regenerate: boolean) => {
-    if (!info || isSaving) return;
-    setIsSaving(true);
-    try {
-      const res = await fetch(`/api/v2/variants/${info.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          structured_prompt: {
-            ...(info.structured_prompt ?? {}),
-            prompt: editText.trim(),
-          },
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? 'Failed to save');
-      }
-      info.structured_prompt = {
-        ...(info.structured_prompt ?? {}),
-        prompt: editText.trim(),
-      };
-      setIsEditing(false);
-      toast.success('Prompt saved');
-      if (regenerate) {
-        await handleRegenerate();
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -208,54 +172,30 @@ export function GalleryCard({
       {/* Expandable prompt section */}
       {isPromptOpen && (
         <div className="w-full rounded-md bg-muted/20 border border-border/20 p-2 text-left">
-          {isEditing ? (
-            <>
-              <textarea
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                className="w-full text-[10px] leading-relaxed text-foreground/80 bg-muted/30 rounded p-1.5 border border-primary/30 focus:border-primary/50 outline-none resize-y min-h-[50px]"
-                rows={3}
+          {isEditing && info ? (
+            <div className="space-y-1.5">
+              <AssetInspector
+                id={info.id}
+                role={assetRole}
+                mode="variant"
+                initialValue={
+                  (info.structured_prompt as Record<string, unknown>) ?? {}
+                }
+                onSaved={(next) => {
+                  info.structured_prompt = next;
+                  setIsEditing(false);
+                }}
+                onRegenerate={handleRegenerate}
+                compact
               />
-              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    isSaving ||
-                    editText.trim() ===
-                      flattenStructuredPrompt(info?.structured_prompt)
-                  }
-                  onClick={() => void handleSavePrompt(false)}
-                  className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? (
-                    <IconLoader2 className="size-2 animate-spin" />
-                  ) : (
-                    <IconDeviceFloppy className="size-2" />
-                  )}
-                  Save
-                </button>
-                <button
-                  type="button"
-                  disabled={isSaving || !editText.trim()}
-                  onClick={() => void handleSavePrompt(true)}
-                  className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? (
-                    <IconLoader2 className="size-2 animate-spin" />
-                  ) : (
-                    <IconRefresh className="size-2" />
-                  )}
-                  Save &amp; Regenerate
-                </button>
-              </div>
-            </>
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                className="text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           ) : (
             <>
               {info?.structured_prompt &&
@@ -269,13 +209,9 @@ export function GalleryCard({
               <div className="flex items-center gap-1 mt-1.5">
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditText(
-                      flattenStructuredPrompt(info?.structured_prompt)
-                    );
-                    setIsEditing(true);
-                  }}
-                  className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                  onClick={() => setIsEditing(true)}
+                  disabled={!info}
+                  className="inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors disabled:opacity-40"
                   title="Edit prompt"
                 >
                   <IconPencil className="size-2" />
@@ -389,6 +325,7 @@ export function AssetGallery({
             slug={slug}
             imageMap={imageMap}
             fallbackIcon={Icon}
+            assetRole={assetRole}
           />
         ))}
       </div>

@@ -10,3 +10,8 @@ export {
   toMusicSPPayload,
   type MusicSPValue,
 } from './MusicFields';
+export {
+  AssetInspector,
+  type AssetRole,
+  type InspectorMode,
+} from './AssetInspector';
