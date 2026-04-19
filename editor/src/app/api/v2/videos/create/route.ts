@@ -8,33 +8,85 @@ import {
   VARIANT_TABLE_BY_TYPE,
   type AssetType,
 } from '@/lib/api/variant-table-resolver';
+import {
+  CharacterSPSchema,
+  LocationSPSchema,
+  PropSPSchema,
+  EXPECTED_CHARACTER_SP,
+  EXPECTED_LOCATION_SP,
+  EXPECTED_PROP_SP,
+  validateStructuredPrompt,
+} from '@/lib/api/structured-prompt-schemas';
+import type { NextResponse as NextResponseType } from 'next/server';
 
 type AssetInput = {
   name: string;
-  description?: string;
+  use_case?: string;
+  structured_prompt: Record<string, unknown>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeAssets(input: unknown): AssetInput[] {
-  if (!Array.isArray(input)) return [];
+/**
+ * Parse + validate an asset array for a specific type. Returns the prepared
+ * rows, or the first-failing NextResponse if any item's structured_prompt
+ * doesn't match the typed schema for that asset type.
+ */
+function normalizeAssetsByType(
+  input: unknown,
+  type: AssetType,
+  key: 'characters' | 'locations' | 'props'
+): { assets: AssetInput[] } | { errorResponse: NextResponseType } {
+  if (input === undefined || input === null) return { assets: [] };
+  if (!Array.isArray(input)) return { assets: [] };
 
-  return input
-    .map((item) => {
-      if (!isRecord(item)) return null;
-      const name = typeof item.name === 'string' ? item.name.trim() : '';
-      const description =
-        typeof item.description === 'string' ? item.description.trim() : '';
+  const schema =
+    type === 'character'
+      ? CharacterSPSchema
+      : type === 'location'
+        ? LocationSPSchema
+        : PropSPSchema;
+  const expected =
+    type === 'character'
+      ? EXPECTED_CHARACTER_SP
+      : type === 'location'
+        ? EXPECTED_LOCATION_SP
+        : EXPECTED_PROP_SP;
 
-      if (!name) return null;
-      return {
-        name,
-        ...(description ? { description } : {}),
-      };
-    })
-    .filter((item): item is AssetInput => !!item);
+  const assets: AssetInput[] = [];
+  for (let i = 0; i < input.length; i++) {
+    const item = input[i];
+    if (!isRecord(item)) continue;
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    if (!name) continue;
+
+    const useCase =
+      typeof item.use_case === 'string' && item.use_case.trim()
+        ? item.use_case.trim()
+        : typeof item.description === 'string' && item.description.trim()
+          ? item.description.trim()
+          : undefined;
+
+    // Strip route-level keys; the rest is the typed structured_prompt.
+    const { name: _n, slug: _s, use_case: _uc, description: _d, ...sp } = item;
+
+    const validation = validateStructuredPrompt(
+      schema,
+      sp,
+      expected,
+      `${key}[${i}].structured_prompt`
+    );
+    if (!validation.ok) return { errorResponse: validation.response };
+
+    assets.push({
+      name,
+      ...(useCase ? { use_case: useCase } : {}),
+      structured_prompt: validation.value as Record<string, unknown>,
+    });
+  }
+  return { assets };
 }
 
 export async function POST(req: NextRequest) {
@@ -69,9 +121,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const characters = normalizeAssets(body?.characters);
-    const locations = normalizeAssets(body?.locations);
-    const props = normalizeAssets(body?.props);
+    const charsParsed = normalizeAssetsByType(
+      body?.characters,
+      'character',
+      'characters'
+    );
+    if ('errorResponse' in charsParsed) return charsParsed.errorResponse;
+    const characters = charsParsed.assets;
+
+    const locsParsed = normalizeAssetsByType(
+      body?.locations,
+      'location',
+      'locations'
+    );
+    if ('errorResponse' in locsParsed) return locsParsed.errorResponse;
+    const locations = locsParsed.assets;
+
+    const propsParsed = normalizeAssetsByType(body?.props, 'prop', 'props');
+    if ('errorResponse' in propsParsed) return propsParsed.errorResponse;
+    const props = propsParsed.assets;
 
     const dbClient = createServiceClient('studio');
 
@@ -258,8 +326,9 @@ export async function POST(req: NextRequest) {
             video_id: videoId,
             name: asset.name,
             slug: slugify(asset.name),
-            use_case: asset.description ?? null,
+            use_case: asset.use_case ?? null,
             sort_order: offset + index,
+            structured_prompt: asset.structured_prompt,
           })),
           { onConflict: 'project_id,slug', ignoreDuplicates: false }
         )
@@ -305,6 +374,8 @@ export async function POST(req: NextRequest) {
 
     for (const asset of createdAssetsForVariants) {
       const fk = ASSET_FK_BY_TYPE[asset.type];
+      // Main variant starts empty — variants overlay parent typed fields;
+      // the main variant has no overrides by default.
       variantsByType[asset.type].push({
         [fk]: asset.id,
         name: 'Main',
@@ -312,9 +383,7 @@ export async function POST(req: NextRequest) {
         is_main: true,
         image_url: null,
         image_gen_status: 'idle',
-        structured_prompt: {
-          prompt: asset.description ?? `${asset.name} reference`,
-        },
+        structured_prompt: {},
       });
     }
 
