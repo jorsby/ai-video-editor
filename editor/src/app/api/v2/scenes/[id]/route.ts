@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
+import {
+  SceneSPSchema,
+  EXPECTED_SCENE_SP,
+  validateStructuredPrompt,
+} from '@/lib/api/structured-prompt-schemas';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -198,28 +203,8 @@ function parseScenePatch(body: Record<string, unknown>): {
   if (title.error) return { updates, error: title.error };
   if (title.value !== undefined) updates.title = title.value;
 
-  if (body.structured_prompt !== undefined) {
-    if (body.structured_prompt === null) {
-      updates.structured_prompt = null;
-    } else if (Array.isArray(body.structured_prompt)) {
-      if (
-        body.structured_prompt.some(
-          (seg) => !seg || typeof seg !== 'object' || Array.isArray(seg)
-        )
-      ) {
-        return {
-          updates,
-          error: 'structured_prompt must be an array of objects or null',
-        };
-      }
-      updates.structured_prompt = body.structured_prompt;
-    } else {
-      return {
-        updates,
-        error: 'structured_prompt must be an array of objects or null',
-      };
-    }
-  }
+  // structured_prompt is validated separately in PATCH so we can return the
+  // shared { error, path, reason, expected } envelope on failure.
 
   const locationVariantSlug = toNullableString(
     body.location_variant_slug,
@@ -315,6 +300,21 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const { updates, error: validationError } = parseScenePatch(body);
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
+    if (body.structured_prompt !== undefined) {
+      if (body.structured_prompt === null) {
+        updates.structured_prompt = null;
+      } else {
+        const validation = validateStructuredPrompt(
+          SceneSPSchema,
+          body.structured_prompt,
+          EXPECTED_SCENE_SP,
+          'structured_prompt'
+        );
+        if (!validation.ok) return validation.response;
+        updates.structured_prompt = validation.value;
+      }
     }
 
     if (Object.keys(updates).length === 0) {

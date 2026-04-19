@@ -7,10 +7,15 @@ import {
   LOCAL_WEBHOOK_BASE_ERROR,
   resolveWebhookBaseUrl,
 } from '@/lib/webhook-base-url';
+import {
+  MusicSPSchema,
+  EXPECTED_MUSIC_SP,
+  validateStructuredPrompt,
+  type MusicSP,
+} from '@/lib/api/structured-prompt-schemas';
 
 type MusicType = 'lyrical' | 'instrumental';
 
-const MUSIC_TYPES = new Set<MusicType>(['lyrical', 'instrumental']);
 const MUSIC_SELECT =
   'id, project_id, video_id, title, structured_prompt, audio_url, cover_image_url, duration, status, task_id, generation_metadata, sort_order, created_at, updated_at';
 
@@ -31,20 +36,105 @@ type MusicRow = {
   updated_at: string;
 };
 
-function readStructured(value: unknown): { prompt: string; extras: string } {
+/** Read stored structured_prompt leniently — supports new typed shape AND
+ * legacy `{ prompt, extras }` rows. Returns a partial MusicSP-ish object. */
+function readMusicSPLenient(value: unknown): {
+  is_instrumental: boolean | null;
+  genre: string;
+  mood: string;
+  instrumentation: string;
+  tempo_bpm: number | null;
+  lyrics: string | null;
+  // legacy-derived (for UI backward compat until it moves off)
+  legacyPrompt: string;
+  legacyExtras: string;
+} {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { prompt: '', extras: '' };
+    return {
+      is_instrumental: null,
+      genre: '',
+      mood: '',
+      instrumentation: '',
+      tempo_bpm: null,
+      lyrics: null,
+      legacyPrompt: '',
+      legacyExtras: '',
+    };
   }
   const sp = value as Record<string, unknown>;
+  const isInstrumentalTyped =
+    typeof sp.is_instrumental === 'boolean' ? sp.is_instrumental : null;
+  const legacyPrompt = typeof sp.prompt === 'string' ? sp.prompt : '';
+  const legacyExtras = typeof sp.extras === 'string' ? sp.extras : '';
   return {
-    prompt: typeof sp.prompt === 'string' ? sp.prompt : '',
-    extras: typeof sp.extras === 'string' ? sp.extras : '',
+    is_instrumental:
+      isInstrumentalTyped ??
+      (legacyPrompt || legacyExtras ? legacyPrompt.trim() === '' : null),
+    genre: typeof sp.genre === 'string' ? sp.genre : '',
+    mood: typeof sp.mood === 'string' ? sp.mood : '',
+    instrumentation:
+      typeof sp.instrumentation === 'string' ? sp.instrumentation : '',
+    tempo_bpm:
+      typeof sp.tempo_bpm === 'number' && Number.isFinite(sp.tempo_bpm)
+        ? sp.tempo_bpm
+        : null,
+    lyrics: typeof sp.lyrics === 'string' ? sp.lyrics : null,
+    legacyPrompt,
+    legacyExtras,
+  };
+}
+
+/** Compose Suno inputs from a typed MusicSP. */
+function composeMusicForSuno(sp: MusicSP): {
+  prompt: string;
+  style: string;
+  instrumental: boolean;
+} {
+  const tempoSuffix = sp.tempo_bpm ? ` ${sp.tempo_bpm} BPM.` : '';
+  const style = `${sp.genre}, ${sp.mood}. Instruments: ${sp.instrumentation}.${tempoSuffix}`;
+  return {
+    prompt: sp.is_instrumental ? '' : sp.lyrics,
+    style,
+    instrumental: sp.is_instrumental,
+  };
+}
+
+/**
+ * Resolve Suno generation params from a stored structured_prompt.
+ * Handles both the new typed MusicSP shape and legacy `{ prompt, extras }` rows.
+ * Returns null if neither shape has enough info to generate.
+ */
+export function resolveMusicGenerationParams(raw: unknown): {
+  prompt: string;
+  style: string;
+  instrumental: boolean;
+} | null {
+  const parsed = MusicSPSchema.safeParse(raw);
+  if (parsed.success) return composeMusicForSuno(parsed.data);
+
+  const lenient = readMusicSPLenient(raw);
+  if (!lenient.legacyExtras && !lenient.legacyPrompt) return null;
+  return {
+    prompt: lenient.legacyPrompt,
+    style: lenient.legacyExtras,
+    instrumental: !lenient.legacyPrompt.trim(),
   };
 }
 
 export function toApiMusic(row: MusicRow) {
-  const sp = readStructured(row.structured_prompt);
-  const isInstrumental = !sp.prompt.trim();
+  const lenient = readMusicSPLenient(row.structured_prompt);
+  const isInstrumental = lenient.is_instrumental ?? true;
+  // Legacy-compat display fields (will be removed once UI moves to typed fields)
+  const legacyStyle =
+    lenient.genre || lenient.mood || lenient.instrumentation
+      ? [
+          lenient.genre,
+          lenient.mood,
+          lenient.instrumentation && `Instruments: ${lenient.instrumentation}`,
+        ]
+          .filter(Boolean)
+          .join(', ')
+      : lenient.legacyExtras;
   return {
     id: row.id,
     project_id: row.project_id,
@@ -52,8 +142,16 @@ export function toApiMusic(row: MusicRow) {
     name: row.title ?? '',
     title: row.title,
     music_type: (isInstrumental ? 'instrumental' : 'lyrical') as MusicType,
-    prompt: sp.prompt || null,
-    style: sp.extras || null,
+    // Typed fields (new)
+    is_instrumental: isInstrumental,
+    genre: lenient.genre || null,
+    mood: lenient.mood || null,
+    instrumentation: lenient.instrumentation || null,
+    tempo_bpm: lenient.tempo_bpm,
+    lyrics: lenient.lyrics,
+    // Legacy-derived display fields
+    prompt: lenient.lyrics || lenient.legacyPrompt || null,
+    style: legacyStyle || null,
     structured_prompt: row.structured_prompt,
     audio_url: row.audio_url,
     cover_image_url: row.cover_image_url,
@@ -105,7 +203,7 @@ function normalizeText(
   return { ok: true, value: trimmed };
 }
 
-function normalizeOptionalText(value: unknown): string | null {
+function _normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -259,25 +357,6 @@ export async function createProjectMusic(
       );
     }
 
-    const musicTypeRaw =
-      typeof body.music_type === 'string' ? body.music_type.trim() : '';
-    if (!MUSIC_TYPES.has(musicTypeRaw as MusicType)) {
-      return NextResponse.json(
-        { error: "music_type must be either 'lyrical' or 'instrumental'" },
-        { status: 400 }
-      );
-    }
-
-    const musicType = musicTypeRaw as MusicType;
-
-    const style = normalizeText(body.style);
-    if (!style.ok) {
-      return NextResponse.json(
-        { error: 'style must be a non-empty string' },
-        { status: 400 }
-      );
-    }
-
     const title = normalizeText(body.title);
     if (!title.ok) {
       return NextResponse.json(
@@ -286,27 +365,17 @@ export async function createProjectMusic(
       );
     }
 
-    if (
-      body.prompt !== undefined &&
-      body.prompt !== null &&
-      typeof body.prompt !== 'string'
-    ) {
-      return NextResponse.json(
-        { error: 'prompt must be a string or null' },
-        { status: 400 }
-      );
-    }
-
-    const prompt = normalizeOptionalText(body.prompt);
-    if (musicType === 'lyrical' && !prompt) {
-      return NextResponse.json(
-        {
-          error:
-            'prompt is required for lyrical tracks and must be a non-empty string',
-        },
-        { status: 400 }
-      );
-    }
+    // Validate typed structured_prompt (discriminated union on is_instrumental).
+    const { title: _t, ...sp } = body as Record<string, unknown>;
+    const validation = validateStructuredPrompt(
+      MusicSPSchema,
+      sp,
+      EXPECTED_MUSIC_SP,
+      'structured_prompt'
+    );
+    if (!validation.ok) return validation.response;
+    const musicSP = validation.value as MusicSP;
+    const composed = composeMusicForSuno(musicSP);
 
     const db = createServiceClient('studio');
     const owned = await getOwnedProject(db, projectId, user.id);
@@ -323,18 +392,13 @@ export async function createProjectMusic(
     const nextSort =
       typeof maxRow?.sort_order === 'number' ? maxRow.sort_order + 1 : 0;
 
-    const structuredPrompt = {
-      prompt: musicType === 'lyrical' ? (prompt ?? '') : '',
-      extras: style.value,
-    };
-
     const { data: inserted, error: insertError } = await db
       .from('musics')
       .insert({
         project_id: projectId,
         video_id: videoId ?? null,
         title: title.value,
-        structured_prompt: structuredPrompt,
+        structured_prompt: musicSP,
         status: 'generating',
         sort_order: nextSort,
       })
@@ -390,10 +454,10 @@ export async function createProjectMusic(
 
     try {
       const queued = await generateMusic({
-        prompt: musicType === 'instrumental' ? '' : (prompt ?? ''),
-        style: style.value,
+        prompt: composed.prompt,
+        style: composed.style,
         title: title.value,
-        instrumental: musicType === 'instrumental',
+        instrumental: composed.instrumental,
         callbackUrl: webhookUrl.toString(),
       });
 

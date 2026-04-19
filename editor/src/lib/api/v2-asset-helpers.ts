@@ -22,6 +22,21 @@ import {
   assetTypeFromVariantTable,
   updateVariantByIdSafe,
 } from '@/lib/api/variant-table-resolver';
+import {
+  CharacterSPSchema,
+  CharacterSPPartialSchema,
+  LocationSPSchema,
+  LocationSPPartialSchema,
+  PropSPSchema,
+  PropSPPartialSchema,
+  EXPECTED_CHARACTER_SP,
+  EXPECTED_LOCATION_SP,
+  EXPECTED_PROP_SP,
+  validateStructuredPrompt,
+  type CharacterSP,
+  type LocationSP,
+  type PropSP,
+} from '@/lib/api/structured-prompt-schemas';
 
 export type AssetType = 'character' | 'location' | 'prop';
 export type AssetRouteScope = 'project' | 'video';
@@ -85,6 +100,8 @@ type LegacyAsset = {
   project_asset_variants?: LegacyVariant[];
 };
 
+/* ── Legacy fallback reader (for rows written before typed shape landed) ── */
+
 function flattenPromptFromStructured(
   sp: Record<string, unknown> | null | undefined
 ): string | null {
@@ -97,6 +114,153 @@ function flattenPromptFromStructured(
     .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
     .map((v) => v.trim());
   return parts.length > 0 ? parts.join('. ') : null;
+}
+
+/* ── Forgiving typed readers (compose-time, lenient about extras/missing) ── */
+
+function readCharacterPartial(sp: unknown): Partial<CharacterSP> | null {
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) return null;
+  const r = sp as Record<string, unknown>;
+  const out: Partial<CharacterSP> = {};
+  if (typeof r.age === 'number' && Number.isFinite(r.age)) out.age = r.age;
+  if (typeof r.gender === 'string' && r.gender.trim())
+    out.gender = r.gender.trim();
+  if (typeof r.era === 'string' && r.era.trim()) out.era = r.era.trim();
+  if (typeof r.appearance === 'string' && r.appearance.trim())
+    out.appearance = r.appearance.trim();
+  if (typeof r.outfit === 'string' && r.outfit.trim())
+    out.outfit = r.outfit.trim();
+  if (typeof r.extras === 'string' && r.extras.trim())
+    out.extras = r.extras.trim();
+  return out;
+}
+
+function readLocationPartial(sp: unknown): Partial<LocationSP> | null {
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) return null;
+  const r = sp as Record<string, unknown>;
+  const out: Partial<LocationSP> = {};
+  if (typeof r.setting_type === 'string' && r.setting_type.trim())
+    out.setting_type = r.setting_type.trim();
+  if (typeof r.time_of_day === 'string' && r.time_of_day.trim())
+    out.time_of_day = r.time_of_day.trim();
+  if (typeof r.era === 'string' && r.era.trim()) out.era = r.era.trim();
+  if (typeof r.extras === 'string' && r.extras.trim())
+    out.extras = r.extras.trim();
+  return out;
+}
+
+function readPropPartial(sp: unknown): Partial<PropSP> | null {
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) return null;
+  const r = sp as Record<string, unknown>;
+  const out: Partial<PropSP> = {};
+  if (typeof r.prompt === 'string' && r.prompt.trim())
+    out.prompt = r.prompt.trim();
+  if (typeof r.brand === 'string' && r.brand.trim()) out.brand = r.brand.trim();
+  return out;
+}
+
+/* ── Prefix/suffix constants ─────────────────────────────────────────── */
+
+const ASSET_IMAGE_PROMPT_PREFIX: Record<AssetType, string> = {
+  character:
+    'Full-body head-to-toe character shot, standing, front-facing, neutral background, studio lighting',
+  location:
+    'Wide establishing shot, cinematic composition, atmospheric lighting',
+  prop: 'Clean product shot, centered, neutral background, studio lighting',
+};
+
+const ASSET_IMAGE_PROMPT_SUFFIX =
+  'Absolutely no text, no words, no letters, no writing, no labels';
+
+/* ── Typed composers (typed shape → provider prompt string) ─────────── */
+
+function composeCharacterBody(
+  parentSp: unknown,
+  variantSp: unknown
+): string | null {
+  const p = readCharacterPartial(parentSp);
+  if (!p) return null;
+  const v = readCharacterPartial(variantSp) ?? {};
+  const age = v.age ?? p.age;
+  const gender = v.gender ?? p.gender;
+  const era = v.era ?? p.era;
+  const appearance = v.appearance ?? p.appearance;
+  const outfit = v.outfit ?? p.outfit;
+  const extras = v.extras ?? p.extras;
+  if (age == null || !gender || !era || !appearance || !outfit) return null;
+  const core = `A ${age}-year-old ${gender} from ${era}. ${appearance}. Wearing ${outfit}`;
+  return extras ? `${core}. ${extras}` : core;
+}
+
+function composeLocationBody(
+  parentSp: unknown,
+  variantSp: unknown
+): string | null {
+  const p = readLocationPartial(parentSp);
+  if (!p) return null;
+  const v = readLocationPartial(variantSp) ?? {};
+  const settingType = v.setting_type ?? p.setting_type;
+  const timeOfDay = v.time_of_day ?? p.time_of_day;
+  const era = v.era ?? p.era;
+  const extras = v.extras ?? p.extras;
+  if (!settingType || !timeOfDay || !era) return null;
+  const core = `${settingType}, ${timeOfDay}, ${era}`;
+  return extras ? `${core}. ${extras}` : core;
+}
+
+function composePropBody(parentSp: unknown, variantSp: unknown): string | null {
+  const p = readPropPartial(parentSp);
+  if (!p) return null;
+  const v = readPropPartial(variantSp) ?? {};
+  const prompt = v.prompt ?? p.prompt;
+  const brand = v.brand ?? p.brand;
+  if (!prompt) return null;
+  return brand ? `${prompt}. Brand: ${brand}` : prompt;
+}
+
+/**
+ * Single source of truth for asset image prompts.
+ *
+ * Composes `<type prefix>. <typed body>. <safety suffix>` using typed fields
+ * with variant-overlays-parent semantics. Falls back to legacy flatten for
+ * rows written before the typed shape landed — so legacy assets still render
+ * a prompt instead of returning empty.
+ */
+export function buildAssetImagePrompt(
+  type: AssetType,
+  assetStructuredPrompt: Record<string, unknown> | null | undefined,
+  variantStructuredPrompt: Record<string, unknown> | null | undefined
+): string {
+  let body: string | null;
+  switch (type) {
+    case 'character':
+      body = composeCharacterBody(
+        assetStructuredPrompt,
+        variantStructuredPrompt
+      );
+      break;
+    case 'location':
+      body = composeLocationBody(
+        assetStructuredPrompt,
+        variantStructuredPrompt
+      );
+      break;
+    case 'prop':
+      body = composePropBody(assetStructuredPrompt, variantStructuredPrompt);
+      break;
+  }
+
+  if (!body) {
+    const assetDesc = flattenPromptFromStructured(assetStructuredPrompt);
+    const variantDesc = flattenPromptFromStructured(variantStructuredPrompt);
+    const legacy = [assetDesc, variantDesc].filter(Boolean).join('. ');
+    body = legacy || null;
+  }
+
+  const parts: string[] = [ASSET_IMAGE_PROMPT_PREFIX[type]];
+  if (body) parts.push(body);
+  parts.push(ASSET_IMAGE_PROMPT_SUFFIX);
+  return parts.join('. ');
 }
 
 function toLegacyVariant(
@@ -163,9 +327,16 @@ function toNullableString(value: unknown): string | null {
 
 type DB = any;
 
+type AutoGenerateVariant = {
+  id: string;
+  assetStructuredPrompt: Record<string, unknown> | null;
+  variantStructuredPrompt: Record<string, unknown> | null;
+};
+
 async function autoGenerateImages(
   db: DB,
-  variants: Array<{ id: string; prompt: string }>,
+  type: AssetType,
+  variants: AutoGenerateVariant[],
   req: NextRequest,
   aspectRatio = '9:16',
   model?: ImageModelId,
@@ -176,14 +347,18 @@ async function autoGenerateImages(
   if (!webhookBase) return;
 
   for (const variant of variants) {
-    if (!variant.prompt) continue;
+    const prompt = buildAssetImagePrompt(
+      type,
+      variant.assetStructuredPrompt,
+      variant.variantStructuredPrompt
+    );
     try {
       const webhookUrl = new URL(`${webhookBase}/api/webhook/kieai`);
       webhookUrl.searchParams.set('step', 'VideoAssetImage');
       webhookUrl.searchParams.set('variant_id', variant.id);
 
       const queued = await queueImageTask({
-        prompt: variant.prompt,
+        prompt,
         webhookUrl: webhookUrl.toString(),
         model,
         inputUrls,
@@ -451,6 +626,19 @@ export async function postAssetsByType(
   let nextSort =
     typeof maxRow?.sort_order === 'number' ? maxRow.sort_order + 1 : 0;
 
+  const strictSchema =
+    type === 'character'
+      ? CharacterSPSchema
+      : type === 'location'
+        ? LocationSPSchema
+        : PropSPSchema;
+  const expectedMap =
+    type === 'character'
+      ? EXPECTED_CHARACTER_SP
+      : type === 'location'
+        ? EXPECTED_LOCATION_SP
+        : EXPECTED_PROP_SP;
+
   const rows: Array<{
     project_id: string;
     video_id: string | null;
@@ -458,15 +646,15 @@ export async function postAssetsByType(
     slug: string;
     use_case: string | null;
     sort_order: number;
-    _variant_prompt: string;
-    _variant_reasoning: string;
+    structured_prompt: Record<string, unknown>;
   }> = [];
 
-  for (const item of body) {
+  for (let i = 0; i < body.length; i++) {
+    const item = body[i];
     const name = typeof item?.name === 'string' ? item.name.trim() : '';
     if (!name) {
       return NextResponse.json(
-        { error: 'Each asset must have a non-empty name' },
+        { error: `assets[${i}]: name must be non-empty` },
         { status: 400 }
       );
     }
@@ -478,19 +666,26 @@ export async function postAssetsByType(
 
     if (!slug) {
       return NextResponse.json(
-        { error: `Could not generate slug for "${name}"` },
+        { error: `assets[${i}]: could not generate slug for "${name}"` },
         { status: 400 }
       );
     }
 
-    const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
+    // Strip route-level keys before validating the typed structured_prompt.
+    const {
+      name: _n,
+      slug: _s,
+      description: _d,
+      ...sp
+    } = (item ?? {}) as Record<string, unknown>;
 
-    if (!prompt) {
-      return NextResponse.json(
-        { error: `"prompt" is required for "${name}"` },
-        { status: 400 }
-      );
-    }
+    const validation = validateStructuredPrompt(
+      strictSchema,
+      sp,
+      expectedMap,
+      `assets[${i}].structured_prompt`
+    );
+    if (!validation.ok) return validation.response;
 
     rows.push({
       project_id: projectId,
@@ -499,18 +694,13 @@ export async function postAssetsByType(
       slug,
       use_case: toNullableString(item?.description),
       sort_order: nextSort++,
-      _variant_prompt: prompt,
-      _variant_reasoning: toNullableString(item?.reasoning) ?? '',
+      structured_prompt: validation.value as Record<string, unknown>,
     });
   }
 
-  const dbRows = rows.map(
-    ({ _variant_prompt, _variant_reasoning, ...rest }) => rest
-  );
-
   const { data: assets, error: insertErr } = await db
     .from(parentTable)
-    .insert(dbRows)
+    .insert(rows)
     .select(TYPED_ASSET_SELECT);
 
   if (insertErr) {
@@ -527,34 +717,32 @@ export async function postAssetsByType(
     );
   }
 
-  const mainVariants = (assets ?? []).map(
-    (asset: TypedAssetRow, index: number) => {
-      const inputRow = rows[index] as Record<string, unknown>;
-      const prompt = (inputRow._variant_prompt as string) ?? '';
-      const reasoning = (inputRow._variant_reasoning as string) ?? '';
+  const typedAssets = (assets ?? []) as TypedAssetRow[];
+  // Main variant starts with empty structured_prompt — variants overlay the
+  // parent's typed fields; the main variant has no overrides by default.
+  const mainVariants = typedAssets.map((asset) => ({
+    [parentFk]: asset.id,
+    name: 'Main',
+    slug: `${asset.slug}-main`,
+    is_main: true,
+    structured_prompt: {},
+  }));
 
-      return {
-        [parentFk]: asset.id,
-        name: 'Main',
-        slug: `${asset.slug}-main`,
-        is_main: true,
-        structured_prompt: {
-          prompt,
-          ...(reasoning ? { reasoning } : {}),
-        },
-      };
-    }
-  );
-
-  let insertedVariants: Array<{ id: string; prompt: string }> = [];
+  let insertedVariants: AutoGenerateVariant[] = [];
   if (mainVariants.length > 0) {
     const { data: variantRows } = await db
       .from(variantTable)
       .insert(mainVariants)
-      .select('id, structured_prompt');
+      .select(`id, ${parentFk}, structured_prompt`);
+
+    const assetSpById = new Map<string, Record<string, unknown> | null>(
+      typedAssets.map((a) => [a.id, a.structured_prompt ?? null])
+    );
+
     insertedVariants = ((variantRows ?? []) as TypedVariantRow[]).map((v) => ({
       id: v.id,
-      prompt: flattenPromptFromStructured(v.structured_prompt) ?? '',
+      assetStructuredPrompt: assetSpById.get(v[parentFk] as string) ?? null,
+      variantStructuredPrompt: v.structured_prompt ?? null,
     }));
   }
 
@@ -572,6 +760,7 @@ export async function postAssetsByType(
 
     autoGenerateImages(
       db,
+      type,
       insertedVariants,
       req,
       arForType,
@@ -653,14 +842,60 @@ export async function patchAssetByType(
     updates.sort_order = body.sort_order;
   }
 
-  if (Object.keys(updates).length === 0) {
-    return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
-  }
-
   const db = createServiceClient('studio');
   const owned = await getOwnedAsset(db, user.id, id, type);
   if (!owned) {
     return NextResponse.json({ error: `${type} not found` }, { status: 404 });
+  }
+
+  // Typed-field patches: strip route keys, merge with existing structured_prompt,
+  // validate merged object against strict schema (rejects unsetting required fields).
+  const {
+    name: _n,
+    slug: _s,
+    description: _d,
+    sort_order: _o,
+    structured_prompt: _sp,
+    ...spPatch
+  } = (body ?? {}) as Record<string, unknown>;
+
+  if (Object.keys(spPatch).length > 0) {
+    const existing =
+      owned.row.structured_prompt &&
+      typeof owned.row.structured_prompt === 'object' &&
+      !Array.isArray(owned.row.structured_prompt)
+        ? (owned.row.structured_prompt as Record<string, unknown>)
+        : {};
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [k, v] of Object.entries(spPatch)) {
+      if (v === null) delete merged[k];
+      else merged[k] = v;
+    }
+    const strictSchema =
+      type === 'character'
+        ? CharacterSPSchema
+        : type === 'location'
+          ? LocationSPSchema
+          : PropSPSchema;
+    const expectedMap =
+      type === 'character'
+        ? EXPECTED_CHARACTER_SP
+        : type === 'location'
+          ? EXPECTED_LOCATION_SP
+          : EXPECTED_PROP_SP;
+
+    const validation = validateStructuredPrompt(
+      strictSchema,
+      merged,
+      expectedMap,
+      'structured_prompt'
+    );
+    if (!validation.ok) return validation.response;
+    updates.structured_prompt = validation.value as Record<string, unknown>;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
   const parentTable = ASSET_TABLE_BY_TYPE[type];
@@ -793,12 +1028,26 @@ export async function postVariantsByAsset(
   const variantTable = VARIANT_TABLE_BY_TYPE[owned.type];
   const parentFk = ASSET_FK_BY_TYPE[owned.type];
 
+  const partialSchema =
+    owned.type === 'character'
+      ? CharacterSPPartialSchema
+      : owned.type === 'location'
+        ? LocationSPPartialSchema
+        : PropSPPartialSchema;
+  const expectedMap =
+    owned.type === 'character'
+      ? EXPECTED_CHARACTER_SP
+      : owned.type === 'location'
+        ? EXPECTED_LOCATION_SP
+        : EXPECTED_PROP_SP;
+
   const rows: Array<Record<string, unknown>> = [];
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     const name = typeof item?.name === 'string' ? item.name.trim() : '';
     if (!name) {
       return NextResponse.json(
-        { error: 'Each variant must have a non-empty name' },
+        { error: `variants[${i}]: name must be non-empty` },
         { status: 400 }
       );
     }
@@ -808,27 +1057,29 @@ export async function postVariantsByAsset(
         ? item.slug.trim()
         : toSlug(name);
 
-    const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : '';
+    // Variants are partial overlays — strip route-level keys, rest is typed SP.
+    const {
+      name: _n,
+      slug: _s,
+      is_main: _im,
+      image_url: _iu,
+      ...sp
+    } = (item ?? {}) as Record<string, unknown>;
 
-    if (!prompt) {
-      return NextResponse.json(
-        { error: `"prompt" is required for variant "${name}"` },
-        { status: 400 }
-      );
-    }
-
-    const reasoning =
-      typeof item?.reasoning === 'string' ? item.reasoning.trim() : '';
+    const validation = validateStructuredPrompt(
+      partialSchema,
+      sp,
+      expectedMap,
+      `variants[${i}].structured_prompt`
+    );
+    if (!validation.ok) return validation.response;
 
     rows.push({
       [parentFk]: assetId,
       name,
       slug,
       is_main: false,
-      structured_prompt: {
-        prompt,
-        ...(reasoning ? { reasoning } : {}),
-      },
+      structured_prompt: validation.value as Record<string, unknown>,
     });
   }
 
@@ -851,9 +1102,16 @@ export async function postVariantsByAsset(
     );
   }
 
-  const created = ((data ?? []) as TypedVariantRow[]).map((v) => ({
+  const assetSp = (owned.row.structured_prompt ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const created: AutoGenerateVariant[] = (
+    (data ?? []) as TypedVariantRow[]
+  ).map((v) => ({
     id: v.id,
-    prompt: flattenPromptFromStructured(v.structured_prompt) ?? '',
+    assetStructuredPrompt: assetSp,
+    variantStructuredPrompt: v.structured_prompt ?? null,
   }));
 
   if (created.length > 0) {
@@ -890,6 +1148,7 @@ export async function postVariantsByAsset(
 
     autoGenerateImages(
       db,
+      assetType,
       created,
       req,
       variantAr,
@@ -956,23 +1215,46 @@ export async function patchVariantById(
     updates.slug = typeof body.slug === 'string' ? body.slug.trim() : '';
   }
 
-  let structuredPromptDirty = false;
-  if (body?.prompt !== undefined) {
-    const v = toNullableString(body.prompt);
-    if (v === null) delete existingSP.prompt;
-    else existingSP.prompt = v;
-    structuredPromptDirty = true;
-  }
-  if (body?.reasoning !== undefined) {
-    const v = toNullableString(body.reasoning);
-    if (v === null) delete existingSP.reasoning;
-    else existingSP.reasoning = v;
-    structuredPromptDirty = true;
-  }
-  if (structuredPromptDirty) {
-    updates.structured_prompt = Object.keys(existingSP).length
-      ? existingSP
-      : null;
+  // Typed-field patches for variants: strip route-level keys, merge with
+  // existing structured_prompt, validate merged against PARTIAL schema.
+  const {
+    name: _n,
+    slug: _s,
+    is_main: _im,
+    image_url: _iu,
+    structured_prompt: _sp,
+    ...spPatch
+  } = (body ?? {}) as Record<string, unknown>;
+
+  if (Object.keys(spPatch).length > 0) {
+    for (const [k, v] of Object.entries(spPatch)) {
+      if (v === null) delete existingSP[k];
+      else existingSP[k] = v;
+    }
+    const partialSchema =
+      owned.type === 'character'
+        ? CharacterSPPartialSchema
+        : owned.type === 'location'
+          ? LocationSPPartialSchema
+          : PropSPPartialSchema;
+    const expectedMap =
+      owned.type === 'character'
+        ? EXPECTED_CHARACTER_SP
+        : owned.type === 'location'
+          ? EXPECTED_LOCATION_SP
+          : EXPECTED_PROP_SP;
+
+    const validation = validateStructuredPrompt(
+      partialSchema,
+      existingSP,
+      expectedMap,
+      'structured_prompt'
+    );
+    if (!validation.ok) return validation.response;
+    updates.structured_prompt =
+      Object.keys(validation.value as Record<string, unknown>).length > 0
+        ? (validation.value as Record<string, unknown>)
+        : {};
   }
 
   if (body?.image_url !== undefined) {

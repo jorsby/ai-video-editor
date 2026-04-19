@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
+import {
+  SceneSPSchema,
+  EXPECTED_SCENE_SP,
+  validateStructuredPrompt,
+} from '@/lib/api/structured-prompt-schemas';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -153,6 +158,7 @@ function parseSceneCreateInput(
   scene?: SceneInsert;
   explicitOrder?: number;
   error?: string;
+  errorResponse?: NextResponse;
   warnings?: SceneWarning[];
 } {
   if (!isRecord(input)) {
@@ -199,21 +205,15 @@ function parseSceneCreateInput(
   if (input.structured_prompt !== undefined) {
     if (input.structured_prompt === null) {
       scene.structured_prompt = null;
-    } else if (Array.isArray(input.structured_prompt)) {
-      if (
-        input.structured_prompt.some(
-          (seg) => !seg || typeof seg !== 'object' || Array.isArray(seg)
-        )
-      ) {
-        return {
-          error: `scenes[${index}].structured_prompt must be an array of objects or null`,
-        };
-      }
-      scene.structured_prompt = input.structured_prompt;
     } else {
-      return {
-        error: `scenes[${index}].structured_prompt must be an array of objects or null`,
-      };
+      const validation = validateStructuredPrompt(
+        SceneSPSchema,
+        input.structured_prompt,
+        EXPECTED_SCENE_SP,
+        `scenes[${index}].structured_prompt`
+      );
+      if (!validation.ok) return { errorResponse: validation.response };
+      scene.structured_prompt = validation.value as Record<string, unknown>[];
     }
   }
 
@@ -390,6 +390,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     for (let index = 0; index < scenesInput.length; index += 1) {
       const parsed = parseSceneCreateInput(scenesInput[index], index, id);
+      if (parsed.errorResponse) return parsed.errorResponse;
       if (parsed.error || !parsed.scene) {
         return NextResponse.json(
           { error: parsed.error ?? `Invalid scenes[${index}]` },

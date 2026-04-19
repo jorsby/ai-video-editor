@@ -17,6 +17,54 @@ const DEFAULT_VIDEO_MODEL = 'grok-imagine/image-to-video';
 const MIN_DURATION = 6;
 const MAX_DURATION = 30;
 
+/**
+ * Compose the scene video prompt from typed shot fields (one line per shot).
+ * Falls back to flattening legacy free-form shot objects for rows written
+ * before the typed shape landed.
+ */
+function composeSceneVideoPrompt(input: unknown): string | null {
+  if (!Array.isArray(input)) return null;
+  const lines: string[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const shot = raw as Record<string, unknown>;
+    const typedParts: string[] = [];
+    const shotType =
+      typeof shot.shot_type === 'string' ? shot.shot_type.trim() : '';
+    const cameraMovement =
+      typeof shot.camera_movement === 'string'
+        ? shot.camera_movement.trim()
+        : '';
+    const action = typeof shot.action === 'string' ? shot.action.trim() : '';
+    const lighting =
+      typeof shot.lighting === 'string' ? shot.lighting.trim() : '';
+    const mood = typeof shot.mood === 'string' ? shot.mood.trim() : '';
+    const settingNotes =
+      typeof shot.setting_notes === 'string' ? shot.setting_notes.trim() : '';
+
+    if (shotType || cameraMovement) {
+      typedParts.push([shotType, cameraMovement].filter(Boolean).join(', '));
+    }
+    if (action) typedParts.push(action);
+    if (lighting) typedParts.push(lighting);
+    if (mood) typedParts.push(mood);
+    if (settingNotes) typedParts.push(settingNotes);
+
+    if (typedParts.length > 0) {
+      lines.push(typedParts.join('. '));
+      continue;
+    }
+
+    // Legacy row: join any string values as the shot line.
+    const legacy = Object.values(shot)
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      .map((v) => v.trim())
+      .join(', ');
+    if (legacy) lines.push(legacy);
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
 /** Normalize string/number input and clamp to 6–30 range. */
 function normalizeDuration(
   raw: unknown,
@@ -76,17 +124,10 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
     }
 
-    // Flatten structured_prompt jsonb into a plain string for the compiler.
-    // Matches the shape produced in storyboard-panel.tsx and video-roadmap-panel.tsx.
-    const scenePrompt = Array.isArray(scene.structured_prompt)
-      ? (scene.structured_prompt as Record<string, unknown>[])
-          .map((s) =>
-            Object.values(s)
-              .filter((v) => typeof v === 'string' && v.trim())
-              .join(', ')
-          )
-          .join('\n')
-      : null;
+    // Compose structured_prompt (array of typed shot objects) into one string
+    // for the video compiler. Typed fields produce a per-shot line; legacy
+    // free-form rows fall back to joining any string values.
+    const scenePrompt = composeSceneVideoPrompt(scene.structured_prompt);
 
     if (!scenePrompt?.trim()) {
       return NextResponse.json(

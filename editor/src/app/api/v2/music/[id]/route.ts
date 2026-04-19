@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { toApiMusic } from '@/lib/api/v2-project-music';
 import { createServiceClient } from '@/lib/supabase/admin';
+import {
+  MusicSPSchema,
+  EXPECTED_MUSIC_SP,
+  validateStructuredPrompt,
+} from '@/lib/api/structured-prompt-schemas';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -43,7 +48,7 @@ function parseRequiredText(
   return { ok: true, value: trimmed };
 }
 
-function parseNullableText(
+function _parseNullableText(
   value: unknown,
   fieldName: string
 ): { ok: true; value: string | null } | { ok: false; error: string } {
@@ -166,21 +171,20 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
     }
 
-    if (body.prompt !== undefined) {
-      const parsed = parseNullableText(body.prompt, 'prompt');
-      if (!parsed.ok) {
-        return NextResponse.json({ error: parsed.error }, { status: 400 });
-      }
-      nextSp.prompt = parsed.value ?? '';
-      spTouched = true;
-    }
-
-    if (body.style !== undefined) {
-      const parsed = parseRequiredText(body.style, 'style');
-      if (!parsed.ok) {
-        return NextResponse.json({ error: parsed.error }, { status: 400 });
-      }
-      nextSp.extras = parsed.value;
+    // Typed-field patches: overlay any MusicSP fields onto the existing SP,
+    // then validate the merged object against the strict discriminated union.
+    const MUSIC_SP_KEYS = new Set([
+      'is_instrumental',
+      'genre',
+      'mood',
+      'instrumentation',
+      'tempo_bpm',
+      'lyrics',
+    ]);
+    for (const key of MUSIC_SP_KEYS) {
+      if (body[key] === undefined) continue;
+      if (body[key] === null) delete nextSp[key];
+      else nextSp[key] = body[key];
       spTouched = true;
     }
 
@@ -193,7 +197,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     }
 
     if (spTouched) {
-      updates.structured_prompt = nextSp;
+      const validation = validateStructuredPrompt(
+        MusicSPSchema,
+        nextSp,
+        EXPECTED_MUSIC_SP,
+        'structured_prompt'
+      );
+      if (!validation.ok) return validation.response;
+      updates.structured_prompt = validation.value;
     }
 
     if (body.video_id !== undefined) {

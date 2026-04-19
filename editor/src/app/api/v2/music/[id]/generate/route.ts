@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getUserOrApiKey } from '@/lib/auth/get-user-or-api-key';
 import { createServiceClient } from '@/lib/supabase/admin';
 import { generateMusic } from '@/lib/suno';
+import { resolveMusicGenerationParams } from '@/lib/api/v2-project-music';
 import {
   isWebhookBasePubliclyReachable,
   LOCAL_WEBHOOK_BASE_ERROR,
@@ -67,17 +68,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Derive generation params from structured_prompt
-    const sp =
-      music.structured_prompt &&
-      typeof music.structured_prompt === 'object' &&
-      !Array.isArray(music.structured_prompt)
-        ? (music.structured_prompt as Record<string, unknown>)
-        : {};
-
-    const genPrompt = typeof sp.prompt === 'string' ? sp.prompt : '';
-    const genStyle = typeof sp.extras === 'string' ? sp.extras : '';
-    const isInstrumental = !genPrompt;
+    // Derive generation params from structured_prompt (typed or legacy shape).
+    const genParams = resolveMusicGenerationParams(music.structured_prompt);
+    if (!genParams) {
+      return NextResponse.json(
+        {
+          error:
+            'Track has no usable structured_prompt. Set typed fields via PATCH /api/v2/music/{id} before regenerating.',
+        },
+        { status: 400 }
+      );
+    }
+    const genPrompt = genParams.prompt;
+    const genStyle = genParams.style;
+    const isInstrumental = genParams.instrumental;
 
     // Mark as generating, clear previous results
     await db
