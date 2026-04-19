@@ -25,7 +25,7 @@
 | chapter_id | uuid | NO | — | FK → chapters.id | Parent chapter |
 | order | integer | NO | — | UNIQUE(chapter_id, order) | Position in chapter; 1000-spaced for insertion |
 | title | text | NO | — | | Scene display title |
-| structured_prompt | jsonb | YES | — | | Typed array of shot objects — each item `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_hint? }`. Validated server-side. |
+| structured_prompt | jsonb | YES | — | | Typed array of shot objects — each item `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. Validated server-side (when both durations are present, `duration_to >= duration_from`). |
 | location_variant_slug | text | YES | — | | @slug of location variant used in scene |
 | character_variant_slugs | text[] | NO | '{}' | | Array of character variant slugs |
 | prop_variant_slugs | text[] | NO | '{}' | | Array of prop variant slugs |
@@ -66,7 +66,7 @@
 |-------|------|:---:|---------|-------|
 | title | string | ✓ | — | Scene display title |
 | location_variant_slug | string | ✓ | — | @slug of location variant |
-| structured_prompt | array | | — | Shot array — each element `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_hint? }`. `order`, `shot_type`, `camera_movement`, `action`, `lighting`, `mood` are required per shot |
+| structured_prompt | array | | — | Shot array — each element `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. `order`, `shot_type`, `camera_movement`, `action`, `lighting`, `mood` are required per shot. Durations are optional seconds; if both supplied, `duration_to >= duration_from` |
 | character_variant_slugs | string[] | | `[]` | Array of character variant slugs |
 | prop_variant_slugs | string[] | | `[]` | Array of prop variant slugs |
 | audio_text | string | | — | TTS input text |
@@ -182,7 +182,8 @@ POST and PATCH return `400` with the shared envelope when any shot in the array 
     "shots[].lighting": "string",
     "shots[].mood": "string",
     "shots[].setting_notes": "string (optional)",
-    "shots[].duration_hint": "number (optional)"
+    "shots[].duration_from": "number (optional, seconds)",
+    "shots[].duration_to": "number (optional, seconds — must be >= duration_from)"
   }
 }
 ```
