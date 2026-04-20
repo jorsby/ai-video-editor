@@ -17,16 +17,58 @@ const DEFAULT_VIDEO_MODEL = 'grok-imagine/image-to-video';
 const MIN_DURATION = 6;
 const MAX_DURATION = 30;
 
+function readShotTiming(
+  shot: Record<string, unknown>
+): { from: number; to: number } | null {
+  const from = shot.duration_from;
+  const to = shot.duration_to;
+  if (
+    typeof from !== 'number' ||
+    typeof to !== 'number' ||
+    !Number.isFinite(from) ||
+    !Number.isFinite(to)
+  ) {
+    return null;
+  }
+  return { from, to };
+}
+
+function formatTimingPrefix(t: { from: number; to: number }): string {
+  const fmt = (n: number) =>
+    Number.isInteger(n) ? `${n}s` : `${n.toFixed(1)}s`;
+  return `${fmt(t.from)}-${fmt(t.to)}`;
+}
+
 /**
  * Compose the scene video prompt from typed shot fields (one line per shot).
+ *
+ * When every shot has valid `duration_from`/`duration_to`, each line is
+ * prefixed with "Xs-Ys: " and `totalDuration = max(duration_to)`.
+ * Otherwise the untimed path is used and `totalDuration` is null.
+ *
  * Falls back to flattening legacy free-form shot objects for rows written
  * before the typed shape landed.
  */
-function composeSceneVideoPrompt(input: unknown): string | null {
+function composeSceneVideoPrompt(
+  input: unknown
+): { prompt: string; totalDuration: number | null } | null {
   if (!Array.isArray(input)) return null;
+
+  // Detect if every shot has timing — validator guarantees all-or-none
+  // contiguous ranges, but guard against bad rows.
+  const timings: Array<{ from: number; to: number } | null> = input.map(
+    (raw) =>
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? readShotTiming(raw as Record<string, unknown>)
+        : null
+  );
+  const allTimed =
+    input.length > 0 &&
+    timings.every((t): t is { from: number; to: number } => t !== null);
+
   const lines: string[] = [];
-  for (const raw of input) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+  input.forEach((raw, i) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
     const shot = raw as Record<string, unknown>;
     const typedParts: string[] = [];
     const shotType =
@@ -50,19 +92,36 @@ function composeSceneVideoPrompt(input: unknown): string | null {
     if (mood) typedParts.push(mood);
     if (settingNotes) typedParts.push(settingNotes);
 
+    let line: string;
     if (typedParts.length > 0) {
-      lines.push(typedParts.join('. '));
-      continue;
+      line = typedParts.join('. ');
+    } else {
+      // Legacy row: join any string values as the shot line.
+      const legacy = Object.values(shot)
+        .filter(
+          (v): v is string => typeof v === 'string' && v.trim().length > 0
+        )
+        .map((v) => v.trim())
+        .join(', ');
+      if (!legacy) return;
+      line = legacy;
     }
 
-    // Legacy row: join any string values as the shot line.
-    const legacy = Object.values(shot)
-      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-      .map((v) => v.trim())
-      .join(', ');
-    if (legacy) lines.push(legacy);
-  }
-  return lines.length > 0 ? lines.join('\n') : null;
+    if (allTimed) {
+      const t = timings[i]!;
+      lines.push(`${formatTimingPrefix(t)}: ${line}`);
+    } else {
+      lines.push(line);
+    }
+  });
+
+  if (lines.length === 0) return null;
+
+  const totalDuration = allTimed
+    ? timings.reduce((max, t) => (t && t.to > max ? t.to : max), 0 as number)
+    : null;
+
+  return { prompt: lines.join('\n'), totalDuration };
 }
 
 /** Normalize string/number input and clamp to 6–30 range. */
@@ -125,16 +184,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Compose structured_prompt (array of typed shot objects) into one string
-    // for the video compiler. Typed fields produce a per-shot line; legacy
-    // free-form rows fall back to joining any string values.
-    const scenePrompt = composeSceneVideoPrompt(scene.structured_prompt);
+    // for the video compiler. When every shot has duration_from/duration_to,
+    // lines are prefixed "Xs-Ys:" and scene duration derives from the shots.
+    // Untimed rows fall back to plain joined lines.
+    const composed = composeSceneVideoPrompt(scene.structured_prompt);
 
-    if (!scenePrompt?.trim()) {
+    if (!composed || !composed.prompt.trim()) {
       return NextResponse.json(
         { error: 'Scene has no visual prompt.' },
         { status: 400 }
       );
     }
+    const scenePrompt = composed.prompt;
+    const shotTotalDuration = composed.totalDuration;
 
     // ── Narrative guard: require TTS before video ───────────────────────
 
@@ -199,23 +261,69 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const body = await req.json().catch(() => ({}));
 
-    // Duration logic (manual-first policy):
-    // 1. body.duration provided → use it (normalize + clamp 6–30)
-    // 2. Narrative scene with audio_duration → ceil to nearest int, clamp 6–30
-    // 3. scene.video_duration from DB → normalize + clamp
-    // 4. Fallback: 6
+    // Duration priority (shots-win policy):
+    // 1. Timed shots present  → max(duration_to) (authoritative)
+    // 2. body.duration        → explicit caller override
+    // 3. Narrative audio      → ceil(audio_duration)
+    // 4. scene.video_duration → persisted scene length
+    // 5. MIN_DURATION (6)
+    // All paths normalize + clamp 6–30.
+    type DurationSource = 'shots' | 'body' | 'audio' | 'video' | 'default';
     let duration: number;
-    if (body.duration != null) {
+    let durationSource: DurationSource;
+    let rawDuration: number;
+
+    if (shotTotalDuration != null && shotTotalDuration > 0) {
+      rawDuration = Math.ceil(shotTotalDuration);
+      duration = normalizeDuration(rawDuration);
+      durationSource = 'shots';
+
+      if (
+        isNarrative &&
+        typeof scene.audio_duration === 'number' &&
+        scene.audio_duration > shotTotalDuration + 0.05
+      ) {
+        return NextResponse.json(
+          {
+            error: 'Shot timing total is shorter than voiceover.',
+            code: 'SHOT_DURATION_TOO_SHORT',
+            audio_duration: scene.audio_duration,
+            shots_total: shotTotalDuration,
+            hint: "Extend the last shot's duration_to so the scene covers the voiceover.",
+          },
+          { status: 400 }
+        );
+      }
+    } else if (body.duration != null) {
+      rawDuration =
+        typeof body.duration === 'number'
+          ? body.duration
+          : Number.parseInt(String(body.duration), 10);
       duration = normalizeDuration(body.duration);
+      durationSource = 'body';
     } else if (
       isNarrative &&
       typeof scene.audio_duration === 'number' &&
       scene.audio_duration > 0
     ) {
-      duration = normalizeDuration(Math.ceil(scene.audio_duration));
+      rawDuration = Math.ceil(scene.audio_duration);
+      duration = normalizeDuration(rawDuration);
+      durationSource = 'audio';
+    } else if (
+      typeof scene.video_duration === 'number' &&
+      scene.video_duration > 0
+    ) {
+      rawDuration = scene.video_duration;
+      duration = normalizeDuration(scene.video_duration);
+      durationSource = 'video';
     } else {
-      duration = normalizeDuration(scene.video_duration ?? MIN_DURATION);
+      rawDuration = MIN_DURATION;
+      duration = MIN_DURATION;
+      durationSource = 'default';
     }
+
+    const durationClamped =
+      Number.isFinite(rawDuration) && rawDuration !== duration;
 
     // Resolution: body override → video settings → default 480p
     // Provider: kie (default) or fal
@@ -366,6 +474,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       scene_id: sceneId,
       duration:
         provider === 'fal' ? Math.min(duration, FAL_MAX_DURATION) : duration,
+      duration_source: durationSource,
+      duration_clamped: durationClamped,
       aspect_ratio: aspectRatio,
       resolution,
       image_count: imageUrls.length,

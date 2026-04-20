@@ -25,7 +25,7 @@
 | chapter_id | uuid | NO | — | FK → chapters.id | Parent chapter |
 | order | integer | NO | — | UNIQUE(chapter_id, order) | Position in chapter; 1000-spaced for insertion |
 | title | text | NO | — | | Scene display title |
-| structured_prompt | jsonb | YES | — | | Typed array of shot objects — each item `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. Validated server-side (when both durations are present, `duration_to >= duration_from`). |
+| structured_prompt | jsonb | YES | — | | Typed array of shot objects — each item `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. Validated server-side. Timing rule: either all shots have `duration_from`/`duration_to` or none do. When timed, they are **absolute seconds from scene start**, must be contiguous (`shots[i].duration_from === shots[i-1].duration_to`), first shot starts at 0, and `duration_to > duration_from` per shot. |
 | location_variant_slug | text | YES | — | | @slug of location variant used in scene |
 | character_variant_slugs | text[] | NO | '{}' | | Array of character variant slugs |
 | prop_variant_slugs | text[] | NO | '{}' | | Array of prop variant slugs |
@@ -66,7 +66,7 @@
 |-------|------|:---:|---------|-------|
 | title | string | ✓ | — | Scene display title |
 | location_variant_slug | string | ✓ | — | @slug of location variant |
-| structured_prompt | array | | — | Shot array — each element `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. `order`, `shot_type`, `camera_movement`, `action`, `lighting`, `mood` are required per shot. Durations are optional seconds; if both supplied, `duration_to >= duration_from` |
+| structured_prompt | array | | — | Shot array — each element `{ order, shot_type, camera_movement, action, lighting, mood, setting_notes?, duration_from?, duration_to? }`. `order`, `shot_type`, `camera_movement`, `action`, `lighting`, `mood` are required per shot. Timing is optional but all-or-nothing: either every shot has both `duration_from` and `duration_to` (absolute seconds from scene start, contiguous, first shot starts at 0) or no shot does. When timed, scene video duration = `max(duration_to)` and each shot line is sent to the provider prefixed with `Xs-Ys:`. |
 | character_variant_slugs | string[] | | `[]` | Array of character variant slugs |
 | prop_variant_slugs | string[] | | `[]` | Array of prop variant slugs |
 | audio_text | string | | — | TTS input text |
@@ -138,15 +138,20 @@
 
 | Field | Type | Req | Default | Notes |
 |-------|------|:---:|---------|-------|
-| duration | integer | | auto | 6–10s. Priority: body → audio_duration → video_duration → 6 |
+| duration | integer | | auto | 6–30s. Priority: **timed shots → body → audio_duration → video_duration → 6**. When the scene's shots all carry `duration_from`/`duration_to`, `max(duration_to)` wins unconditionally (ignores `body.duration`). |
 | resolution | string | | from project settings | `"480p"` or `"720p"` |
 | provider | string | | "kie" | `"kie"` or `"fal"` |
 | image_urls_override | string[] | | — | Bypass variant image lookup |
 
-→ `200` `{ task_id, provider, model, scene_id, duration, aspect_ratio, resolution, image_count }`
+→ `200` `{ task_id, provider, model, scene_id, duration, duration_source, duration_clamped, aspect_ratio, resolution, image_count }`
+
+- `duration_source`: `"shots" | "body" | "audio" | "video" | "default"` — which rule produced the duration.
+- `duration_clamped`: `true` when the requested duration was outside 6–30s and clamped.
 
 > Auto-assembles block text from `structured_prompt`, compiles via `compileForGrok()` (replaces @variant-slugs with @imageN + image_urls[]).
-> Scenes with `audio_text` require TTS first. Webhook updates `video_url`, `video_duration`, `video_status`.
+> When all shots have `duration_from`/`duration_to`, each line is prefixed `Xs-Ys:` in the provider prompt; the scene video duration is `max(duration_to)`.
+> Scenes with `audio_text` require TTS first. If the voiceover is longer than the timed shots total, the request is rejected with `SHOT_DURATION_TOO_SHORT`.
+> Webhook updates `video_url`, `video_duration`, `video_status`.
 
 ---
 
@@ -182,11 +187,17 @@ POST and PATCH return `400` with the shared envelope when any shot in the array 
     "shots[].lighting": "string",
     "shots[].mood": "string",
     "shots[].setting_notes": "string (optional)",
-    "shots[].duration_from": "number (optional, seconds)",
-    "shots[].duration_to": "number (optional, seconds — must be >= duration_from)"
+    "shots[].duration_from": "number (optional, seconds from scene start; must equal previous shot duration_to, or 0 for first shot)",
+    "shots[].duration_to": "number (optional, seconds from scene start; must be > duration_from)",
+    "shots.timing": "all shots must be timed, or none; when timed: contiguous, first starts at 0, duration_to > duration_from"
   }
 }
 ```
 
 - `path` pinpoints the offending shot and field (e.g. `scenes[0].structured_prompt[1].mood`).
 - Batch POST is atomic — a single invalid shot rejects the entire request.
+- Common `reason` strings for timing violations:
+  - `all shots must have duration_from/duration_to, or none` — partial timing.
+  - `first shot must start at 0`.
+  - `must equal previous shot's duration_to (got X, expected Y)` — gap or overlap.
+  - `must be greater than duration_from` — zero-length shot.

@@ -41,7 +41,7 @@ export const SceneShotSchema = z
     lighting: z.string().min(1),
     mood: z.string().min(1),
     setting_notes: z.string().min(1).optional(),
-    duration_from: z.number().positive().optional(),
+    duration_from: z.number().nonnegative().optional(),
     duration_to: z.number().positive().optional(),
   })
   .strict()
@@ -56,7 +56,92 @@ export const SceneShotSchema = z
     }
   );
 
-export const SceneSPSchema = z.array(SceneShotSchema).min(1);
+export const SceneSPSchema = z
+  .array(SceneShotSchema)
+  .min(1)
+  .superRefine((shots, ctx) => {
+    // Absolute-timestamp timing: either all shots are timed (both
+    // duration_from and duration_to set), or none are. When timed, shots
+    // must tile the scene contiguously from 0.
+    const withAny = shots.map(
+      (s) => s.duration_from != null || s.duration_to != null
+    );
+    const timedCount = withAny.filter(Boolean).length;
+
+    if (timedCount === 0) return; // all-untimed path: nothing more to check
+    if (timedCount < shots.length) {
+      shots.forEach((_s, i) => {
+        if (!withAny[i]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [i, 'duration_from'],
+            message: 'all shots must have duration_from/duration_to, or none',
+          });
+        }
+      });
+      return;
+    }
+
+    // All shots have at least one timing field. Require both fields on each.
+    for (let i = 0; i < shots.length; i++) {
+      const s = shots[i];
+      if (s.duration_from == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'duration_from'],
+          message: 'required when duration_to is set',
+        });
+      }
+      if (s.duration_to == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'duration_to'],
+          message: 'required when duration_from is set',
+        });
+      }
+    }
+
+    // Short-circuit further checks if any single-field shot exists —
+    // contiguity needs both values.
+    if (shots.some((s) => s.duration_from == null || s.duration_to == null)) {
+      return;
+    }
+
+    // First shot must start at 0.
+    if (shots[0].duration_from !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [0, 'duration_from'],
+        message: 'first shot must start at 0',
+      });
+    }
+
+    // Contiguity: shots[i].duration_from === shots[i-1].duration_to.
+    for (let i = 1; i < shots.length; i++) {
+      const prevTo = shots[i - 1].duration_to as number;
+      const curFrom = shots[i].duration_from as number;
+      if (curFrom !== prevTo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'duration_from'],
+          message: `must equal previous shot's duration_to (got ${curFrom}, expected ${prevTo})`,
+        });
+      }
+    }
+
+    // Non-zero duration per shot.
+    for (let i = 0; i < shots.length; i++) {
+      const from = shots[i].duration_from as number;
+      const to = shots[i].duration_to as number;
+      if (to <= from) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'duration_to'],
+          message: 'must be greater than duration_from',
+        });
+      }
+    }
+  });
 
 const MusicBase = z.object({
   genre: z.string().min(1),
@@ -124,13 +209,17 @@ export const EXPECTED_SCENE_SHOT: Record<string, string> = {
   lighting: 'string',
   mood: 'string',
   setting_notes: 'string (optional)',
-  duration_from: 'number (optional, seconds)',
-  duration_to: 'number (optional, seconds — must be >= duration_from)',
+  duration_from:
+    'number (optional, seconds from scene start; must equal previous shot duration_to, or 0 for first shot)',
+  duration_to:
+    'number (optional, seconds from scene start; must be > duration_from)',
 };
 
 export const EXPECTED_SCENE_SP: Record<string, string> = {
   shots:
     'array of scene-shot objects (min 1) — each shot uses the scene-shot schema',
+  'shots.timing':
+    'all shots must be timed, or none; when timed: contiguous, first starts at 0, duration_to > duration_from',
   ...Object.fromEntries(
     Object.entries(EXPECTED_SCENE_SHOT).map(([k, v]) => [`shots[].${k}`, v])
   ),

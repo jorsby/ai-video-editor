@@ -100,6 +100,7 @@ export function NumberField({
   min,
   max,
   step,
+  readOnly,
 }: {
   label: string;
   required?: boolean;
@@ -110,6 +111,7 @@ export function NumberField({
   min?: number;
   max?: number;
   step?: number;
+  readOnly?: boolean;
 }) {
   return (
     <Field label={label} required={required} hint={hint}>
@@ -117,6 +119,7 @@ export function NumberField({
         type="number"
         value={value ?? ''}
         onChange={(e) => {
+          if (readOnly) return;
           const v = e.target.value;
           if (v === '') onChange(undefined);
           else {
@@ -128,7 +131,11 @@ export function NumberField({
         min={min}
         max={max}
         step={step}
-        className={fieldInputCls}
+        readOnly={readOnly}
+        className={cn(
+          fieldInputCls,
+          readOnly && 'opacity-60 cursor-not-allowed'
+        )}
       />
     </Field>
   );
