@@ -326,7 +326,7 @@ export async function POST(req: NextRequest) {
             video_id: videoId,
             name: asset.name,
             slug: slugify(asset.name),
-            use_case: asset.use_case ?? null,
+            use_case: asset.use_case ?? '',
             sort_order: offset + index,
             structured_prompt: asset.structured_prompt,
           })),
@@ -340,7 +340,10 @@ export async function POST(req: NextRequest) {
           insertError
         );
         return NextResponse.json(
-          { error: `Failed to create ${type} assets` },
+          {
+            error: `Failed to create ${type} assets`,
+            detail: insertError.message,
+          },
           { status: 500 }
         );
       }

@@ -692,7 +692,7 @@ export async function postAssetsByType(
       video_id: resolved.videoId,
       name,
       slug,
-      use_case: toNullableString(item?.description),
+      use_case: toNullableString(item?.description) ?? '',
       sort_order: nextSort++,
       structured_prompt: validation.value as Record<string, unknown>,
     });
@@ -712,7 +712,7 @@ export async function postAssetsByType(
     }
 
     return NextResponse.json(
-      { error: `Failed to create ${type}s` },
+      { error: `Failed to create ${type}s`, detail: insertErr.message },
       { status: 500 }
     );
   }
