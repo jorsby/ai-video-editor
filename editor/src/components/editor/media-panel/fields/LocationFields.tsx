@@ -21,10 +21,12 @@ export function LocationFields({
   value,
   onChange,
   variant = false,
+  parentFallback,
 }: {
   value: LocationSPValue;
   onChange: (next: LocationSPValue) => void;
   variant?: boolean;
+  parentFallback?: LocationSPValue;
 }) {
   const required = !variant;
   const set = <K extends keyof LocationSPValue>(
@@ -39,6 +41,10 @@ export function LocationFields({
     }
     onChange(copy);
   };
+  const ph = (key: keyof LocationSPValue, fallback: string): string => {
+    const pv = parentFallback?.[key];
+    return pv != null && String(pv).trim() !== '' ? String(pv) : fallback;
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -49,6 +55,7 @@ export function LocationFields({
           value={value.setting_type}
           onChange={(v) => set('setting_type', v)}
           options={SETTING_TYPE_OPTIONS}
+          placeholder={ph('setting_type', 'Select…')}
         />
         <SelectField
           label="Time of day"
@@ -56,6 +63,7 @@ export function LocationFields({
           value={value.time_of_day}
           onChange={(v) => set('time_of_day', v)}
           options={TIME_OF_DAY_OPTIONS}
+          placeholder={ph('time_of_day', 'Select…')}
         />
       </div>
 
@@ -64,7 +72,7 @@ export function LocationFields({
         required={required}
         value={value.era}
         onChange={(v) => set('era', v)}
-        placeholder="1850s Ottoman / 2450 AD / contemporary"
+        placeholder={ph('era', '1850s Ottoman / 2450 AD / contemporary')}
       />
 
       <TextareaField
@@ -72,7 +80,10 @@ export function LocationFields({
         hint="optional"
         value={value.extras}
         onChange={(v) => set('extras', v)}
-        placeholder="architecture style, landmarks, mood, weather..."
+        placeholder={ph(
+          'extras',
+          'architecture style, landmarks, mood, weather...'
+        )}
         rows={3}
       />
     </div>

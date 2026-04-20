@@ -40,6 +40,9 @@ export interface VariantInfo {
   id: string;
   image_gen_status: string;
   structured_prompt?: AssetVariantOverlay | null;
+  /** Parent asset's structured_prompt — used as placeholder fallback in the
+   *  variant editor so users see what's effective when no override is set. */
+  parent_structured_prompt?: Record<string, unknown> | null;
   is_main?: boolean;
   generation_metadata?: Record<string, unknown> | null;
 }

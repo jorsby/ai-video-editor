@@ -7,10 +7,12 @@ export function PropFields({
   value,
   onChange,
   variant = false,
+  parentFallback,
 }: {
   value: PropSPValue;
   onChange: (next: PropSPValue) => void;
   variant?: boolean;
+  parentFallback?: PropSPValue;
 }) {
   const required = !variant;
   const set = <K extends keyof PropSPValue>(
@@ -25,6 +27,10 @@ export function PropFields({
     }
     onChange(copy);
   };
+  const ph = (key: keyof PropSPValue, fallback: string): string => {
+    const pv = parentFallback?.[key];
+    return pv != null && String(pv).trim() !== '' ? String(pv) : fallback;
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -33,7 +39,10 @@ export function PropFields({
         required={required}
         value={value.prompt}
         onChange={(v) => set('prompt', v)}
-        placeholder="aged letter, yellowed paper, handwritten Arabic script, wax seal"
+        placeholder={ph(
+          'prompt',
+          'aged letter, yellowed paper, handwritten Arabic script, wax seal'
+        )}
         rows={3}
       />
 
@@ -42,7 +51,7 @@ export function PropFields({
         hint="optional"
         value={value.brand}
         onChange={(v) => set('brand', v)}
-        placeholder="if product has a brand"
+        placeholder={ph('brand', 'if product has a brand')}
       />
     </div>
   );

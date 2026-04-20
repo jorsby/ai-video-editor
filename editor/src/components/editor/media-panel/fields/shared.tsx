@@ -148,6 +148,7 @@ export function SelectField({
   value,
   onChange,
   options,
+  placeholder,
 }: {
   label: string;
   required?: boolean;
@@ -155,6 +156,7 @@ export function SelectField({
   value: string | undefined;
   onChange: (next: string) => void;
   options: Array<{ value: string; label: string }>;
+  placeholder?: string;
 }) {
   return (
     <Field label={label} required={required} hint={hint}>
@@ -164,7 +166,7 @@ export function SelectField({
         className={fieldInputCls}
       >
         <option value="" disabled>
-          Select…
+          {placeholder ?? 'Select…'}
         </option>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

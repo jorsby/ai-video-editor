@@ -81,35 +81,53 @@ export function useSceneData(sceneId: string | null): UseSceneDataResult {
 
       const newImageMap = new Map<string, VariantInfo>();
       if (slugSet.size > 0) {
-        const variantFields = 'id, slug, image_url, image_gen_status';
+        // Pull variant overlay + parent's structured_prompt (for placeholder fallback).
+        const variantFields =
+          'id, slug, image_url, image_gen_status, structured_prompt';
         const slugArr = [...slugSet];
         const [charResult, locResult, propResult] = await Promise.all([
           supabase
             .from('character_variants')
-            .select(variantFields)
+            .select(`${variantFields}, characters(structured_prompt)`)
             .in('slug', slugArr),
           supabase
             .from('location_variants')
-            .select(variantFields)
+            .select(`${variantFields}, locations(structured_prompt)`)
             .in('slug', slugArr),
           supabase
             .from('prop_variants')
-            .select(variantFields)
+            .select(`${variantFields}, props(structured_prompt)`)
             .in('slug', slugArr),
         ]);
 
         if (cancelled) return;
 
+        type ParentRef = {
+          structured_prompt?: Record<string, unknown> | null;
+        };
         for (const v of [
           ...(charResult.data ?? []),
           ...(locResult.data ?? []),
           ...(propResult.data ?? []),
         ]) {
           if (v.slug) {
+            const row = v as {
+              structured_prompt?: Record<string, unknown> | null;
+              characters?: ParentRef | ParentRef[] | null;
+              locations?: ParentRef | ParentRef[] | null;
+              props?: ParentRef | ParentRef[] | null;
+            };
+            const parentRef =
+              row.characters ?? row.locations ?? row.props ?? null;
+            const parentRow = Array.isArray(parentRef)
+              ? parentRef[0]
+              : parentRef;
             newImageMap.set(v.slug, {
               id: v.id,
               image_url: v.image_url,
               image_gen_status: v.image_gen_status ?? 'idle',
+              structured_prompt: row.structured_prompt ?? null,
+              parent_structured_prompt: parentRow?.structured_prompt ?? null,
             });
           }
         }

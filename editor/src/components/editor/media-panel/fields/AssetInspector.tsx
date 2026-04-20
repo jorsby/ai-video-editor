@@ -50,6 +50,7 @@ export function AssetInspector({
   role,
   mode,
   initialValue,
+  parentFallback,
   onSaved,
   onRegenerate,
   compact = false,
@@ -58,6 +59,9 @@ export function AssetInspector({
   role: AssetRole;
   mode: InspectorMode;
   initialValue: TypedValue;
+  /** In variant mode, parent's typed fields shown as placeholders so empty
+   *  overrides display the effective (inherited) value. Ignored in parent mode. */
+  parentFallback?: TypedValue | null;
   onSaved?: (next: TypedValue) => void;
   onRegenerate?: () => void | Promise<void>;
   compact?: boolean;
@@ -106,6 +110,7 @@ export function AssetInspector({
     }
   };
 
+  const fallback = mode === 'variant' ? (parentFallback ?? null) : null;
   let fields: React.ReactNode;
   if (role === 'character') {
     fields = (
@@ -113,6 +118,7 @@ export function AssetInspector({
         value={value as CharacterSPValue}
         onChange={(next) => setValue(next)}
         variant={mode === 'variant'}
+        parentFallback={(fallback as CharacterSPValue) ?? undefined}
       />
     );
   } else if (role === 'location') {
@@ -121,6 +127,7 @@ export function AssetInspector({
         value={value as LocationSPValue}
         onChange={(next) => setValue(next)}
         variant={mode === 'variant'}
+        parentFallback={(fallback as LocationSPValue) ?? undefined}
       />
     );
   } else {
@@ -129,6 +136,7 @@ export function AssetInspector({
         value={value as PropSPValue}
         onChange={(next) => setValue(next)}
         variant={mode === 'variant'}
+        parentFallback={(fallback as PropSPValue) ?? undefined}
       />
     );
   }

@@ -13,15 +13,19 @@ const GENDER_OPTIONS = [
 /**
  * Typed fields for a character's structured_prompt.
  * `variant=true` marks all fields optional (variant overlays parent).
+ * When `parentFallback` is provided, its values are shown as placeholder text
+ * on empty inputs so users see what's inherited from the parent.
  */
 export function CharacterFields({
   value,
   onChange,
   variant = false,
+  parentFallback,
 }: {
   value: CharacterSPValue;
   onChange: (next: CharacterSPValue) => void;
   variant?: boolean;
+  parentFallback?: CharacterSPValue;
 }) {
   const required = !variant;
   const set = <K extends keyof CharacterSPValue>(
@@ -36,6 +40,10 @@ export function CharacterFields({
     }
     onChange(copy);
   };
+  const ph = (key: keyof CharacterSPValue, fallback: string): string => {
+    const pv = parentFallback?.[key];
+    return pv != null && String(pv).trim() !== '' ? String(pv) : fallback;
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -46,7 +54,7 @@ export function CharacterFields({
           min={0}
           value={value.age}
           onChange={(n) => set('age', n)}
-          placeholder="35"
+          placeholder={ph('age', '35')}
         />
         <SelectField
           label="Gender"
@@ -54,6 +62,7 @@ export function CharacterFields({
           value={value.gender}
           onChange={(v) => set('gender', v)}
           options={GENDER_OPTIONS}
+          placeholder={ph('gender', 'Select…')}
         />
       </div>
 
@@ -62,7 +71,7 @@ export function CharacterFields({
         required={required}
         value={value.era}
         onChange={(v) => set('era', v)}
-        placeholder="1850s Ottoman / 2450 AD / contemporary"
+        placeholder={ph('era', '1850s Ottoman / 2450 AD / contemporary')}
       />
 
       <TextareaField
@@ -70,7 +79,10 @@ export function CharacterFields({
         required={required}
         value={value.appearance}
         onChange={(v) => set('appearance', v)}
-        placeholder="short black hair, brown eyes, athletic build"
+        placeholder={ph(
+          'appearance',
+          'short black hair, brown eyes, athletic build'
+        )}
         rows={2}
       />
 
@@ -79,7 +91,7 @@ export function CharacterFields({
         required={required}
         value={value.outfit}
         onChange={(v) => set('outfit', v)}
-        placeholder="navy suit, white shirt"
+        placeholder={ph('outfit', 'navy suit, white shirt')}
         rows={2}
       />
 
@@ -88,7 +100,10 @@ export function CharacterFields({
         hint="optional"
         value={value.extras}
         onChange={(v) => set('extras', v)}
-        placeholder="scars, glasses, tattoos, ethnicity, distinguishing features"
+        placeholder={ph(
+          'extras',
+          'scars, glasses, tattoos, ethnicity, distinguishing features'
+        )}
         rows={2}
       />
     </div>

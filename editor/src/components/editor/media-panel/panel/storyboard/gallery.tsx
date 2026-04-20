@@ -26,6 +26,7 @@ import { CopyButton } from '../../shared/copy-button';
 import { ImageLightbox } from './lightbox';
 import { GenerateButton } from './generation-controls';
 import { AssetInspector, type AssetRole } from '../../fields';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ── Gallery Card (expandable) ──────────────────────────────────────────────────
 
@@ -92,6 +93,8 @@ export function GalleryCard({
             />
           )}
         </>
+      ) : effectiveGenStatus === 'generating' ? (
+        <Skeleton className="w-full aspect-[9/16] rounded-md" />
       ) : (
         <div className="w-full aspect-[9/16] rounded-md bg-muted/30 border border-border/30 flex items-center justify-center">
           <FallbackIcon className="size-4 text-muted-foreground/30" />
@@ -103,7 +106,7 @@ export function GalleryCard({
         <button
           type="button"
           onClick={() => setIsPromptOpen(!isPromptOpen)}
-          className="flex items-center gap-1 flex-1 min-w-0 text-[9px] text-muted-foreground leading-tight hover:text-foreground hover:bg-muted/30 transition-colors rounded px-1 py-1"
+          className="flex items-center gap-1 flex-1 min-w-0 text-[10px] text-muted-foreground leading-tight hover:text-foreground hover:bg-muted/30 transition-colors rounded px-1 py-1"
           title="Toggle prompt"
         >
           {isPromptOpen ? (
@@ -128,7 +131,7 @@ export function GalleryCard({
 
       {/* Expandable prompt section */}
       {isPromptOpen && (
-        <div className="w-full rounded-md bg-muted/20 border border-border/20 p-2 text-left space-y-1.5">
+        <div className="w-full rounded-md bg-muted/20 p-2 text-left space-y-1.5">
           {info ? (
             <AssetInspector
               id={info.id}
@@ -137,6 +140,7 @@ export function GalleryCard({
               initialValue={
                 (info.structured_prompt as Record<string, unknown>) ?? {}
               }
+              parentFallback={info.parent_structured_prompt ?? undefined}
               onSaved={(next) => {
                 info.structured_prompt = next;
               }}
@@ -144,14 +148,16 @@ export function GalleryCard({
               compact
             />
           ) : (
-            <p className="text-[9px] italic text-muted-foreground/50">
+            <p className="text-[10px] italic text-muted-foreground/50">
               No prompt
             </p>
           )}
           {flattenStructuredPrompt(info?.structured_prompt) && (
-            <CopyButton
-              text={flattenStructuredPrompt(info?.structured_prompt)}
-            />
+            <div className="flex justify-end pt-1">
+              <CopyButton
+                text={flattenStructuredPrompt(info?.structured_prompt)}
+              />
+            </div>
           )}
         </div>
       )}
@@ -185,7 +191,7 @@ export function VideoAssetsSection({
         >
           <IconPhoto className="size-3.5 text-muted-foreground shrink-0" />
           <span className="text-[11px] font-medium flex-1">Video Assets</span>
-          <span className="text-[9px] text-muted-foreground/60">
+          <span className="text-[10px] text-muted-foreground/60">
             {totalAssets}
           </span>
           {open ? (
@@ -229,8 +235,6 @@ export function AssetGallery({
   assetRole: 'character' | 'location' | 'prop';
   imageMap: VariantImageMap;
 }) {
-  if (slugs.length === 0) return null;
-
   const roleConfig = {
     character: { icon: IconUser, color: 'blue', label: 'Characters' },
     location: { icon: IconMapPin, color: 'emerald', label: 'Locations' },
@@ -239,6 +243,15 @@ export function AssetGallery({
 
   const Icon = roleConfig.icon;
 
+  if (slugs.length === 0) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 italic">
+        <Icon className="size-3" />
+        <span>No {roleConfig.label.toLowerCase()} yet</span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -246,7 +259,7 @@ export function AssetGallery({
         <span className="font-medium">{roleConfig.label}</span>
         <span className="opacity-50">({slugs.length})</span>
       </div>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 gap-2">
         {slugs.map((slug) => (
           <GalleryCard
             key={slug}
