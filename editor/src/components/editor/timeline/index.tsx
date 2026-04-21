@@ -314,7 +314,7 @@ export function Timeline() {
       timelineCanvasRef.current.setTimeScale(zoomLevel);
       timelineCanvasRef.current.setTracks(tracks);
     }
-  }, [zoomLevel, tracks]);
+  }, [zoomLevel, tracks, clips]);
 
   const handleDelete = useCallback(() => {
     studio?.deleteSelected();
