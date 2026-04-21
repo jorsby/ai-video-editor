@@ -14,7 +14,7 @@ export function useEditorHotkeys({
   timelineCanvas,
   setZoomLevel,
 }: UseEditorHotkeysProps) {
-  const { isPlaying, toggle, currentTime } = usePlaybackStore();
+  const { isPlaying, toggle, currentTime, duration, seek } = usePlaybackStore();
   const { studio } = useStudioStore();
 
   useEffect(() => {
@@ -68,6 +68,37 @@ export function useEditorHotkeys({
       if (studio) {
         studio.duplicateSelected(); // Reuse duplicate for now as paste
       }
+    });
+
+    // Duplicate (matches the toolbar tooltip)
+    hotkeys('command+d, ctrl+d', (event) => {
+      event.preventDefault();
+      studio?.duplicateSelected();
+    });
+
+    // Lock / Unlock selection (matches the toolbar tooltip)
+    hotkeys('command+l, ctrl+l', (event) => {
+      event.preventDefault();
+      if (!studio) return;
+      const selected = Array.from(studio.selection.selectedClips);
+      if (selected.length === 0) return;
+      const newLocked = !selected.every((c) => c.locked === true);
+      for (const clip of selected) studio.lockClip(clip.id, newLocked);
+    });
+
+    // Seek to start / end
+    hotkeys('home', (event) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+      event.preventDefault();
+      seek(0);
+    });
+
+    hotkeys('end', (event) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+      event.preventDefault();
+      seek(duration);
     });
 
     // Zoom In
@@ -155,6 +186,10 @@ export function useEditorHotkeys({
       hotkeys.unbind('command+a, ctrl+a');
       hotkeys.unbind('command+c, ctrl+c');
       hotkeys.unbind('command+v, ctrl+v');
+      hotkeys.unbind('command+d, ctrl+d');
+      hotkeys.unbind('command+l, ctrl+l');
+      hotkeys.unbind('home');
+      hotkeys.unbind('end');
       hotkeys.unbind('command+=, ctrl+=');
       hotkeys.unbind('command+-, ctrl+-');
       hotkeys.unbind('command+z, ctrl+z');
@@ -167,5 +202,14 @@ export function useEditorHotkeys({
       hotkeys.unbind('command+left, ctrl+left');
       hotkeys.unbind('command+right, ctrl+right');
     };
-  }, [isPlaying, timelineCanvas, currentTime, toggle, setZoomLevel]);
+  }, [
+    isPlaying,
+    timelineCanvas,
+    currentTime,
+    duration,
+    toggle,
+    seek,
+    setZoomLevel,
+    studio,
+  ]);
 }
