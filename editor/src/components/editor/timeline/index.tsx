@@ -51,8 +51,15 @@ import { Button } from '@/components/ui/button';
 
 export function Timeline() {
   const { tracks, clips, getTotalDuration } = useTimelineStore();
-  const { duration, seek, setDuration, setCurrentTime, setIsPlaying } =
-    usePlaybackStore();
+  const {
+    duration,
+    currentTime,
+    isPlaying,
+    seek,
+    setDuration,
+    setCurrentTime,
+    setIsPlaying,
+  } = usePlaybackStore();
   const { studio } = useStudioStore();
   const projectId = useProjectId();
   const { getVideoId } = useVideoSelectorStore();
@@ -93,6 +100,8 @@ export function Timeline() {
   const playheadRef = useRef<HTMLDivElement>(null);
   const timelineCanvasRef = useRef<TimelineCanvas | null>(null);
   const isUpdatingRef = useRef(false);
+  const lastUserScrollAtRef = useRef<number>(0);
+  const lastAutoScrollAtRef = useRef<number>(Number.NEGATIVE_INFINITY);
 
   const handleScrollChange = useCallback(
     (scrollX: number) => {
@@ -289,6 +298,32 @@ export function Timeline() {
     };
   }, []);
 
+  // Smooth auto-follow during playback. Keeps the playhead ~30% from the
+  // left edge, backs off for 800ms after any manual scroll, and relies on
+  // the ruler's scroll-behavior: smooth for the animation.
+  useEffect(() => {
+    if (!isPlaying) return;
+    if (performance.now() - lastUserScrollAtRef.current < 800) return;
+
+    const viewport = rulerScrollRef.current;
+    if (!viewport) return;
+    const viewportWidth = viewport.clientWidth;
+    if (viewportWidth === 0) return;
+
+    const playheadPx =
+      currentTime * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel;
+    const maxScroll = Math.max(0, dynamicTimelineWidth - viewportWidth);
+    const target = Math.max(
+      0,
+      Math.min(maxScroll, playheadPx - viewportWidth * 0.3)
+    );
+
+    if (Math.abs(target - scrollLeft) < 2) return;
+
+    lastAutoScrollAtRef.current = performance.now();
+    viewport.scrollTo({ left: target, behavior: 'smooth' });
+  }, [currentTime, isPlaying, zoomLevel, dynamicTimelineWidth, scrollLeft]);
+
   // Listen for clip replacement (e.g. Placeholder -> Video)
   useEffect(() => {
     const studio = useStudioStore.getState().studio;
@@ -455,6 +490,12 @@ export function Timeline() {
               ref={rulerScrollRef}
               onScroll={(e) => {
                 if (isUpdatingRef.current) return;
+                const now = performance.now();
+                // Anything within 400ms of a programmatic auto-scroll is
+                // treated as part of that animation, not user input.
+                if (now - lastAutoScrollAtRef.current > 400) {
+                  lastUserScrollAtRef.current = now;
+                }
                 const scrollX = (e.currentTarget as HTMLDivElement).scrollLeft;
                 handleScrollChange(scrollX);
               }}

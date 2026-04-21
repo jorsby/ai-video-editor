@@ -160,45 +160,9 @@ export function useTimelinePlayhead({
     hasDraggedRuler,
   ]);
 
-  // --- Playhead auto-scroll effect (only during playback) ---
-  useEffect(() => {
-    const { isPlaying } = usePlaybackStore.getState();
-
-    // Only auto-scroll during playback, not during manual interactions
-    if (!isPlaying || isScrubbing) return;
-
-    const rulerViewport = rulerScrollRef.current;
-    if (!rulerViewport) return;
-
-    const playheadPx =
-      playheadPosition * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel;
-    const viewportWidth = rulerViewport.clientWidth;
-    const scrollMin = 0;
-    const scrollMax =
-      duration * TIMELINE_CONSTANTS.PIXELS_PER_SECOND * zoomLevel -
-      viewportWidth;
-
-    // Only auto-scroll if playhead is completely out of view (no buffer)
-    const needsScroll =
-      playheadPx < rulerViewport.scrollLeft ||
-      playheadPx > rulerViewport.scrollLeft + viewportWidth;
-
-    if (needsScroll && onScrollChange) {
-      // Position the playhead at the left edge of the viewport
-      const desiredScroll = Math.max(
-        scrollMin,
-        Math.min(scrollMax, playheadPx)
-      );
-      onScrollChange(desiredScroll);
-    }
-  }, [
-    playheadPosition,
-    duration,
-    zoomLevel,
-    rulerScrollRef,
-    isScrubbing,
-    onScrollChange,
-  ]);
+  // Playhead auto-scroll during playback now lives in the Timeline
+  // component (index.tsx) so it can track user-scroll backoff and
+  // animate smoothly — see the effect there.
 
   return {
     playheadPosition,
