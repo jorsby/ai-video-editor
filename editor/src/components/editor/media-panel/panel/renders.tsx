@@ -13,6 +13,7 @@ import {
   Check,
   Plus,
   Maximize2,
+  Minimize2,
   X,
   Trash2,
   Send,
@@ -31,6 +32,7 @@ import { useDeleteConfirmation } from '@/contexts/delete-confirmation-context';
 import { createClient } from '@/lib/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -132,6 +134,30 @@ function getShortsForParent(
 }
 
 // ── Fullscreen video modal ──────────────────────────────────────────
+const PLAYBACK_RATES = [0.5, 1, 1.5, 2] as const;
+
+const getFsElement = (): Element | null =>
+  document.fullscreenElement ??
+  (document as Document & { webkitFullscreenElement?: Element })
+    .webkitFullscreenElement ??
+  null;
+
+const enterFs = (el: HTMLElement) => {
+  const req =
+    el.requestFullscreen ??
+    (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> })
+      .webkitRequestFullscreen;
+  return req?.call(el);
+};
+
+const exitFs = () => {
+  const ex =
+    document.exitFullscreen ??
+    (document as Document & { webkitExitFullscreen?: () => Promise<void> })
+      .webkitExitFullscreen;
+  return ex?.call(document);
+};
+
 function FullscreenModal({
   render,
   onClose,
@@ -139,31 +165,111 @@ function FullscreenModal({
   render: RenderedVideo;
   onClose: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // In fullscreen, Escape exits fullscreen first — don't also close the modal.
+      if (e.key === 'Escape' && !getFsElement()) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(getFsElement() !== null);
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
+  const setSpeed = (rate: number) => {
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+    setPlaybackRate(rate);
+  };
+
+  const toggleFullscreen = () => {
+    if (getFsElement()) {
+      exitFs();
+    } else if (containerRef.current) {
+      enterFs(containerRef.current);
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-      onClick={onClose}
+      ref={containerRef}
+      data-fullscreen={isFullscreen}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm data-[fullscreen=true]:bg-black"
+      onClick={(e) => {
+        if (!isFullscreen && e.target === e.currentTarget) onClose();
+      }}
     >
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute top-4 right-4 rounded-full bg-white/10 p-2.5 text-white transition-colors hover:bg-white/25"
-      >
-        <X className="h-6 w-6" />
-      </button>
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        <div className="flex items-center gap-1 rounded-full bg-white/10 p-1 backdrop-blur-sm">
+          {PLAYBACK_RATES.map((rate) => (
+            <button
+              key={rate}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSpeed(rate);
+              }}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
+                playbackRate === rate
+                  ? 'bg-white text-black'
+                  : 'text-white/80 hover:bg-white/20'
+              )}
+            >
+              {rate}x
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFullscreen();
+          }}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          className="rounded-full bg-white/10 p-2.5 text-white transition-colors hover:bg-white/25"
+        >
+          {isFullscreen ? (
+            <Minimize2 className="h-5 w-5" />
+          ) : (
+            <Maximize2 className="h-5 w-5" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          title="Close"
+          className="rounded-full bg-white/10 p-2.5 text-white transition-colors hover:bg-white/25"
+        >
+          <X className="h-6 w-6" />
+        </button>
+      </div>
       <video
+        ref={videoRef}
         src={render.url}
         controls
         autoPlay
-        className="max-h-[90vh] max-w-[90vw] rounded-xl"
+        className={cn(
+          'rounded-xl',
+          isFullscreen
+            ? 'h-screen w-screen rounded-none object-contain'
+            : 'max-h-[90vh] max-w-[90vw]'
+        )}
         onClick={(e) => e.stopPropagation()}
       />
     </div>
