@@ -128,11 +128,14 @@ export const TimelineStudioSync = ({
         const newClips = { ...state.clips };
         clipIds.forEach((id) => delete newClips[id]);
 
-        // Remove from tracks
-        const updatedTracks = state._tracks.map((t) => ({
-          ...t,
-          clipIds: t.clipIds.filter((id) => !clipIds.includes(id)),
-        }));
+        // Remove from tracks and filter out empty tracks
+        // (mirrors handleClipRemoved so single/batch paths produce the same shape)
+        const updatedTracks = state._tracks
+          .map((t) => ({
+            ...t,
+            clipIds: t.clipIds.filter((id) => !clipIds.includes(id)),
+          }))
+          .filter((t) => t.clipIds.length > 0);
 
         return {
           ...state,
@@ -177,11 +180,27 @@ export const TimelineStudioSync = ({
     };
 
     const handleTrackRemoved = ({ trackId }: { trackId: string }) => {
-      useTimelineStore.setState((state) => ({
-        ...state,
-        _tracks: state._tracks.filter((t) => t.id !== trackId),
-        tracks: state.tracks.filter((t) => t.id !== trackId),
-      }));
+      useTimelineStore.setState((state) => {
+        const removedTrack = state._tracks.find((t) => t.id === trackId);
+        const remainingTracks = state._tracks.filter((t) => t.id !== trackId);
+
+        // Drop orphan clips belonging to the removed track so later
+        // "find track containing clipId" lookups can't resurrect them.
+        let clips = state.clips;
+        if (removedTrack && removedTrack.clipIds.length > 0) {
+          clips = { ...state.clips };
+          for (const clipId of removedTrack.clipIds) {
+            delete clips[clipId];
+          }
+        }
+
+        return {
+          ...state,
+          clips,
+          _tracks: remainingTracks,
+          tracks: remainingTracks,
+        };
+      });
     };
 
     const handleClipUpdated = ({ clip }: { clip: IClip }) => {
@@ -596,18 +615,31 @@ export const TimelineStudioSync = ({
 
       useTimelineStore.setState((state) => {
         // 1. Remove from all existing tracks and filter empty ones
-        const filteredTracks = state._tracks
+        const preFilterTracks = state._tracks;
+        const filteredTracks = preFilterTracks
           .map((t) => ({
             ...t,
             clipIds: t.clipIds.filter((id) => id !== clipId),
           }))
           .filter((t) => t.clipIds.length > 0);
 
-        // 2. Insert new track at targetIndex (clamped to valid range)
+        // 2. Re-derive insert index by anchor id. `targetIndex` is against the
+        // pre-filter list; if the source track was emptied and dropped, a raw
+        // splice at the old index lands one slot too high.
         const updatedTracks = [...filteredTracks];
+        let insertIdx = updatedTracks.length;
+        for (let i = targetIndex; i < preFilterTracks.length; i++) {
+          const anchorId = preFilterTracks[i]?.id;
+          if (!anchorId) continue;
+          const pos = updatedTracks.findIndex((t) => t.id === anchorId);
+          if (pos !== -1) {
+            insertIdx = pos;
+            break;
+          }
+        }
         const clampedIndex = Math.max(
           0,
-          Math.min(targetIndex, updatedTracks.length)
+          Math.min(insertIdx, updatedTracks.length)
         );
         updatedTracks.splice(clampedIndex, 0, newTrack);
 

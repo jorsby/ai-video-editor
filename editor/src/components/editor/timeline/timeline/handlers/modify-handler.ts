@@ -125,7 +125,20 @@ export function handleTrackRelocation(timeline: Timeline, options: any) {
         })
         .filter((t) => t.clipIds.length > 0);
 
-      newTracksList.splice(index, 0, newTrack);
+      // Re-derive insert index by anchor id. `index` was computed against the
+      // pre-filter list; if the source track was emptied and filtered out, a
+      // raw splice at the old index lands one slot too high.
+      let insertIdx = newTracksList.length;
+      for (let i = index; i < tracks.length; i++) {
+        const anchorId = tracks[i]?.id;
+        if (!anchorId) continue;
+        const pos = newTracksList.findIndex((t) => t.id === anchorId);
+        if (pos !== -1) {
+          insertIdx = pos;
+          break;
+        }
+      }
+      newTracksList.splice(insertIdx, 0, newTrack);
 
       timeline.setTracksInternal(newTracksList);
       timeline.render();
