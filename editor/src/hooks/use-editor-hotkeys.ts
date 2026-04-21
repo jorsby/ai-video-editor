@@ -1,8 +1,13 @@
 import { useEffect } from 'react';
 import hotkeys from 'hotkeys-js';
+import { clipToJSON } from 'openvideo';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
+import {
+  useClipboardStore,
+  type ClipboardEntry,
+} from '@/stores/clipboard-store';
 import type { TimelineCanvas } from '@/components/editor/timeline/timeline';
 
 interface UseEditorHotkeysProps {
@@ -54,20 +59,30 @@ export function useEditorHotkeys({
       }
     });
 
-    // Copy / Paste / Cut - These are usually handled by OS if not intercepted
-    // But for canvas objects we might need custom handling.
-    hotkeys('command+c, ctrl+c', (_event) => {
-      // event.preventDefault();
-      if (timelineCanvas) {
-        // timelineCanvas.copySelected();
-      }
-    });
+    // Copy selected clips into the in-app clipboard
+    hotkeys('command+c, ctrl+c', (event) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (!studio) return;
 
-    hotkeys('command+v, ctrl+v', (_event) => {
-      // event.preventDefault();
-      if (studio) {
-        studio.duplicateSelected(); // Reuse duplicate for now as paste
+      const selected = Array.from(studio.selection.selectedClips);
+      if (selected.length === 0) return;
+
+      event.preventDefault();
+
+      const entries: ClipboardEntry[] = [];
+      for (const clip of selected) {
+        const sourceTrackId = studio.timeline.findTrackIdByClipId(clip.id);
+        if (!sourceTrackId) continue;
+        entries.push({
+          json: clipToJSON(clip, false),
+          sourceTrackId,
+          displayFrom: clip.display.from,
+          duration: clip.duration,
+        });
       }
+
+      useClipboardStore.getState().setEntries(entries);
     });
 
     // Duplicate (matches the toolbar tooltip)
