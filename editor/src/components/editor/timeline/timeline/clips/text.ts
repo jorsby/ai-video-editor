@@ -21,7 +21,7 @@ export class Text extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#134e4a',
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
 
   constructor(options: TextClipProps) {

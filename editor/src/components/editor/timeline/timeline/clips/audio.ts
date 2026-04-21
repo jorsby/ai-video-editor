@@ -18,7 +18,7 @@ export class Audio extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#1e3a8a',
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
 
   constructor(options: BaseClipProps) {

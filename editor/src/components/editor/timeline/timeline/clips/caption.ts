@@ -21,7 +21,7 @@ export class Caption extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#365314', // Different color for Caption clips (e.g. reddish) to distinguish from Text
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
 
   constructor(options: CaptionClipProps) {

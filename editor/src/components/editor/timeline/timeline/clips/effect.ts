@@ -18,7 +18,7 @@ export class Effect extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#7c2d12',
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
   constructor(options: BaseClipProps) {
     super(options);

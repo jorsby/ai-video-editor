@@ -22,7 +22,7 @@ export class Image extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#164e63',
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
 
   constructor(options: BaseClipProps) {

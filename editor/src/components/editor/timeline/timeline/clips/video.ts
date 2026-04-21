@@ -42,7 +42,7 @@ export class Video extends BaseTimelineClip {
     strokeWidth: 0,
     fill: '#312e81',
     borderOpacityWhenMoving: 1,
-    hoverCursor: 'default',
+    hoverCursor: 'move',
   };
 
   constructor(options: BaseClipProps) {
