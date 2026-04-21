@@ -26,10 +26,6 @@ import {
   RotateCcw,
   Lock,
   LockOpen,
-  AlignCenterHorizontal,
-  AlignCenterVertical,
-  Maximize,
-  Minimize2,
   Undo2,
   Redo2,
 } from 'lucide-react';
@@ -56,10 +52,6 @@ export function TimelineToolbar({
   onReset,
   onLockToggle,
   isLocked,
-  onCenterH,
-  onCenterV,
-  onFitToCanvas,
-  onCoverCanvas,
   onSnapToggle,
   isSnapEnabled = true,
 }: {
@@ -71,10 +63,6 @@ export function TimelineToolbar({
   onReset?: () => void;
   onLockToggle?: () => void;
   isLocked?: boolean;
-  onCenterH?: () => void;
-  onCenterV?: () => void;
-  onFitToCanvas?: () => void;
-  onCoverCanvas?: () => void;
   onSnapToggle?: () => void;
   isSnapEnabled?: boolean;
 }) {
@@ -171,44 +159,6 @@ export function TimelineToolbar({
             <TooltipContent>
               {isLocked ? 'Unlock element (Ctrl+L)' : 'Lock element (Ctrl+L)'}
             </TooltipContent>
-          </Tooltip>
-
-          <div className="w-px h-4 bg-border mx-1" />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onCenterH}>
-                <AlignCenterHorizontal className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Center horizontally (Alt+H)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onCenterV}>
-                <AlignCenterVertical className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Center vertically (Alt+V)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onFitToCanvas}>
-                <Maximize className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Fit to canvas (Alt+F)</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onCoverCanvas}>
-                <Minimize2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Cover canvas</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border mx-1" />

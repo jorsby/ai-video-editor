@@ -380,26 +380,6 @@ export function Timeline() {
     }
   }, [studio, selectedClipIds, isSelectedLocked]);
 
-  const handleCenterH = useCallback(() => {
-    if (!studio || selectedClipIds.length === 0) return;
-    for (const id of selectedClipIds) studio.centerClipH(id);
-  }, [studio, selectedClipIds]);
-
-  const handleCenterV = useCallback(() => {
-    if (!studio || selectedClipIds.length === 0) return;
-    for (const id of selectedClipIds) studio.centerClipV(id);
-  }, [studio, selectedClipIds]);
-
-  const handleFitToCanvas = useCallback(() => {
-    if (!studio || selectedClipIds.length === 0) return;
-    for (const id of selectedClipIds) studio.scaleToFit(id);
-  }, [studio, selectedClipIds]);
-
-  const handleCoverCanvas = useCallback(() => {
-    if (!studio || selectedClipIds.length === 0) return;
-    for (const id of selectedClipIds) studio.scaleToCover(id);
-  }, [studio, selectedClipIds]);
-
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const handleSnapToggle = useCallback(() => {
     setIsSnapEnabled((prev) => !prev);
@@ -427,10 +407,6 @@ export function Timeline() {
         onReset={handleReset}
         onLockToggle={handleLockToggle}
         isLocked={isSelectedLocked}
-        onCenterH={handleCenterH}
-        onCenterV={handleCenterV}
-        onFitToCanvas={handleFitToCanvas}
-        onCoverCanvas={handleCoverCanvas}
         onSnapToggle={handleSnapToggle}
         isSnapEnabled={isSnapEnabled}
       />
