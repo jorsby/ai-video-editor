@@ -897,6 +897,11 @@ class Timeline extends EventEmitter<TimelineCanvasEvents> {
               timeScale: this.#timeScale,
               studioClipId: clip.id,
             });
+            const isLocked = (clip as { locked?: boolean }).locked === true;
+            (timelineClip as unknown as { locked: boolean }).locked = isLocked;
+            timelineClip.set({
+              hoverCursor: isLocked ? 'not-allowed' : 'move',
+            });
           } else {
             timelineClip.set({
               left: startX,
@@ -919,6 +924,17 @@ class Timeline extends EventEmitter<TimelineCanvasEvents> {
               sourceDuration: clip.sourceDuration,
               studioClipId: clip.id,
             });
+            const isLocked = (clip as { locked?: boolean }).locked === true;
+            const prevLocked = (timelineClip as unknown as { locked?: boolean })
+              .locked;
+            if (prevLocked !== isLocked) {
+              (timelineClip as unknown as { locked: boolean }).locked =
+                isLocked;
+              timelineClip.set({
+                hoverCursor: isLocked ? 'not-allowed' : 'move',
+                dirty: true,
+              });
+            }
             timelineClip.setCoords();
           }
           // (timelineClip as FabricObject).

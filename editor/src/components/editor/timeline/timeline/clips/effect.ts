@@ -89,5 +89,7 @@ export class Effect extends BaseTimelineClip {
     // Use even-odd fill rule to create the border effect
     ctx.fill('evenodd');
     ctx.restore();
+
+    this.drawLockGlyph(ctx);
   }
 }

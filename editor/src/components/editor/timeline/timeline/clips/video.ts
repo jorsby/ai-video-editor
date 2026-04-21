@@ -477,5 +477,7 @@ export class Video extends BaseTimelineClip {
 
     ctx.fill('evenodd');
     ctx.restore();
+
+    this.drawLockGlyph(ctx);
   }
 }
