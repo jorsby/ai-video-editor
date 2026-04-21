@@ -12,8 +12,6 @@ import {
   ArrowDown,
   AlignLeft,
   Trash2,
-  VolumeX,
-  Volume2,
 } from 'lucide-react';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
@@ -380,11 +378,6 @@ export function Timeline() {
     }
   }, [studio, selectedClipIds, isSelectedLocked]);
 
-  const [isSnapEnabled, setIsSnapEnabled] = useState(true);
-  const handleSnapToggle = useCallback(() => {
-    setIsSnapEnabled((prev) => !prev);
-  }, []);
-
   useEditorHotkeys({
     timelineCanvas: timelineCanvasRef.current,
     setZoomLevel,
@@ -407,8 +400,6 @@ export function Timeline() {
         onReset={handleReset}
         onLockToggle={handleLockToggle}
         isLocked={isSelectedLocked}
-        onSnapToggle={handleSnapToggle}
-        isSnapEnabled={isSnapEnabled}
       />
       <TimelineStudioSync timelineCanvas={timelineCanvasRef.current} />
 
@@ -562,25 +553,6 @@ export function Timeline() {
                               Move track down
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => {
-                                const { toggleTrackMute } =
-                                  useTimelineStore.getState();
-                                toggleTrackMute(track.id);
-                              }}
-                            >
-                              {track.muted ? (
-                                <>
-                                  <Volume2 className="size-4 mr-2" />
-                                  Unmute track
-                                </>
-                              ) : (
-                                <>
-                                  <VolumeX className="size-4 mr-2" />
-                                  Mute track
-                                </>
-                              )}
-                            </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => {
                                 studio?.collapseGaps(track.id);

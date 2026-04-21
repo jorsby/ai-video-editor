@@ -17,7 +17,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
-  Magnet,
   ZoomOut,
   ZoomIn,
   Copy,
@@ -52,8 +51,6 @@ export function TimelineToolbar({
   onReset,
   onLockToggle,
   isLocked,
-  onSnapToggle,
-  isSnapEnabled = true,
 }: {
   zoomLevel: number;
   setZoomLevel: (zoom: number) => void;
@@ -63,8 +60,6 @@ export function TimelineToolbar({
   onReset?: () => void;
   onLockToggle?: () => void;
   isLocked?: boolean;
-  onSnapToggle?: () => void;
-  isSnapEnabled?: boolean;
 }) {
   const { currentTime, duration, isPlaying, toggle, seek } = usePlaybackStore();
   const { studio } = useStudioStore();
@@ -158,23 +153,6 @@ export function TimelineToolbar({
             </TooltipTrigger>
             <TooltipContent>
               {isLocked ? 'Unlock element (Ctrl+L)' : 'Lock element (Ctrl+L)'}
-            </TooltipContent>
-          </Tooltip>
-
-          <div className="w-px h-4 bg-border mx-1" />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={isSnapEnabled ? 'secondary' : 'ghost'}
-                size="icon"
-                onClick={onSnapToggle}
-              >
-                <Magnet className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isSnapEnabled ? 'Disable snapping' : 'Enable snapping'}
             </TooltipContent>
           </Tooltip>
 

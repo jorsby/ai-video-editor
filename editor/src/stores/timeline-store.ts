@@ -50,7 +50,6 @@ interface TimelineStore {
   moveTrack: (trackId: string, newIndex: number) => void;
   setTrackOrder: (trackIds: string[]) => void;
   removeTrack: (trackId: string) => void;
-  toggleTrackMute: (trackId: string) => void;
 }
 
 export const useTimelineStore = create<TimelineStore>((set, get) => {
@@ -256,14 +255,6 @@ export const useTimelineStore = create<TimelineStore>((set, get) => {
       set((state) => ({
         _tracks: state._tracks.filter((t) => t.id !== trackId),
         tracks: state.tracks.filter((t) => t.id !== trackId),
-      }));
-    },
-
-    toggleTrackMute: (trackId) => {
-      set((state) => ({
-        tracks: state.tracks.map((t) =>
-          t.id === trackId ? { ...t, muted: !t.muted } : t
-        ),
       }));
     },
   };
