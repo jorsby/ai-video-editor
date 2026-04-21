@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import hotkeys from 'hotkeys-js';
-import { clipToJSON } from 'openvideo';
+import { clipToJSON, jsonToClip } from 'openvideo';
 import { useTimelineStore } from '@/stores/timeline-store';
 import { usePlaybackStore } from '@/stores/playback-store';
 import { useStudioStore } from '@/stores/studio-store';
@@ -83,6 +83,73 @@ export function useEditorHotkeys({
       }
 
       useClipboardStore.getState().setEntries(entries);
+    });
+
+    // Paste clips from the in-app clipboard
+    hotkeys('command+v, ctrl+v', (event) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (!studio) return;
+
+      const entries = useClipboardStore.getState().entries;
+      if (entries.length === 0) return;
+
+      event.preventDefault();
+
+      void (async () => {
+        const anchor = studio.currentTime;
+        const baseFrom = entries.reduce(
+          (min, e) => Math.min(min, e.displayFrom),
+          Number.POSITIVE_INFINITY
+        );
+
+        const tracks = studio.timeline.tracks;
+        const newClipIds: string[] = [];
+
+        for (const entry of entries) {
+          const newClip = await jsonToClip(entry.json);
+          newClip.id = `clip_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+
+          const newDisplayFrom = anchor + (entry.displayFrom - baseFrom);
+          newClip.display = {
+            from: newDisplayFrom,
+            to: newDisplayFrom + entry.duration,
+          };
+
+          const sourceTrack = tracks.find((t) => t.id === entry.sourceTrackId);
+          let targetTrackId: string | undefined;
+
+          if (sourceTrack) {
+            const newEnd = newDisplayFrom + entry.duration;
+            const hasOverlap = sourceTrack.clipIds.some((otherId) => {
+              const other = studio.timeline.getClipById(otherId);
+              if (!other) return false;
+              const otherStart = Math.round(other.display.from);
+              const otherEnd = Math.round(other.display.to);
+              return newDisplayFrom < otherEnd && newEnd > otherStart;
+            });
+            if (!hasOverlap) targetTrackId = sourceTrack.id;
+          }
+
+          if (!targetTrackId) {
+            const type = sourceTrack?.type ?? newClip.type;
+            const created = studio.timeline.addTrack({
+              name: `${type} Track`,
+              type,
+            });
+            targetTrackId = created.id;
+          }
+
+          await studio.timeline.addClip(newClip, { trackId: targetTrackId });
+          newClipIds.push(newClip.id);
+        }
+
+        if (newClipIds.length > 0) {
+          studio.selection.selectClipsByIds(newClipIds);
+        }
+      })();
     });
 
     // Duplicate (matches the toolbar tooltip)
